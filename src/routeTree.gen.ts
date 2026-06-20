@@ -17,6 +17,7 @@ import { Route as AuthenticatedAppTodayRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedAppSessionsRouteImport } from './routes/_authenticated/app.sessions'
 import { Route as AuthenticatedAppSessionsIndexRouteImport } from './routes/_authenticated/app.sessions.index'
 import { Route as AuthenticatedAppSessionsNewRouteImport } from './routes/_authenticated/app.sessions.new'
+import { Route as AuthenticatedAppSessionsSessionIdRouteImport } from './routes/_authenticated/app.sessions.$sessionId'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
@@ -60,6 +61,12 @@ const AuthenticatedAppSessionsNewRoute =
     path: '/new',
     getParentRoute: () => AuthenticatedAppSessionsRoute,
   } as any)
+const AuthenticatedAppSessionsSessionIdRoute =
+  AuthenticatedAppSessionsSessionIdRouteImport.update({
+    id: '/$sessionId',
+    path: '/$sessionId',
+    getParentRoute: () => AuthenticatedAppSessionsRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -67,6 +74,7 @@ export interface FileRoutesByFullPath {
   '/app/sessions': typeof AuthenticatedAppSessionsRouteWithChildren
   '/app/today': typeof AuthenticatedAppTodayRoute
   '/app/': typeof AuthenticatedAppIndexRoute
+  '/app/sessions/$sessionId': typeof AuthenticatedAppSessionsSessionIdRoute
   '/app/sessions/new': typeof AuthenticatedAppSessionsNewRoute
   '/app/sessions/': typeof AuthenticatedAppSessionsIndexRoute
 }
@@ -75,6 +83,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/app/today': typeof AuthenticatedAppTodayRoute
   '/app': typeof AuthenticatedAppIndexRoute
+  '/app/sessions/$sessionId': typeof AuthenticatedAppSessionsSessionIdRoute
   '/app/sessions/new': typeof AuthenticatedAppSessionsNewRoute
   '/app/sessions': typeof AuthenticatedAppSessionsIndexRoute
 }
@@ -86,6 +95,7 @@ export interface FileRoutesById {
   '/_authenticated/app/sessions': typeof AuthenticatedAppSessionsRouteWithChildren
   '/_authenticated/app/today': typeof AuthenticatedAppTodayRoute
   '/_authenticated/app/': typeof AuthenticatedAppIndexRoute
+  '/_authenticated/app/sessions/$sessionId': typeof AuthenticatedAppSessionsSessionIdRoute
   '/_authenticated/app/sessions/new': typeof AuthenticatedAppSessionsNewRoute
   '/_authenticated/app/sessions/': typeof AuthenticatedAppSessionsIndexRoute
 }
@@ -97,6 +107,7 @@ export interface FileRouteTypes {
     | '/app/sessions'
     | '/app/today'
     | '/app/'
+    | '/app/sessions/$sessionId'
     | '/app/sessions/new'
     | '/app/sessions/'
   fileRoutesByTo: FileRoutesByTo
@@ -105,6 +116,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/app/today'
     | '/app'
+    | '/app/sessions/$sessionId'
     | '/app/sessions/new'
     | '/app/sessions'
   id:
@@ -115,6 +127,7 @@ export interface FileRouteTypes {
     | '/_authenticated/app/sessions'
     | '/_authenticated/app/today'
     | '/_authenticated/app/'
+    | '/_authenticated/app/sessions/$sessionId'
     | '/_authenticated/app/sessions/new'
     | '/_authenticated/app/sessions/'
   fileRoutesById: FileRoutesById
@@ -183,16 +196,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppSessionsNewRouteImport
       parentRoute: typeof AuthenticatedAppSessionsRoute
     }
+    '/_authenticated/app/sessions/$sessionId': {
+      id: '/_authenticated/app/sessions/$sessionId'
+      path: '/$sessionId'
+      fullPath: '/app/sessions/$sessionId'
+      preLoaderRoute: typeof AuthenticatedAppSessionsSessionIdRouteImport
+      parentRoute: typeof AuthenticatedAppSessionsRoute
+    }
   }
 }
 
 interface AuthenticatedAppSessionsRouteChildren {
+  AuthenticatedAppSessionsSessionIdRoute: typeof AuthenticatedAppSessionsSessionIdRoute
   AuthenticatedAppSessionsNewRoute: typeof AuthenticatedAppSessionsNewRoute
   AuthenticatedAppSessionsIndexRoute: typeof AuthenticatedAppSessionsIndexRoute
 }
 
 const AuthenticatedAppSessionsRouteChildren: AuthenticatedAppSessionsRouteChildren =
   {
+    AuthenticatedAppSessionsSessionIdRoute:
+      AuthenticatedAppSessionsSessionIdRoute,
     AuthenticatedAppSessionsNewRoute: AuthenticatedAppSessionsNewRoute,
     AuthenticatedAppSessionsIndexRoute: AuthenticatedAppSessionsIndexRoute,
   }
