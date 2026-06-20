@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { metersFmt, secToClock } from "@/lib/format";
-import { ReadinessBadge } from "./app.index";
+import { ReadinessBadge } from "@/components/readiness-badge";
 
 export const Route = createFileRoute("/_authenticated/app/athletes/$athleteId")({
   component: AthleteDetail,
