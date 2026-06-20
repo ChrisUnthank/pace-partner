@@ -9,38 +9,200 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as AuthRouteImport } from './routes/auth'
+import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AuthenticatedAppIndexRouteImport } from './routes/_authenticated/app.index'
+import { Route as AuthenticatedAppTodayRouteImport } from './routes/_authenticated/app.today'
+import { Route as AuthenticatedAppSessionsRouteImport } from './routes/_authenticated/app.sessions'
+import { Route as AuthenticatedAppProfileRouteImport } from './routes/_authenticated/app.profile'
+import { Route as AuthenticatedAppAthletesRouteImport } from './routes/_authenticated/app.athletes'
+import { Route as AuthenticatedAppSessionsIndexRouteImport } from './routes/_authenticated/app.sessions.index'
+import { Route as AuthenticatedAppAthletesIndexRouteImport } from './routes/_authenticated/app.athletes.index'
+import { Route as AuthenticatedAppSessionsNewRouteImport } from './routes/_authenticated/app.sessions.new'
+import { Route as AuthenticatedAppSessionsSessionIdRouteImport } from './routes/_authenticated/app.sessions.$sessionId'
+import { Route as AuthenticatedAppAthletesAthleteIdRouteImport } from './routes/_authenticated/app.athletes.$athleteId'
 
+const AuthRoute = AuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
+  id: '/_authenticated',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedAppIndexRoute = AuthenticatedAppIndexRouteImport.update({
+  id: '/app/',
+  path: '/app/',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedAppTodayRoute = AuthenticatedAppTodayRouteImport.update({
+  id: '/app/today',
+  path: '/app/today',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedAppSessionsRoute =
+  AuthenticatedAppSessionsRouteImport.update({
+    id: '/app/sessions',
+    path: '/app/sessions',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppProfileRoute = AuthenticatedAppProfileRouteImport.update({
+  id: '/app/profile',
+  path: '/app/profile',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedAppAthletesRoute =
+  AuthenticatedAppAthletesRouteImport.update({
+    id: '/app/athletes',
+    path: '/app/athletes',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppSessionsIndexRoute =
+  AuthenticatedAppSessionsIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedAppSessionsRoute,
+  } as any)
+const AuthenticatedAppAthletesIndexRoute =
+  AuthenticatedAppAthletesIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedAppAthletesRoute,
+  } as any)
+const AuthenticatedAppSessionsNewRoute =
+  AuthenticatedAppSessionsNewRouteImport.update({
+    id: '/new',
+    path: '/new',
+    getParentRoute: () => AuthenticatedAppSessionsRoute,
+  } as any)
+const AuthenticatedAppSessionsSessionIdRoute =
+  AuthenticatedAppSessionsSessionIdRouteImport.update({
+    id: '/$sessionId',
+    path: '/$sessionId',
+    getParentRoute: () => AuthenticatedAppSessionsRoute,
+  } as any)
+const AuthenticatedAppAthletesAthleteIdRoute =
+  AuthenticatedAppAthletesAthleteIdRouteImport.update({
+    id: '/$athleteId',
+    path: '/$athleteId',
+    getParentRoute: () => AuthenticatedAppAthletesRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
+  '/app/athletes': typeof AuthenticatedAppAthletesRouteWithChildren
+  '/app/profile': typeof AuthenticatedAppProfileRoute
+  '/app/sessions': typeof AuthenticatedAppSessionsRouteWithChildren
+  '/app/today': typeof AuthenticatedAppTodayRoute
+  '/app/': typeof AuthenticatedAppIndexRoute
+  '/app/athletes/$athleteId': typeof AuthenticatedAppAthletesAthleteIdRoute
+  '/app/sessions/$sessionId': typeof AuthenticatedAppSessionsSessionIdRoute
+  '/app/sessions/new': typeof AuthenticatedAppSessionsNewRoute
+  '/app/athletes/': typeof AuthenticatedAppAthletesIndexRoute
+  '/app/sessions/': typeof AuthenticatedAppSessionsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
+  '/app/profile': typeof AuthenticatedAppProfileRoute
+  '/app/today': typeof AuthenticatedAppTodayRoute
+  '/app': typeof AuthenticatedAppIndexRoute
+  '/app/athletes/$athleteId': typeof AuthenticatedAppAthletesAthleteIdRoute
+  '/app/sessions/$sessionId': typeof AuthenticatedAppSessionsSessionIdRoute
+  '/app/sessions/new': typeof AuthenticatedAppSessionsNewRoute
+  '/app/athletes': typeof AuthenticatedAppAthletesIndexRoute
+  '/app/sessions': typeof AuthenticatedAppSessionsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
+  '/auth': typeof AuthRoute
+  '/_authenticated/app/athletes': typeof AuthenticatedAppAthletesRouteWithChildren
+  '/_authenticated/app/profile': typeof AuthenticatedAppProfileRoute
+  '/_authenticated/app/sessions': typeof AuthenticatedAppSessionsRouteWithChildren
+  '/_authenticated/app/today': typeof AuthenticatedAppTodayRoute
+  '/_authenticated/app/': typeof AuthenticatedAppIndexRoute
+  '/_authenticated/app/athletes/$athleteId': typeof AuthenticatedAppAthletesAthleteIdRoute
+  '/_authenticated/app/sessions/$sessionId': typeof AuthenticatedAppSessionsSessionIdRoute
+  '/_authenticated/app/sessions/new': typeof AuthenticatedAppSessionsNewRoute
+  '/_authenticated/app/athletes/': typeof AuthenticatedAppAthletesIndexRoute
+  '/_authenticated/app/sessions/': typeof AuthenticatedAppSessionsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/auth'
+    | '/app/athletes'
+    | '/app/profile'
+    | '/app/sessions'
+    | '/app/today'
+    | '/app/'
+    | '/app/athletes/$athleteId'
+    | '/app/sessions/$sessionId'
+    | '/app/sessions/new'
+    | '/app/athletes/'
+    | '/app/sessions/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/auth'
+    | '/app/profile'
+    | '/app/today'
+    | '/app'
+    | '/app/athletes/$athleteId'
+    | '/app/sessions/$sessionId'
+    | '/app/sessions/new'
+    | '/app/athletes'
+    | '/app/sessions'
+  id:
+    | '__root__'
+    | '/'
+    | '/_authenticated'
+    | '/auth'
+    | '/_authenticated/app/athletes'
+    | '/_authenticated/app/profile'
+    | '/_authenticated/app/sessions'
+    | '/_authenticated/app/today'
+    | '/_authenticated/app/'
+    | '/_authenticated/app/athletes/$athleteId'
+    | '/_authenticated/app/sessions/$sessionId'
+    | '/_authenticated/app/sessions/new'
+    | '/_authenticated/app/athletes/'
+    | '/_authenticated/app/sessions/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
+  AuthRoute: typeof AuthRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated': {
+      id: '/_authenticated'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -48,22 +210,139 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/app/': {
+      id: '/_authenticated/app/'
+      path: '/app'
+      fullPath: '/app/'
+      preLoaderRoute: typeof AuthenticatedAppIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/today': {
+      id: '/_authenticated/app/today'
+      path: '/app/today'
+      fullPath: '/app/today'
+      preLoaderRoute: typeof AuthenticatedAppTodayRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/sessions': {
+      id: '/_authenticated/app/sessions'
+      path: '/app/sessions'
+      fullPath: '/app/sessions'
+      preLoaderRoute: typeof AuthenticatedAppSessionsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/profile': {
+      id: '/_authenticated/app/profile'
+      path: '/app/profile'
+      fullPath: '/app/profile'
+      preLoaderRoute: typeof AuthenticatedAppProfileRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/athletes': {
+      id: '/_authenticated/app/athletes'
+      path: '/app/athletes'
+      fullPath: '/app/athletes'
+      preLoaderRoute: typeof AuthenticatedAppAthletesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/sessions/': {
+      id: '/_authenticated/app/sessions/'
+      path: '/'
+      fullPath: '/app/sessions/'
+      preLoaderRoute: typeof AuthenticatedAppSessionsIndexRouteImport
+      parentRoute: typeof AuthenticatedAppSessionsRoute
+    }
+    '/_authenticated/app/athletes/': {
+      id: '/_authenticated/app/athletes/'
+      path: '/'
+      fullPath: '/app/athletes/'
+      preLoaderRoute: typeof AuthenticatedAppAthletesIndexRouteImport
+      parentRoute: typeof AuthenticatedAppAthletesRoute
+    }
+    '/_authenticated/app/sessions/new': {
+      id: '/_authenticated/app/sessions/new'
+      path: '/new'
+      fullPath: '/app/sessions/new'
+      preLoaderRoute: typeof AuthenticatedAppSessionsNewRouteImport
+      parentRoute: typeof AuthenticatedAppSessionsRoute
+    }
+    '/_authenticated/app/sessions/$sessionId': {
+      id: '/_authenticated/app/sessions/$sessionId'
+      path: '/$sessionId'
+      fullPath: '/app/sessions/$sessionId'
+      preLoaderRoute: typeof AuthenticatedAppSessionsSessionIdRouteImport
+      parentRoute: typeof AuthenticatedAppSessionsRoute
+    }
+    '/_authenticated/app/athletes/$athleteId': {
+      id: '/_authenticated/app/athletes/$athleteId'
+      path: '/$athleteId'
+      fullPath: '/app/athletes/$athleteId'
+      preLoaderRoute: typeof AuthenticatedAppAthletesAthleteIdRouteImport
+      parentRoute: typeof AuthenticatedAppAthletesRoute
+    }
   }
 }
 
+interface AuthenticatedAppAthletesRouteChildren {
+  AuthenticatedAppAthletesAthleteIdRoute: typeof AuthenticatedAppAthletesAthleteIdRoute
+  AuthenticatedAppAthletesIndexRoute: typeof AuthenticatedAppAthletesIndexRoute
+}
+
+const AuthenticatedAppAthletesRouteChildren: AuthenticatedAppAthletesRouteChildren =
+  {
+    AuthenticatedAppAthletesAthleteIdRoute:
+      AuthenticatedAppAthletesAthleteIdRoute,
+    AuthenticatedAppAthletesIndexRoute: AuthenticatedAppAthletesIndexRoute,
+  }
+
+const AuthenticatedAppAthletesRouteWithChildren =
+  AuthenticatedAppAthletesRoute._addFileChildren(
+    AuthenticatedAppAthletesRouteChildren,
+  )
+
+interface AuthenticatedAppSessionsRouteChildren {
+  AuthenticatedAppSessionsSessionIdRoute: typeof AuthenticatedAppSessionsSessionIdRoute
+  AuthenticatedAppSessionsNewRoute: typeof AuthenticatedAppSessionsNewRoute
+  AuthenticatedAppSessionsIndexRoute: typeof AuthenticatedAppSessionsIndexRoute
+}
+
+const AuthenticatedAppSessionsRouteChildren: AuthenticatedAppSessionsRouteChildren =
+  {
+    AuthenticatedAppSessionsSessionIdRoute:
+      AuthenticatedAppSessionsSessionIdRoute,
+    AuthenticatedAppSessionsNewRoute: AuthenticatedAppSessionsNewRoute,
+    AuthenticatedAppSessionsIndexRoute: AuthenticatedAppSessionsIndexRoute,
+  }
+
+const AuthenticatedAppSessionsRouteWithChildren =
+  AuthenticatedAppSessionsRoute._addFileChildren(
+    AuthenticatedAppSessionsRouteChildren,
+  )
+
+interface AuthenticatedRouteRouteChildren {
+  AuthenticatedAppAthletesRoute: typeof AuthenticatedAppAthletesRouteWithChildren
+  AuthenticatedAppProfileRoute: typeof AuthenticatedAppProfileRoute
+  AuthenticatedAppSessionsRoute: typeof AuthenticatedAppSessionsRouteWithChildren
+  AuthenticatedAppTodayRoute: typeof AuthenticatedAppTodayRoute
+  AuthenticatedAppIndexRoute: typeof AuthenticatedAppIndexRoute
+}
+
+const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedAppAthletesRoute: AuthenticatedAppAthletesRouteWithChildren,
+  AuthenticatedAppProfileRoute: AuthenticatedAppProfileRoute,
+  AuthenticatedAppSessionsRoute: AuthenticatedAppSessionsRouteWithChildren,
+  AuthenticatedAppTodayRoute: AuthenticatedAppTodayRoute,
+  AuthenticatedAppIndexRoute: AuthenticatedAppIndexRoute,
+}
+
+const AuthenticatedRouteRouteWithChildren =
+  AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
+  AuthRoute: AuthRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

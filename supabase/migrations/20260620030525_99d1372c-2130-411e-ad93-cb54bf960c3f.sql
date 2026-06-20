@@ -1,0 +1,5 @@
+
+REVOKE EXECUTE ON FUNCTION public.has_role(UUID, public.app_role) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.is_coach_of(UUID, UUID) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.can_access_athlete(UUID, UUID) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.handle_new_user() FROM PUBLIC;
