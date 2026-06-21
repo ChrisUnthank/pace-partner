@@ -789,6 +789,7 @@ export type Database = {
         Row: {
           athlete_id: string
           id: string
+          meters: number
           seconds: number
           session_id: string
           source: Database["public"]["Enums"]["zone_source"]
@@ -798,6 +799,7 @@ export type Database = {
         Insert: {
           athlete_id: string
           id?: string
+          meters?: number
           seconds?: number
           session_id: string
           source?: Database["public"]["Enums"]["zone_source"]
@@ -807,6 +809,7 @@ export type Database = {
         Update: {
           athlete_id?: string
           id?: string
+          meters?: number
           seconds?: number
           session_id?: string
           source?: Database["public"]["Enums"]["zone_source"]
@@ -1172,6 +1175,7 @@ export type Database = {
       athlete_zone_time_weekly: {
         Row: {
           athlete_id: string | null
+          meters: number | null
           seconds: number | null
           source: Database["public"]["Enums"]["zone_source"] | null
           week_start: string | null
