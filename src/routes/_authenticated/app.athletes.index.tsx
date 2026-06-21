@@ -34,9 +34,9 @@ function AthletesPage() {
       if (isManager) {
         const { data } = await supabase
           .from("athletes")
-          .select("id, athletes:athletes!inner(*), athlete_invites:athlete_invites!athlete_invites_athlete_id_fkey(token, accepted_at, email)")
+          .select("*, athlete_invites:athlete_invites!athlete_invites_athlete_id_fkey(token, accepted_at, email)")
           .order("name");
-        return (data ?? []).map((a: any) => ({ athlete_id: a.id, athletes: a.athletes, athlete_invites: a.athlete_invites }));
+        return (data ?? []).map((a: any) => ({ athlete_id: a.id, athletes: a, athlete_invites: a.athlete_invites }));
       }
       const { data } = await supabase
         .from("coach_athletes")
