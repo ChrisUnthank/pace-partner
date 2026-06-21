@@ -180,11 +180,13 @@ export type Database = {
           hr_z3_max: number | null
           hr_z4_max: number | null
           hr_z5_max: number | null
+          hr_zones_manual: boolean
           pace_1500_sec_per_km: number | null
           pace_5k_sec_per_km: number | null
           pace_easy_sec_per_km: number | null
           pace_rep_sec_per_km: number | null
           pace_threshold_sec_per_km: number | null
+          pace_zones_manual: boolean
           updated_at: string
         }
         Insert: {
@@ -196,11 +198,13 @@ export type Database = {
           hr_z3_max?: number | null
           hr_z4_max?: number | null
           hr_z5_max?: number | null
+          hr_zones_manual?: boolean
           pace_1500_sec_per_km?: number | null
           pace_5k_sec_per_km?: number | null
           pace_easy_sec_per_km?: number | null
           pace_rep_sec_per_km?: number | null
           pace_threshold_sec_per_km?: number | null
+          pace_zones_manual?: boolean
           updated_at?: string
         }
         Update: {
@@ -212,11 +216,13 @@ export type Database = {
           hr_z3_max?: number | null
           hr_z4_max?: number | null
           hr_z5_max?: number | null
+          hr_zones_manual?: boolean
           pace_1500_sec_per_km?: number | null
           pace_5k_sec_per_km?: number | null
           pace_easy_sec_per_km?: number | null
           pace_rep_sec_per_km?: number | null
           pace_threshold_sec_per_km?: number | null
+          pace_zones_manual?: boolean
           updated_at?: string
         }
         Relationships: [
@@ -788,8 +794,14 @@ export type Database = {
       session_zone_time: {
         Row: {
           athlete_id: string
+          boundaries_computed_at: string | null
+          hr_z1_max: number | null
+          hr_z2_max: number | null
+          hr_z3_max: number | null
+          hr_z4_max: number | null
           id: string
           meters: number
+          pace_5k_sec_per_km: number | null
           seconds: number
           session_id: string
           source: Database["public"]["Enums"]["zone_source"]
@@ -798,8 +810,14 @@ export type Database = {
         }
         Insert: {
           athlete_id: string
+          boundaries_computed_at?: string | null
+          hr_z1_max?: number | null
+          hr_z2_max?: number | null
+          hr_z3_max?: number | null
+          hr_z4_max?: number | null
           id?: string
           meters?: number
+          pace_5k_sec_per_km?: number | null
           seconds?: number
           session_id: string
           source?: Database["public"]["Enums"]["zone_source"]
@@ -808,8 +826,14 @@ export type Database = {
         }
         Update: {
           athlete_id?: string
+          boundaries_computed_at?: string | null
+          hr_z1_max?: number | null
+          hr_z2_max?: number | null
+          hr_z3_max?: number | null
+          hr_z4_max?: number | null
           id?: string
           meters?: number
+          pace_5k_sec_per_km?: number | null
           seconds?: number
           session_id?: string
           source?: Database["public"]["Enums"]["zone_source"]
@@ -1229,6 +1253,10 @@ export type Database = {
       is_coach_of: {
         Args: { _athlete_id: string; _user_id: string }
         Returns: boolean
+      }
+      recompute_athlete_zone_profile: {
+        Args: { _athlete_id: string }
+        Returns: undefined
       }
       recompute_physio_profile: {
         Args: { _athlete_id: string }
