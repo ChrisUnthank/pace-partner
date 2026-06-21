@@ -1,26 +1,29 @@
-Plan:
+## Bug: "View analysis" navigates but renders session detail instead of analysis
 
-1. Fix the remaining broken analysis toggle
-- The earlier fix did not catch the calendar sheet's `Analysis` button.
-- Actual issue found: `app.sessions.calendar.tsx` still has invalid nested interactive markup: `<Link><Button>Analysis</Button></Link>`.
-- I'll change it to the valid `Button asChild` pattern so the route click reliably reaches `/app/sessions/$sessionId/analysis`.
-- I'll also fix the adjacent `+ New session` button in the same sheet because it has the same invalid pattern.
+### What's actually happening
+`src/routes/_authenticated/app.sessions.$sessionId.analysis.tsx` is registered as a **child** of `app.sessions.$sessionId.tsx` in `routeTree.gen.ts` (because TanStack's flat dot-routing nests `$sessionId.analysis` under `$sessionId` when both files exist). For a child route to render, the parent component must include `<Outlet />`. `SessionDetail` does not — it just renders the detail page directly. So the URL changes to `/analysis`, the route matches, and the parent's detail UI is shown again with no analysis content. Verified by hitting the URL directly in a headless browser: URL is `/analysis`, body is the detail page, no console errors.
 
-2. Fix the missing work data on the current analysis page
-- Actual issue found in the database for the session you were viewing: `a06c3f65-77aa-4fb1-89e4-176afb39e84f` (`[TEST] Maya Okafor · Easy run`).
-- It has one work rep row, but the row is incomplete:
-  - pace exists: `260 sec/km`
-  - time, distance, HR avg/end, cadence, stride length are all null.
-- Because time is null, the zone/fatigue functions correctly skip it (they require `actual_time_seconds > 0` and explicit non-null checks per metric — confirmed in `recompute_session_zones` and `compute_session_fatigue`), so the graph and zone panels have nothing meaningful to render. No silent default to "Easy" is happening — missing data is correctly skipped/null.
+This is unrelated to the earlier button-inside-link nesting fix and unrelated to rep-data completeness. Adding rep data would not have changed anything.
 
-3. Reseed incomplete test rep rows with realistic complete values
-- Sweep all `[TEST]` completed sessions and, for any work rep row missing per-rep values, fill realistic numbers consistent with the session totals and athlete's zones (time, distance, HR avg, HR end, cadence, stride length).
-- Only seeded `[TEST]` athlete data is touched — no real user data.
+### Fix (canonical TanStack layout-route pattern)
 
-4. Recompute derived analysis data
-- After the data repair, call the existing `recompute_session_zones` and `compute_session_fatigue` functions on each affected session so `session_zone_time` and `session_fatigue` are repopulated.
+Convert `$sessionId` into a layout and move its current content into an `index` leaf:
 
-5. Verify and report back
-- Verify the analysis link works from the calendar sheet and the session detail view.
-- Verify the current Easy run analysis page now has graph points and zone rows.
-- Report root causes plainly: one remaining invalid nested Link/Button in the calendar sheet, plus incomplete seeded rep rows causing correct skip/null behavior on the analysis screen.
+1. **Create** `src/routes/_authenticated/app.sessions.$sessionId.index.tsx` containing the current `SessionDetail` body (everything currently in `app.sessions.$sessionId.tsx`), with `createFileRoute("/_authenticated/app/sessions/$sessionId/")`.
+2. **Replace** `src/routes/_authenticated/app.sessions.$sessionId.tsx` with a minimal layout:
+   ```tsx
+   import { createFileRoute, Outlet } from "@tanstack/react-router";
+   export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId")({
+     component: () => <Outlet />,
+   });
+   ```
+3. Leave `app.sessions.$sessionId.analysis.tsx` unchanged — it now correctly renders inside the parent's `<Outlet />` at `/app/sessions/$sessionId/analysis`, while `/app/sessions/$sessionId` renders the new `index` leaf.
+4. No code changes needed to the "View analysis" link itself, the analysis page, or any link that points at `/app/sessions/$sessionId` — both URLs continue to work, routeTree regenerates on save.
+
+### Verification
+- Reload the detail page for the 2026-06-21 Elena Voss "Long Run 12km" session — same UI as before.
+- Click "View analysis" — now shows the Session Analysis page (graph + totals + zones) instead of re-rendering the detail page.
+- Headless reload of `/app/sessions/<id>/analysis` directly returns the analysis page body ("← Back to details", Session graph card, etc.).
+
+### Out of scope
+Not touching data-gating, error states, or the analysis page's own rendering — those weren't the cause. If you want a graceful "not enough data" message in additional edge cases later, that's a separate change.
