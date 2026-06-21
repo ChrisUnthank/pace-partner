@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
@@ -17,6 +17,9 @@ import {
   Area,
   Bar,
   BarChart,
+  PieChart,
+  Pie,
+  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -340,6 +343,32 @@ function AthleteAnalytics({
     },
   });
 
+  const { data: intentRollup } = useQuery({
+    queryKey: ["analytics-intent-time", athleteId, since],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("sessions")
+        .select("intent, total_time_seconds, day_type")
+        .eq("athlete_id", athleteId)
+        .not("completed_at", "is", null)
+        .gte("session_date", since);
+      return data ?? [];
+    },
+  });
+
+  const { data: stepVolume } = useQuery({
+    queryKey: ["analytics-step-volume", athleteId, since],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("interval_results")
+        .select("actual_time_seconds, actual_distance_m, steps!inner(kind, sessions!inner(athlete_id, session_date, completed_at))")
+        .eq("steps.sessions.athlete_id", athleteId)
+        .not("steps.sessions.completed_at", "is", null)
+        .gte("steps.sessions.session_date", since);
+      return data ?? [];
+    },
+  });
+
   const { data: physio } = useQuery({
     queryKey: ["analytics-physio", athleteId],
     queryFn: async () => {
@@ -382,19 +411,56 @@ function AthleteAnalytics({
     km: Math.round((Number(r.distance_m ?? 0) / 1000) * 10) / 10,
   }));
 
-  const zoneRollup = useMemo(() => {
-    const buckets = new Map<string, number>();
-    const rows: any[] = (zoneTime as any) ?? [];
-    const hr = rows.filter((r) => r.source === "hr");
-    const src = hr.length ? hr : rows.filter((r) => r.source === "pace");
-    for (const r of src) {
-      buckets.set(r.zone as string, (buckets.get(r.zone as string) ?? 0) + Number(r.seconds ?? 0));
-    }
-    const order = ["z1", "z2", "z3", "z4", "z5"];
-    return order
-      .filter((z) => buckets.has(z))
-      .map((zone) => ({ zone, minutes: Math.round((buckets.get(zone) ?? 0) / 60) }));
+  const zoneBuckets = useMemo(() => {
+    const make = (source: "hr" | "pace") => {
+      const sec = new Map<string, number>();
+      const m = new Map<string, number>();
+      for (const r of ((zoneTime as any) ?? []).filter((x: any) => x.source === source)) {
+        sec.set(r.zone, (sec.get(r.zone) ?? 0) + Number(r.seconds ?? 0));
+        m.set(r.zone, (m.get(r.zone) ?? 0) + Number(r.meters ?? 0));
+      }
+      const order = ["z1", "z2", "z3", "z4", "z5"];
+      return order.map((zone) => ({
+        zone: zone.toUpperCase(),
+        minutes: Math.round((sec.get(zone) ?? 0) / 60),
+        km: Math.round(((m.get(zone) ?? 0) / 1000) * 10) / 10,
+      }));
+    };
+    return { hr: make("hr"), pace: make("pace") };
   }, [zoneTime]);
+
+  const intentData = useMemo(() => {
+    const buckets = new Map<string, number>();
+    for (const r of (intentRollup as any[]) ?? []) {
+      if (!r.intent || r.day_type !== "training") continue;
+      buckets.set(r.intent, (buckets.get(r.intent) ?? 0) + Number(r.total_time_seconds ?? 0));
+    }
+    const order = ["easy", "aerobic", "tempo", "threshold", "vo2", "anaerobic", "speed"];
+    return order
+      .filter((k) => buckets.has(k))
+      .map((intent) => ({
+        intent: intent.charAt(0).toUpperCase() + intent.slice(1),
+        minutes: Math.round((buckets.get(intent) ?? 0) / 60),
+      }));
+  }, [intentRollup]);
+
+  const kindVolume = useMemo(() => {
+    const sec = new Map<string, number>();
+    const m = new Map<string, number>();
+    for (const r of (stepVolume as any[]) ?? []) {
+      const kind = r.steps?.kind ?? "work";
+      sec.set(kind, (sec.get(kind) ?? 0) + Number(r.actual_time_seconds ?? 0));
+      m.set(kind, (m.get(kind) ?? 0) + Number(r.actual_distance_m ?? 0));
+    }
+    const order = ["warmup", "work", "strides", "recovery", "cooldown"];
+    return order
+      .filter((k) => (sec.get(k) ?? 0) > 0 || (m.get(k) ?? 0) > 0)
+      .map((kind) => ({
+        kind: kind.charAt(0).toUpperCase() + kind.slice(1),
+        minutes: Math.round((sec.get(kind) ?? 0) / 60),
+        km: Math.round(((m.get(kind) ?? 0) / 1000) * 10) / 10,
+      }));
+  }, [stepVolume]);
 
   return (
     <div className="space-y-6">
@@ -521,29 +587,36 @@ function AthleteAnalytics({
           </CardContent>
         </Card>
 
+        <ZoneBarCard title="Time in HR Zone" description="Minutes per HR zone in this range." data={zoneBuckets.hr} dataKey="minutes" unit="min" color="#ef4444" />
+        <ZoneBarCard title="Time in Pace Zone" description="Minutes per pace zone (anchored to 5K pace)." data={zoneBuckets.pace} dataKey="minutes" unit="min" color="#3b82f6" />
+        <ZoneBarCard title="Distance in HR Zone" description="Kilometres per HR zone in this range." data={zoneBuckets.hr} dataKey="km" unit="km" color="#ef4444" />
+        <ZoneBarCard title="Distance in Pace Zone" description="Kilometres per pace zone in this range." data={zoneBuckets.pace} dataKey="km" unit="km" color="#3b82f6" />
+
         <Card>
           <CardHeader>
-            <CardTitle>Time in zone</CardTitle>
-            <CardDescription>Total minutes per intensity zone in this range.</CardDescription>
+            <CardTitle>Time by Training Intent</CardTitle>
+            <CardDescription>Session-level total time grouped by planned intent.</CardDescription>
           </CardHeader>
           <CardContent>
-            {zoneRollup.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No zone data yet — log sessions with HR or pace.</p>
+            {intentData.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No completed training sessions in this range.</p>
             ) : (
-              <div className="h-[200px] w-full">
+              <div className="h-[220px] w-full">
                 <ResponsiveContainer>
-                  <BarChart data={zoneRollup} layout="vertical" margin={{ top: 6, right: 12, left: 24, bottom: 0 }}>
+                  <BarChart data={intentData} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
-                    <XAxis type="number" tick={{ fontSize: 11 }} />
-                    <YAxis type="category" dataKey="zone" tick={{ fontSize: 11 }} width={70} />
+                    <XAxis dataKey="intent" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} />
                     <Tooltip contentStyle={{ background: "hsl(var(--background))", border: "1px solid hsl(var(--border))", fontSize: 12 }} />
-                    <Bar dataKey="minutes" name="min" fill="#8b5cf6" radius={[0, 3, 3, 0]} />
+                    <Bar dataKey="minutes" name="min" fill="#8b5cf6" radius={[3, 3, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
             )}
           </CardContent>
         </Card>
+
+        <VolumePieCard data={kindVolume} />
       </div>
 
       {/* Physio */}
@@ -629,5 +702,120 @@ function PieSplit({ aerobic, anaerobic }: { aerobic: number; anaerobic: number }
       style={{ background: `conic-gradient(rgb(16 185 129) 0 ${aerAngle}deg, rgb(244 63 94) ${aerAngle}deg 360deg)` }}
       aria-label={`${aerobic}% aerobic, ${anaerobic}% anaerobic`}
     />
+  );
+}
+
+function ZoneBarCard({
+  title, description, data, dataKey, unit, color,
+}: {
+  title: string;
+  description: string;
+  data: { zone: string; minutes: number; km: number }[];
+  dataKey: "minutes" | "km";
+  unit: string;
+  color: string;
+}) {
+  const hasData = data.some((d) => Number(d[dataKey]) > 0);
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {!hasData ? (
+          <p className="text-sm text-muted-foreground">No zone data yet — complete sessions with HR or pace logged.</p>
+        ) : (
+          <div className="h-[200px] w-full">
+            <ResponsiveContainer>
+              <BarChart data={data} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
+                <XAxis dataKey="zone" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} />
+                <Tooltip contentStyle={{ background: "hsl(var(--background))", border: "1px solid hsl(var(--border))", fontSize: 12 }} />
+                <Bar dataKey={dataKey} name={unit} fill={color} radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+const KIND_COLORS: Record<string, string> = {
+  Warmup: "#0ea5e9",
+  Work: "#ef4444",
+  Strides: "#f59e0b",
+  Recovery: "#64748b",
+  Cooldown: "#10b981",
+};
+
+function VolumePieCard({ data }: { data: { kind: string; minutes: number; km: number }[] }) {
+  const [mode, setMode] = useState<"minutes" | "km">("minutes");
+  const hasData = data.some((d) => Number(d[mode]) > 0);
+  const total = data.reduce((a, d) => a + Number(d[mode]), 0);
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-2 flex-wrap">
+          <div>
+            <CardTitle>Weekly Volume by Step Kind</CardTitle>
+            <CardDescription>
+              Share of {mode === "minutes" ? "time" : "distance"} across warmup, work, strides, recovery, and cooldown.
+            </CardDescription>
+          </div>
+          <div className="flex border rounded-md overflow-hidden text-xs">
+            <button
+              onClick={() => setMode("minutes")}
+              className={`px-2.5 py-1 ${mode === "minutes" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+            >Time</button>
+            <button
+              onClick={() => setMode("km")}
+              className={`px-2.5 py-1 ${mode === "km" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+            >Distance</button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {!hasData ? (
+          <p className="text-sm text-muted-foreground">No logged step volume yet.</p>
+        ) : (
+          <>
+            <div className="h-[220px] w-full">
+              <ResponsiveContainer>
+                <PieChart>
+                  <Pie
+                    data={data}
+                    dataKey={mode}
+                    nameKey="kind"
+                    innerRadius={45}
+                    outerRadius={80}
+                    paddingAngle={2}
+                  >
+                    {data.map((d) => (
+                      <Cell key={d.kind} fill={KIND_COLORS[d.kind] ?? "#8b5cf6"} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{ background: "hsl(var(--background))", border: "1px solid hsl(var(--border))", fontSize: 12 }}
+                    formatter={(v: any, n: any) => {
+                      const pct = total ? Math.round((Number(v) / total) * 100) : 0;
+                      return [`${v} ${mode === "minutes" ? "min" : "km"} (${pct}%)`, n];
+                    }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            {mode === "km" && (
+              <p className="text-xs text-muted-foreground mt-2">
+                Includes warmup/cooldown to show how volume is split. Will exceed the headline "Weekly distance" number, which intentionally excludes warmup/cooldown.
+              </p>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
