@@ -348,6 +348,7 @@ function NewSession() {
 
         <StepsCard
           steps={steps}
+          structure={structure}
           updateStep={updateStep}
           removeStep={removeStep}
           addStep={addStep}
