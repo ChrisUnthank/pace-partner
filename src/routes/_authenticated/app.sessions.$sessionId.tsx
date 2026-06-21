@@ -244,7 +244,7 @@ function StepBlock({ session, step, results, fatigue, fuelEvents }: { session: a
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-base capitalize">
-          {step.kind}
+          {step.kind === "recovery" ? "Recovery between blocks" : step.kind}
           {isWork && step.target_kind === "distance" && ` · ${setCount > 1 ? `${setCount}×` : ""}${step.reps}×${metersFmt(step.target_distance_m)}`}
           {isWork && step.target_kind === "time" && ` · ${step.reps}×${secToClock(step.target_time_seconds)}`}
           {isStrides && ` · ${step.reps}×${metersFmt(step.target_distance_m)}`}
@@ -257,13 +257,25 @@ function StepBlock({ session, step, results, fatigue, fuelEvents }: { session: a
           )}
         </CardTitle>
         {step.target_pace_sec_per_km && <CardDescription>Target pace {secToClock(step.target_pace_sec_per_km)} /km</CardDescription>}
-        {isWork && (step.recovery_between_reps_seconds || step.recovery_between_sets_seconds) && (
-          <CardDescription className="text-xs">
-            {step.recovery_between_reps_seconds && <>Recovery between reps: {secToClock(step.recovery_between_reps_seconds)}</>}
-            {step.recovery_between_reps_seconds && step.recovery_between_sets_seconds && " · "}
-            {step.recovery_between_sets_seconds && <>Between sets: {secToClock(step.recovery_between_sets_seconds)}</>}
-          </CardDescription>
-        )}
+        {isWork && (() => {
+          const repsKind = step.recovery_between_reps_target_kind ?? "time";
+          const setsKind = step.recovery_between_sets_target_kind ?? "time";
+          const repsVal = repsKind === "distance"
+            ? (step.recovery_between_reps_distance_m ? metersFmt(step.recovery_between_reps_distance_m) : null)
+            : (step.recovery_between_reps_seconds ? secToClock(step.recovery_between_reps_seconds) : null);
+          const setsVal = setsKind === "distance"
+            ? (step.recovery_between_sets_distance_m ? metersFmt(step.recovery_between_sets_distance_m) : null)
+            : (step.recovery_between_sets_seconds ? secToClock(step.recovery_between_sets_seconds) : null);
+          const mode = step.recovery_between_reps_mode;
+          if (!repsVal && !setsVal) return null;
+          return (
+            <CardDescription className="text-xs">
+              {repsVal && <>Recovery between reps: {mode ? `${mode} ` : ""}{repsVal}</>}
+              {repsVal && setsVal && " · "}
+              {setsVal && <>Between sets: {step.recovery_between_sets_mode ? `${step.recovery_between_sets_mode} ` : ""}{setsVal}</>}
+            </CardDescription>
+          );
+        })()}
       </CardHeader>
       <CardContent>
         {(isWork || isStrides) && (
