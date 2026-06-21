@@ -793,7 +793,7 @@ export type Database = {
           session_id: string
           source: Database["public"]["Enums"]["zone_source"]
           updated_at: string
-          zone: Database["public"]["Enums"]["pace_zone"]
+          zone: Database["public"]["Enums"]["zone_band"]
         }
         Insert: {
           athlete_id: string
@@ -802,7 +802,7 @@ export type Database = {
           session_id: string
           source?: Database["public"]["Enums"]["zone_source"]
           updated_at?: string
-          zone: Database["public"]["Enums"]["pace_zone"]
+          zone: Database["public"]["Enums"]["zone_band"]
         }
         Update: {
           athlete_id?: string
@@ -811,7 +811,7 @@ export type Database = {
           session_id?: string
           source?: Database["public"]["Enums"]["zone_source"]
           updated_at?: string
-          zone?: Database["public"]["Enums"]["pace_zone"]
+          zone?: Database["public"]["Enums"]["zone_band"]
         }
         Relationships: [
           {
@@ -1175,7 +1175,7 @@ export type Database = {
           seconds: number | null
           source: Database["public"]["Enums"]["zone_source"] | null
           week_start: string | null
-          zone: Database["public"]["Enums"]["pace_zone"] | null
+          zone: Database["public"]["Enums"]["zone_band"] | null
         }
         Relationships: [
           {
@@ -1250,14 +1250,6 @@ export type Database = {
         | "school"
         | "travel"
         | "other"
-      pace_zone:
-        | "easy"
-        | "steady"
-        | "threshold"
-        | "vo2"
-        | "rep"
-        | "sprint"
-        | "recovery"
       readiness_status: "green" | "amber" | "red"
       recovery_mode: "standing" | "walk" | "jog" | "float"
       session_day_type:
@@ -1278,6 +1270,7 @@ export type Database = {
       session_structure: "continuous" | "reps_intervals"
       step_kind: "warmup" | "work" | "recovery" | "cooldown" | "strides"
       target_kind: "time" | "distance"
+      zone_band: "z1" | "z2" | "z3" | "z4" | "z5"
       zone_basis: "hr" | "pace" | "none"
       zone_source: "pace" | "hr"
     }
@@ -1416,15 +1409,6 @@ export const Constants = {
         "travel",
         "other",
       ],
-      pace_zone: [
-        "easy",
-        "steady",
-        "threshold",
-        "vo2",
-        "rep",
-        "sprint",
-        "recovery",
-      ],
       readiness_status: ["green", "amber", "red"],
       recovery_mode: ["standing", "walk", "jog", "float"],
       session_day_type: [
@@ -1447,6 +1431,7 @@ export const Constants = {
       session_structure: ["continuous", "reps_intervals"],
       step_kind: ["warmup", "work", "recovery", "cooldown", "strides"],
       target_kind: ["time", "distance"],
+      zone_band: ["z1", "z2", "z3", "z4", "z5"],
       zone_basis: ["hr", "pace", "none"],
       zone_source: ["pace", "hr"],
     },
