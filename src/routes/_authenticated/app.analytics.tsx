@@ -704,3 +704,118 @@ function PieSplit({ aerobic, anaerobic }: { aerobic: number; anaerobic: number }
     />
   );
 }
+
+function ZoneBarCard({
+  title, description, data, dataKey, unit, color,
+}: {
+  title: string;
+  description: string;
+  data: { zone: string; minutes: number; km: number }[];
+  dataKey: "minutes" | "km";
+  unit: string;
+  color: string;
+}) {
+  const hasData = data.some((d) => Number(d[dataKey]) > 0);
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {!hasData ? (
+          <p className="text-sm text-muted-foreground">No zone data yet — complete sessions with HR or pace logged.</p>
+        ) : (
+          <div className="h-[200px] w-full">
+            <ResponsiveContainer>
+              <BarChart data={data} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
+                <XAxis dataKey="zone" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} />
+                <Tooltip contentStyle={{ background: "hsl(var(--background))", border: "1px solid hsl(var(--border))", fontSize: 12 }} />
+                <Bar dataKey={dataKey} name={unit} fill={color} radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+const KIND_COLORS: Record<string, string> = {
+  Warmup: "#0ea5e9",
+  Work: "#ef4444",
+  Strides: "#f59e0b",
+  Recovery: "#64748b",
+  Cooldown: "#10b981",
+};
+
+function VolumePieCard({ data }: { data: { kind: string; minutes: number; km: number }[] }) {
+  const [mode, setMode] = useState<"minutes" | "km">("minutes");
+  const hasData = data.some((d) => Number(d[mode]) > 0);
+  const total = data.reduce((a, d) => a + Number(d[mode]), 0);
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-2 flex-wrap">
+          <div>
+            <CardTitle>Weekly Volume by Step Kind</CardTitle>
+            <CardDescription>
+              Share of {mode === "minutes" ? "time" : "distance"} across warmup, work, strides, recovery, and cooldown.
+            </CardDescription>
+          </div>
+          <div className="flex border rounded-md overflow-hidden text-xs">
+            <button
+              onClick={() => setMode("minutes")}
+              className={`px-2.5 py-1 ${mode === "minutes" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+            >Time</button>
+            <button
+              onClick={() => setMode("km")}
+              className={`px-2.5 py-1 ${mode === "km" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+            >Distance</button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {!hasData ? (
+          <p className="text-sm text-muted-foreground">No logged step volume yet.</p>
+        ) : (
+          <>
+            <div className="h-[220px] w-full">
+              <ResponsiveContainer>
+                <PieChart>
+                  <Pie
+                    data={data}
+                    dataKey={mode}
+                    nameKey="kind"
+                    innerRadius={45}
+                    outerRadius={80}
+                    paddingAngle={2}
+                  >
+                    {data.map((d) => (
+                      <Cell key={d.kind} fill={KIND_COLORS[d.kind] ?? "#8b5cf6"} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{ background: "hsl(var(--background))", border: "1px solid hsl(var(--border))", fontSize: 12 }}
+                    formatter={(v: any, n: any) => {
+                      const pct = total ? Math.round((Number(v) / total) * 100) : 0;
+                      return [`${v} ${mode === "minutes" ? "min" : "km"} (${pct}%)`, n];
+                    }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            {mode === "km" && (
+              <p className="text-xs text-muted-foreground mt-2">
+                Includes warmup/cooldown to show how volume is split. Will exceed the headline "Weekly distance" number, which intentionally excludes warmup/cooldown.
+              </p>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
