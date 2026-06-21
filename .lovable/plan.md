@@ -1,83 +1,135 @@
-## What currently exists for training history
+## What's reused vs. what's new
 
-The only training-history surface today is `/app/sessions` (`app.sessions.index.tsx`) — a flat reverse-chronological **list** of the 100 most recent sessions across visible athletes, showing title, date, athlete name, classification label, distance/time, and a Done/Planned badge. There is no calendar view anywhere, and the athlete profile screen has no calendar either. The only existing `Calendar` import in the codebase is the shadcn date-picker primitive used inside forms — not a training calendar.
+Confirmed by inspecting the schema and existing routes — every widget pulls from data already computed by the readiness engine, physio engine, or existing views. Only **one** widget needs a new aggregation; everything else is pure presentation.
 
-So this is **additive**, not a replacement. The list stays useful for "what's the last 100 things in order?"; the calendar answers "what does this month/week look like in shape?".
+| Widget | Source | New work? |
+|---|---|---|
+| **PMC chart** (CTL / ATL / TSB over time) | `athlete_load_daily.ctl / atl / tsb` (one row per athlete per day, already maintained by `recompute_readiness`) | None — direct read |
+| Current readiness band | `athlete_load_daily.readiness_status / score / confidence` (latest row) — reuses `<ReadinessBadge>` already in `src/components/readiness-badge.tsx` | None |
+| Weekly training load trend | `athlete_load_daily.training_load` aggregated by ISO week (simple client-side `groupBy`) | None |
+| **Within-session fatigue trend** | `session_fatigue.efficiency_score` joined to `sessions.session_date`, averaged per session, then trended over recent weeks | **Yes — new aggregation** (single query, no schema change, no new RPC). This is the only new logic on the page. |
+| Physiological profile card | `athlete_physio_profile` (aerobic/anaerobic, archetype, speed reserve) — reuses the donut already on the athlete profile | None |
+| Weekly distance | `athlete_weekly_distance` view (already exists) | None |
+| Time-in-zone summary | `athlete_zone_time_weekly` view (already exists) | None |
+| **Coach roster row**: readiness band + PMC trend direction | `athlete_load_daily` — latest `readiness_status` per athlete + a simple slope of `ctl` over the last 14 days (improving / stable / declining via threshold on the slope) | **Yes — trivial derived calc** done client-side from the same `athlete_load_daily` rows already fetched. No new DB work. |
 
-## How this fits
+So: **two** pieces involve new logic, both are pure client-side aggregations over data the app already has. No migrations, no new RPCs, no new tables.
 
-### New route
-- `/app/sessions/calendar` — the calendar view. Reached from a new "Calendar" tab in the sessions area (a small Month/List toggle near the "New session" button on the existing list page, plus a direct link).
-- Coach access from athlete context: on `app.athletes.$athleteId.tsx` (athlete profile) add a "View calendar" button that deep-links to `/app/sessions/calendar?athleteId=<id>`. On the athletes roster (`app.athletes.index.tsx`) add a small calendar icon on each row that does the same.
-- Athletes land on their own calendar by default (their athlete id auto-selected). Coaches get a small athlete-picker dropdown at the top (defaults to whatever athlete they came from, or "first athlete" if they navigated directly).
+## Route & access
 
-### Default view
-- **Month** is the primary view. A simple `View: Month | Week` segmented toggle at the top. Week view reuses the same day-cell component, just laid out as a single horizontal strip — cheap to add once the cell exists.
-- Month-nav: ‹ Today › with the month/year label, same pattern as common calendars.
+- New route: `/app/analytics` (file `src/routes/_authenticated/app.analytics.tsx`).
+- Athlete (has `athlete` role, no `coach` role): lands on **their own** dashboard; their `athlete_id` is auto-resolved via `useMyAthlete()`. No athlete picker shown.
+- Coach (has `coach` role): lands on the **roster overview** by default. Selecting an athlete deep-links to `/app/analytics?athleteId=<id>` which renders the same single-athlete dashboard the athlete sees, with a small "← Back to roster" affordance.
+- App-shell nav: add an "Analytics" entry alongside Sessions / Athletes (icon: `LineChart` from `lucide-react`).
+- URL search params validated with `zodValidator` + `fallback`: `athleteId?`, `range` (one of `4w | 3m | 6m | all`, default `3m`).
 
-### Day-cell content — fitting detail without clutter
-
-Each cell follows a strict visual hierarchy so a glance reads "what kind of day" first, details second:
+## Page layout — single athlete view
 
 ```text
-┌──────────────────────┐
-│ 14  ●readiness       │   ← date + small readiness dot (top-right)
-│ ▌Threshold           │   ← left color bar = intent/day_type; label
-│ 6×800m @ 3:20        │   ← session title (truncated, 1 line)
-│ 52 TL · ⚡88          │   ← training load + fatigue/efficiency (if any)
-└──────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  Header: athlete name · current readiness badge · range tabs│
+│                                  [4W] [3M] [6M] [All]       │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│   ███████  PMC — Fitness / Fatigue / Form  ███████          │
+│   (full-width, ~360px tall, the visual anchor)              │
+│   Three lines:  CTL (fitness, solid),  ATL (fatigue,        │
+│   dashed),  TSB (form, area-tinted around 0)                │
+│                                                             │
+├──────────────────────────┬──────────────────────────────────┤
+│  Weekly training load    │  Within-session fatigue trend    │
+│  (bar chart by ISO wk)   │  (line — avg efficiency / week)  │
+├──────────────────────────┼──────────────────────────────────┤
+│  Weekly distance         │  Time in zone (stacked bar)      │
+│  (reuses weekly view)    │  (reuses weekly zone view)       │
+├──────────────────────────┴──────────────────────────────────┤
+│  Physiological profile card  (aerobic/anaerobic donut +     │
+│  archetype + speed reserve · same component as profile pg)  │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-- **Left color bar (4px)** encodes intent (easy/aerobic/tempo/threshold/vo2/anaerobic/speed) or day_type (race/recovery/cross_training/rest) using the palette already established in `src/lib/session-categories.ts` / `STEP_COLORS` so it matches the rest of the app.
-- **Readiness dot** (top-right, 8px) uses the existing `ReadinessBadge` color scheme (green/amber/red), tooltip shows score. Hidden if no readiness for that date.
-- **One-line session title**, truncated.
-- **Footer row**: training load contribution (from `athlete_load_daily.training_load`) and, if the session had reps, the efficiency score from `session_fatigue` (averaged across work steps, same as the detail screen already does). Both omitted gracefully if absent.
-- **Planned future sessions**: same color bar + title, but rendered with a dashed outline and muted text; no readiness/fatigue/load footer (those don't exist yet). A small "planned" affix appears next to the title.
-- **Multiple sessions same day**: stack up to 2 compact rows; if >2, show "+N more". Rare but supported.
-- **Empty days**: just the date number, no bar.
+Mobile (≤640px): the PMC stays full-width; the 2-column grid collapses to a single column; chart heights reduce; range tabs become a `Select`.
 
-On mobile (≤640px), cells collapse to: date number + color bar + a single dot per session (still color-coded by intent). Tap the day to open a bottom sheet listing that day's sessions with the full detail. This keeps the month view readable on a 390px screen (matching the user's current viewport) without dropping the visual-pattern benefit.
+Charts use Recharts via the existing `src/components/ui/chart.tsx` wrappers so they pick up the design tokens (no hardcoded colors). Readiness band reuses `<ReadinessBadge>` for the green/amber/red mapping.
 
-### Click behavior
+## Page layout — coach roster view
 
-Tapping a day:
-- **One session on that day** → opens the existing session detail screen (`/app/sessions/$sessionId`). That screen already has the "View analysis" button for completed sessions, so both surfaces remain reachable from one click.
-- **Multiple sessions** → opens a small popover/bottom-sheet listing them; each row links to its detail screen.
-- **Planned session** → same detail screen; it already handles the planned state.
-- **Empty day** → (coach only) a "+ New session on this date" affordance that links to `/app/sessions/new?date=YYYY-MM-DD&athleteId=...`. Athletes see nothing on empty days.
+```text
+┌─────────────────────────────────────────────────────────────┐
+│  Roster overview                              [3M] range    │
+├─────────────────────────────────────────────────────────────┤
+│  Athlete       Readiness   PMC trend (14d)    Last session  │
+│  ───────────   ─────────   ───────────────    ───────────   │
+│  J. Smith      ● Ready     ↗ Improving        Thu — Tempo   │
+│  M. Lee        ● Caution   → Stable           Wed — Long    │
+│  A. Patel      ● Recover   ↘ Declining ⚠      Sun — VO2     │
+│  …                                                          │
+│  (sortable by readiness severity then by trend direction —  │
+│   "needs attention" floats to top)                          │
+└─────────────────────────────────────────────────────────────┘
+```
 
-## Data — fully reused, no new calculations
+Each row links to `/app/analytics?athleteId=<id>` (the full single-athlete dashboard). Trend direction is computed from the slope of `ctl` over the last 14 days: `|slope| < ε → stable`, positive → improving, negative → declining. A small warning glyph appears on declining + red-band combinations only (no over-alerting).
 
-This screen is a pure visualization layer over data the app already computes:
+## Queries (one set per athlete, all indexed reads)
 
-| Cell element | Source |
-|---|---|
-| Sessions for the month | `sessions` table, filtered by `athlete_id` + date range |
-| Intent / day_type / title | `sessions.intent`, `sessions.day_type`, `sessions.title` |
-| Completion status | `sessions.completed_at` |
-| Readiness band + score | `athlete_load_daily.readiness_status`, `readiness_score`, `confidence` (per date) |
-| Training load contribution | `athlete_load_daily.training_load` (per date) |
-| Within-session fatigue (efficiency) | `session_fatigue.efficiency_score`, averaged across work steps for that session (same aggregation the session detail screen does today) |
+```ts
+// PMC + readiness + weekly load: one fetch covers four widgets
+supabase.from('athlete_load_daily')
+  .select('load_date, ctl, atl, tsb, training_load, readiness_status, readiness_score, confidence')
+  .eq('athlete_id', id)
+  .gte('load_date', rangeStart)
+  .order('load_date');
 
-One query per month load: a single date-range fetch for sessions, one for `athlete_load_daily` rows in the range, one for `session_fatigue` rows joined by session ids. All three are indexed reads. No schema changes, no new RPCs, no recompute calls.
+// Fatigue trend (the one new aggregation): join fatigue → sessions for dates
+supabase.from('session_fatigue')
+  .select('efficiency_score, sessions!inner(session_date, athlete_id)')
+  .eq('sessions.athlete_id', id)
+  .gte('sessions.session_date', rangeStart)
+  .not('efficiency_score', 'is', null);
+// → groupBy ISO week → average → line chart
 
-### Reuse of existing UI tokens
+// Weekly distance & weekly zone time: direct view reads
+supabase.from('athlete_weekly_distance').select('*').eq('athlete_id', id)…
+supabase.from('athlete_zone_time_weekly').select('*').eq('athlete_id', id)…
 
-- Intent/day_type colors: pulled from the same `session-categories` / `STEP_COLORS` palette already used in the session builder and analysis screen — so coaches see the same color = same thing everywhere.
-- Readiness dot uses the same green/amber/red mapping as `ReadinessBadge`.
-- Classification label uses `sessionClassificationLabel()`.
+// Physio card: single-row read
+supabase.from('athlete_physio_profile').select('*').eq('athlete_id', id).maybeSingle();
+```
+
+Coach roster uses one bulk fetch: the latest ~14 `athlete_load_daily` rows for every athlete visible via `coach_athletes`, grouped client-side.
+
+All reads go through TanStack Query with `queryOptions` + `ensureQueryData` in the loader and `useSuspenseQuery` in the components (matches the rest of the app).
+
+## Empty / low-data states
+
+- New athlete with `confidence = 'insufficient'`: PMC shows a muted "Building baseline — keep logging" panel instead of a near-empty chart.
+- No `session_fatigue` rows yet: fatigue-trend card shows "Complete a few interval sessions to see this trend" instead of an empty axis.
+- No physio profile yet (`status = 'insufficient_pbs'`): card shows the existing `coaching_note` prompt to log PBs.
+- Empty weekly distance / zone time: cards hide gracefully rather than render zero-height charts.
 
 ## Files
 
-- **New**: `src/routes/_authenticated/app.sessions.calendar.tsx` — the route (Month/Week toggle, month grid, day cells, popover for multi-session days, athlete picker for coaches).
-- **New**: `src/components/calendar-day-cell.tsx` — the day cell component (shared between month and week views, responsive).
-- **Edited**: `src/routes/_authenticated/app.sessions.index.tsx` — add a small `List | Calendar` toggle.
-- **Edited**: `src/routes/_authenticated/app.athletes.$athleteId.tsx` — add "View calendar" button.
-- **Edited**: `src/routes/_authenticated/app.athletes.index.tsx` — add calendar-icon link per row.
-- **Edited**: `src/components/app-shell.tsx` — (optional) make the existing "Sessions" nav item still go to `/app/sessions` (list); calendar is reached via the in-page toggle, so no new top-level nav clutter.
+**New**
+- `src/routes/_authenticated/app.analytics.tsx` — the route (handles role split, range tabs, athlete vs roster mode).
+- `src/components/analytics/pmc-chart.tsx` — the CTL/ATL/TSB chart.
+- `src/components/analytics/fatigue-trend-chart.tsx` — the new weekly-efficiency line.
+- `src/components/analytics/weekly-load-chart.tsx`, `weekly-distance-chart.tsx`, `zone-time-chart.tsx` — small wrappers around `ui/chart`.
+- `src/components/analytics/physio-summary-card.tsx` — extracted reusable card (or imported from the profile page if already self-contained — will reuse rather than fork).
+- `src/components/analytics/coach-roster-table.tsx` — roster overview with trend arrows.
+
+**Edited**
+- `src/components/app-shell.tsx` — add "Analytics" nav entry.
+- `src/routeTree.gen.ts` — regenerated by the plugin (don't hand-edit).
 
 ## Out of scope (call out explicitly)
 
-- No drag-to-reschedule. Calendar is read + open-detail only this build.
-- No multi-athlete overlay calendar for coaches (one athlete at a time, via the picker). Cross-athlete planning view is a separate feature.
-- No iCal/Google Calendar export.
+- No new DB tables, columns, views, RPCs, or migrations.
+- No cross-athlete comparison overlays (e.g. plotting two athletes' CTL on one chart).
+- No export to PDF / CSV.
+- No notifications when a roster row turns red — surfacing only, not alerting.
+- No editable thresholds for the "improving/declining" classifier (uses sensible defaults — slope of CTL over 14 days, ε = 0.3 CTL units/day).
+
+## Confirmation back to you, in plain English
+
+You were right: only the **within-session fatigue trend over time** needs new logic, and even that is just a `GROUP BY week` over `session_fatigue.efficiency_score` joined to `sessions.session_date` — no recompute, no migration. The coach roster's "trend direction" arrow is a trivial slope over the same `athlete_load_daily.ctl` series that powers the PMC, so it's effectively free. Everything else (PMC, readiness band, weekly load, weekly distance, zone time, physio profile) is direct reads from rows the engines already maintain.
