@@ -1,63 +1,75 @@
-## Confirmation (plain English)
 
-**Fatigue & zone-time:** Already computed per-step (`session_fatigue` row per work step, `session_zone_time` aggregated across all reps regardless of which work step they belong to). Multiple Work steps in one session will each get their own independent fatigue score — same behavior as the multi-step sessions from earlier work, no recompute changes needed. Zone-time will simply sum across both Work blocks, which is correct.
+## Confirmations (plain English)
 
-**Existing test sessions:** Purely additive. No data migration for ordering — existing rows already have `step_order` and will render in order. The only schema change is adding distance-recovery columns for the in-step recovery (nullable, no backfill needed). Existing sessions that only used seconds keep working unchanged.
+**Older sessions without `rep_trace`:** The screen will never be empty or broken. It walks a three-tier fallback per metric:
 
-**Distance-based in-step recovery storage:** Mirror the pattern already used by the standalone Recovery step. Add `recovery_between_reps_target_kind` ('time'|'distance'), `recovery_between_reps_distance_m`, and matching `recovery_between_sets_*` columns. The existing `recovery_between_reps_seconds` / `recovery_between_sets_seconds` columns remain authoritative when target_kind='time'. Nothing else in the app currently reads the in-step recovery fields for load/zone/fatigue math (verified: `session_training_load` uses session-level RPE+duration; `compute_session_fatigue` reads `interval_results.actual_time_seconds`; `recompute_session_zones` reads `interval_results` + `steps.kind`/`counts_toward_distance` only). So adding distance recovery is a pure builder-UI + display concern — no calculation code needs to interpret it.
+1. **Best case** — `interval_results.rep_trace` jsonb exists → render a true high-resolution line chart (HR/pace/cadence/elevation samples plotted at their real timestamps or distances).
+2. **Middle case** — no `rep_trace`, but `interval_results` has per-rep summary values (avg HR, avg pace, cadence, etc.) → render a step-chart connecting one point per rep, with a small "summary view — no high-res trace recorded" caption above the graph.
+3. **Worst case** — no `interval_results` rows at all (manually-logged session with only session totals) → hide the graph panel entirely and show a single info card: "No per-rep data was recorded for this session. See the session detail for logged totals." with a link back to the detail screen.
+
+Each metric line is independently subject to this fallback — e.g. HR may have a full trace while cadence has only rep averages; both render appropriately on the same chart.
+
+**Not a replacement:** This is a *new* route at `/app/sessions/$sessionId/analysis`. The existing `/app/sessions/$sessionId` detail screen (rep tables, per-step fatigue cards, edit/save-as-template actions) is untouched. Both are reachable:
+
+- From the session list / calendar / dashboard: clicking a session still opens the detail screen (unchanged default).
+- From the detail screen: a new "View analysis" button (visible only when `completed_at IS NOT NULL`) navigates to the analysis route.
+- From the analysis screen: a "Back to details" link returns.
+
+No data on either screen is recalculated — analysis reads `interval_results`, `session_fatigue`, `session_zone_time`, and `sessions` as-is.
 
 ---
 
-## Plan
+## Scope
 
-### A. Schema (one migration)
-Add to `public.steps`:
-- `recovery_between_reps_target_kind` text ('time'|'distance'), default 'time'
-- `recovery_between_reps_distance_m` integer, nullable
-- `recovery_between_sets_target_kind` text ('time'|'distance'), default 'time'
-- `recovery_between_sets_distance_m` integer, nullable
+### Route
+- New file `src/routes/_authenticated/app.sessions.$sessionId.analysis.tsx` (under existing `app.sessions.tsx` Outlet layout). Auth-gated like its siblings.
+- Add "View analysis" button on `app.sessions.$sessionId.tsx` for completed sessions only.
 
-Mirror the same four columns on `public.template_steps` so templates round-trip distance recovery.
+### Layout (mobile-first, stacks on narrow viewport)
+1. Header: session title, date, athlete, completion badge, back-to-details link.
+2. **Time-series chart panel** (centerpiece).
+3. **Map panel** (conditional — only rendered if any GPS points exist).
+4. **Summary panel**: totals (distance, time, avg HR, RPE, completion %) + per-step fatigue + zone-time bars (read from `session_fatigue`, `session_zone_time`).
 
-No data backfill (defaults handle it). No changes to triggers/functions.
+### Time-series chart
+- Library: **Recharts** (already in the project via shadcn `chart.tsx` — no new dep).
+- X-axis: time by default; toggle button switches to distance if every plotted sample has a distance value.
+- Metric toggles (chips above chart): HR, Pace, Cadence, Elevation. Each independently on/off; HR + Pace default on. Disabled chip + tooltip "no data" when neither rep_trace nor rep-summary value exists for that metric.
+- Step/set boundaries: vertical reference lines (`<ReferenceArea>`) shaded by step kind — warm-up/work/recovery/cool-down/strides — using existing semantic colors from `session-categories.ts` palette. Legend below chart.
+- Data assembly happens client-side in a `useMemo` over the loaded `interval_results` rows, flattening `rep_trace` arrays into `{ t, d, hr, pace, cadence, elev, stepId, repNumber }[]`. When `rep_trace` is null for a rep, synthesize one point at the rep's midpoint using rep-summary columns.
 
-### B. Session builder (`app.sessions.new.tsx`)
+### Map
+- Library proposal: **MapLibre GL JS + free OSM raster tiles** (no token, no signup, no per-project secret to manage).
+  - Rationale vs Mapbox: Mapbox needs a `MAPBOX_TOKEN` secret per project and has a usage cap that can silently break the map for end users. MapLibre is the open-source fork of Mapbox GL JS with the same API, and OSM tiles are free for low-volume use — exactly the load profile of a coach reviewing a handful of sessions. If usage ever grows beyond OSM's fair-use, swapping to a tiled provider (MapTiler, Stadia, Mapbox) is a one-line style URL change.
+  - If you'd rather use Mapbox, say so and I'll switch — the rest of the plan is identical.
+- Render the GPS trace as a single GeoJSON LineString from concatenated `rep_trace` lat/lng samples; fit bounds to the trace. Color-code by step kind using the same palette as the chart bands.
+- Panel renders only when `points.length >= 2`; otherwise omitted (no empty map, no placeholder).
 
-**Ordering model:**
-- Internal state stays a flat `steps[]` array. Warmup is always index 0; Cooldown is always the last index. The "middle" slice (indices 1..n-2) holds any number of Work and standalone Recovery steps in user-defined order.
-- "Add Work" and "Add Recovery" buttons insert the new step at `length - 1` (just before Cooldown).
-- Drag-and-drop reordering on the middle slice only. Use `@dnd-kit/core` + `@dnd-kit/sortable` (lightweight, already-common shadcn-compatible). Warmup card and Cooldown card render outside the sortable context with a small "anchored" badge so they visually can't be picked up.
-- Up/down arrow buttons as a keyboard-accessible fallback on each middle step.
+### Summary panel
+- Reads `session_fatigue` and `session_zone_time` directly — same queries already used on the detail screen, no new server work.
+- Compact cards: distance, duration, avg HR, RPE, completion %, then a list of per-step fatigue (efficiency score, drifts) and a stacked horizontal bar for zone-time.
 
-**Standalone Recovery step relabel:**
-- Card title: "Recovery between blocks"
-- Helper text under title: "Easy effort between separate Work blocks (e.g. 90s jog between a threshold block and a speed block). For recovery between reps or sets inside a single Work block, use the fields inside that Work step."
-- Disable / hide the "Add Recovery between blocks" button when there are fewer than 1 Work steps before the insertion point (soft guard — still allow it, just show a muted hint).
+### Data fetching
+- One `useQuery` per source (session, interval_results for the session, session_fatigue, session_zone_time) using the browser supabase client — same pattern as the existing detail route. No server functions needed; all tables are RLS-gated by athlete/coach already.
 
-**In-step recovery (inside Work step) gains Time/Distance toggle:**
-- Two existing sub-sections ("Recovery between reps" and "Recovery between sets") each get a Time/Distance segmented toggle matching the standalone Recovery UI.
-- When 'time' → show seconds input (existing). When 'distance' → show metres input.
-- Mode select (standing/walk/jog/float) stays visible for both.
-- Persist new fields on save; read them back when loading from template / existing session.
+### Out of scope (this build)
+- No new DB columns or migrations.
+- No new calculations (drifts, zones, fatigue are read as-is).
+- No editing from this screen.
+- No PDF/share export.
+- No comparison-across-sessions view.
 
-**Insert position:** New Work / new standalone Recovery is inserted at `steps.length - 1` (right before Cooldown), which matches "after the currently-last middle step".
+---
 
-### C. Display surfaces (read-only)
-`app.sessions.$sessionId.tsx` already iterates `steps` in `step_order`. Update the step renderer to:
-- Show distance-based in-step recovery as "jog 100m" when `recovery_between_reps_target_kind='distance'`.
-- Show standalone Recovery step's heading as "Recovery between blocks".
+## Technical notes
 
-No changes needed in `app.today.tsx` summary line, fatigue card, zone-time card, or load math.
+- `rep_trace` jsonb shape assumed to be an array of `{ t?: number, d?: number, hr?: number, pace?: number, cadence?: number, elev?: number, lat?: number, lng?: number }`. The route reads defensively — missing keys are skipped per-sample, not per-rep.
+- Recharts `ComposedChart` with multiple `<YAxis yAxisId>` for HR (bpm) vs pace (sec/km, inverted) vs cadence (spm) vs elevation (m).
+- MapLibre loaded via `maplibre-gl` package + its CSS; client-only render (`useEffect` mount) so SSR isn't an issue under `_authenticated/` (which is already `ssr: false`).
+- New deps: `maplibre-gl` only.
 
-### D. Templates round-trip
-`src/lib/templates.ts` — extend `STEP_STRUCTURAL_COLS` to include the four new columns so save-as-template and apply-template carry distance recovery through.
-
-### E. Verification
-1. Create a session with two Work blocks + one Recovery-between-blocks in the middle, reorder via drag, save, reload → step_order persists.
-2. Create a Work step with `recovery_between_reps_target_kind='distance'`, recovery_between_reps_distance_m=100, save → session detail renders "jog 100m"; fatigue + zone-time for the session still compute as before.
-3. Save such a session as a template, apply to another athlete → distance recovery and ordering are preserved.
-
-### Out of scope
-- No changes to `interval_results` (logging still records `actual_time_seconds` regardless of whether the planned recovery was a distance or a time — distance recovery is a planning instruction, not a measured field).
-- No changes to load/readiness/zone/fatigue functions.
-- No reordering of warmup/cooldown (anchored).
+## Verification
+- Open a session with `rep_trace` → all four metric lines render, toggling works, step bands visible, map shows route.
+- Open a session with only per-rep summaries → step-chart fallback renders with caption; map panel hidden if no lat/lng.
+- Open a manually-logged session with no `interval_results` → graph panel hidden, info card shown, summary panel still renders totals.
+- Detail screen still loads identically; "View analysis" button appears only when completed.
