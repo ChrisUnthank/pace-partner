@@ -48,7 +48,7 @@ function SessionDetail() {
     enabled: stepIds.length > 0,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("interval_results").select("*").in("step_id", stepIds).order("rep_number");
+        .from("interval_results").select("*").in("step_id", stepIds).order("set_number").order("rep_number");
       if (error) throw error;
       return data;
     },
@@ -167,13 +167,15 @@ function StepBlock({ session, step, results, fatigue, fuelEvents }: { session: a
   const qc = useQueryClient();
   const isWork = step.kind === "work";
   const isRecovery = step.kind === "recovery";
+  const isStrides = step.kind === "strides";
+  const setCount = Math.max(1, step.set_count ?? 1);
 
-  async function saveRep(repNumber: number, patch: any) {
-    const existing = results.find((r) => r.rep_number === repNumber);
+  async function saveRep(setNumber: number, repNumber: number, patch: any) {
+    const existing = results.find((r) => r.rep_number === repNumber && (r.set_number ?? 1) === setNumber);
     if (existing) {
       await supabase.from("interval_results").update(patch).eq("id", existing.id);
     } else {
-      await supabase.from("interval_results").insert({ step_id: step.id, rep_number: repNumber, ...patch });
+      await supabase.from("interval_results").insert({ step_id: step.id, set_number: setNumber, rep_number: repNumber, ...patch });
     }
     qc.invalidateQueries({ queryKey: ["results"] });
     qc.invalidateQueries({ queryKey: ["fatigue"] });
@@ -192,41 +194,70 @@ function StepBlock({ session, step, results, fatigue, fuelEvents }: { session: a
   }
 
   const reps = Array.from({ length: step.reps || 1 }, (_, i) => i + 1);
+  const sets = Array.from({ length: setCount }, (_, i) => i + 1);
 
   return (
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-base capitalize">
           {step.kind}
-          {isWork && step.target_kind === "distance" && ` · ${step.reps}×${metersFmt(step.target_distance_m)}`}
+          {isWork && step.target_kind === "distance" && ` · ${setCount > 1 ? `${setCount}×` : ""}${step.reps}×${metersFmt(step.target_distance_m)}`}
           {isWork && step.target_kind === "time" && ` · ${step.reps}×${secToClock(step.target_time_seconds)}`}
+          {isStrides && ` · ${step.reps}×${metersFmt(step.target_distance_m)}`}
           {isRecovery && ` · ${step.recovery_mode} · ${step.recovery_target_kind === "time" ? secToClock(step.recovery_target_seconds) : metersFmt(step.recovery_target_distance_m)}`}
           {step.is_ladder && <Badge variant="outline" className="ml-2 text-[10px]">Ladder</Badge>}
+          {isStrides && (
+            step.counts_toward_distance
+              ? <Badge className="ml-2 text-[10px] bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/15">Stride · counts</Badge>
+              : <Badge className="ml-2 text-[10px] bg-amber-500/20 text-amber-700 hover:bg-amber-500/20">Run-through · excluded from weekly km</Badge>
+          )}
         </CardTitle>
         {step.target_pace_sec_per_km && <CardDescription>Target pace {secToClock(step.target_pace_sec_per_km)} /km</CardDescription>}
+        {isWork && (step.recovery_between_reps_seconds || step.recovery_between_sets_seconds) && (
+          <CardDescription className="text-xs">
+            {step.recovery_between_reps_seconds && <>Recovery between reps: {secToClock(step.recovery_between_reps_seconds)}</>}
+            {step.recovery_between_reps_seconds && step.recovery_between_sets_seconds && " · "}
+            {step.recovery_between_sets_seconds && <>Between sets: {secToClock(step.recovery_between_sets_seconds)}</>}
+          </CardDescription>
+        )}
       </CardHeader>
       <CardContent>
-        {(isWork || isRecovery) && (
+        {(isWork || isStrides) && (
+          <div className="space-y-3">
+            {sets.map((setN) => (
+              <div key={setN} className="space-y-2">
+                {setCount > 1 && (
+                  <div className="text-xs font-semibold text-muted-foreground border-b pb-1">Set {setN} of {setCount}</div>
+                )}
+                {reps.map((rep) => {
+                  const r = results.find((x) => x.rep_number === rep && (x.set_number ?? 1) === setN);
+                  const fuelForRep = fuelEvents.filter((f) => f.rep_number === rep);
+                  return (
+                    <RepRow
+                      key={`${setN}-${rep}`}
+                      step={step}
+                      rep={rep}
+                      result={r}
+                      onSave={(p) => saveRep(setN, rep, p)}
+                      onAddFuel={() => addFuelNote(rep)}
+                      fuelNotes={fuelForRep}
+                    />
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        )}
+        {isRecovery && (
           <div className="space-y-2">
             {reps.map((rep) => {
               const r = results.find((x) => x.rep_number === rep);
-              const fuelForRep = fuelEvents.filter((f) => f.rep_number === rep);
-              return (
-                <RepRow
-                  key={rep}
-                  step={step}
-                  rep={rep}
-                  result={r}
-                  onSave={(p) => saveRep(rep, p)}
-                  onAddFuel={() => addFuelNote(rep)}
-                  fuelNotes={fuelForRep}
-                />
-              );
+              return <RepRow key={rep} step={step} rep={rep} result={r} onSave={(p) => saveRep(1, rep, p)} onAddFuel={() => addFuelNote(rep)} fuelNotes={[]} />;
             })}
           </div>
         )}
         {(step.kind === "warmup" || step.kind === "cooldown") && (
-          <RepRow step={step} rep={1} result={results[0]} onSave={(p) => saveRep(1, p)} onAddFuel={() => addFuelNote(1)} fuelNotes={fuelEvents.filter((f) => f.rep_number === 1)} />
+          <RepRow step={step} rep={1} result={results[0]} onSave={(p) => saveRep(1, 1, p)} onAddFuel={() => addFuelNote(1)} fuelNotes={fuelEvents.filter((f) => f.rep_number === 1)} />
         )}
         {isWork && <StepFatiguePanel fatigue={fatigue} isLadder={step.is_ladder} reps={results.length} />}
       </CardContent>
