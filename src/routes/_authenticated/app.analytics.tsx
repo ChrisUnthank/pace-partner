@@ -390,7 +390,7 @@ function AthleteAnalytics({
     for (const r of src) {
       buckets.set(r.zone as string, (buckets.get(r.zone as string) ?? 0) + Number(r.seconds ?? 0));
     }
-    const order = ["recovery", "easy", "steady", "threshold", "vo2", "rep", "sprint"];
+    const order = ["z1", "z2", "z3", "z4", "z5"];
     return order
       .filter((z) => buckets.has(z))
       .map((zone) => ({ zone, minutes: Math.round((buckets.get(zone) ?? 0) / 60) }));
