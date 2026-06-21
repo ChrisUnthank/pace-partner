@@ -1,30 +1,26 @@
-I found the live roster request is failing with backend permission errors, not missing links:
-
-- `chris@unthank.me` has the `coach` role and 5 linked athletes.
-- The `/app/athletes` request returns `403` because the roster query hits backend policies/functions without the required Data API permissions.
-- One invite policy also reads from the auth user table directly, which causes `permission denied for table users` during embedded roster queries.
-
 Plan:
 
-1. Add a targeted backend migration to restore app access without changing Chris’s data:
-   - Grant authenticated app users access to the existing roster-related public tables, still protected by their existing row-level rules.
-   - Grant app users permission to execute the role/access helper functions used inside those row-level rules, especially `is_coach_of` and `has_role`.
-   - Replace the invitee email policy so it checks the signed-in user’s email from their auth token instead of querying the protected auth users table.
+1. Fix the remaining broken analysis toggle
+- The earlier fix did not catch the calendar sheet's `Analysis` button.
+- Actual issue found: `app.sessions.calendar.tsx` still has invalid nested interactive markup: `<Link><Button>Analysis</Button></Link>`.
+- I'll change it to the valid `Button asChild` pattern so the route click reliably reaches `/app/sessions/$sessionId/analysis`.
+- I'll also fix the adjacent `+ New session` button in the same sheet because it has the same invalid pattern.
 
-2. Keep the existing coach-athlete links intact:
-   - No changes to test athletes.
-   - No reassignment or duplicate test data.
+2. Fix the missing work data on the current analysis page
+- Actual issue found in the database for the session you were viewing: `a06c3f65-77aa-4fb1-89e4-176afb39e84f` (`[TEST] Maya Okafor · Easy run`).
+- It has one work rep row, but the row is incomplete:
+  - pace exists: `260 sec/km`
+  - time, distance, HR avg/end, cadence, stride length are all null.
+- Because time is null, the zone/fatigue functions correctly skip it (they require `actual_time_seconds > 0` and explicit non-null checks per metric — confirmed in `recompute_session_zones` and `compute_session_fatigue`), so the graph and zone panels have nothing meaningful to render. No silent default to "Easy" is happening — missing data is correctly skipped/null.
 
-3. Verify after approval:
-   - Confirm Chris still has 5 linked athletes in the backend.
-   - Confirm the roster request no longer returns `403`.
-   - Confirm `/app/athletes` shows the 5 `[TEST]` athletes.
+3. Reseed incomplete test rep rows with realistic complete values
+- Sweep all `[TEST]` completed sessions and, for any work rep row missing per-rep values, fill realistic numbers consistent with the session totals and athlete's zones (time, distance, HR avg, HR end, cadence, stride length).
+- Only seeded `[TEST]` athlete data is touched — no real user data.
 
-Technical details:
+4. Recompute derived analysis data
+- After the data repair, call the existing `recompute_session_zones` and `compute_session_fatigue` functions on each affected session so `session_zone_time` and `session_fatigue` are repopulated.
 
-```sql
--- Fix function/table permission path used by RLS and embedded roster queries.
--- Rewrite athlete_invites policy to avoid reading auth.users from RLS.
-```
-
-This is a backend permissions fix for the already-planned roster work; I’ll avoid any optional tooling or generation work.
+5. Verify and report back
+- Verify the analysis link works from the calendar sheet and the session detail view.
+- Verify the current Easy run analysis page now has graph points and zone rows.
+- Report root causes plainly: one remaining invalid nested Link/Button in the calendar sheet, plus incomplete seeded rep rows causing correct skip/null behavior on the analysis screen.

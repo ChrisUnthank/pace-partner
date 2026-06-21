@@ -265,16 +265,18 @@ function CalendarPage() {
                     </div>
                   </Link>
                   {s.completed_at && (
-                    <Link to="/app/sessions/$sessionId/analysis" params={{ sessionId: s.id }} onClick={() => setSheetDay(null)}>
-                      <Button variant="outline" size="sm">Analysis</Button>
-                    </Link>
+                    <Button asChild variant="outline" size="sm">
+                      <Link to="/app/sessions/$sessionId/analysis" params={{ sessionId: s.id }} onClick={() => setSheetDay(null)}>
+                        Analysis
+                      </Link>
+                    </Button>
                   )}
                 </div>
               ))}
               {isCoach && sheetDay.sessions.length === 0 && (
-                <Link to="/app/sessions/new" onClick={() => setSheetDay(null)}>
-                  <Button size="sm" variant="outline">+ New session</Button>
-                </Link>
+                <Button asChild size="sm" variant="outline">
+                  <Link to="/app/sessions/new" onClick={() => setSheetDay(null)}>+ New session</Link>
+                </Button>
               )}
             </div>
           )}
