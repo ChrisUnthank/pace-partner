@@ -387,8 +387,33 @@ type StepEditorProps = {
   anchored?: "top" | "bottom";
 };
 
-function StepFields({ step: s, onUpdate }: { step: StepDraft; onUpdate: (p: Partial<StepDraft>) => void }) {
+function StepFields({ step: s, onUpdate, structure }: { step: StepDraft; onUpdate: (p: Partial<StepDraft>) => void; structure?: string }) {
   if (s.kind === "work") {
+    const isContinuous = structure === "continuous";
+    if (isContinuous) {
+      return (
+        <div className="grid grid-cols-2 gap-2">
+          <div className="col-span-2 text-[11px] text-muted-foreground leading-snug -mt-1">
+            Continuous effort — one sustained block. For reps with recovery, change the session structure to Reps/Intervals.
+          </div>
+          <div><Label className="text-xs">Target</Label>
+            <Select value={s.target_kind} onValueChange={(v) => onUpdate({ target_kind: v as any })}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="distance">Distance (m)</SelectItem>
+                <SelectItem value="time">Time (mm:ss)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {s.target_kind === "distance" ? (
+            <div><Label className="text-xs">Distance (m)</Label><Input type="number" value={s.target_distance_m ?? ""} onChange={(e) => onUpdate({ target_distance_m: Number(e.target.value) })} /></div>
+          ) : (
+            <div><Label className="text-xs">Time (mm:ss)</Label><Input placeholder="40:00" defaultValue={s.target_time_seconds ? secToClock(s.target_time_seconds) : ""} onChange={(e) => onUpdate({ target_time_seconds: clockToSec(e.target.value) })} /></div>
+          )}
+          <div className="col-span-2"><Label className="text-xs">Target pace (mm:ss /km)</Label><Input placeholder="5:00" defaultValue={s.target_pace_sec_per_km ? secToClock(s.target_pace_sec_per_km) : ""} onChange={(e) => onUpdate({ target_pace_sec_per_km: clockToSec(e.target.value) })} /></div>
+        </div>
+      );
+    }
     const repsKind = s.recovery_between_reps_target_kind ?? "time";
     const setsKind = s.recovery_between_sets_target_kind ?? "time";
     return (
