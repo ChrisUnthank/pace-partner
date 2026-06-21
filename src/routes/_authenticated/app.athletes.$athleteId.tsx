@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { metersFmt, secToClock } from "@/lib/format";
 import { ReadinessBadge } from "@/components/readiness-badge";
 import { toast } from "sonner";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, CalendarDays } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/app/athletes/$athleteId")({
   component: AthleteDetail,
@@ -74,11 +74,16 @@ function AthleteDetail() {
               <h1 className="text-2xl font-bold">{athlete.name}</h1>
               <p className="text-sm text-muted-foreground">{athlete.primary_event ?? "—"}</p>
             </div>
-            <ReadinessBadge
-              status={today?.readiness_status as any}
-              score={today?.readiness_score as any}
-              confidence={today?.confidence as any}
-            />
+            <div className="flex items-center gap-2">
+              <Link to="/app/sessions/calendar" search={{ athleteId } as any}>
+                <Button variant="outline" size="sm"><CalendarDays className="h-4 w-4 mr-1" /> Calendar</Button>
+              </Link>
+              <ReadinessBadge
+                status={today?.readiness_status as any}
+                score={today?.readiness_score as any}
+                confidence={today?.confidence as any}
+              />
+            </div>
           </div>
         </div>
 

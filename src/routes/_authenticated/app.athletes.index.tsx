@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { CalendarDays } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/app/athletes/")({
   component: AthletesPage,
@@ -112,6 +113,9 @@ function AthletesPage() {
                       <div className="text-xs text-muted-foreground truncate">{r.athletes?.primary_event ?? "—"}</div>
                     </Link>
                     <div className="flex items-center gap-2 shrink-0">
+                      <Link to="/app/sessions/calendar" search={{ athleteId: r.athlete_id } as any}>
+                        <Button size="icon" variant="ghost" title="View calendar"><CalendarDays className="h-4 w-4" /></Button>
+                      </Link>
                       {r.athletes?.user_id ? (
                         <Badge variant="secondary">Linked</Badge>
                       ) : (
