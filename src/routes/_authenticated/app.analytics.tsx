@@ -25,7 +25,6 @@ import {
   ReferenceLine,
 } from "recharts";
 import { ArrowUpRight, ArrowDownRight, ArrowRight, ChevronLeft, AlertTriangle } from "lucide-react";
-import { metersFmt } from "@/lib/format";
 
 const RANGES = {
   "4w": { days: 28, label: "4 weeks" },
