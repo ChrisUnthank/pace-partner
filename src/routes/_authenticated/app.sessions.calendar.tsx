@@ -43,17 +43,23 @@ function CalendarPage() {
   const navigate = useNavigate({ from: Route.fullPath });
   const { user } = useAuthUser();
   const { data: roles = [] } = useMyRoles();
+  const { data: rawRoles = [] } = useMyRawRoles();
   const { data: myAthlete } = useMyAthlete();
   const isCoach = roles.includes("coach");
+  const isManager = rawRoles.includes("manager");
 
   const view = search.view ?? "month";
   const anchor = search.date ? parseISO(search.date) : new Date();
 
   // Coach roster
   const { data: roster } = useQuery({
-    queryKey: ["calendar-roster", user?.id, isCoach],
+    queryKey: ["calendar-roster", user?.id, isCoach, isManager],
     enabled: !!user && isCoach,
     queryFn: async () => {
+      if (isManager) {
+        const { data } = await supabase.from("athletes").select("id, name").order("name");
+        return (data ?? []) as { id: string; name: string }[];
+      }
       const { data } = await supabase
         .from("coach_athletes")
         .select("athlete_id, athletes(id, name)")
