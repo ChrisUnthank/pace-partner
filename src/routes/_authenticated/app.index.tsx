@@ -117,7 +117,7 @@ function AppHome() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>Your athletes</CardTitle>
-              <Link to="/app/athletes"><Button size="sm" variant="outline">Manage</Button></Link>
+              <Button asChild size="sm" variant="outline"><Link to="/app/athletes">Manage</Link></Button>
             </CardHeader>
             <CardContent>
               {!roster || roster.length === 0 ? (
@@ -151,9 +151,9 @@ function AppHome() {
           <Card>
             <CardHeader><CardTitle>Quick links</CardTitle></CardHeader>
             <CardContent className="flex flex-wrap gap-2">
-              <Link to="/app/today"><Button>Today's session & check-in</Button></Link>
-              <Link to="/app/sessions"><Button variant="outline">All sessions</Button></Link>
-              <Link to="/app/profile"><Button variant="outline">PBs & zones</Button></Link>
+              <Button asChild><Link to="/app/today">Today's session & check-in</Link></Button>
+              <Button asChild variant="outline"><Link to="/app/sessions">All sessions</Link></Button>
+              <Button asChild variant="outline"><Link to="/app/profile">PBs & zones</Link></Button>
             </CardContent>
           </Card>
         )}

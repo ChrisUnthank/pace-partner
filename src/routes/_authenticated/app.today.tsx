@@ -159,9 +159,9 @@ function TodayPage() {
                   <div className="font-medium">{todaysSession.title}</div>
                   <div className="text-xs text-muted-foreground">{sessionClassificationLabel(todaysSession as any)}</div>
                 </div>
-                <Link to="/app/sessions/$sessionId" params={{ sessionId: todaysSession.id }}>
-                  <Button>Open</Button>
-                </Link>
+                <Button asChild>
+                  <Link to="/app/sessions/$sessionId" params={{ sessionId: todaysSession.id }}>Open</Link>
+                </Button>
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">Nothing planned. <Link to="/app/sessions/new" className="underline">Add a session</Link>.</p>

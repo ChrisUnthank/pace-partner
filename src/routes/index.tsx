@@ -28,7 +28,7 @@ function Landing() {
       <header className="border-b">
         <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
           <span className="font-semibold">Strider</span>
-          <Link to="/auth"><Button size="sm">Sign in</Button></Link>
+          <Button asChild size="sm"><Link to="/auth">Sign in</Link></Button>
         </div>
       </header>
       <main className="flex-1">
@@ -38,7 +38,7 @@ function Landing() {
             Plan sessions rep-by-rep, log every recovery, monitor daily readiness, and let the data tell you when to push and when to back off. Built for 800m–5000m athletes and the coaches who guide them.
           </p>
           <div className="mt-8 flex gap-3 justify-center">
-            <Link to="/auth"><Button size="lg">Get started</Button></Link>
+            <Button asChild size="lg"><Link to="/auth">Get started</Link></Button>
           </div>
         </section>
         <section className="max-w-5xl mx-auto px-4 grid md:grid-cols-3 gap-6 pb-20">
