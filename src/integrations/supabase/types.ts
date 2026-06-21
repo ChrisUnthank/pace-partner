@@ -1194,6 +1194,10 @@ export type Database = {
         Returns: boolean
       }
       claim_athlete_invite: { Args: { _token: string }; Returns: Json }
+      compute_session_completion: {
+        Args: { _session_id: string }
+        Returns: undefined
+      }
       compute_session_fatigue: {
         Args: { _session_id: string }
         Returns: undefined
