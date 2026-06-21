@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuthUser, useMyRoles, useMyAthlete } from "@/lib/use-auth";
+import { useAuthUser, useMyRoles, useMyRawRoles, useMyAthlete } from "@/lib/use-auth";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -72,13 +72,19 @@ function NewSession() {
   const navigate = useNavigate();
   const { user } = useAuthUser();
   const { data: roles = [] } = useMyRoles();
+  const { data: rawRoles = [] } = useMyRawRoles();
   const { data: myAthlete } = useMyAthlete();
   const isCoach = roles.includes("coach");
+  const isManager = rawRoles.includes("manager");
 
   const { data: rosterAthletes } = useQuery({
-    queryKey: ["coach-roster", user?.id],
+    queryKey: ["coach-roster", user?.id, isManager],
     enabled: !!user && isCoach,
     queryFn: async () => {
+      if (isManager) {
+        const { data } = await supabase.from("athletes").select("id, name").order("name");
+        return data ?? [];
+      }
       const { data } = await supabase.from("coach_athletes")
         .select("athletes(id, name)").eq("coach_user_id", user!.id);
       return (data ?? []).map((r: any) => r.athletes).filter(Boolean);
