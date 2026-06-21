@@ -1,29 +1,31 @@
-## Bug: "View analysis" navigates but renders session detail instead of analysis
+## Redesign: Performance Dark Grid
 
-### What's actually happening
-`src/routes/_authenticated/app.sessions.$sessionId.analysis.tsx` is registered as a **child** of `app.sessions.$sessionId.tsx` in `routeTree.gen.ts` (because TanStack's flat dot-routing nests `$sessionId.analysis` under `$sessionId` when both files exist). For a child route to render, the parent component must include `<Outlet />`. `SessionDetail` does not — it just renders the detail page directly. So the URL changes to `/analysis`, the route matches, and the parent's detail UI is shown again with no analysis content. Verified by hitting the URL directly in a headless browser: URL is `/analysis`, body is the detail page, no console errors.
+Picking **v2 — Performance dark grid** as the default. Reason: tightest information density, reserves red #FF004C for active/critical states only (matches your "live/alert accent" convention), and the dashboard sidebar pattern survives best when content panels are data-heavy (zones, charts, session lists) rather than display-heavy.
 
-This is unrelated to the earlier button-inside-link nesting fix and unrelated to rep-data completeness. Adding rep data would not have changed anything.
+### Visual tokens (locked from your choices)
+- **Background**: near-black `#0a0a0a` (zinc-950) / panels `#18181b` (zinc-900) / borders `#27272a` (zinc-800)
+- **Text**: white primary, zinc-400 secondary, zinc-500 labels (uppercase + tracked)
+- **Accent**: `#FF004C` — reserved for active nav item, live/critical status, key data peaks, primary CTA hover. Never as a fill on neutral surfaces.
+- **Type**: Sora 700–800 for headings + numeric displays; Manrope 400–600 for body; uppercase tracked micro-labels at 10px/bold
+- **Radius**: tight (`rounded-md` / `rounded-xl` on panels, sharp inputs)
 
-### Fix (canonical TanStack layout-route pattern)
-
-Convert `$sessionId` into a layout and move its current content into an `index` leaf:
-
-1. **Create** `src/routes/_authenticated/app.sessions.$sessionId.index.tsx` containing the current `SessionDetail` body (everything currently in `app.sessions.$sessionId.tsx`), with `createFileRoute("/_authenticated/app/sessions/$sessionId/")`.
-2. **Replace** `src/routes/_authenticated/app.sessions.$sessionId.tsx` with a minimal layout:
-   ```tsx
-   import { createFileRoute, Outlet } from "@tanstack/react-router";
-   export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId")({
-     component: () => <Outlet />,
-   });
-   ```
-3. Leave `app.sessions.$sessionId.analysis.tsx` unchanged — it now correctly renders inside the parent's `<Outlet />` at `/app/sessions/$sessionId/analysis`, while `/app/sessions/$sessionId` renders the new `index` leaf.
-4. No code changes needed to the "View analysis" link itself, the analysis page, or any link that points at `/app/sessions/$sessionId` — both URLs continue to work, routeTree regenerates on save.
-
-### Verification
-- Reload the detail page for the 2026-06-21 Elena Voss "Long Run 12km" session — same UI as before.
-- Click "View analysis" — now shows the Session Analysis page (graph + totals + zones) instead of re-rendering the detail page.
-- Headless reload of `/app/sessions/<id>/analysis` directly returns the analysis page body ("← Back to details", Session graph card, etc.).
+### Structural changes
+1. **App shell** (`src/components/app-shell.tsx`): replace top header + horizontal nav with a persistent left sidebar (collapsible to icons), top bar reduced to breadcrumb + user actions. Existing nav items unchanged (Home, Today, Sessions, Analytics, Athletes, Templates, Profile). Active item: left-edge red bar + zinc-900 fill.
+2. **CSS tokens** (`src/styles.css`): swap `:root` color tokens to the dark palette by default (no light mode toggle — single dark theme); add `--accent: #FF004C` + shades; register Sora/Manrope via `<link>` in `__root.tsx` and `--font-display: Sora`, `--font-sans: Manrope` in `@theme`.
+3. **Card defaults**: dark panel surfaces, thin zinc borders, no shadow.
+4. **Athlete detail page**: re-skin existing IdentityCard / PhysiologyCard / ZoneBoundariesCard / weekly distance / sessions list to dark panels with numeric tabular treatment. Zone bars: zinc-800 track, accent fill only on currently-highlighted zone.
+5. **Other pages** (Today, Sessions, Analytics, Athletes roster, Templates, Profile, Auth): inherit new tokens automatically. No structural reshuffling — only visual.
 
 ### Out of scope
-Not touching data-gating, error states, or the analysis page's own rendering — those weren't the cause. If you want a graceful "not enough data" message in additional edge cases later, that's a separate change.
+- No data/logic changes. No new features. No removal of fields.
+- No light mode.
+- Charts (recharts) get re-themed via CSS vars only, not rewritten.
+
+### Technical notes
+- Tailwind v4: edit `@theme` block in `src/styles.css`; load Sora + Manrope via `<link>` tags in `src/routes/__root.tsx` head (NOT `@import` in CSS).
+- Keep `.dark` variant working but make dark the default by adding `class="dark"` to `<html>` in `__root.tsx` (or invert :root values).
+- shadcn components stay; they pick up the new tokens automatically.
+
+### Verification
+- Headless screenshot of `/app/athletes/<id>` to confirm dark shell, sidebar, accent usage.
+- Spot-check `/app/today` and `/app/sessions` for token inheritance.
