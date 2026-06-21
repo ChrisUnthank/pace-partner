@@ -343,6 +343,32 @@ function AthleteAnalytics({
     },
   });
 
+  const { data: intentRollup } = useQuery({
+    queryKey: ["analytics-intent-time", athleteId, since],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("sessions")
+        .select("intent, total_time_seconds, day_type")
+        .eq("athlete_id", athleteId)
+        .not("completed_at", "is", null)
+        .gte("session_date", since);
+      return data ?? [];
+    },
+  });
+
+  const { data: stepVolume } = useQuery({
+    queryKey: ["analytics-step-volume", athleteId, since],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("interval_results")
+        .select("actual_time_seconds, actual_distance_m, steps!inner(kind, sessions!inner(athlete_id, session_date, completed_at))")
+        .eq("steps.sessions.athlete_id", athleteId)
+        .not("steps.sessions.completed_at", "is", null)
+        .gte("steps.sessions.session_date", since);
+      return data ?? [];
+    },
+  });
+
   const { data: physio } = useQuery({
     queryKey: ["analytics-physio", athleteId],
     queryFn: async () => {
@@ -385,19 +411,56 @@ function AthleteAnalytics({
     km: Math.round((Number(r.distance_m ?? 0) / 1000) * 10) / 10,
   }));
 
-  const zoneRollup = useMemo(() => {
-    const buckets = new Map<string, number>();
-    const rows: any[] = (zoneTime as any) ?? [];
-    const hr = rows.filter((r) => r.source === "hr");
-    const src = hr.length ? hr : rows.filter((r) => r.source === "pace");
-    for (const r of src) {
-      buckets.set(r.zone as string, (buckets.get(r.zone as string) ?? 0) + Number(r.seconds ?? 0));
-    }
-    const order = ["z1", "z2", "z3", "z4", "z5"];
-    return order
-      .filter((z) => buckets.has(z))
-      .map((zone) => ({ zone, minutes: Math.round((buckets.get(zone) ?? 0) / 60) }));
+  const zoneBuckets = useMemo(() => {
+    const make = (source: "hr" | "pace") => {
+      const sec = new Map<string, number>();
+      const m = new Map<string, number>();
+      for (const r of ((zoneTime as any) ?? []).filter((x: any) => x.source === source)) {
+        sec.set(r.zone, (sec.get(r.zone) ?? 0) + Number(r.seconds ?? 0));
+        m.set(r.zone, (m.get(r.zone) ?? 0) + Number(r.meters ?? 0));
+      }
+      const order = ["z1", "z2", "z3", "z4", "z5"];
+      return order.map((zone) => ({
+        zone: zone.toUpperCase(),
+        minutes: Math.round((sec.get(zone) ?? 0) / 60),
+        km: Math.round(((m.get(zone) ?? 0) / 1000) * 10) / 10,
+      }));
+    };
+    return { hr: make("hr"), pace: make("pace") };
   }, [zoneTime]);
+
+  const intentData = useMemo(() => {
+    const buckets = new Map<string, number>();
+    for (const r of (intentRollup as any[]) ?? []) {
+      if (!r.intent || r.day_type !== "training") continue;
+      buckets.set(r.intent, (buckets.get(r.intent) ?? 0) + Number(r.total_time_seconds ?? 0));
+    }
+    const order = ["easy", "aerobic", "tempo", "threshold", "vo2", "anaerobic", "speed"];
+    return order
+      .filter((k) => buckets.has(k))
+      .map((intent) => ({
+        intent: intent.charAt(0).toUpperCase() + intent.slice(1),
+        minutes: Math.round((buckets.get(intent) ?? 0) / 60),
+      }));
+  }, [intentRollup]);
+
+  const kindVolume = useMemo(() => {
+    const sec = new Map<string, number>();
+    const m = new Map<string, number>();
+    for (const r of (stepVolume as any[]) ?? []) {
+      const kind = r.steps?.kind ?? "work";
+      sec.set(kind, (sec.get(kind) ?? 0) + Number(r.actual_time_seconds ?? 0));
+      m.set(kind, (m.get(kind) ?? 0) + Number(r.actual_distance_m ?? 0));
+    }
+    const order = ["warmup", "work", "strides", "recovery", "cooldown"];
+    return order
+      .filter((k) => (sec.get(k) ?? 0) > 0 || (m.get(k) ?? 0) > 0)
+      .map((kind) => ({
+        kind: kind.charAt(0).toUpperCase() + kind.slice(1),
+        minutes: Math.round((sec.get(kind) ?? 0) / 60),
+        km: Math.round(((m.get(kind) ?? 0) / 1000) * 10) / 10,
+      }));
+  }, [stepVolume]);
 
   return (
     <div className="space-y-6">
