@@ -484,7 +484,7 @@ export type Database = {
         Row: {
           adjusted_summary: string
           adjustment_type: string
-          category: Database["public"]["Enums"]["session_category"]
+          category: string
           id: string
           readiness_status: Database["public"]["Enums"]["readiness_status"]
           reason: string | null
@@ -492,7 +492,7 @@ export type Database = {
         Insert: {
           adjusted_summary: string
           adjustment_type: string
-          category: Database["public"]["Enums"]["session_category"]
+          category: string
           id?: string
           readiness_status: Database["public"]["Enums"]["readiness_status"]
           reason?: string | null
@@ -500,7 +500,7 @@ export type Database = {
         Update: {
           adjusted_summary?: string
           adjustment_type?: string
-          category?: Database["public"]["Enums"]["session_category"]
+          category?: string
           id?: string
           readiness_status?: Database["public"]["Enums"]["readiness_status"]
           reason?: string | null
@@ -617,7 +617,7 @@ export type Database = {
         Row: {
           athlete_id: string
           avg_hr: number | null
-          category: Database["public"]["Enums"]["session_category"]
+          category: string
           completed_at: string | null
           completion_pct: number | null
           created_at: string
@@ -641,7 +641,7 @@ export type Database = {
         Insert: {
           athlete_id: string
           avg_hr?: number | null
-          category?: Database["public"]["Enums"]["session_category"]
+          category?: string
           completed_at?: string | null
           completion_pct?: number | null
           created_at?: string
@@ -665,7 +665,7 @@ export type Database = {
         Update: {
           athlete_id?: string
           avg_hr?: number | null
-          category?: Database["public"]["Enums"]["session_category"]
+          category?: string
           completed_at?: string | null
           completion_pct?: number | null
           created_at?: string
@@ -856,17 +856,6 @@ export type Database = {
         | "recovery"
       readiness_status: "green" | "amber" | "red"
       recovery_mode: "standing" | "walk" | "jog" | "float"
-      session_category:
-        | "easy"
-        | "long"
-        | "tempo"
-        | "threshold"
-        | "intervals"
-        | "reps"
-        | "race"
-        | "recovery"
-        | "cross_training"
-        | "rest"
       session_source: "manual" | "synced"
       step_kind: "warmup" | "work" | "recovery" | "cooldown"
       target_kind: "time" | "distance"
@@ -1019,18 +1008,6 @@ export const Constants = {
       ],
       readiness_status: ["green", "amber", "red"],
       recovery_mode: ["standing", "walk", "jog", "float"],
-      session_category: [
-        "easy",
-        "long",
-        "tempo",
-        "threshold",
-        "intervals",
-        "reps",
-        "race",
-        "recovery",
-        "cross_training",
-        "rest",
-      ],
       session_source: ["manual", "synced"],
       step_kind: ["warmup", "work", "recovery", "cooldown"],
       target_kind: ["time", "distance"],
