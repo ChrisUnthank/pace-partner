@@ -26,10 +26,13 @@ export function useAuthUser() {
   return { user, loading };
 }
 
-export function useMyRoles() {
+export type AppRole = "coach" | "athlete" | "manager" | "admin";
+
+// Raw roles as stored in the database (used by the Profile role-management UI).
+export function useMyRawRoles() {
   const { user } = useAuthUser();
   return useQuery({
-    queryKey: ["my-roles", user?.id],
+    queryKey: ["my-raw-roles", user?.id],
     enabled: !!user,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -37,9 +40,18 @@ export function useMyRoles() {
         .select("role")
         .eq("user_id", user!.id);
       if (error) throw error;
-      return (data ?? []).map((r) => r.role as "coach" | "athlete" | "admin");
+      return (data ?? []).map((r) => r.role as AppRole);
     },
   });
+}
+
+// Effective roles for UI gating: "manager" implicitly grants "coach" access
+// so existing roles.includes("coach") checks throughout the app work for managers.
+export function useMyRoles() {
+  const q = useMyRawRoles();
+  const raw = q.data ?? [];
+  const effective = raw.includes("manager") && !raw.includes("coach") ? [...raw, "coach" as AppRole] : raw;
+  return { ...q, data: effective };
 }
 
 export function useMyAthlete() {
