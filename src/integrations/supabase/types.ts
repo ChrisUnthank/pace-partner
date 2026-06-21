@@ -811,9 +811,19 @@ export type Database = {
         Args: { _athlete_id: string; _user_id: string }
         Returns: boolean
       }
+      claim_athlete_invite: { Args: { _token: string }; Returns: Json }
       external_load_score: {
         Args: { _athlete_id: string; _date: string }
         Returns: number
+      }
+      get_invite_by_token: {
+        Args: { _token: string }
+        Returns: {
+          athlete_name: string
+          coach_name: string
+          invited_email: string
+          status: string
+        }[]
       }
       has_role: {
         Args: {

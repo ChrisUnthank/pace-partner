@@ -8,6 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/app/athletes/")({
@@ -20,6 +22,7 @@ function AthletesPage() {
   const [name, setName] = useState("");
   const [event, setEvent] = useState("");
   const [email, setEmail] = useState("");
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
 
   const { data: roster } = useQuery({
     queryKey: ["roster", user?.id],
@@ -27,7 +30,7 @@ function AthletesPage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("coach_athletes")
-        .select("athlete_id, athletes(*)")
+        .select("athlete_id, athletes(*), athlete_invites:athlete_invites!athlete_invites_athlete_id_fkey(token, accepted_at, email)")
         .eq("coach_user_id", user!.id);
       return data ?? [];
     },
@@ -41,13 +44,41 @@ function AthletesPage() {
     if (error || !ath) { toast.error(error?.message ?? "Failed"); return; }
     await supabase.from("coach_athletes").insert({ coach_user_id: user!.id, athlete_id: ath.id });
     if (email) {
-      await supabase.from("athlete_invites").insert({
+      const { data: inv } = await supabase.from("athlete_invites").insert({
         coach_user_id: user!.id, athlete_id: ath.id, email,
-      });
+      }).select("token").single();
+      if (inv?.token) setInviteLink(`${window.location.origin}/claim/${inv.token}`);
     }
     setName(""); setEvent(""); setEmail("");
     toast.success("Athlete added");
     qc.invalidateQueries({ queryKey: ["roster"] });
+  }
+
+  async function copyExistingInvite(athleteId: string, existing: any) {
+    let token: string | undefined = existing?.[0]?.token && !existing?.[0]?.accepted_at ? existing[0].token : undefined;
+    if (!token) {
+      const inviteEmail = window.prompt("Email to send the invite to:");
+      if (!inviteEmail) return;
+      const { data, error } = await supabase.from("athlete_invites").insert({
+        coach_user_id: user!.id, athlete_id: athleteId, email: inviteEmail,
+      }).select("token").single();
+      if (error || !data) { toast.error(error?.message ?? "Failed"); return; }
+      token = data.token;
+      qc.invalidateQueries({ queryKey: ["roster"] });
+    }
+    const link = `${window.location.origin}/claim/${token}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      toast.success("Invite link copied");
+    } catch {
+      setInviteLink(link);
+    }
+  }
+
+  async function copyLink() {
+    if (!inviteLink) return;
+    try { await navigator.clipboard.writeText(inviteLink); toast.success("Copied"); }
+    catch { toast.error("Copy failed — select the link manually"); }
   }
 
   return (
@@ -75,20 +106,44 @@ function AthletesPage() {
             ) : (
               <div className="divide-y">
                 {roster.map((r: any) => (
-                  <Link key={r.athlete_id} to="/app/athletes/$athleteId" params={{ athleteId: r.athlete_id }}
-                    className="flex justify-between items-center px-4 py-3 hover:bg-accent/40">
-                    <div>
-                      <div className="font-medium">{r.athletes?.name}</div>
-                      <div className="text-xs text-muted-foreground">{r.athletes?.primary_event ?? "—"}</div>
+                  <div key={r.athlete_id} className="flex justify-between items-center px-4 py-3 hover:bg-accent/40 gap-3">
+                    <Link to="/app/athletes/$athleteId" params={{ athleteId: r.athlete_id }} className="flex-1 min-w-0">
+                      <div className="font-medium truncate">{r.athletes?.name}</div>
+                      <div className="text-xs text-muted-foreground truncate">{r.athletes?.primary_event ?? "—"}</div>
+                    </Link>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {r.athletes?.user_id ? (
+                        <Badge variant="secondary">Linked</Badge>
+                      ) : (
+                        <>
+                          <Badge variant="outline">Invite pending</Badge>
+                          <Button size="sm" variant="ghost" onClick={() => copyExistingInvite(r.athlete_id, r.athlete_invites)}>
+                            {r.athlete_invites?.length ? "Copy invite link" : "Generate invite link"}
+                          </Button>
+                        </>
+                      )}
                     </div>
-                    <span className="text-xs text-muted-foreground">{r.athletes?.user_id ? "Linked" : "Unlinked"}</span>
-                  </Link>
+                  </div>
                 ))}
               </div>
             )}
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={!!inviteLink} onOpenChange={(o) => !o && setInviteLink(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Invite link ready</DialogTitle>
+            <DialogDescription>Send this link to your athlete. It's valid for 30 days and works once.</DialogDescription>
+          </DialogHeader>
+          <Input readOnly value={inviteLink ?? ""} onFocus={(e) => e.currentTarget.select()} />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setInviteLink(null)}>Close</Button>
+            <Button onClick={copyLink}>Copy link</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }
