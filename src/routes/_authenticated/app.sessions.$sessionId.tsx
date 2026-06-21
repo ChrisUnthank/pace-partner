@@ -12,8 +12,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { secToClock, clockToSec, metersFmt } from "@/lib/format";
 import { sessionClassificationLabel } from "@/lib/session-categories";
+import { saveSessionAsTemplate } from "@/lib/templates";
+import { useAuthUser, useMyRoles } from "@/lib/use-auth";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { CheckCircle2, Apple } from "lucide-react";
+import { CheckCircle2, Apple, BookmarkPlus } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId")({
   component: SessionDetail,
@@ -22,6 +25,11 @@ export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId")(
 function SessionDetail() {
   const { sessionId } = Route.useParams();
   const qc = useQueryClient();
+  const { user } = useAuthUser();
+  const { data: roles = [] } = useMyRoles();
+  const isCoach = roles.includes("coach");
+  const [saveTplOpen, setSaveTplOpen] = useState(false);
+  const [tplName, setTplName] = useState("");
 
   const { data: session, isLoading } = useQuery({
     queryKey: ["session", sessionId],
@@ -84,16 +92,28 @@ function SessionDetail() {
 
   if (isLoading || !session) return <AppShell><p>Loading…</p></AppShell>;
 
+  const canSaveAsTemplate = isCoach && (session as any).day_type === "training";
+
   return (
     <AppShell>
       <div className="space-y-6 max-w-3xl">
         <div>
           <Link to="/app/sessions" className="text-sm text-muted-foreground underline">← Sessions</Link>
-          <h1 className="text-2xl font-bold mt-2">{session.title}</h1>
-          <p className="text-sm text-muted-foreground">
-            {session.session_date} · {session.athletes?.name} · {sessionClassificationLabel(session as any)}
-            {session.completed_at && <span className="ml-2 text-emerald-600">Completed</span>}
-          </p>
+          <div className="flex items-start justify-between gap-3 mt-2">
+            <div>
+              <h1 className="text-2xl font-bold">{session.title}</h1>
+              <p className="text-sm text-muted-foreground">
+                {session.session_date} · {session.athletes?.name} · {sessionClassificationLabel(session as any)}
+                {(session as any).applied_from_template_id && <span className="ml-2 italic">· from template</span>}
+                {session.completed_at && <span className="ml-2 text-emerald-600">Completed</span>}
+              </p>
+            </div>
+            {canSaveAsTemplate && (
+              <Button size="sm" variant="outline" onClick={() => { setTplName(session.title ?? ""); setSaveTplOpen(true); }}>
+                <BookmarkPlus className="h-4 w-4 mr-1" />Save as template
+              </Button>
+            )}
+          </div>
         </div>
 
         {session.notes && <Card><CardContent className="pt-4 text-sm">{session.notes}</CardContent></Card>}
@@ -118,6 +138,29 @@ function SessionDetail() {
         <ZoneTimePanel rows={(zoneTime ?? []).filter((r: any) => r.source === "hr")} title="Time in HR zones" subtitle="HR-based" />
         <FuelingPanel session={session} />
       </div>
+
+      <Dialog open={saveTplOpen} onOpenChange={setSaveTplOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save session as template</DialogTitle>
+            <DialogDescription>Saves the structure (steps, sets, reps, targets, recovery) — not athlete, date, or results.</DialogDescription>
+          </DialogHeader>
+          <div>
+            <Label>Template name</Label>
+            <Input className="mt-1" value={tplName} onChange={(e) => setTplName(e.target.value)} placeholder="e.g. Tuesday threshold — 6x800m" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSaveTplOpen(false)}>Cancel</Button>
+            <Button onClick={async () => {
+              if (!tplName.trim()) { toast.error("Name required"); return; }
+              const res = await saveSessionAsTemplate({ sessionId, ownerUserId: user!.id, name: tplName.trim() });
+              if (!res.ok) { toast.error(res.error); return; }
+              toast.success("Template saved"); setSaveTplOpen(false);
+              qc.invalidateQueries({ queryKey: ["templates"] });
+            }}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }
