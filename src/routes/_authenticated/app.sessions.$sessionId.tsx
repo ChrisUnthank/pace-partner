@@ -16,7 +16,7 @@ import { saveSessionAsTemplate } from "@/lib/templates";
 import { useAuthUser, useMyRoles } from "@/lib/use-auth";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { CheckCircle2, Apple, BookmarkPlus } from "lucide-react";
+import { CheckCircle2, Apple, BookmarkPlus, LineChart } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId")({
   component: SessionDetail,
@@ -112,6 +112,13 @@ function SessionDetail() {
               <Button size="sm" variant="outline" onClick={() => { setTplName(session.title ?? ""); setSaveTplOpen(true); }}>
                 <BookmarkPlus className="h-4 w-4 mr-1" />Save as template
               </Button>
+            )}
+            {session.completed_at && (
+              <Link to="/app/sessions/$sessionId/analysis" params={{ sessionId }}>
+                <Button size="sm" variant="outline">
+                  <LineChart className="h-4 w-4 mr-1" />View analysis
+                </Button>
+              </Link>
             )}
           </div>
         </div>
