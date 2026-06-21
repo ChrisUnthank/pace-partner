@@ -154,10 +154,10 @@ function CalendarPage() {
     const next = view === "month"
       ? new Date(anchor.getFullYear(), anchor.getMonth() + delta, 1)
       : addDays(anchor, delta * 7);
-    navigate({ search: (p) => ({ ...p, date: toISO(next) }) });
+    navigate({ search: (p: any) => ({ ...p, date: toISO(next) }) });
   }
-  function goToday() { navigate({ search: (p) => ({ ...p, date: undefined }) }); }
-  function setView(v: "month" | "week") { navigate({ search: (p) => ({ ...p, view: v }) }); }
+  function goToday() { navigate({ search: (p: any) => ({ ...p, date: undefined }) }); }
+  function setView(v: "month" | "week") { navigate({ search: (p: any) => ({ ...p, view: v }) }); }
 
   const [sheetDay, setSheetDay] = useState<DayData | null>(null);
 
@@ -185,7 +185,7 @@ function CalendarPage() {
           </div>
           <div className="flex items-center gap-2">
             {isCoach && roster && roster.length > 0 && (
-              <Select value={selectedAthleteId} onValueChange={(v) => navigate({ search: (p) => ({ ...p, athleteId: v }) })}>
+              <Select value={selectedAthleteId} onValueChange={(v) => navigate({ search: (p: any) => ({ ...p, athleteId: v }) })}>
                 <SelectTrigger className="h-9 w-[180px]"><SelectValue placeholder="Select athlete" /></SelectTrigger>
                 <SelectContent>
                   {myAthlete && <SelectItem value={myAthlete.id}>{myAthlete.name} (me)</SelectItem>}
