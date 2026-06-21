@@ -104,10 +104,9 @@ function NewSession() {
   const [notes, setNotes] = useState("");
   const [appliedFromTemplateId, setAppliedFromTemplateId] = useState<string | null>(null);
   const [steps, setSteps] = useState<StepDraft[]>([
-    defaultStep("warmup"),
-    defaultStep("work"),
-    defaultStep("recovery"),
-    defaultStep("cooldown"),
+    withUid(defaultStep("warmup")),
+    withUid(defaultStep("work")),
+    withUid(defaultStep("cooldown")),
   ]);
 
   const effectiveAthleteId = athleteId || myAthlete?.id || "";
@@ -116,7 +115,32 @@ function NewSession() {
     setSteps((s) => s.map((x, idx) => (idx === i ? { ...x, ...patch } : x)));
   }
   function removeStep(i: number) { setSteps((s) => s.filter((_, idx) => idx !== i)); }
-  function addStep(kind: StepDraft["kind"]) { setSteps((s) => [...s, defaultStep(kind)]); }
+  function addStep(kind: StepDraft["kind"]) {
+    setSteps((s) => {
+      const next = withUid(defaultStep(kind));
+      if (kind === "warmup") {
+        // Insert at top of middle (after existing warmups)
+        const lastWarm = s.map((x) => x.kind).lastIndexOf("warmup");
+        const idx = lastWarm >= 0 ? lastWarm + 1 : 0;
+        return [...s.slice(0, idx), next, ...s.slice(idx)];
+      }
+      if (kind === "cooldown") return [...s, next];
+      // work / recovery / strides → insert before first cooldown (or at end)
+      const firstCool = s.findIndex((x) => x.kind === "cooldown");
+      const idx = firstCool === -1 ? s.length : firstCool;
+      return [...s.slice(0, idx), next, ...s.slice(idx)];
+    });
+  }
+
+  function moveStep(from: number, to: number) {
+    setSteps((s) => {
+      if (to < 0 || to >= s.length) return s;
+      // Anchors: first warmup must stay at 0; last cooldown at end.
+      if (s[from].kind === "warmup" || s[from].kind === "cooldown") return s;
+      if (s[to].kind === "warmup" || s[to].kind === "cooldown") return s;
+      return arrayMove(s, from, to);
+    });
+  }
 
   async function loadTemplate(templateId: string) {
     const tpl = (templates ?? []).find((t: any) => t.id === templateId);
