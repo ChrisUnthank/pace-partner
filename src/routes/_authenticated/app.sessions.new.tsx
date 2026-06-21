@@ -228,7 +228,9 @@ function NewSession() {
     } as any).select().single();
     if (error || !sess) { toast.error(error?.message ?? "Failed"); return; }
 
-    const stepRows = steps.map((s, i) => ({
+    const isContinuous = dayType === "training" && structure === "continuous";
+    const stepsToSave = isContinuous ? steps.map(flattenWorkToContinuous) : steps;
+    const stepRows = stepsToSave.map((s, i) => ({
       session_id: sess.id, step_order: i + 1,
       kind: s.kind, reps: s.reps,
       set_count: s.kind === "work" ? Math.max(1, s.set_count ?? 1) : 1,
