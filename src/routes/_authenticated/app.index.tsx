@@ -2,12 +2,13 @@ import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useMyRoles, useMyAthlete, useAuthUser } from "@/lib/use-auth";
+import { useMyRoles, useMyRawRoles, useMyAthlete, useAuthUser } from "@/lib/use-auth";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { todayISO } from "@/lib/format";
 import { ReadinessBadge } from "@/components/readiness-badge";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/app/")({
   component: AppHome,
@@ -17,9 +18,11 @@ function AppHome() {
   const navigate = useNavigate();
   const { user } = useAuthUser();
   const { data: roles = [], isLoading: rolesLoading } = useMyRoles();
+  const { data: rawRoles = [] } = useMyRawRoles();
   const { data: athlete } = useMyAthlete();
   const isCoach = roles.includes("coach");
   const isAthlete = roles.includes("athlete");
+  const isManager = rawRoles.includes("manager");
 
   // Auto-redirect athletes to Today on first visit
   useEffect(() => {
@@ -62,18 +65,25 @@ function AppHome() {
         <div>
           <h1 className="text-2xl font-bold">Welcome back</h1>
           <p className="text-muted-foreground text-sm">
-            {isCoach && isAthlete ? "Coach & Athlete" : isCoach ? "Coach view" : isAthlete ? "Athlete view" : "Choose a role to get started"}
+            {(() => {
+              const labels: string[] = [];
+              if (isManager) labels.push("Manager");
+              if (rawRoles.includes("coach")) labels.push("Coach");
+              if (isAthlete) labels.push("Athlete");
+              return labels.length ? `${labels.join(" & ")} view` : "Choose a role to get started";
+            })()}
           </p>
         </div>
 
-        {!rolesLoading && roles.length === 0 && (
+        {!rolesLoading && rawRoles.length === 0 && (
           <Card>
             <CardHeader><CardTitle>Set up your role</CardTitle></CardHeader>
             <CardContent className="space-y-2">
               <p className="text-sm text-muted-foreground">Pick how you'll use Strider.</p>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button onClick={async () => {
-                  await supabase.from("user_roles").upsert({ user_id: user!.id, role: "athlete" });
+                  const { error } = await supabase.from("user_roles").insert({ user_id: user!.id, role: "athlete" });
+                  if (error) { toast.error(error.message); return; }
                   const { data: existing } = await supabase.from("athletes").select("id").eq("user_id", user!.id).maybeSingle();
                   if (!existing) {
                     await supabase.from("athletes").insert({ user_id: user!.id, name: user!.email ?? "Athlete", created_by: user!.id });
@@ -81,9 +91,15 @@ function AppHome() {
                   window.location.reload();
                 }}>I'm an Athlete</Button>
                 <Button variant="outline" onClick={async () => {
-                  await supabase.from("user_roles").upsert({ user_id: user!.id, role: "coach" });
+                  const { error } = await supabase.from("user_roles").insert({ user_id: user!.id, role: "coach" });
+                  if (error) { toast.error(error.message); return; }
                   window.location.reload();
                 }}>I'm a Coach</Button>
+                <Button variant="outline" onClick={async () => {
+                  const { error } = await supabase.from("user_roles").insert({ user_id: user!.id, role: "manager" });
+                  if (error) { toast.error(error.message); return; }
+                  window.location.reload();
+                }}>I'm a Manager</Button>
               </div>
             </CardContent>
           </Card>
