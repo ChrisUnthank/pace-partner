@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { todayISO, clockToSec } from "@/lib/format";
 import { SESSION_CATEGORIES, CATEGORY_LABEL } from "@/lib/session-categories";
 import { toast } from "sonner";
@@ -26,6 +27,7 @@ type StepDraft = {
   target_distance_m?: number | null;
   target_time_seconds?: number | null;
   target_pace_sec_per_km?: number | null;
+  is_ladder?: boolean;
   recovery_mode?: "standing" | "walk" | "jog" | "float";
   recovery_target_kind?: "time" | "distance";
   recovery_target_seconds?: number | null;
@@ -97,6 +99,7 @@ function NewSession() {
       target_distance_m: s.target_distance_m ?? null,
       target_time_seconds: s.target_time_seconds ?? null,
       target_pace_sec_per_km: s.target_pace_sec_per_km ?? null,
+      is_ladder: s.kind === "work" ? !!s.is_ladder : false,
       recovery_mode: s.recovery_mode ?? null,
       recovery_target_kind: s.recovery_target_kind ?? null,
       recovery_target_seconds: s.recovery_target_seconds ?? null,
@@ -176,6 +179,12 @@ function NewSession() {
                       <div><Label className="text-xs">Time (mm:ss)</Label><Input placeholder="3:00" onChange={(e) => updateStep(i, { target_time_seconds: clockToSec(e.target.value) })} /></div>
                     )}
                     <div><Label className="text-xs">Target pace (mm:ss /km)</Label><Input placeholder="3:30" onChange={(e) => updateStep(i, { target_pace_sec_per_km: clockToSec(e.target.value) })} /></div>
+                    <div className="col-span-2 flex items-center gap-2 pt-1">
+                      <Checkbox id={`ladder-${i}`} checked={!!s.is_ladder} onCheckedChange={(v) => updateStep(i, { is_ladder: !!v })} />
+                      <Label htmlFor={`ladder-${i}`} className="text-xs font-normal">
+                        Ladder (reps have different distances/paces) — suppresses fatigue score until per-rep targets ship
+                      </Label>
+                    </div>
                   </div>
                 )}
                 {s.kind === "recovery" && (

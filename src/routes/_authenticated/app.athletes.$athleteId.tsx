@@ -1,10 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/app-shell";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { metersFmt, secToClock } from "@/lib/format";
 import { ReadinessBadge } from "@/components/readiness-badge";
+import { toast } from "sonner";
+import { RefreshCw } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/app/athletes/$athleteId")({
   component: AthleteDetail,
@@ -12,6 +15,7 @@ export const Route = createFileRoute("/_authenticated/app/athletes/$athleteId")(
 
 function AthleteDetail() {
   const { athleteId } = Route.useParams();
+  const qc = useQueryClient();
 
   const { data: athlete } = useQuery({
     queryKey: ["athlete", athleteId],
@@ -110,6 +114,8 @@ function AthleteDetail() {
           </Card>
         </div>
 
+        <PhysiologyCard athleteId={athleteId} />
+
         <Card>
           <CardHeader><CardTitle>Recent sessions</CardTitle></CardHeader>
           <CardContent className="p-0">
@@ -128,5 +134,81 @@ function AthleteDetail() {
         </Card>
       </div>
     </AppShell>
+  );
+}
+
+function PhysiologyCard({ athleteId }: { athleteId: string }) {
+  const qc = useQueryClient();
+  const { data: profile, isLoading } = useQuery({
+    queryKey: ["physio", athleteId],
+    queryFn: async () => {
+      const { data } = await supabase.from("athlete_physio_profile").select("*").eq("athlete_id", athleteId).maybeSingle();
+      return data;
+    },
+  });
+
+  async function refresh() {
+    const { error } = await supabase.rpc("recompute_physio_profile", { _athlete_id: athleteId });
+    if (error) toast.error(error.message);
+    else { toast.success("Profile refreshed"); qc.invalidateQueries({ queryKey: ["physio", athleteId] }); }
+  }
+
+  if (isLoading) return null;
+  const insufficient = !profile || profile.status !== "ok";
+  const aer = Number(profile?.aerobic_pct ?? 0);
+  const an = Number(profile?.anaerobic_pct ?? 0);
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between">
+        <div>
+          <CardTitle>Physiological profile</CardTitle>
+          <CardDescription>
+            Derived from PBs, age & training age. Refines as more PBs are logged.
+          </CardDescription>
+        </div>
+        <Button size="sm" variant="ghost" onClick={refresh}><RefreshCw className="h-4 w-4 mr-1" />Refresh</Button>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {insufficient ? (
+          <p className="text-sm text-muted-foreground">{profile?.coaching_note ?? "No profile yet — log PBs at two or more distances."}</p>
+        ) : (
+          <>
+            <div className="grid sm:grid-cols-2 gap-4 items-center">
+              <div className="flex items-center gap-4">
+                <PieSplit aerobic={aer} anaerobic={an} />
+                <div className="text-sm">
+                  <div className="flex items-center gap-2"><span className="h-2 w-3 rounded bg-emerald-500" />Aerobic <span className="font-semibold tabular-nums ml-1">{aer}%</span></div>
+                  <div className="flex items-center gap-2 mt-1"><span className="h-2 w-3 rounded bg-rose-500" />Anaerobic <span className="font-semibold tabular-nums ml-1">{an}%</span></div>
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Archetype</div>
+                <div className="font-semibold">{profile.archetype}</div>
+                {profile.speed_reserve_pct != null && (
+                  <div className="text-xs text-muted-foreground mt-2">
+                    Speed reserve: <span className="tabular-nums">{profile.speed_reserve_pct}%</span> ({profile.speed_reserve_bucket})
+                  </div>
+                )}
+              </div>
+            </div>
+            <p className="text-sm leading-relaxed border-l-2 pl-3 text-muted-foreground">{profile.coaching_note}</p>
+            <div className="text-[10px] text-muted-foreground">Updated {profile.updated_at?.slice(0, 10)}</div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function PieSplit({ aerobic, anaerobic }: { aerobic: number; anaerobic: number }) {
+  const total = aerobic + anaerobic || 1;
+  const aerAngle = (aerobic / total) * 360;
+  return (
+    <div
+      className="h-20 w-20 rounded-full"
+      style={{ background: `conic-gradient(rgb(16 185 129) 0 ${aerAngle}deg, rgb(244 63 94) ${aerAngle}deg 360deg)` }}
+      aria-label={`${aerobic}% aerobic, ${anaerobic}% anaerobic`}
+    />
   );
 }

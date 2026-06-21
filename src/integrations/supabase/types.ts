@@ -123,6 +123,53 @@ export type Database = {
           },
         ]
       }
+      athlete_physio_profile: {
+        Row: {
+          aerobic_pct: number | null
+          anaerobic_pct: number | null
+          archetype: string | null
+          athlete_id: string
+          coaching_note: string | null
+          inputs: Json | null
+          speed_reserve_bucket: string | null
+          speed_reserve_pct: number | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          aerobic_pct?: number | null
+          anaerobic_pct?: number | null
+          archetype?: string | null
+          athlete_id: string
+          coaching_note?: string | null
+          inputs?: Json | null
+          speed_reserve_bucket?: string | null
+          speed_reserve_pct?: number | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          aerobic_pct?: number | null
+          anaerobic_pct?: number | null
+          archetype?: string | null
+          athlete_id?: string
+          coaching_note?: string | null
+          inputs?: Json | null
+          speed_reserve_bucket?: string | null
+          speed_reserve_pct?: number | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "athlete_physio_profile_athlete_id_fkey"
+            columns: ["athlete_id"]
+            isOneToOne: true
+            referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       athlete_zone_profiles: {
         Row: {
           athlete_id: string
@@ -363,6 +410,7 @@ export type Database = {
           actual_time_seconds: number | null
           cadence: number | null
           created_at: string
+          effort: number | null
           hr_avg: number | null
           hr_end: number | null
           hr_end_recovery: number | null
@@ -370,7 +418,9 @@ export type Database = {
           id: string
           notes: string | null
           rep_number: number
+          rep_trace: Json | null
           step_id: string
+          stride_length_cm: number | null
         }
         Insert: {
           actual_distance_m?: number | null
@@ -378,6 +428,7 @@ export type Database = {
           actual_time_seconds?: number | null
           cadence?: number | null
           created_at?: string
+          effort?: number | null
           hr_avg?: number | null
           hr_end?: number | null
           hr_end_recovery?: number | null
@@ -385,7 +436,9 @@ export type Database = {
           id?: string
           notes?: string | null
           rep_number: number
+          rep_trace?: Json | null
           step_id: string
+          stride_length_cm?: number | null
         }
         Update: {
           actual_distance_m?: number | null
@@ -393,6 +446,7 @@ export type Database = {
           actual_time_seconds?: number | null
           cadence?: number | null
           created_at?: string
+          effort?: number | null
           hr_avg?: number | null
           hr_end?: number | null
           hr_end_recovery?: number | null
@@ -400,7 +454,9 @@ export type Database = {
           id?: string
           notes?: string | null
           rep_number?: number
+          rep_trace?: Json | null
           step_id?: string
+          stride_length_cm?: number | null
         }
         Relationships: [
           {
@@ -568,6 +624,125 @@ export type Database = {
           },
         ]
       }
+      session_fatigue: {
+        Row: {
+          athlete_id: string
+          cadence_drift_pct: number | null
+          computed_at: string
+          duration_seconds: number | null
+          efficiency_score: number | null
+          hr_drift_bpm: number | null
+          method: string
+          pace_drift_pct: number | null
+          rep_count: number
+          session_id: string
+          step_id: string
+          stride_drift_pct: number | null
+        }
+        Insert: {
+          athlete_id: string
+          cadence_drift_pct?: number | null
+          computed_at?: string
+          duration_seconds?: number | null
+          efficiency_score?: number | null
+          hr_drift_bpm?: number | null
+          method: string
+          pace_drift_pct?: number | null
+          rep_count: number
+          session_id: string
+          step_id: string
+          stride_drift_pct?: number | null
+        }
+        Update: {
+          athlete_id?: string
+          cadence_drift_pct?: number | null
+          computed_at?: string
+          duration_seconds?: number | null
+          efficiency_score?: number | null
+          hr_drift_bpm?: number | null
+          method?: string
+          pace_drift_pct?: number | null
+          rep_count?: number
+          session_id?: string
+          step_id?: string
+          stride_drift_pct?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "session_fatigue_athlete_id_fkey"
+            columns: ["athlete_id"]
+            isOneToOne: false
+            referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "session_fatigue_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "session_fatigue_step_id_fkey"
+            columns: ["step_id"]
+            isOneToOne: false
+            referencedRelation: "steps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      session_fuel_events: {
+        Row: {
+          athlete_id: string
+          created_at: string
+          id: string
+          note: string
+          rep_number: number | null
+          session_id: string
+          step_id: string | null
+        }
+        Insert: {
+          athlete_id: string
+          created_at?: string
+          id?: string
+          note: string
+          rep_number?: number | null
+          session_id: string
+          step_id?: string | null
+        }
+        Update: {
+          athlete_id?: string
+          created_at?: string
+          id?: string
+          note?: string
+          rep_number?: number | null
+          session_id?: string
+          step_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "session_fuel_events_athlete_id_fkey"
+            columns: ["athlete_id"]
+            isOneToOne: false
+            referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "session_fuel_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "session_fuel_events_step_id_fkey"
+            columns: ["step_id"]
+            isOneToOne: false
+            referencedRelation: "steps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       session_zone_time: {
         Row: {
           athlete_id: string
@@ -622,6 +797,7 @@ export type Database = {
           completion_pct: number | null
           created_at: string
           created_by: string
+          fueling_notes: string | null
           hr_drift_pct: number | null
           id: string
           is_planned: boolean
@@ -646,6 +822,7 @@ export type Database = {
           completion_pct?: number | null
           created_at?: string
           created_by: string
+          fueling_notes?: string | null
           hr_drift_pct?: number | null
           id?: string
           is_planned?: boolean
@@ -670,6 +847,7 @@ export type Database = {
           completion_pct?: number | null
           created_at?: string
           created_by?: string
+          fueling_notes?: string | null
           hr_drift_pct?: number | null
           id?: string
           is_planned?: boolean
@@ -700,6 +878,7 @@ export type Database = {
         Row: {
           created_at: string
           id: string
+          is_ladder: boolean
           kind: Database["public"]["Enums"]["step_kind"]
           notes: string | null
           recovery_mode: Database["public"]["Enums"]["recovery_mode"] | null
@@ -719,6 +898,7 @@ export type Database = {
         Insert: {
           created_at?: string
           id?: string
+          is_ladder?: boolean
           kind: Database["public"]["Enums"]["step_kind"]
           notes?: string | null
           recovery_mode?: Database["public"]["Enums"]["recovery_mode"] | null
@@ -738,6 +918,7 @@ export type Database = {
         Update: {
           created_at?: string
           id?: string
+          is_ladder?: boolean
           kind?: Database["public"]["Enums"]["step_kind"]
           notes?: string | null
           recovery_mode?: Database["public"]["Enums"]["recovery_mode"] | null
@@ -812,6 +993,10 @@ export type Database = {
         Returns: boolean
       }
       claim_athlete_invite: { Args: { _token: string }; Returns: Json }
+      compute_session_fatigue: {
+        Args: { _session_id: string }
+        Returns: undefined
+      }
       external_load_score: {
         Args: { _athlete_id: string; _date: string }
         Returns: number
@@ -835,6 +1020,10 @@ export type Database = {
       is_coach_of: {
         Args: { _athlete_id: string; _user_id: string }
         Returns: boolean
+      }
+      recompute_physio_profile: {
+        Args: { _athlete_id: string }
+        Returns: undefined
       }
       recompute_readiness: {
         Args: { _athlete_id: string; _date: string }
