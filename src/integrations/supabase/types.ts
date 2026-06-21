@@ -543,24 +543,24 @@ export type Database = {
         Row: {
           adjusted_summary: string
           adjustment_type: string
-          category: string
           id: string
+          intent: Database["public"]["Enums"]["session_intent"]
           readiness_status: Database["public"]["Enums"]["readiness_status"]
           reason: string | null
         }
         Insert: {
           adjusted_summary: string
           adjustment_type: string
-          category: string
           id?: string
+          intent: Database["public"]["Enums"]["session_intent"]
           readiness_status: Database["public"]["Enums"]["readiness_status"]
           reason?: string | null
         }
         Update: {
           adjusted_summary?: string
           adjustment_type?: string
-          category?: string
           id?: string
+          intent?: Database["public"]["Enums"]["session_intent"]
           readiness_status?: Database["public"]["Enums"]["readiness_status"]
           reason?: string | null
         }
@@ -795,20 +795,23 @@ export type Database = {
         Row: {
           athlete_id: string
           avg_hr: number | null
-          category: string
           completed_at: string | null
           completion_pct: number | null
           created_at: string
           created_by: string
+          day_type: Database["public"]["Enums"]["session_day_type"]
           fueling_notes: string | null
           hr_drift_pct: number | null
           id: string
+          intent: Database["public"]["Enums"]["session_intent"] | null
+          is_long_run: boolean
           is_planned: boolean
           notes: string | null
           pace_decay_pct: number | null
           rpe: number | null
           session_date: string
           source: Database["public"]["Enums"]["session_source"]
+          structure: Database["public"]["Enums"]["session_structure"] | null
           terrain: string | null
           title: string
           total_distance_m: number | null
@@ -820,20 +823,23 @@ export type Database = {
         Insert: {
           athlete_id: string
           avg_hr?: number | null
-          category?: string
           completed_at?: string | null
           completion_pct?: number | null
           created_at?: string
           created_by: string
+          day_type?: Database["public"]["Enums"]["session_day_type"]
           fueling_notes?: string | null
           hr_drift_pct?: number | null
           id?: string
+          intent?: Database["public"]["Enums"]["session_intent"] | null
+          is_long_run?: boolean
           is_planned?: boolean
           notes?: string | null
           pace_decay_pct?: number | null
           rpe?: number | null
           session_date: string
           source?: Database["public"]["Enums"]["session_source"]
+          structure?: Database["public"]["Enums"]["session_structure"] | null
           terrain?: string | null
           title: string
           total_distance_m?: number | null
@@ -845,20 +851,23 @@ export type Database = {
         Update: {
           athlete_id?: string
           avg_hr?: number | null
-          category?: string
           completed_at?: string | null
           completion_pct?: number | null
           created_at?: string
           created_by?: string
+          day_type?: Database["public"]["Enums"]["session_day_type"]
           fueling_notes?: string | null
           hr_drift_pct?: number | null
           id?: string
+          intent?: Database["public"]["Enums"]["session_intent"] | null
+          is_long_run?: boolean
           is_planned?: boolean
           notes?: string | null
           pace_decay_pct?: number | null
           rpe?: number | null
           session_date?: string
           source?: Database["public"]["Enums"]["session_source"]
+          structure?: Database["public"]["Enums"]["session_structure"] | null
           terrain?: string | null
           title?: string
           total_distance_m?: number | null
@@ -1092,7 +1101,22 @@ export type Database = {
         | "recovery"
       readiness_status: "green" | "amber" | "red"
       recovery_mode: "standing" | "walk" | "jog" | "float"
+      session_day_type:
+        | "training"
+        | "race"
+        | "recovery"
+        | "cross_training"
+        | "rest"
+      session_intent:
+        | "easy"
+        | "aerobic"
+        | "tempo"
+        | "threshold"
+        | "vo2"
+        | "anaerobic"
+        | "speed"
       session_source: "manual" | "synced"
+      session_structure: "continuous" | "reps_intervals"
       step_kind: "warmup" | "work" | "recovery" | "cooldown" | "strides"
       target_kind: "time" | "distance"
       zone_basis: "hr" | "pace" | "none"
@@ -1244,7 +1268,24 @@ export const Constants = {
       ],
       readiness_status: ["green", "amber", "red"],
       recovery_mode: ["standing", "walk", "jog", "float"],
+      session_day_type: [
+        "training",
+        "race",
+        "recovery",
+        "cross_training",
+        "rest",
+      ],
+      session_intent: [
+        "easy",
+        "aerobic",
+        "tempo",
+        "threshold",
+        "vo2",
+        "anaerobic",
+        "speed",
+      ],
       session_source: ["manual", "synced"],
+      session_structure: ["continuous", "reps_intervals"],
       step_kind: ["warmup", "work", "recovery", "cooldown", "strides"],
       target_kind: ["time", "distance"],
       zone_basis: ["hr", "pace", "none"],

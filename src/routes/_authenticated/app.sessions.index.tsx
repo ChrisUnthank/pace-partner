@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { metersFmt, secToClock } from "@/lib/format";
+import { sessionClassificationLabel } from "@/lib/session-categories";
 import { Plus } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/")({
@@ -68,7 +69,7 @@ function SessionsList() {
                   <div>
                     <div className="font-medium">{s.title}</div>
                     <div className="text-xs text-muted-foreground">
-                      {s.session_date} · {s.athletes?.name} · <span className="capitalize">{s.category}</span>
+                      {s.session_date} · {s.athletes?.name} · {sessionClassificationLabel(s)}
                     </div>
                   </div>
                   <div className="flex gap-2 items-center text-sm">

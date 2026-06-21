@@ -1,36 +1,35 @@
-export const SESSION_CATEGORIES = [
-  "easy",
-  "long",
-  "tempo",
-  "threshold",
-  "intervals",
-  "reps",
-  "fartlek",
-  "steady",
-  "race",
-  "recovery",
-  "cross_training",
-  "rest",
-] as const;
-
-export type SessionCategory = (typeof SESSION_CATEGORIES)[number];
-
-export const CATEGORY_LABEL: Record<SessionCategory, string> = {
-  easy: "Easy",
-  long: "Long",
-  tempo: "Tempo",
-  threshold: "Threshold",
-  intervals: "Intervals",
-  reps: "Reps",
-  fartlek: "Fartlek",
-  steady: "Steady run",
-  race: "Race",
-  recovery: "Recovery",
-  cross_training: "Cross-training",
-  rest: "Rest",
+export const SESSION_INTENTS = ["easy","aerobic","tempo","threshold","vo2","anaerobic","speed"] as const;
+export type SessionIntent = (typeof SESSION_INTENTS)[number];
+export const INTENT_LABEL: Record<SessionIntent, string> = {
+  easy: "Easy", aerobic: "Aerobic", tempo: "Tempo", threshold: "Threshold",
+  vo2: "VO2", anaerobic: "Anaerobic", speed: "Speed",
 };
 
-export function categoryLabel(value: string | null | undefined): string {
-  if (!value) return "";
-  return (CATEGORY_LABEL as Record<string, string>)[value] ?? value;
+export const SESSION_STRUCTURES = ["continuous","reps_intervals"] as const;
+export type SessionStructure = (typeof SESSION_STRUCTURES)[number];
+export const STRUCTURE_LABEL: Record<SessionStructure, string> = {
+  continuous: "Continuous",
+  reps_intervals: "Reps/Intervals",
+};
+
+export const SESSION_DAY_TYPES = ["training","race","recovery","cross_training","rest"] as const;
+export type SessionDayType = (typeof SESSION_DAY_TYPES)[number];
+export const DAY_TYPE_LABEL: Record<SessionDayType, string> = {
+  training: "Training", race: "Race", recovery: "Recovery",
+  cross_training: "Cross-training", rest: "Rest",
+};
+
+export function sessionClassificationLabel(s: {
+  day_type?: string | null;
+  intent?: string | null;
+  structure?: string | null;
+  is_long_run?: boolean | null;
+}): string {
+  const dt = s.day_type ?? "training";
+  if (dt !== "training") return (DAY_TYPE_LABEL as Record<string,string>)[dt] ?? dt;
+  const parts: string[] = [];
+  if (s.intent) parts.push((INTENT_LABEL as Record<string,string>)[s.intent] ?? s.intent);
+  if (s.structure) parts.push((STRUCTURE_LABEL as Record<string,string>)[s.structure] ?? s.structure);
+  if (s.is_long_run) parts.push("Long run");
+  return parts.join(" · ") || "Training";
 }

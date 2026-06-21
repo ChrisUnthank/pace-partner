@@ -13,6 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { todayISO } from "@/lib/format";
+import { sessionClassificationLabel } from "@/lib/session-categories";
 import { toast } from "sonner";
 import { Trash2, Plus } from "lucide-react";
 import { ReadinessBadge } from "@/components/readiness-badge";
@@ -156,7 +157,7 @@ function TodayPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <div className="font-medium">{todaysSession.title}</div>
-                  <div className="text-xs text-muted-foreground capitalize">{todaysSession.category}</div>
+                  <div className="text-xs text-muted-foreground">{sessionClassificationLabel(todaysSession as any)}</div>
                 </div>
                 <Link to="/app/sessions/$sessionId" params={{ sessionId: todaysSession.id }}>
                   <Button>Open</Button>
