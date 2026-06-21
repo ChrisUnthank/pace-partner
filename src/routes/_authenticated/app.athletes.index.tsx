@@ -32,17 +32,23 @@ function AthletesPage() {
     enabled: !!user,
     queryFn: async () => {
       if (isManager) {
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from("athletes")
-          .select("*, athlete_invites:athlete_invites!athlete_invites_athlete_id_fkey(token, accepted_at, email)")
+          .select("*, athlete_invites(token, accepted_at, email)")
           .order("name");
+        if (error) { toast.error(error.message); return []; }
         return (data ?? []).map((a: any) => ({ athlete_id: a.id, athletes: a, athlete_invites: a.athlete_invites }));
       }
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("coach_athletes")
-        .select("athlete_id, athletes(*), athlete_invites:athlete_invites!athlete_invites_athlete_id_fkey(token, accepted_at, email)")
+        .select("athlete_id, athletes(*, athlete_invites(token, accepted_at, email))")
         .eq("coach_user_id", user!.id);
-      return data ?? [];
+      if (error) { toast.error(error.message); return []; }
+      return (data ?? []).map((r: any) => ({
+        athlete_id: r.athlete_id,
+        athletes: r.athletes,
+        athlete_invites: r.athletes?.athlete_invites ?? [],
+      }));
     },
   });
 
