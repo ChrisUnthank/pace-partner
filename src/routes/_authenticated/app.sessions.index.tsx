@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { metersFmt, secToClock } from "@/lib/format";
 import { sessionClassificationLabel } from "@/lib/session-categories";
-import { Plus } from "lucide-react";
+import { Plus, CalendarDays } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/")({
   component: SessionsList,
@@ -53,7 +53,10 @@ function SessionsList() {
     <AppShell>
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-2xl font-bold">Sessions</h1>
-        <Link to="/app/sessions/new"><Button><Plus className="h-4 w-4 mr-1" /> New session</Button></Link>
+        <div className="flex gap-2">
+          <Link to="/app/sessions/calendar"><Button variant="outline"><CalendarDays className="h-4 w-4 mr-1" /> Calendar</Button></Link>
+          <Link to="/app/sessions/new"><Button><Plus className="h-4 w-4 mr-1" /> New session</Button></Link>
+        </div>
       </div>
 
       <Card>
