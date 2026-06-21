@@ -321,14 +321,17 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-const ZONE_ORDER = ["easy", "steady", "threshold", "vo2", "rep", "sprint", "recovery"];
+const ZONE_ORDER = ["z1", "z2", "z3", "z4", "z5"];
+const ZONE_LABEL: Record<string, string> = {
+  z1: "Z1 Easy", z2: "Z2 Aerobic", z3: "Z3 Tempo", z4: "Z4 VO2/5K", z5: "Z5 Rep",
+};
 function ZonePanel({ rows, title }: { rows: any[]; title: string }) {
   if (rows.length === 0) return null;
   const total = rows.reduce((a, r) => a + Number(r.seconds || 0), 0) || 1;
   const sorted = [...rows].sort((a, b) => ZONE_ORDER.indexOf(a.zone) - ZONE_ORDER.indexOf(b.zone));
   const colors: Record<string, string> = {
-    easy: "bg-emerald-400", steady: "bg-sky-400", threshold: "bg-amber-400",
-    vo2: "bg-orange-500", rep: "bg-red-500", sprint: "bg-fuchsia-500", recovery: "bg-slate-300",
+    z1: "bg-emerald-400", z2: "bg-sky-400", z3: "bg-amber-400",
+    z4: "bg-orange-500", z5: "bg-red-500",
   };
   return (
     <Card>
@@ -343,7 +346,7 @@ function ZonePanel({ rows, title }: { rows: any[]; title: string }) {
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
           {sorted.map((r) => (
             <div key={r.zone} className="flex justify-between border rounded px-2 py-1">
-              <span className="capitalize">{r.zone}</span>
+            <span>{ZONE_LABEL[r.zone] ?? r.zone}</span>
               <span className="tabular-nums">{secToClock(Number(r.seconds))}</span>
             </div>
           ))}
