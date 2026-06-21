@@ -120,6 +120,32 @@ function NewSession() {
   function updateStep(i: number, patch: Partial<StepDraft>) {
     setSteps((s) => s.map((x, idx) => (idx === i ? { ...x, ...patch } : x)));
   }
+
+  // Strip rep/set/recovery/ladder fields from a Work step — used when switching to continuous structure.
+  function flattenWorkToContinuous(s: StepDraft): StepDraft {
+    if (s.kind !== "work") return s;
+    return {
+      ...s,
+      reps: 1,
+      set_count: 1,
+      is_ladder: false,
+      recovery_between_reps_seconds: null,
+      recovery_between_reps_mode: undefined,
+      recovery_between_reps_target_kind: undefined,
+      recovery_between_reps_distance_m: null,
+      recovery_between_sets_seconds: null,
+      recovery_between_sets_mode: undefined,
+      recovery_between_sets_target_kind: undefined,
+      recovery_between_sets_distance_m: null,
+    };
+  }
+
+  function handleStructureChange(next: string) {
+    setStructure(next);
+    if (next === "continuous") {
+      setSteps((s) => s.map(flattenWorkToContinuous));
+    }
+  }
   function removeStep(i: number) { setSteps((s) => s.filter((_, idx) => idx !== i)); }
   function addStep(kind: StepDraft["kind"]) {
     setSteps((s) => {
@@ -202,7 +228,9 @@ function NewSession() {
     } as any).select().single();
     if (error || !sess) { toast.error(error?.message ?? "Failed"); return; }
 
-    const stepRows = steps.map((s, i) => ({
+    const isContinuous = dayType === "training" && structure === "continuous";
+    const stepsToSave = isContinuous ? steps.map(flattenWorkToContinuous) : steps;
+    const stepRows = stepsToSave.map((s, i) => ({
       session_id: sess.id, step_order: i + 1,
       kind: s.kind, reps: s.reps,
       set_count: s.kind === "work" ? Math.max(1, s.set_count ?? 1) : 1,
@@ -297,9 +325,9 @@ function NewSession() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div>
-                  <Label>Structure</Label>
-                  <Select value={structure} onValueChange={setStructure}>
+                 <div>
+                   <Label>Structure</Label>
+                   <Select value={structure} onValueChange={handleStructureChange}>
                     <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {SESSION_STRUCTURES.map((s) => (
@@ -322,6 +350,7 @@ function NewSession() {
 
         <StepsCard
           steps={steps}
+          structure={structure}
           updateStep={updateStep}
           removeStep={removeStep}
           addStep={addStep}
@@ -358,10 +387,36 @@ type StepEditorProps = {
   onMoveDown?: () => void;
   draggable?: boolean;
   anchored?: "top" | "bottom";
+  structure?: string;
 };
 
-function StepFields({ step: s, onUpdate }: { step: StepDraft; onUpdate: (p: Partial<StepDraft>) => void }) {
+function StepFields({ step: s, onUpdate, structure }: { step: StepDraft; onUpdate: (p: Partial<StepDraft>) => void; structure?: string }) {
   if (s.kind === "work") {
+    const isContinuous = structure === "continuous";
+    if (isContinuous) {
+      return (
+        <div className="grid grid-cols-2 gap-2">
+          <div className="col-span-2 text-[11px] text-muted-foreground leading-snug -mt-1">
+            Continuous effort — one sustained block. For reps with recovery, change the session structure to Reps/Intervals.
+          </div>
+          <div><Label className="text-xs">Target</Label>
+            <Select value={s.target_kind} onValueChange={(v) => onUpdate({ target_kind: v as any })}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="distance">Distance (m)</SelectItem>
+                <SelectItem value="time">Time (mm:ss)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {s.target_kind === "distance" ? (
+            <div><Label className="text-xs">Distance (m)</Label><Input type="number" value={s.target_distance_m ?? ""} onChange={(e) => onUpdate({ target_distance_m: Number(e.target.value) })} /></div>
+          ) : (
+            <div><Label className="text-xs">Time (mm:ss)</Label><Input placeholder="40:00" defaultValue={s.target_time_seconds ? secToClock(s.target_time_seconds) : ""} onChange={(e) => onUpdate({ target_time_seconds: clockToSec(e.target.value) })} /></div>
+          )}
+          <div className="col-span-2"><Label className="text-xs">Target pace (mm:ss /km)</Label><Input placeholder="5:00" defaultValue={s.target_pace_sec_per_km ? secToClock(s.target_pace_sec_per_km) : ""} onChange={(e) => onUpdate({ target_pace_sec_per_km: clockToSec(e.target.value) })} /></div>
+        </div>
+      );
+    }
     const repsKind = s.recovery_between_reps_target_kind ?? "time";
     const setsKind = s.recovery_between_sets_target_kind ?? "time";
     return (
@@ -528,7 +583,7 @@ function stepTitle(s: StepDraft): string {
   return s.kind.charAt(0).toUpperCase() + s.kind.slice(1);
 }
 
-function StepCard({ step, position, onUpdate, onRemove, anchored }: StepEditorProps) {
+function StepCard({ step, position, onUpdate, onRemove, anchored, structure }: StepEditorProps) {
   return (
     <div className="border rounded-md p-3 space-y-2 bg-background">
       <div className="flex justify-between items-center">
@@ -539,7 +594,7 @@ function StepCard({ step, position, onUpdate, onRemove, anchored }: StepEditorPr
         </span>
         <Button size="sm" variant="ghost" onClick={onRemove}><Trash2 className="h-4 w-4" /></Button>
       </div>
-      <StepFields step={step} onUpdate={onUpdate} />
+      <StepFields step={step} onUpdate={onUpdate} structure={structure} />
     </div>
   );
 }
@@ -566,13 +621,14 @@ function SortableStep(props: StepEditorProps & { id: string }) {
           <Button size="sm" variant="ghost" onClick={props.onRemove}><Trash2 className="h-4 w-4" /></Button>
         </div>
       </div>
-      <StepFields step={props.step} onUpdate={props.onUpdate} />
+      <StepFields step={props.step} onUpdate={props.onUpdate} structure={props.structure} />
     </div>
   );
 }
 
-function StepsCard({ steps, updateStep, removeStep, addStep, moveStep, reorder }: {
+function StepsCard({ steps, structure, updateStep, removeStep, addStep, moveStep, reorder }: {
   steps: StepDraft[];
+  structure: string;
   updateStep: (i: number, patch: Partial<StepDraft>) => void;
   removeStep: (i: number) => void;
   addStep: (kind: StepDraft["kind"]) => void;
@@ -612,7 +668,7 @@ function StepsCard({ steps, updateStep, removeStep, addStep, moveStep, reorder }
       <CardContent className="space-y-3">
         {warmIdx.map((i, pos) => (
           <StepCard key={steps[i]._uid} step={steps[i]} index={i} position={pos + 1} anchored="top"
-            onUpdate={(p) => updateStep(i, p)} onRemove={() => removeStep(i)} />
+            onUpdate={(p) => updateStep(i, p)} onRemove={() => removeStep(i)} structure={structure} />
         ))}
 
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -628,6 +684,7 @@ function StepsCard({ steps, updateStep, removeStep, addStep, moveStep, reorder }
                 onRemove={() => removeStep(i)}
                 onMoveUp={pos > 0 ? () => moveStep(i, midIdx[pos - 1]) : undefined}
                 onMoveDown={pos < midIdx.length - 1 ? () => moveStep(i, midIdx[pos + 1]) : undefined}
+                structure={structure}
               />
             ))}
           </SortableContext>
@@ -635,7 +692,7 @@ function StepsCard({ steps, updateStep, removeStep, addStep, moveStep, reorder }
 
         {coolIdx.map((i, pos) => (
           <StepCard key={steps[i]._uid} step={steps[i]} index={i} position={warmIdx.length + midIdx.length + pos + 1} anchored="bottom"
-            onUpdate={(p) => updateStep(i, p)} onRemove={() => removeStep(i)} />
+            onUpdate={(p) => updateStep(i, p)} onRemove={() => removeStep(i)} structure={structure} />
         ))}
 
         <div className="flex flex-wrap gap-2 pt-1">
