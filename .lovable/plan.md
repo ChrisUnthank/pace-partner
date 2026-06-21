@@ -1,135 +1,59 @@
-## What's reused vs. what's new
+## Goal
 
-Confirmed by inspecting the schema and existing routes — every widget pulls from data already computed by the readiness engine, physio engine, or existing views. Only **one** widget needs a new aggregation; everything else is pure presentation.
+Populate the app with enough realistic test data that every screen — dashboard, athletes list, athlete detail, calendar, session list, completed-session detail, session analysis graph, and analytics PMC — has meaningful content to preview, without touching the two real user accounts' own athlete records.
 
-| Widget | Source | New work? |
-|---|---|---|
-| **PMC chart** (CTL / ATL / TSB over time) | `athlete_load_daily.ctl / atl / tsb` (one row per athlete per day, already maintained by `recompute_readiness`) | None — direct read |
-| Current readiness band | `athlete_load_daily.readiness_status / score / confidence` (latest row) — reuses `<ReadinessBadge>` already in `src/components/readiness-badge.tsx` | None |
-| Weekly training load trend | `athlete_load_daily.training_load` aggregated by ISO week (simple client-side `groupBy`) | None |
-| **Within-session fatigue trend** | `session_fatigue.efficiency_score` joined to `sessions.session_date`, averaged per session, then trended over recent weeks | **Yes — new aggregation** (single query, no schema change, no new RPC). This is the only new logic on the page. |
-| Physiological profile card | `athlete_physio_profile` (aerobic/anaerobic, archetype, speed reserve) — reuses the donut already on the athlete profile | None |
-| Weekly distance | `athlete_weekly_distance` view (already exists) | None |
-| Time-in-zone summary | `athlete_zone_time_weekly` view (already exists) | None |
-| **Coach roster row**: readiness band + PMC trend direction | `athlete_load_daily` — latest `readiness_status` per athlete + a simple slope of `ctl` over the last 14 days (improving / stable / declining via threshold on the slope) | **Yes — trivial derived calc** done client-side from the same `athlete_load_daily` rows already fetched. No new DB work. |
+## What gets created
 
-So: **two** pieces involve new logic, both are pure client-side aggregations over data the app already has. No migrations, no new RPCs, no new tables.
+All data is inserted via the data-insert tool (one migration-style SQL block, idempotent by name prefix `[TEST] `). Coach owner: **chris@unthank.me**. Easy to wipe later by deleting where name starts with `[TEST] `.
 
-## Route & access
+### 5 fictional athletes (varied archetypes)
 
-- New route: `/app/analytics` (file `src/routes/_authenticated/app.analytics.tsx`).
-- Athlete (has `athlete` role, no `coach` role): lands on **their own** dashboard; their `athlete_id` is auto-resolved via `useMyAthlete()`. No athlete picker shown.
-- Coach (has `coach` role): lands on the **roster overview** by default. Selecting an athlete deep-links to `/app/analytics?athleteId=<id>` which renders the same single-athlete dashboard the athlete sees, with a small "← Back to roster" affordance.
-- App-shell nav: add an "Analytics" entry alongside Sessions / Athletes (icon: `LineChart` from `lucide-react`).
-- URL search params validated with `zodValidator` + `fallback`: `athleteId?`, `range` (one of `4w | 3m | 6m | all`, default `3m`).
+| Name | Event | Profile shape | DOB / training age |
+|---|---|---|---|
+| [TEST] Maya Okafor | 800m | Speed-dominant, high speed reserve | 22 / 6 yr |
+| [TEST] Daniel Reeves | 1500m | Balanced | 27 / 9 yr |
+| [TEST] Priya Shah | 5000m | Aerobic engine | 31 / 12 yr |
+| [TEST] Liam Carter | 3000m steeple | Balanced, moderate SR | 19 / 4 yr |
+| [TEST] Elena Voss | 10k / HM | Strong aerobic engine, low SR | 35 / 14 yr |
 
-## Page layout — single athlete view
+Each gets: athlete row, `coach_athletes` link to chris, `athlete_zone_profiles` (paces + HR zones consistent with their PBs), and 5–7 `performances` across distances so `recompute_physio_profile` produces a real archetype.
 
-```text
-┌─────────────────────────────────────────────────────────────┐
-│  Header: athlete name · current readiness badge · range tabs│
-│                                  [4W] [3M] [6M] [All]       │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│   ███████  PMC — Fitness / Fatigue / Form  ███████          │
-│   (full-width, ~360px tall, the visual anchor)              │
-│   Three lines:  CTL (fitness, solid),  ATL (fatigue,        │
-│   dashed),  TSB (form, area-tinted around 0)                │
-│                                                             │
-├──────────────────────────┬──────────────────────────────────┤
-│  Weekly training load    │  Within-session fatigue trend    │
-│  (bar chart by ISO wk)   │  (line — avg efficiency / week)  │
-├──────────────────────────┼──────────────────────────────────┤
-│  Weekly distance         │  Time in zone (stacked bar)      │
-│  (reuses weekly view)    │  (reuses weekly zone view)       │
-├──────────────────────────┴──────────────────────────────────┤
-│  Physiological profile card  (aerobic/anaerobic donut +     │
-│  archetype + speed reserve · same component as profile pg)  │
-└─────────────────────────────────────────────────────────────┘
-```
+### 8 weeks of sessions per athlete (~56 days, ending today)
 
-Mobile (≤640px): the PMC stays full-width; the 2-column grid collapses to a single column; chart heights reduce; range tabs become a `Select`.
+Per athlete, a realistic weekly micro-cycle:
+- Mon — easy run (training/easy)
+- Tue — interval work (varies by athlete: 800m reps, mile reps, threshold)
+- Wed — easy or recovery
+- Thu — tempo / threshold
+- Fri — easy + strides
+- Sat — long run (or race every ~3 weeks)
+- Sun — rest or cross-training
 
-Charts use Recharts via the existing `src/components/ui/chart.tsx` wrappers so they pick up the design tokens (no hardcoded colors). Readiness band reuses `<ReadinessBadge>` for the green/amber/red mapping.
+For each session: `sessions` row + `steps` (warmup / work / recovery / cooldown) + `interval_results` per rep with realistic pace/HR/cadence/stride **including intentional within-session drift** so `compute_session_fatigue` produces non-null efficiency scores and the analysis graph shows real fade patterns. Most sessions completed; last 2–3 days left as planned/upcoming so "Today" and planned-session views also have content. Includes 1–2 race entries per athlete (logged as performances + day_type=race sessions).
 
-## Page layout — coach roster view
+### Daily check-ins
 
-```text
-┌─────────────────────────────────────────────────────────────┐
-│  Roster overview                              [3M] range    │
-├─────────────────────────────────────────────────────────────┤
-│  Athlete       Readiness   PMC trend (14d)    Last session  │
-│  ───────────   ─────────   ───────────────    ───────────   │
-│  J. Smith      ● Ready     ↗ Improving        Thu — Tempo   │
-│  M. Lee        ● Caution   → Stable           Wed — Long    │
-│  A. Patel      ● Recover   ↘ Declining ⚠      Sun — VO2     │
-│  …                                                          │
-│  (sortable by readiness severity then by trend direction —  │
-│   "needs attention" floats to top)                          │
-└─────────────────────────────────────────────────────────────┘
-```
+~5 check-ins per week per athlete across the 8 weeks, with realistic variation (one athlete trending fatigued, one fresh, one with a brief injury_flag week) so readiness bands span green/amber/red and the PMC TSB line varies.
 
-Each row links to `/app/analytics?athleteId=<id>` (the full single-athlete dashboard). Trend direction is computed from the slope of `ctl` over the last 14 days: `|slope| < ε → stable`, positive → improving, negative → declining. A small warning glyph appears on declining + red-band combinations only (no over-alerting).
+### Derived data
 
-## Queries (one set per athlete, all indexed reads)
+After inserts, call the existing recompute functions per athlete/date so everything downstream populates without new logic:
+- `recompute_physio_profile(athlete_id)` once per athlete
+- `recompute_readiness(athlete_id, date)` for each of the 56 days (drives `athlete_load_daily` → CTL/ATL/TSB/readiness)
+- Session zone time + fatigue are auto-recomputed by existing triggers on `interval_results` insert
 
-```ts
-// PMC + readiness + weekly load: one fetch covers four widgets
-supabase.from('athlete_load_daily')
-  .select('load_date, ctl, atl, tsb, training_load, readiness_status, readiness_score, confidence')
-  .eq('athlete_id', id)
-  .gte('load_date', rangeStart)
-  .order('load_date');
+## Out of scope
 
-// Fatigue trend (the one new aggregation): join fatigue → sessions for dates
-supabase.from('session_fatigue')
-  .select('efficiency_score, sessions!inner(session_date, athlete_id)')
-  .eq('sessions.athlete_id', id)
-  .gte('sessions.session_date', rangeStart)
-  .not('efficiency_score', 'is', null);
-// → groupBy ISO week → average → line chart
+- No schema changes, no new RPCs, no UI changes.
+- Amanda's account untouched.
+- No invites/auth changes — fictional athletes have `user_id = NULL` (coach-managed, "Invite pending" badge in roster, which is realistic).
 
-// Weekly distance & weekly zone time: direct view reads
-supabase.from('athlete_weekly_distance').select('*').eq('athlete_id', id)…
-supabase.from('athlete_zone_time_weekly').select('*').eq('athlete_id', id)…
+## Cleanup path
 
-// Physio card: single-row read
-supabase.from('athlete_physio_profile').select('*').eq('athlete_id', id).maybeSingle();
-```
+Single SQL to undo: `DELETE FROM athletes WHERE name LIKE '[TEST] %';` (cascades to sessions/steps/results/load/fatigue/physio/zone profiles via FKs).
 
-Coach roster uses one bulk fetch: the latest ~14 `athlete_load_daily` rows for every athlete visible via `coach_athletes`, grouped client-side.
+## Confirm before I build
 
-All reads go through TanStack Query with `queryOptions` + `ensureQueryData` in the loader and `useSuspenseQuery` in the components (matches the rest of the app).
-
-## Empty / low-data states
-
-- New athlete with `confidence = 'insufficient'`: PMC shows a muted "Building baseline — keep logging" panel instead of a near-empty chart.
-- No `session_fatigue` rows yet: fatigue-trend card shows "Complete a few interval sessions to see this trend" instead of an empty axis.
-- No physio profile yet (`status = 'insufficient_pbs'`): card shows the existing `coaching_note` prompt to log PBs.
-- Empty weekly distance / zone time: cards hide gracefully rather than render zero-height charts.
-
-## Files
-
-**New**
-- `src/routes/_authenticated/app.analytics.tsx` — the route (handles role split, range tabs, athlete vs roster mode).
-- `src/components/analytics/pmc-chart.tsx` — the CTL/ATL/TSB chart.
-- `src/components/analytics/fatigue-trend-chart.tsx` — the new weekly-efficiency line.
-- `src/components/analytics/weekly-load-chart.tsx`, `weekly-distance-chart.tsx`, `zone-time-chart.tsx` — small wrappers around `ui/chart`.
-- `src/components/analytics/physio-summary-card.tsx` — extracted reusable card (or imported from the profile page if already self-contained — will reuse rather than fork).
-- `src/components/analytics/coach-roster-table.tsx` — roster overview with trend arrows.
-
-**Edited**
-- `src/components/app-shell.tsx` — add "Analytics" nav entry.
-- `src/routeTree.gen.ts` — regenerated by the plugin (don't hand-edit).
-
-## Out of scope (call out explicitly)
-
-- No new DB tables, columns, views, RPCs, or migrations.
-- No cross-athlete comparison overlays (e.g. plotting two athletes' CTL on one chart).
-- No export to PDF / CSV.
-- No notifications when a roster row turns red — surfacing only, not alerting.
-- No editable thresholds for the "improving/declining" classifier (uses sensible defaults — slope of CTL over 14 days, ε = 0.3 CTL units/day).
-
-## Confirmation back to you, in plain English
-
-You were right: only the **within-session fatigue trend over time** needs new logic, and even that is just a `GROUP BY week` over `session_fatigue.efficiency_score` joined to `sessions.session_date` — no recompute, no migration. The coach roster's "trend direction" arrow is a trivial slope over the same `athlete_load_daily.ctl` series that powers the PMC, so it's effectively free. Everything else (PMC, readiness band, weekly load, weekly distance, zone time, physio profile) is direct reads from rows the engines already maintain.
+1. **Coach = chris@unthank.me, all 5 test athletes attached to him** — OK, or also mirror onto Amanda?
+2. **Volume**: 5 athletes × ~50 sessions ≈ 250 sessions, ~1500 interval reps. Fine, or want smaller (e.g. 3 athletes × 4 weeks)?
+3. **Name prefix `[TEST] `** so they're obvious and bulk-deletable — OK?
