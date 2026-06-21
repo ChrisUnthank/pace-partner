@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuthUser } from "@/lib/use-auth";
+import { useAuthUser, useMyRawRoles } from "@/lib/use-auth";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,8 @@ export const Route = createFileRoute("/_authenticated/app/athletes/")({
 
 function AthletesPage() {
   const { user } = useAuthUser();
+  const { data: rawRoles = [] } = useMyRawRoles();
+  const isManager = rawRoles.includes("manager");
   const qc = useQueryClient();
   const [name, setName] = useState("");
   const [event, setEvent] = useState("");
@@ -26,9 +28,16 @@ function AthletesPage() {
   const [inviteLink, setInviteLink] = useState<string | null>(null);
 
   const { data: roster } = useQuery({
-    queryKey: ["roster", user?.id],
+    queryKey: ["roster", user?.id, isManager],
     enabled: !!user,
     queryFn: async () => {
+      if (isManager) {
+        const { data } = await supabase
+          .from("athletes")
+          .select("id, athletes:athletes!inner(*), athlete_invites:athlete_invites!athlete_invites_athlete_id_fkey(token, accepted_at, email)")
+          .order("name");
+        return (data ?? []).map((a: any) => ({ athlete_id: a.id, athletes: a.athletes, athlete_invites: a.athlete_invites }));
+      }
       const { data } = await supabase
         .from("coach_athletes")
         .select("athlete_id, athletes(*), athlete_invites:athlete_invites!athlete_invites_athlete_id_fkey(token, accepted_at, email)")
