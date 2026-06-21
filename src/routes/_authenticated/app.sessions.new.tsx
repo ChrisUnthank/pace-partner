@@ -385,6 +385,7 @@ type StepEditorProps = {
   onMoveDown?: () => void;
   draggable?: boolean;
   anchored?: "top" | "bottom";
+  structure?: string;
 };
 
 function StepFields({ step: s, onUpdate, structure }: { step: StepDraft; onUpdate: (p: Partial<StepDraft>) => void; structure?: string }) {
@@ -580,7 +581,7 @@ function stepTitle(s: StepDraft): string {
   return s.kind.charAt(0).toUpperCase() + s.kind.slice(1);
 }
 
-function StepCard({ step, position, onUpdate, onRemove, anchored }: StepEditorProps) {
+function StepCard({ step, position, onUpdate, onRemove, anchored, structure }: StepEditorProps) {
   return (
     <div className="border rounded-md p-3 space-y-2 bg-background">
       <div className="flex justify-between items-center">
@@ -591,7 +592,7 @@ function StepCard({ step, position, onUpdate, onRemove, anchored }: StepEditorPr
         </span>
         <Button size="sm" variant="ghost" onClick={onRemove}><Trash2 className="h-4 w-4" /></Button>
       </div>
-      <StepFields step={step} onUpdate={onUpdate} />
+      <StepFields step={step} onUpdate={onUpdate} structure={structure} />
     </div>
   );
 }
@@ -618,13 +619,14 @@ function SortableStep(props: StepEditorProps & { id: string }) {
           <Button size="sm" variant="ghost" onClick={props.onRemove}><Trash2 className="h-4 w-4" /></Button>
         </div>
       </div>
-      <StepFields step={props.step} onUpdate={props.onUpdate} />
+      <StepFields step={props.step} onUpdate={props.onUpdate} structure={props.structure} />
     </div>
   );
 }
 
-function StepsCard({ steps, updateStep, removeStep, addStep, moveStep, reorder }: {
+function StepsCard({ steps, structure, updateStep, removeStep, addStep, moveStep, reorder }: {
   steps: StepDraft[];
+  structure: string;
   updateStep: (i: number, patch: Partial<StepDraft>) => void;
   removeStep: (i: number) => void;
   addStep: (kind: StepDraft["kind"]) => void;
@@ -664,7 +666,7 @@ function StepsCard({ steps, updateStep, removeStep, addStep, moveStep, reorder }
       <CardContent className="space-y-3">
         {warmIdx.map((i, pos) => (
           <StepCard key={steps[i]._uid} step={steps[i]} index={i} position={pos + 1} anchored="top"
-            onUpdate={(p) => updateStep(i, p)} onRemove={() => removeStep(i)} />
+            onUpdate={(p) => updateStep(i, p)} onRemove={() => removeStep(i)} structure={structure} />
         ))}
 
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -680,6 +682,7 @@ function StepsCard({ steps, updateStep, removeStep, addStep, moveStep, reorder }
                 onRemove={() => removeStep(i)}
                 onMoveUp={pos > 0 ? () => moveStep(i, midIdx[pos - 1]) : undefined}
                 onMoveDown={pos < midIdx.length - 1 ? () => moveStep(i, midIdx[pos + 1]) : undefined}
+                structure={structure}
               />
             ))}
           </SortableContext>
@@ -687,7 +690,7 @@ function StepsCard({ steps, updateStep, removeStep, addStep, moveStep, reorder }
 
         {coolIdx.map((i, pos) => (
           <StepCard key={steps[i]._uid} step={steps[i]} index={i} position={warmIdx.length + midIdx.length + pos + 1} anchored="bottom"
-            onUpdate={(p) => updateStep(i, p)} onRemove={() => removeStep(i)} />
+            onUpdate={(p) => updateStep(i, p)} onRemove={() => removeStep(i)} structure={structure} />
         ))}
 
         <div className="flex flex-wrap gap-2 pt-1">
