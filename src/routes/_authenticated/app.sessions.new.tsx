@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { todayISO, clockToSec } from "@/lib/format";
+import { SESSION_CATEGORIES, CATEGORY_LABEL } from "@/lib/session-categories";
 import { toast } from "sonner";
 import { Plus, Trash2 } from "lucide-react";
 
@@ -135,8 +136,8 @@ function NewSession() {
               <Select value={category} onValueChange={setCategory}>
                 <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {["easy","long","tempo","threshold","intervals","reps","race","recovery","cross_training","rest"].map(c =>
-                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                  {SESSION_CATEGORIES.map(c =>
+                    <SelectItem key={c} value={c}>{CATEGORY_LABEL[c]}</SelectItem>
                   )}
                 </SelectContent>
               </Select>
