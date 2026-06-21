@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import { todayISO, clockToSec } from "@/lib/format";
+import { todayISO, clockToSec, secToClock } from "@/lib/format";
 import { SESSION_CATEGORIES, CATEGORY_LABEL } from "@/lib/session-categories";
 import { toast } from "sonner";
 import { Plus, Trash2 } from "lucide-react";
@@ -194,9 +194,9 @@ function NewSession() {
                       <div><Label className="text-xs">Time (mm:ss)</Label><Input placeholder="3:00" onChange={(e) => updateStep(i, { target_time_seconds: clockToSec(e.target.value) })} /></div>
                     )}
                     <div><Label className="text-xs">Target pace (mm:ss /km)</Label><Input placeholder="3:30" onChange={(e) => updateStep(i, { target_pace_sec_per_km: clockToSec(e.target.value) })} /></div>
-                    <div><Label className="text-xs">Recovery between reps (mm:ss)</Label><Input placeholder="1:30" defaultValue={s.recovery_between_reps_seconds ? secToClockSafe(s.recovery_between_reps_seconds) : ""} onChange={(e) => updateStep(i, { recovery_between_reps_seconds: clockToSec(e.target.value) })} /></div>
+                    <div><Label className="text-xs">Recovery between reps (mm:ss)</Label><Input placeholder="1:30" defaultValue={s.recovery_between_reps_seconds ? secToClock(s.recovery_between_reps_seconds) : ""} onChange={(e) => updateStep(i, { recovery_between_reps_seconds: clockToSec(e.target.value) })} /></div>
                     {(s.set_count ?? 1) > 1 && (
-                      <div><Label className="text-xs">Recovery between sets (mm:ss)</Label><Input placeholder="3:00" defaultValue={s.recovery_between_sets_seconds ? secToClockSafe(s.recovery_between_sets_seconds) : ""} onChange={(e) => updateStep(i, { recovery_between_sets_seconds: clockToSec(e.target.value) })} /></div>
+                      <div><Label className="text-xs">Recovery between sets (mm:ss)</Label><Input placeholder="3:00" defaultValue={s.recovery_between_sets_seconds ? secToClock(s.recovery_between_sets_seconds) : ""} onChange={(e) => updateStep(i, { recovery_between_sets_seconds: clockToSec(e.target.value) })} /></div>
                     )}
                     <div className="col-span-2 text-xs text-muted-foreground">
                       Plan: <span className="font-semibold">{s.set_count ?? 1} set{(s.set_count ?? 1) > 1 ? "s" : ""} × {s.reps} rep{s.reps === 1 ? "" : "s"}</span>
