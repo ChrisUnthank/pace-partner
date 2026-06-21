@@ -587,29 +587,36 @@ function AthleteAnalytics({
           </CardContent>
         </Card>
 
+        <ZoneBarCard title="Time in HR Zone" description="Minutes per HR zone in this range." data={zoneBuckets.hr} dataKey="minutes" unit="min" color="#ef4444" />
+        <ZoneBarCard title="Time in Pace Zone" description="Minutes per pace zone (anchored to 5K pace)." data={zoneBuckets.pace} dataKey="minutes" unit="min" color="#3b82f6" />
+        <ZoneBarCard title="Distance in HR Zone" description="Kilometres per HR zone in this range." data={zoneBuckets.hr} dataKey="km" unit="km" color="#ef4444" />
+        <ZoneBarCard title="Distance in Pace Zone" description="Kilometres per pace zone in this range." data={zoneBuckets.pace} dataKey="km" unit="km" color="#3b82f6" />
+
         <Card>
           <CardHeader>
-            <CardTitle>Time in zone</CardTitle>
-            <CardDescription>Total minutes per intensity zone in this range.</CardDescription>
+            <CardTitle>Time by Training Intent</CardTitle>
+            <CardDescription>Session-level total time grouped by planned intent.</CardDescription>
           </CardHeader>
           <CardContent>
-            {zoneRollup.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No zone data yet — log sessions with HR or pace.</p>
+            {intentData.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No completed training sessions in this range.</p>
             ) : (
-              <div className="h-[200px] w-full">
+              <div className="h-[220px] w-full">
                 <ResponsiveContainer>
-                  <BarChart data={zoneRollup} layout="vertical" margin={{ top: 6, right: 12, left: 24, bottom: 0 }}>
+                  <BarChart data={intentData} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
-                    <XAxis type="number" tick={{ fontSize: 11 }} />
-                    <YAxis type="category" dataKey="zone" tick={{ fontSize: 11 }} width={70} />
+                    <XAxis dataKey="intent" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} />
                     <Tooltip contentStyle={{ background: "hsl(var(--background))", border: "1px solid hsl(var(--border))", fontSize: 12 }} />
-                    <Bar dataKey="minutes" name="min" fill="#8b5cf6" radius={[0, 3, 3, 0]} />
+                    <Bar dataKey="minutes" name="min" fill="#8b5cf6" radius={[3, 3, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
             )}
           </CardContent>
         </Card>
+
+        <VolumePieCard data={kindVolume} />
       </div>
 
       {/* Physio */}
