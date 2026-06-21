@@ -61,7 +61,11 @@ function AthleteDetail() {
               <h1 className="text-2xl font-bold">{athlete.name}</h1>
               <p className="text-sm text-muted-foreground">{athlete.primary_event ?? "—"}</p>
             </div>
-            <ReadinessBadge status={today?.readiness_status as any} />
+            <ReadinessBadge
+              status={today?.readiness_status as any}
+              score={today?.readiness_score as any}
+              confidence={today?.confidence as any}
+            />
           </div>
         </div>
 
