@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { metersFmt, secToClock } from "@/lib/format";
+import { sessionClassificationLabel } from "@/lib/session-categories";
 import { Plus } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/")({
