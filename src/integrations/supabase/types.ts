@@ -56,10 +56,15 @@ export type Database = {
         Row: {
           athlete_id: string
           atl: number | null
+          checkin_score: number | null
           combined_load: number | null
+          confidence: string | null
           ctl: number | null
+          data_days: number | null
           external_load_total: number | null
+          load_balance_score: number | null
           load_date: string
+          load_ratio: number | null
           readiness_score: number | null
           readiness_status:
             | Database["public"]["Enums"]["readiness_status"]
@@ -71,10 +76,15 @@ export type Database = {
         Insert: {
           athlete_id: string
           atl?: number | null
+          checkin_score?: number | null
           combined_load?: number | null
+          confidence?: string | null
           ctl?: number | null
+          data_days?: number | null
           external_load_total?: number | null
+          load_balance_score?: number | null
           load_date: string
+          load_ratio?: number | null
           readiness_score?: number | null
           readiness_status?:
             | Database["public"]["Enums"]["readiness_status"]
@@ -86,10 +96,15 @@ export type Database = {
         Update: {
           athlete_id?: string
           atl?: number | null
+          checkin_score?: number | null
           combined_load?: number | null
+          confidence?: string | null
           ctl?: number | null
+          data_days?: number | null
           external_load_total?: number | null
+          load_balance_score?: number | null
           load_date?: string
+          load_ratio?: number | null
           readiness_score?: number | null
           readiness_status?:
             | Database["public"]["Enums"]["readiness_status"]
@@ -553,6 +568,51 @@ export type Database = {
           },
         ]
       }
+      session_zone_time: {
+        Row: {
+          athlete_id: string
+          id: string
+          seconds: number
+          session_id: string
+          source: Database["public"]["Enums"]["zone_source"]
+          updated_at: string
+          zone: Database["public"]["Enums"]["pace_zone"]
+        }
+        Insert: {
+          athlete_id: string
+          id?: string
+          seconds?: number
+          session_id: string
+          source?: Database["public"]["Enums"]["zone_source"]
+          updated_at?: string
+          zone: Database["public"]["Enums"]["pace_zone"]
+        }
+        Update: {
+          athlete_id?: string
+          id?: string
+          seconds?: number
+          session_id?: string
+          source?: Database["public"]["Enums"]["zone_source"]
+          updated_at?: string
+          zone?: Database["public"]["Enums"]["pace_zone"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "session_zone_time_athlete_id_fkey"
+            columns: ["athlete_id"]
+            isOneToOne: false
+            referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "session_zone_time_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sessions: {
         Row: {
           athlete_id: string
@@ -727,12 +787,33 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      athlete_zone_time_weekly: {
+        Row: {
+          athlete_id: string | null
+          seconds: number | null
+          source: Database["public"]["Enums"]["zone_source"] | null
+          week_start: string | null
+          zone: Database["public"]["Enums"]["pace_zone"] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "session_zone_time_athlete_id_fkey"
+            columns: ["athlete_id"]
+            isOneToOne: false
+            referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       can_access_athlete: {
         Args: { _athlete_id: string; _user_id: string }
         Returns: boolean
+      }
+      external_load_score: {
+        Args: { _athlete_id: string; _date: string }
+        Returns: number
       }
       has_role: {
         Args: {
@@ -745,6 +826,16 @@ export type Database = {
         Args: { _athlete_id: string; _user_id: string }
         Returns: boolean
       }
+      recompute_readiness: {
+        Args: { _athlete_id: string; _date: string }
+        Returns: undefined
+      }
+      recompute_readiness_all: { Args: { _date: string }; Returns: undefined }
+      recompute_session_zones: {
+        Args: { _session_id: string }
+        Returns: undefined
+      }
+      session_training_load: { Args: { _session_id: string }; Returns: number }
     }
     Enums: {
       app_role: "coach" | "athlete" | "admin"
@@ -755,6 +846,14 @@ export type Database = {
         | "school"
         | "travel"
         | "other"
+      pace_zone:
+        | "easy"
+        | "steady"
+        | "threshold"
+        | "vo2"
+        | "rep"
+        | "sprint"
+        | "recovery"
       readiness_status: "green" | "amber" | "red"
       recovery_mode: "standing" | "walk" | "jog" | "float"
       session_category:
@@ -772,6 +871,7 @@ export type Database = {
       step_kind: "warmup" | "work" | "recovery" | "cooldown"
       target_kind: "time" | "distance"
       zone_basis: "hr" | "pace" | "none"
+      zone_source: "pace" | "hr"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -908,6 +1008,15 @@ export const Constants = {
         "travel",
         "other",
       ],
+      pace_zone: [
+        "easy",
+        "steady",
+        "threshold",
+        "vo2",
+        "rep",
+        "sprint",
+        "recovery",
+      ],
       readiness_status: ["green", "amber", "red"],
       recovery_mode: ["standing", "walk", "jog", "float"],
       session_category: [
@@ -926,6 +1035,7 @@ export const Constants = {
       step_kind: ["warmup", "work", "recovery", "cooldown"],
       target_kind: ["time", "distance"],
       zone_basis: ["hr", "pace", "none"],
+      zone_source: ["pace", "hr"],
     },
   },
 } as const

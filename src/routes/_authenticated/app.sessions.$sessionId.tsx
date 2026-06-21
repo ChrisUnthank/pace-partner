@@ -52,6 +52,17 @@ function SessionDetail() {
     },
   });
 
+  const { data: zoneTime } = useQuery({
+    queryKey: ["zone-time", sessionId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("session_zone_time")
+        .select("zone, seconds, source")
+        .eq("session_id", sessionId);
+      return data ?? [];
+    },
+  });
+
   if (isLoading || !session) return <AppShell><p>Loading…</p></AppShell>;
 
   return (
@@ -75,10 +86,59 @@ function SessionDetail() {
         </div>
 
         <SessionSummary session={session} onSaved={() => qc.invalidateQueries({ queryKey: ["session", sessionId] })} />
+
+        <ZoneTimePanel rows={zoneTime ?? []} />
       </div>
     </AppShell>
   );
 }
+
+const ZONE_ORDER = ["easy", "steady", "threshold", "vo2", "rep", "sprint", "recovery"] as const;
+
+function ZoneTimePanel({ rows }: { rows: { zone: string; seconds: number; source: string }[] }) {
+  if (rows.length === 0) {
+    return (
+      <Card>
+        <CardHeader><CardTitle>Time in zones</CardTitle><CardDescription>Log rep times (and ensure pace zones are set on the athlete profile) to see this.</CardDescription></CardHeader>
+      </Card>
+    );
+  }
+  const total = rows.reduce((a, r) => a + Number(r.seconds || 0), 0) || 1;
+  const source = rows[0]?.source === "hr" ? "HR-based" : "Pace-based";
+  const sorted = [...rows].sort((a, b) => ZONE_ORDER.indexOf(a.zone as any) - ZONE_ORDER.indexOf(b.zone as any));
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Time in zones</CardTitle>
+        <CardDescription>{source}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <div className="flex h-3 w-full overflow-hidden rounded bg-muted">
+          {sorted.map((r) => (
+            <div key={r.zone} className={zoneBarClass(r.zone)} style={{ width: `${(Number(r.seconds) / total) * 100}%` }} />
+          ))}
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
+          {sorted.map((r) => (
+            <div key={r.zone} className="flex justify-between border rounded px-2 py-1">
+              <span className="capitalize flex items-center gap-2"><span className={`h-2 w-2 rounded ${zoneDotClass(r.zone)}`} />{r.zone}</span>
+              <span className="tabular-nums">{secToClock(Number(r.seconds))}</span>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function zoneBarClass(zone: string) {
+  const m: Record<string, string> = {
+    easy: "bg-emerald-400", steady: "bg-sky-400", threshold: "bg-amber-400",
+    vo2: "bg-orange-500", rep: "bg-red-500", sprint: "bg-fuchsia-500", recovery: "bg-slate-300",
+  };
+  return m[zone] ?? "bg-muted";
+}
+function zoneDotClass(zone: string) { return zoneBarClass(zone); }
 
 function StepBlock({ step, results }: { step: any; results: any[] }) {
   const qc = useQueryClient();

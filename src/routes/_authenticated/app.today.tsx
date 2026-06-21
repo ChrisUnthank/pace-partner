@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { todayISO } from "@/lib/format";
 import { toast } from "sonner";
 import { Trash2, Plus } from "lucide-react";
+import { ReadinessBadge } from "@/components/readiness-badge";
 
 export const Route = createFileRoute("/_authenticated/app/today")({
   component: TodayPage,
@@ -68,6 +69,20 @@ function TodayPage() {
     },
   });
 
+  const { data: readiness } = useQuery({
+    queryKey: ["readiness-today", athlete?.id, today],
+    enabled: !!athlete,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("athlete_load_daily")
+        .select("readiness_status, readiness_score, confidence, atl, ctl, load_ratio, checkin_score")
+        .eq("athlete_id", athlete!.id)
+        .eq("load_date", today)
+        .maybeSingle();
+      return data;
+    },
+  });
+
   const [sleepHours, setSleepHours] = useState(7.5);
   const [sleepQ, setSleepQ] = useState(3);
   const [soreness, setSoreness] = useState(2);
@@ -105,6 +120,31 @@ function TodayPage() {
     <AppShell>
       <div className="space-y-6 max-w-2xl">
         <h1 className="text-2xl font-bold">Today</h1>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <div>
+              <CardTitle className="text-base">Readiness</CardTitle>
+              <CardDescription>
+                {readiness?.confidence === "insufficient"
+                  ? "Building baseline — log a few more days for a real score"
+                  : readiness?.confidence
+                    ? `Confidence: ${readiness.confidence}`
+                    : "No data yet"}
+              </CardDescription>
+            </div>
+            <ReadinessBadge
+              status={readiness?.readiness_status as any}
+              score={readiness?.readiness_score as any}
+              confidence={readiness?.confidence as any}
+            />
+          </CardHeader>
+          <CardContent className="grid grid-cols-3 gap-2 text-center text-sm">
+            <Stat label="Acute (7d)" value={readiness?.atl} />
+            <Stat label="Chronic (28d)" value={readiness?.ctl} />
+            <Stat label="Ratio" value={readiness?.load_ratio} digits={2} />
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>
@@ -157,6 +197,15 @@ function TodayPage() {
         <ExternalLoadCard athleteId={athlete.id} date={today} existing={extLoad ?? []} />
       </div>
     </AppShell>
+  );
+}
+
+function Stat({ label, value, digits = 0 }: { label: string; value?: number | null; digits?: number }) {
+  return (
+    <div className="rounded border py-2">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="font-medium tabular-nums">{value == null ? "—" : Number(value).toFixed(digits)}</div>
+    </div>
   );
 }
 
