@@ -11,6 +11,7 @@ import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { secToClock, clockToSec, metersFmt } from "@/lib/format";
+import { sessionClassificationLabel } from "@/lib/session-categories";
 import { toast } from "sonner";
 import { CheckCircle2, Apple } from "lucide-react";
 
@@ -90,7 +91,7 @@ function SessionDetail() {
           <Link to="/app/sessions" className="text-sm text-muted-foreground underline">← Sessions</Link>
           <h1 className="text-2xl font-bold mt-2">{session.title}</h1>
           <p className="text-sm text-muted-foreground">
-            {session.session_date} · {session.athletes?.name} · <span className="capitalize">{session.category}</span>
+            {session.session_date} · {session.athletes?.name} · {sessionClassificationLabel(session as any)}
             {session.completed_at && <span className="ml-2 text-emerald-600">Completed</span>}
           </p>
         </div>

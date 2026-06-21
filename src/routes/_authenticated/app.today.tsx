@@ -156,7 +156,7 @@ function TodayPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <div className="font-medium">{todaysSession.title}</div>
-                  <div className="text-xs text-muted-foreground capitalize">{todaysSession.category}</div>
+                  <div className="text-xs text-muted-foreground">{require("@/lib/session-categories").sessionClassificationLabel(todaysSession as any)}</div>
                 </div>
                 <Link to="/app/sessions/$sessionId" params={{ sessionId: todaysSession.id }}>
                   <Button>Open</Button>
