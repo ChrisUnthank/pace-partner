@@ -70,18 +70,24 @@ function AthleteDetail() {
     },
   });
 
-  if (!athlete) return <AppShell><p>Loading…</p></AppShell>;
+  if (!athlete) return <AppShell><p className="text-sm text-muted-foreground">Loading…</p></AppShell>;
   const today = load?.[0];
 
   return (
     <AppShell>
-      <div className="space-y-6">
+      <div className="space-y-8">
         <div>
-          <Link to="/app/athletes" className="text-sm text-muted-foreground underline">← Athletes</Link>
-          <div className="flex items-center justify-between mt-2">
+          <Link to="/app/athletes" className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground hover:text-foreground">
+            ← Roster
+          </Link>
+          <div className="flex items-end justify-between gap-4 mt-3 flex-wrap">
             <div>
-              <h1 className="text-2xl font-bold">{athlete.name}</h1>
-              <p className="text-sm text-muted-foreground">{athlete.primary_event ?? "—"}</p>
+              <h1 className="font-display text-4xl font-extrabold tracking-tight leading-none">
+                {athlete.name}
+              </h1>
+              <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                {athlete.primary_event ?? "Unassigned event"}
+              </p>
             </div>
             <div className="flex items-center gap-2">
               <Button asChild variant="outline" size="sm">
