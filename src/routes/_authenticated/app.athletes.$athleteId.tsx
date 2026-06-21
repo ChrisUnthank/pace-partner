@@ -263,3 +263,121 @@ function PieSplit({ aerobic, anaerobic }: { aerobic: number; anaerobic: number }
     />
   );
 }
+
+function IdentityCard({ athlete }: { athlete: any }) {
+  const ageYears = athlete?.dob
+    ? Math.floor((Date.now() - new Date(athlete.dob).getTime()) / (365.25 * 24 * 3600 * 1000))
+    : null;
+  const rows: Array<[string, string]> = [
+    ["Name", athlete?.name ?? "—"],
+    ["Sex", athlete?.sex ?? "—"],
+    ["Date of birth", athlete?.dob ? `${athlete.dob}${ageYears != null ? ` (${ageYears}y)` : ""}` : "—"],
+    ["Training age", athlete?.training_age_years != null ? `${athlete.training_age_years} yrs` : "—"],
+    ["Primary event", athlete?.primary_event ?? "—"],
+    ["HR max", athlete?.hr_max != null ? `${athlete.hr_max} bpm` : "—"],
+    ["HR rest", athlete?.hr_rest != null ? `${athlete.hr_rest} bpm` : "—"],
+  ];
+  return (
+    <Card>
+      <CardHeader><CardTitle>Athlete profile</CardTitle></CardHeader>
+      <CardContent>
+        <dl className="grid sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+          {rows.map(([k, v]) => (
+            <div key={k} className="flex justify-between border-b py-1">
+              <dt className="text-muted-foreground">{k}</dt>
+              <dd className="font-medium tabular-nums">{v}</dd>
+            </div>
+          ))}
+        </dl>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ZoneBoundariesCard({ profile }: { profile: any }) {
+  if (!profile) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Zone boundaries</CardTitle>
+          <CardDescription>No zone profile yet — set HR max and log a 5K PB.</CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
+  const hrMax: number | null = profile.hr_max ?? null;
+  const pct = (bpm: number | null) => (hrMax && bpm ? `${Math.round((bpm / hrMax) * 100)}%` : "—");
+  const hrRows = [
+    { z: "Z1", label: "≤60% HRmax", bound: profile.hr_z1_max, range: hrMax ? `≤${profile.hr_z1_max} bpm` : "—" },
+    { z: "Z2", label: "60–70%", bound: profile.hr_z2_max, range: hrMax ? `${profile.hr_z1_max + 1}–${profile.hr_z2_max} bpm` : "—" },
+    { z: "Z3", label: "70–80%", bound: profile.hr_z3_max, range: hrMax ? `${profile.hr_z2_max + 1}–${profile.hr_z3_max} bpm` : "—" },
+    { z: "Z4", label: "80–90%", bound: profile.hr_z4_max, range: hrMax ? `${profile.hr_z3_max + 1}–${profile.hr_z4_max} bpm` : "—" },
+    { z: "Z5", label: ">90%", bound: profile.hr_z5_max, range: hrMax ? `${profile.hr_z4_max + 1}–${profile.hr_z5_max} bpm` : "—" },
+  ];
+  const p5k: number | null = profile.pace_5k_sec_per_km ?? null;
+  const paceRows = p5k
+    ? [
+        { z: "Z1", label: "5K pace + 90s or slower", range: `≥ ${paceFmt(p5k + 90)}` },
+        { z: "Z2", label: "+45s to +89s", range: `${paceFmt(p5k + 89)} – ${paceFmt(p5k + 45)}` },
+        { z: "Z3", label: "+15s to +44s", range: `${paceFmt(p5k + 44)} – ${paceFmt(p5k + 15)}` },
+        { z: "Z4", label: "−14s to +14s (around 5K pace)", range: `${paceFmt(p5k + 14)} – ${paceFmt(p5k - 14)}` },
+        { z: "Z5", label: "Faster than 5K pace −14s", range: `≤ ${paceFmt(p5k - 15)}` },
+      ]
+    : [];
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Zone boundaries</CardTitle>
+        <CardDescription>
+          Auto-derived from HR max and 5K pace.
+          {profile.hr_zones_manual && " HR zones overridden manually."}
+          {profile.pace_zones_manual && " Pace zones overridden manually."}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid md:grid-cols-2 gap-6">
+        <div>
+          <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
+            HR zones {hrMax ? `(HRmax ${hrMax})` : "(set HR max)"}
+          </div>
+          <table className="w-full text-sm">
+            <thead className="text-xs text-muted-foreground">
+              <tr><th className="text-left py-1">Zone</th><th className="text-left">% HRmax</th><th className="text-right">Range</th></tr>
+            </thead>
+            <tbody>
+              {hrRows.map((r) => (
+                <tr key={r.z} className="border-t">
+                  <td className="py-1 font-medium">{r.z}</td>
+                  <td className="text-muted-foreground">{r.label}</td>
+                  <td className="text-right tabular-nums">{r.range} <span className="text-xs text-muted-foreground">({pct(r.bound)})</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div>
+          <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
+            Pace zones {p5k ? `(5K pace ${paceFmt(p5k)})` : "(log a 5K PB)"}
+          </div>
+          {p5k ? (
+            <table className="w-full text-sm">
+              <thead className="text-xs text-muted-foreground">
+                <tr><th className="text-left py-1">Zone</th><th className="text-left">Offset</th><th className="text-right">Pace</th></tr>
+              </thead>
+              <tbody>
+                {paceRows.map((r) => (
+                  <tr key={r.z} className="border-t">
+                    <td className="py-1 font-medium">{r.z}</td>
+                    <td className="text-muted-foreground">{r.label}</td>
+                    <td className="text-right tabular-nums">{r.range}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="text-sm text-muted-foreground">Log a 5K (or 3K / 10K) PB to derive pace zones.</p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
