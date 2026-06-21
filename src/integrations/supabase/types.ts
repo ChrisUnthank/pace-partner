@@ -1238,7 +1238,7 @@ export type Database = {
       session_training_load: { Args: { _session_id: string }; Returns: number }
     }
     Enums: {
-      app_role: "coach" | "athlete" | "admin"
+      app_role: "coach" | "athlete" | "admin" | "manager"
       external_load_kind:
         | "work"
         | "gym"
@@ -1403,7 +1403,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["coach", "athlete", "admin"],
+      app_role: ["coach", "athlete", "admin", "manager"],
       external_load_kind: [
         "work",
         "gym",

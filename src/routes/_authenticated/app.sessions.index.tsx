@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useMyAthlete, useMyRoles, useAuthUser } from "@/lib/use-auth";
+import { useMyAthlete, useMyRoles, useMyRawRoles, useAuthUser } from "@/lib/use-auth";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,8 +17,10 @@ export const Route = createFileRoute("/_authenticated/app/sessions/")({
 function SessionsList() {
   const { user } = useAuthUser();
   const { data: roles = [] } = useMyRoles();
+  const { data: rawRoles = [] } = useMyRawRoles();
   const { data: athlete } = useMyAthlete();
   const isCoach = roles.includes("coach");
+  const isManager = rawRoles.includes("manager");
 
   const { data: athleteIds } = useQuery({
     queryKey: ["visible-athlete-ids", user?.id],
@@ -26,7 +28,10 @@ function SessionsList() {
     queryFn: async () => {
       const ids: string[] = [];
       if (athlete) ids.push(athlete.id);
-      if (isCoach) {
+      if (isManager) {
+        const { data } = await supabase.from("athletes").select("id");
+        for (const r of data ?? []) ids.push(r.id);
+      } else if (isCoach) {
         const { data } = await supabase.from("coach_athletes").select("athlete_id").eq("coach_user_id", user!.id);
         for (const r of data ?? []) ids.push(r.athlete_id);
       }

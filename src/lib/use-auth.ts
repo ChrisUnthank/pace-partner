@@ -26,10 +26,13 @@ export function useAuthUser() {
   return { user, loading };
 }
 
-export function useMyRoles() {
+export type AppRole = "coach" | "athlete" | "manager" | "admin";
+
+// Raw roles as stored in the database (used by the Profile role-management UI).
+export function useMyRawRoles() {
   const { user } = useAuthUser();
   return useQuery({
-    queryKey: ["my-roles", user?.id],
+    queryKey: ["my-raw-roles", user?.id],
     enabled: !!user,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -37,7 +40,48 @@ export function useMyRoles() {
         .select("role")
         .eq("user_id", user!.id);
       if (error) throw error;
-      return (data ?? []).map((r) => r.role as "coach" | "athlete" | "admin");
+      return (data ?? []).map((r) => r.role as AppRole);
+    },
+  });
+}
+
+// Effective roles for UI gating: "manager" implicitly grants "coach" access
+// so existing roles.includes("coach") checks throughout the app work for managers.
+export function useMyRoles() {
+  const q = useMyRawRoles();
+  const raw = q.data ?? [];
+  const effective = raw.includes("manager") && !raw.includes("coach") ? [...raw, "coach" as AppRole] : raw;
+  return { ...q, data: effective };
+}
+
+// Coach roster scoped to the current user:
+//  - manager: every athlete in the system
+//  - coach:   athletes linked via coach_athletes
+// Returns rows shaped like { athlete_id, athletes: { id, name, primary_event } }
+// so existing consumers can keep their current accessor shape.
+export function useCoachRoster() {
+  const { user } = useAuthUser();
+  const { data: rawRoles = [] } = useMyRawRoles();
+  const isManager = rawRoles.includes("manager");
+  const isCoach = rawRoles.includes("coach") || isManager;
+  return useQuery({
+    queryKey: ["coach-roster", user?.id, isManager],
+    enabled: !!user && isCoach,
+    queryFn: async () => {
+      if (isManager) {
+        const { data, error } = await supabase
+          .from("athletes")
+          .select("id, name, primary_event")
+          .order("name");
+        if (error) throw error;
+        return (data ?? []).map((a) => ({ athlete_id: a.id, athletes: a }));
+      }
+      const { data, error } = await supabase
+        .from("coach_athletes")
+        .select("athlete_id, athletes(id, name, primary_event)")
+        .eq("coach_user_id", user!.id);
+      if (error) throw error;
+      return data ?? [];
     },
   });
 }

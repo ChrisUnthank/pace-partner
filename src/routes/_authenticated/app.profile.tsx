@@ -2,12 +2,13 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useMyAthlete, useAuthUser, useMyRoles } from "@/lib/use-auth";
+import { useMyAthlete, useAuthUser, useMyRawRoles, type AppRole } from "@/lib/use-auth";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { metersFmt, secToClock, clockToSec } from "@/lib/format";
 import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
@@ -18,7 +19,7 @@ export const Route = createFileRoute("/_authenticated/app/profile")({
 
 function Profile() {
   const { user } = useAuthUser();
-  const { data: roles = [] } = useMyRoles();
+  const { data: roles = [] } = useMyRawRoles();
   const { data: athlete } = useMyAthlete();
   const qc = useQueryClient();
 
@@ -51,6 +52,7 @@ function Profile() {
             <div><span className="text-muted-foreground">Roles:</span> {roles.join(", ") || "none"}</div>
           </CardContent>
         </Card>
+        {user && <RolesCard userId={user.id} roles={roles} email={user.email ?? ""} />}
         {athlete && (
           <>
             <AthleteForm athlete={athlete} />
@@ -60,6 +62,57 @@ function Profile() {
         )}
       </div>
     </AppShell>
+  );
+}
+
+function RolesCard({ userId, roles, email }: { userId: string; roles: AppRole[]; email: string }) {
+  const qc = useQueryClient();
+  const has = (r: AppRole) => roles.includes(r);
+
+  async function toggle(r: "athlete" | "coach" | "manager", on: boolean) {
+    if (on) {
+      const { error } = await supabase.from("user_roles").insert({ user_id: userId, role: r });
+      if (error && !error.message.includes("duplicate")) { toast.error(error.message); return; }
+      if (r === "athlete") {
+        const { data: existing } = await supabase.from("athletes").select("id").eq("user_id", userId).maybeSingle();
+        if (!existing) {
+          await supabase.from("athletes").insert({ user_id: userId, name: email || "Athlete", created_by: userId });
+        }
+      }
+    } else {
+      const { error } = await supabase.from("user_roles").delete().eq("user_id", userId).eq("role", r);
+      if (error) { toast.error(error.message); return; }
+    }
+    toast.success("Role updated");
+    qc.invalidateQueries({ queryKey: ["my-raw-roles"] });
+    qc.invalidateQueries({ queryKey: ["my-roles"] });
+    qc.invalidateQueries({ queryKey: ["my-athlete"] });
+  }
+
+  const items: { role: "athlete" | "coach" | "manager"; label: string; desc: string }[] = [
+    { role: "athlete", label: "Athlete", desc: "See your own training, check-ins, PBs and readiness." },
+    { role: "coach", label: "Coach", desc: "Manage your linked roster of athletes, sessions and templates." },
+    { role: "manager", label: "Manager", desc: "Team / squad administrator — coach-level access to every athlete." },
+  ];
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Roles</CardTitle>
+        <CardDescription>You can be more than one. Turning off Athlete hides athlete-only views but keeps your training data.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {items.map((it) => (
+          <label key={it.role} className="flex items-start gap-3 cursor-pointer">
+            <Checkbox checked={has(it.role)} onCheckedChange={(v) => toggle(it.role, !!v)} className="mt-0.5" />
+            <div>
+              <div className="text-sm font-medium">{it.label}</div>
+              <div className="text-xs text-muted-foreground">{it.desc}</div>
+            </div>
+          </label>
+        ))}
+      </CardContent>
+    </Card>
   );
 }
 

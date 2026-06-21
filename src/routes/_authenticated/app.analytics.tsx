@@ -3,7 +3,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuthUser, useMyAthlete, useMyRoles } from "@/lib/use-auth";
+import { useAuthUser, useMyAthlete, useMyRoles, useMyRawRoles } from "@/lib/use-auth";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -103,12 +103,21 @@ function AnalyticsPage() {
 
 function CoachRoster({ range, onRangeChange }: { range: RangeKey; onRangeChange: (r: RangeKey) => void }) {
   const { user } = useAuthUser();
+  const { data: rawRoles = [] } = useMyRawRoles();
+  const isManager = rawRoles.includes("manager");
   const since = isoDaysAgo(14);
 
   const { data: roster } = useQuery({
-    queryKey: ["analytics-roster", user?.id],
+    queryKey: ["analytics-roster", user?.id, isManager],
     enabled: !!user,
     queryFn: async () => {
+      if (isManager) {
+        const { data } = await supabase
+          .from("athletes")
+          .select("id, name, primary_event")
+          .order("name");
+        return (data ?? []).map((a: any) => ({ athlete_id: a.id, athletes: a }));
+      }
       const { data } = await supabase
         .from("coach_athletes")
         .select("athlete_id, athletes(id, name, primary_event)")

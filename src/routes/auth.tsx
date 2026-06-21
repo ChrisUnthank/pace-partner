@@ -25,7 +25,7 @@ function AuthPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
-  const [role, setRole] = useState<"athlete" | "coach">("athlete");
+  const [role, setRole] = useState<"athlete" | "coach" | "manager">("athlete");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -34,8 +34,11 @@ function AuthPage() {
     });
   }, [navigate]);
 
-  async function ensureRole(userId: string, r: "athlete" | "coach") {
-    await supabase.from("user_roles").upsert({ user_id: userId, role: r }, { onConflict: "user_id,role" });
+  async function ensureRole(userId: string, r: "athlete" | "coach" | "manager") {
+    const { error: roleErr } = await supabase
+      .from("user_roles")
+      .upsert({ user_id: userId, role: r }, { onConflict: "user_id,role" });
+    if (roleErr) throw roleErr;
     if (r === "athlete") {
       const { data: existing } = await supabase.from("athletes").select("id").eq("user_id", userId).maybeSingle();
       if (!existing) {
@@ -110,10 +113,12 @@ function AuthPage() {
               <div><Label>Password</Label><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></div>
               <div>
                 <Label>I am a…</Label>
-                <RadioGroup value={role} onValueChange={(v) => setRole(v as any)} className="flex gap-4 mt-2">
+                <RadioGroup value={role} onValueChange={(v) => setRole(v as any)} className="flex flex-wrap gap-4 mt-2">
                   <label className="flex items-center gap-2 cursor-pointer"><RadioGroupItem value="athlete" /> Athlete</label>
                   <label className="flex items-center gap-2 cursor-pointer"><RadioGroupItem value="coach" /> Coach</label>
+                  <label className="flex items-center gap-2 cursor-pointer"><RadioGroupItem value="manager" /> Manager</label>
                 </RadioGroup>
+                <p className="text-xs text-muted-foreground mt-1">Manager = team/squad admin with coach-level access to every athlete.</p>
               </div>
               <Button className="w-full" disabled={busy} onClick={signUp}>Create account</Button>
               <Button variant="outline" className="w-full" onClick={google}>Continue with Google</Button>
