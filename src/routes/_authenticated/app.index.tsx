@@ -48,7 +48,7 @@ function AppHome() {
       const today = todayISO();
       const { data, error } = await supabase
         .from("athlete_load_daily")
-        .select("athlete_id, readiness_status, combined_load, ctl, atl, tsb")
+        .select("athlete_id, readiness_status, readiness_score, confidence, combined_load, ctl, atl, tsb")
         .in("athlete_id", roster!.map((r) => r.athlete_id))
         .eq("load_date", today);
       if (error) throw error;
@@ -109,7 +109,11 @@ function AppHome() {
                           <div className="font-medium">{r.athletes?.name}</div>
                           <div className="text-xs text-muted-foreground">{r.athletes?.primary_event ?? "—"}</div>
                         </div>
-                        <ReadinessBadge status={ready?.readiness_status as any} />
+                        <ReadinessBadge
+                          status={ready?.readiness_status as any}
+                          score={ready?.readiness_score as any}
+                          confidence={ready?.confidence as any}
+                        />
                       </Link>
                     );
                   })}
