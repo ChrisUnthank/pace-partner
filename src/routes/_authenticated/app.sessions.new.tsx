@@ -120,6 +120,32 @@ function NewSession() {
   function updateStep(i: number, patch: Partial<StepDraft>) {
     setSteps((s) => s.map((x, idx) => (idx === i ? { ...x, ...patch } : x)));
   }
+
+  // Strip rep/set/recovery/ladder fields from a Work step — used when switching to continuous structure.
+  function flattenWorkToContinuous(s: StepDraft): StepDraft {
+    if (s.kind !== "work") return s;
+    return {
+      ...s,
+      reps: 1,
+      set_count: 1,
+      is_ladder: false,
+      recovery_between_reps_seconds: null,
+      recovery_between_reps_mode: undefined,
+      recovery_between_reps_target_kind: undefined,
+      recovery_between_reps_distance_m: null,
+      recovery_between_sets_seconds: null,
+      recovery_between_sets_mode: undefined,
+      recovery_between_sets_target_kind: undefined,
+      recovery_between_sets_distance_m: null,
+    };
+  }
+
+  function handleStructureChange(next: string) {
+    setStructure(next);
+    if (next === "continuous") {
+      setSteps((s) => s.map(flattenWorkToContinuous));
+    }
+  }
   function removeStep(i: number) { setSteps((s) => s.filter((_, idx) => idx !== i)); }
   function addStep(kind: StepDraft["kind"]) {
     setSteps((s) => {
@@ -297,9 +323,9 @@ function NewSession() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div>
-                  <Label>Structure</Label>
-                  <Select value={structure} onValueChange={setStructure}>
+                 <div>
+                   <Label>Structure</Label>
+                   <Select value={structure} onValueChange={handleStructureChange}>
                     <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {SESSION_STRUCTURES.map((s) => (
