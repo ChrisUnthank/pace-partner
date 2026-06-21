@@ -68,7 +68,7 @@ function SessionsList() {
                   <div>
                     <div className="font-medium">{s.title}</div>
                     <div className="text-xs text-muted-foreground">
-                      {s.session_date} · {s.athletes?.name} · <span className="capitalize">{s.category}</span>
+                      {s.session_date} · {s.athletes?.name} · {sessionClassificationLabel(s)}
                     </div>
                   </div>
                   <div className="flex gap-2 items-center text-sm">
