@@ -59,8 +59,8 @@ function SessionsList() {
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-2xl font-bold">Sessions</h1>
         <div className="flex gap-2">
-          <Link to="/app/sessions/calendar"><Button variant="outline"><CalendarDays className="h-4 w-4 mr-1" /> Calendar</Button></Link>
-          <Link to="/app/sessions/new"><Button><Plus className="h-4 w-4 mr-1" /> New session</Button></Link>
+          <Button asChild variant="outline"><Link to="/app/sessions/calendar"><CalendarDays className="h-4 w-4 mr-1" /> Calendar</Link></Button>
+          <Button asChild><Link to="/app/sessions/new"><Plus className="h-4 w-4 mr-1" /> New session</Link></Button>
         </div>
       </div>
 

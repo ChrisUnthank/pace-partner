@@ -114,11 +114,11 @@ function SessionDetail() {
               </Button>
             )}
             {session.completed_at && (
-              <Link to="/app/sessions/$sessionId/analysis" params={{ sessionId }}>
-                <Button size="sm" variant="outline">
+              <Button asChild size="sm" variant="outline">
+                <Link to="/app/sessions/$sessionId/analysis" params={{ sessionId }}>
                   <LineChart className="h-4 w-4 mr-1" />View analysis
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             )}
           </div>
         </div>

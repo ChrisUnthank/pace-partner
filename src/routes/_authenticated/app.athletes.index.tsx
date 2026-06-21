@@ -128,9 +128,11 @@ function AthletesPage() {
                       <div className="text-xs text-muted-foreground truncate">{r.athletes?.primary_event ?? "—"}</div>
                     </Link>
                     <div className="flex items-center gap-2 shrink-0">
-                      <Link to="/app/sessions/calendar" search={{ athleteId: r.athlete_id } as any}>
-                        <Button size="icon" variant="ghost" title="View calendar"><CalendarDays className="h-4 w-4" /></Button>
-                      </Link>
+                      <Button asChild size="icon" variant="ghost" title="View calendar">
+                        <Link to="/app/sessions/calendar" search={{ athleteId: r.athlete_id } as any}>
+                          <CalendarDays className="h-4 w-4" />
+                        </Link>
+                      </Button>
                       {r.athletes?.user_id ? (
                         <Badge variant="secondary">Linked</Badge>
                       ) : (

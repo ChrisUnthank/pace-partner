@@ -178,7 +178,7 @@ function CalendarPage() {
             <p className="text-xs text-muted-foreground">Sessions by date · color = intent / day type</p>
           </div>
           <div className="flex items-center gap-2">
-            <Link to="/app/sessions"><Button variant="outline" size="sm"><ListIcon className="h-4 w-4 mr-1" /> List view</Button></Link>
+            <Button asChild variant="outline" size="sm"><Link to="/app/sessions"><ListIcon className="h-4 w-4 mr-1" /> List view</Link></Button>
           </div>
         </div>
 

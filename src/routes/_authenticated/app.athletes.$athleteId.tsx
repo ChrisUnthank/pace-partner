@@ -75,9 +75,11 @@ function AthleteDetail() {
               <p className="text-sm text-muted-foreground">{athlete.primary_event ?? "—"}</p>
             </div>
             <div className="flex items-center gap-2">
-              <Link to="/app/sessions/calendar" search={{ athleteId } as any}>
-                <Button variant="outline" size="sm"><CalendarDays className="h-4 w-4 mr-1" /> Calendar</Button>
-              </Link>
+              <Button asChild variant="outline" size="sm">
+                <Link to="/app/sessions/calendar" search={{ athleteId } as any}>
+                  <CalendarDays className="h-4 w-4 mr-1" /> Calendar
+                </Link>
+              </Button>
               <ReadinessBadge
                 status={today?.readiness_status as any}
                 score={today?.readiness_score as any}
