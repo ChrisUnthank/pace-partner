@@ -1,10 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/app-shell";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { metersFmt, secToClock } from "@/lib/format";
 import { ReadinessBadge } from "@/components/readiness-badge";
+import { toast } from "sonner";
+import { RefreshCw } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/app/athletes/$athleteId")({
   component: AthleteDetail,
@@ -12,6 +15,7 @@ export const Route = createFileRoute("/_authenticated/app/athletes/$athleteId")(
 
 function AthleteDetail() {
   const { athleteId } = Route.useParams();
+  const qc = useQueryClient();
 
   const { data: athlete } = useQuery({
     queryKey: ["athlete", athleteId],
@@ -109,6 +113,8 @@ function AthleteDetail() {
             </CardContent>
           </Card>
         </div>
+
+        <PhysiologyCard athleteId={athleteId} />
 
         <Card>
           <CardHeader><CardTitle>Recent sessions</CardTitle></CardHeader>
