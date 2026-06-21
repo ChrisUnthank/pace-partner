@@ -18,7 +18,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { toast } from "sonner";
 import { CheckCircle2, Apple, BookmarkPlus, LineChart } from "lucide-react";
 
-export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId")({
+export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/")({
   component: SessionDetail,
 });
 
