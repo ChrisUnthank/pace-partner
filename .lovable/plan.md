@@ -1,58 +1,63 @@
-## Confirmed understanding (with your additions)
+## Confirmation (plain English)
 
-Your two additions fit cleanly into the model I described:
+**Fatigue & zone-time:** Already computed per-step (`session_fatigue` row per work step, `session_zone_time` aggregated across all reps regardless of which work step they belong to). Multiple Work steps in one session will each get their own independent fatigue score — same behavior as the multi-step sessions from earlier work, no recompute changes needed. Zone-time will simply sum across both Work blocks, which is correct.
 
-**1. Recovery between reps is first-class data, not a gap.**
-Every rep is followed by a recovery step. Each recovery step has:
-- **Mode**: standing (still / minimal shuffle), walk, jog, or float (continuous easy running between fast reps)
-- **Target type**: time-based (e.g. 90s) OR distance-based (e.g. 200m)
-- **Target value** + **actual value** (how long/far it actually took)
-- **HR at end of rep** and **HR at end of recovery** → derived **HR recovery (bpm dropped, and bpm/min)**
-- Optional avg pace during recovery (for jog/float)
+**Existing test sessions:** Purely additive. No data migration for ordering — existing rows already have `step_order` and will render in order. The only schema change is adding distance-recovery columns for the in-step recovery (nullable, no backfill needed). Existing sessions that only used seconds keep working unchanged.
 
-This means a session like "6 × 800m w/ 200m jog recovery" stores 12 step rows (6 work + 6 recovery), and HR recovery between reps becomes a tracked metric that feeds fatigue context and future session adjustments — slow HR recovery late in a session is a stronger fatigue signal than the rep times alone.
+**Distance-based in-step recovery storage:** Mirror the pattern already used by the standalone Recovery step. Add `recovery_between_reps_target_kind` ('time'|'distance'), `recovery_between_reps_distance_m`, and matching `recovery_between_sets_*` columns. The existing `recovery_between_reps_seconds` / `recovery_between_sets_seconds` columns remain authoritative when target_kind='time'. Nothing else in the app currently reads the in-step recovery fields for load/zone/fatigue math (verified: `session_training_load` uses session-level RPE+duration; `compute_session_fatigue` reads `interval_results.actual_time_seconds`; `recompute_session_zones` reads `interval_results` + `steps.kind`/`counts_toward_distance` only). So adding distance recovery is a pure builder-UI + display concern — no calculation code needs to interpret it.
 
-**2. Daily check-in captures life load, not just training.**
-The check-in form (sleep, soreness, stress, motivation, fuel, injury) gets an **other activities** section:
-- Work (none / desk / physical / long hours)
-- Gym / strength session (yes + intensity)
-- Other sport (which + intensity + duration)
-- School activities (PE, sport practice, etc. — relevant for younger athletes)
-- Free-text notes
+---
 
-These flow into the same `external_load` concept in your schema map and combine with training load → `combined_load` → readiness. A planned hard track session the day after a school rugby match should get flagged amber automatically.
+## Plan
 
-## What I'll build (Phase 1 — web app, mobile-friendly)
+### A. Schema (one migration)
+Add to `public.steps`:
+- `recovery_between_reps_target_kind` text ('time'|'distance'), default 'time'
+- `recovery_between_reps_distance_m` integer, nullable
+- `recovery_between_sets_target_kind` text ('time'|'distance'), default 'time'
+- `recovery_between_sets_distance_m` integer, nullable
 
-A working app on Lovable Cloud with:
+Mirror the same four columns on `public.template_steps` so templates round-trip distance recovery.
 
-1. **Auth + roles** — shared login, Coach or Athlete role chosen at signup, coach-athlete linking
-2. **Data model** — exactly your v2 schema map, plus the two refinements above (recovery step fields, daily activities on check-in). No speculative extras.
-3. **Athlete experience**
-   - Today view: planned session + daily check-in (incl. other activities)
-   - Session logger: tap through reps and recoveries, enter actuals (time/distance/HR), RPE at end
-   - History: past sessions, PBs, readiness trend
-4. **Coach experience**
-   - Roster dashboard: each athlete's readiness (green/amber/red), last session, flags
-   - Session builder: structured steps (warmup → work reps + recovery steps → cooldown), assign to athletes
-   - Athlete detail: training load chart (acute vs chronic), zone time, fatigue context, physiological profile, execution flags
-5. **Readiness + adjustment engine** — daily recompute per athlete; amber/red surfaces a suggested adjustment for coach approval (your `session_adjustment_rules`)
-6. **Physiological profile** — computed from PBs in `performances`; aerobic/anaerobic split, speed reserve, archetype label
-7. **Honest data labelling** — sessions tagged HR-based or pace-based zone time; manual vs synced clearly marked
+No data backfill (defaults handle it). No changes to triggers/functions.
 
-**Not in Phase 1** (schema present, UI deferred until you have data): device sync / `raw_session_points`, biomechanics, AI coaching commentary. The schema map already flags these as waiting on real telemetry.
+### B. Session builder (`app.sessions.new.tsx`)
 
-## Technical notes (skim or skip)
+**Ordering model:**
+- Internal state stays a flat `steps[]` array. Warmup is always index 0; Cooldown is always the last index. The "middle" slice (indices 1..n-2) holds any number of Work and standalone Recovery steps in user-defined order.
+- "Add Work" and "Add Recovery" buttons insert the new step at `length - 1` (just before Cooldown).
+- Drag-and-drop reordering on the middle slice only. Use `@dnd-kit/core` + `@dnd-kit/sortable` (lightweight, already-common shadcn-compatible). Warmup card and Cooldown card render outside the sortable context with a small "anchored" badge so they visually can't be picked up.
+- Up/down arrow buttons as a keyboard-accessible fallback on each middle step.
 
-- Stack: TanStack Start + React, Tailwind, shadcn/ui, Lovable Cloud (Postgres + auth + RLS).
-- Recovery steps modelled as rows in `steps` with `type = 'recovery'` and a `recovery_mode` enum (`standing | walk | jog | float`) and `target_type` (`time | distance`). Rep-level HR-start/HR-end already fits `interval_results`; I'll add `hr_end_recovery` so HR recovery is a derived field.
-- Daily activities stored as rows in `external_load` (your existing table, `load_type` covers gym/work/sport/school) linked to the check-in date; the check-in form writes both `daily_checkins` and `external_load` in one submit.
-- RLS: athletes see only their own data; coaches see their linked athletes via `coach_athletes`; `has_role()` security-definer function for role checks.
-- Mobile-first layouts for athlete views (logger especially); coach dashboard usable on phone but optimised for tablet/desktop.
+**Standalone Recovery step relabel:**
+- Card title: "Recovery between blocks"
+- Helper text under title: "Easy effort between separate Work blocks (e.g. 90s jog between a threshold block and a speed block). For recovery between reps or sets inside a single Work block, use the fields inside that Work step."
+- Disable / hide the "Add Recovery between blocks" button when there are fewer than 1 Work steps before the insertion point (soft guard — still allow it, just show a muted hint).
 
-## Before I start — two quick confirmations
+**In-step recovery (inside Work step) gains Time/Distance toggle:**
+- Two existing sub-sections ("Recovery between reps" and "Recovery between sets") each get a Time/Distance segmented toggle matching the standalone Recovery UI.
+- When 'time' → show seconds input (existing). When 'distance' → show metres input.
+- Mode select (standing/walk/jog/float) stays visible for both.
+- Persist new fields on save; read them back when loading from template / existing session.
 
-1. **Signup flow**: anyone can sign up and pick Coach or Athlete themselves, and a coach then invites athletes by email to link? Or should athlete accounts only be creatable by a coach? (Most teams prefer the second; solo athletes need the first.)
-2. **Pace zones when no HR**: confirm you want the app to auto-derive pace zones from the athlete's most recent 1500m and 5000m PBs in `performances` (Daniels-style), with the coach able to override.
+**Insert position:** New Work / new standalone Recovery is inserted at `steps.length - 1` (right before Cooldown), which matches "after the currently-last middle step".
 
-If those are both "yes, your call", I'll just pick the sensible defaults (open signup with role choice + invite linking; auto-derive with override) and start building.
+### C. Display surfaces (read-only)
+`app.sessions.$sessionId.tsx` already iterates `steps` in `step_order`. Update the step renderer to:
+- Show distance-based in-step recovery as "jog 100m" when `recovery_between_reps_target_kind='distance'`.
+- Show standalone Recovery step's heading as "Recovery between blocks".
+
+No changes needed in `app.today.tsx` summary line, fatigue card, zone-time card, or load math.
+
+### D. Templates round-trip
+`src/lib/templates.ts` — extend `STEP_STRUCTURAL_COLS` to include the four new columns so save-as-template and apply-template carry distance recovery through.
+
+### E. Verification
+1. Create a session with two Work blocks + one Recovery-between-blocks in the middle, reorder via drag, save, reload → step_order persists.
+2. Create a Work step with `recovery_between_reps_target_kind='distance'`, recovery_between_reps_distance_m=100, save → session detail renders "jog 100m"; fatigue + zone-time for the session still compute as before.
+3. Save such a session as a template, apply to another athlete → distance recovery and ordering are preserved.
+
+### Out of scope
+- No changes to `interval_results` (logging still records `actual_time_seconds` regardless of whether the planned recovery was a distance or a time — distance recovery is a planning instruction, not a measured field).
+- No changes to load/readiness/zone/fatigue functions.
+- No reordering of warmup/cooldown (anchored).
