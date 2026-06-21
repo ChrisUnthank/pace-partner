@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { todayISO, clockToSec, secToClock } from "@/lib/format";
-import { SESSION_CATEGORIES, CATEGORY_LABEL } from "@/lib/session-categories";
+import { SESSION_INTENTS, INTENT_LABEL, SESSION_STRUCTURES, STRUCTURE_LABEL, SESSION_DAY_TYPES, DAY_TYPE_LABEL } from "@/lib/session-categories";
 import { toast } from "sonner";
 import { Plus, Trash2 } from "lucide-react";
 
@@ -69,7 +69,10 @@ function NewSession() {
   const [athleteId, setAthleteId] = useState<string>("");
   const [sessionDate, setSessionDate] = useState(todayISO());
   const [title, setTitle] = useState("");
-  const [category, setCategory] = useState<string>("intervals");
+  const [dayType, setDayType] = useState<string>("training");
+  const [intent, setIntent] = useState<string>("threshold");
+  const [structure, setStructure] = useState<string>("reps_intervals");
+  const [isLongRun, setIsLongRun] = useState<boolean>(false);
   const [notes, setNotes] = useState("");
   const [steps, setSteps] = useState<StepDraft[]>([
     defaultStep("warmup"),
@@ -89,15 +92,21 @@ function NewSession() {
   async function save() {
     if (!effectiveAthleteId) { toast.error("Pick an athlete"); return; }
     if (!title) { toast.error("Title is required"); return; }
+    if (dayType === "training" && (!intent || !structure)) {
+      toast.error("Training sessions need intent and structure"); return;
+    }
     const { data: sess, error } = await supabase.from("sessions").insert({
       athlete_id: effectiveAthleteId,
       created_by: user!.id,
       session_date: sessionDate,
       title,
-      category: category as any,
+      day_type: dayType as any,
+      intent: dayType === "training" ? (intent as any) : null,
+      structure: dayType === "training" ? (structure as any) : null,
+      is_long_run: dayType === "training" ? isLongRun : false,
       notes: notes || null,
       is_planned: true,
-    }).select().single();
+    } as any).select().single();
     if (error || !sess) { toast.error(error?.message ?? "Failed"); return; }
 
     const stepRows = steps.map((s, i) => ({
@@ -149,16 +158,48 @@ function NewSession() {
             <div><Label>Date</Label><Input type="date" value={sessionDate} onChange={(e) => setSessionDate(e.target.value)} className="mt-1" /></div>
             <div className="sm:col-span-2"><Label>Title</Label><Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. 6x800m @ 3k pace, 200m jog" className="mt-1" /></div>
             <div>
-              <Label>Category</Label>
-              <Select value={category} onValueChange={setCategory}>
+              <Label>Day type</Label>
+              <Select value={dayType} onValueChange={setDayType}>
                 <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {SESSION_CATEGORIES.map(c =>
-                    <SelectItem key={c} value={c}>{CATEGORY_LABEL[c]}</SelectItem>
-                  )}
+                  {SESSION_DAY_TYPES.map((d) => (
+                    <SelectItem key={d} value={d}>{DAY_TYPE_LABEL[d]}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
+            {dayType === "training" && (
+              <>
+                <div>
+                  <Label>Intent</Label>
+                  <Select value={intent} onValueChange={setIntent}>
+                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {SESSION_INTENTS.map((i) => (
+                        <SelectItem key={i} value={i}>{INTENT_LABEL[i]}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Structure</Label>
+                  <Select value={structure} onValueChange={setStructure}>
+                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {SESSION_STRUCTURES.map((s) => (
+                        <SelectItem key={s} value={s}>{STRUCTURE_LABEL[s]}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="sm:col-span-2 flex items-center gap-2">
+                  <Checkbox id="is-long-run" checked={isLongRun} onCheckedChange={(v) => setIsLongRun(!!v)} />
+                  <Label htmlFor="is-long-run" className="text-sm font-normal">
+                    Long run — tracked separately for weekly long-run accountability
+                  </Label>
+                </div>
+              </>
+            )}
             <div className="sm:col-span-2"><Label>Notes</Label><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} /></div>
           </CardContent>
         </Card>
