@@ -21,13 +21,19 @@ export const Route = createFileRoute("/_authenticated/app/sessions/new")({
 });
 
 type StepDraft = {
-  kind: "warmup" | "work" | "recovery" | "cooldown";
+  kind: "warmup" | "work" | "recovery" | "cooldown" | "strides";
   reps: number;
+  set_count?: number;
   target_kind?: "time" | "distance";
   target_distance_m?: number | null;
   target_time_seconds?: number | null;
   target_pace_sec_per_km?: number | null;
   is_ladder?: boolean;
+  counts_toward_distance?: boolean;
+  recovery_between_reps_seconds?: number | null;
+  recovery_between_reps_mode?: "standing" | "walk" | "jog" | "float";
+  recovery_between_sets_seconds?: number | null;
+  recovery_between_sets_mode?: "standing" | "walk" | "jog" | "float";
   recovery_mode?: "standing" | "walk" | "jog" | "float";
   recovery_target_kind?: "time" | "distance";
   recovery_target_seconds?: number | null;
@@ -38,8 +44,10 @@ type StepDraft = {
 const defaultStep = (kind: StepDraft["kind"]): StepDraft => kind === "recovery"
   ? { kind, reps: 1, recovery_mode: "jog", recovery_target_kind: "time", recovery_target_seconds: 90 }
   : kind === "work"
-    ? { kind, reps: 6, target_kind: "distance", target_distance_m: 400 }
-    : { kind, reps: 1, target_kind: "time", target_time_seconds: 600 };
+    ? { kind, reps: 6, set_count: 1, target_kind: "distance", target_distance_m: 400, recovery_between_reps_seconds: 90, recovery_between_reps_mode: "jog", recovery_between_sets_seconds: 180, recovery_between_sets_mode: "walk", counts_toward_distance: true }
+    : kind === "strides"
+      ? { kind, reps: 4, target_kind: "distance", target_distance_m: 80, counts_toward_distance: true }
+      : { kind, reps: 1, target_kind: "time", target_time_seconds: 600, counts_toward_distance: true };
 
 function NewSession() {
   const navigate = useNavigate();
@@ -95,11 +103,17 @@ function NewSession() {
     const stepRows = steps.map((s, i) => ({
       session_id: sess.id, step_order: i + 1,
       kind: s.kind, reps: s.reps,
+      set_count: s.kind === "work" ? Math.max(1, s.set_count ?? 1) : 1,
       target_kind: s.target_kind ?? null,
       target_distance_m: s.target_distance_m ?? null,
       target_time_seconds: s.target_time_seconds ?? null,
       target_pace_sec_per_km: s.target_pace_sec_per_km ?? null,
       is_ladder: s.kind === "work" ? !!s.is_ladder : false,
+      counts_toward_distance: s.counts_toward_distance ?? true,
+      recovery_between_reps_seconds: s.kind === "work" ? (s.recovery_between_reps_seconds ?? null) : null,
+      recovery_between_reps_mode: s.kind === "work" ? (s.recovery_between_reps_mode ?? null) : null,
+      recovery_between_sets_seconds: s.kind === "work" && (s.set_count ?? 1) > 1 ? (s.recovery_between_sets_seconds ?? null) : null,
+      recovery_between_sets_mode: s.kind === "work" && (s.set_count ?? 1) > 1 ? (s.recovery_between_sets_mode ?? null) : null,
       recovery_mode: s.recovery_mode ?? null,
       recovery_target_kind: s.recovery_target_kind ?? null,
       recovery_target_seconds: s.recovery_target_seconds ?? null,
@@ -163,6 +177,7 @@ function NewSession() {
                 </div>
                 {s.kind === "work" && (
                   <div className="grid grid-cols-2 gap-2">
+                    <div><Label className="text-xs">Sets</Label><Input type="number" min={1} value={s.set_count ?? 1} onChange={(e) => updateStep(i, { set_count: Math.max(1, Number(e.target.value)) })} /></div>
                     <div><Label className="text-xs">Reps</Label><Input type="number" value={s.reps} onChange={(e) => updateStep(i, { reps: Number(e.target.value) })} /></div>
                     <div><Label className="text-xs">Target</Label>
                       <Select value={s.target_kind} onValueChange={(v) => updateStep(i, { target_kind: v as any })}>
@@ -179,11 +194,36 @@ function NewSession() {
                       <div><Label className="text-xs">Time (mm:ss)</Label><Input placeholder="3:00" onChange={(e) => updateStep(i, { target_time_seconds: clockToSec(e.target.value) })} /></div>
                     )}
                     <div><Label className="text-xs">Target pace (mm:ss /km)</Label><Input placeholder="3:30" onChange={(e) => updateStep(i, { target_pace_sec_per_km: clockToSec(e.target.value) })} /></div>
+                    <div><Label className="text-xs">Recovery between reps (mm:ss)</Label><Input placeholder="1:30" defaultValue={s.recovery_between_reps_seconds ? secToClockSafe(s.recovery_between_reps_seconds) : ""} onChange={(e) => updateStep(i, { recovery_between_reps_seconds: clockToSec(e.target.value) })} /></div>
+                    {(s.set_count ?? 1) > 1 && (
+                      <div><Label className="text-xs">Recovery between sets (mm:ss)</Label><Input placeholder="3:00" defaultValue={s.recovery_between_sets_seconds ? secToClockSafe(s.recovery_between_sets_seconds) : ""} onChange={(e) => updateStep(i, { recovery_between_sets_seconds: clockToSec(e.target.value) })} /></div>
+                    )}
+                    <div className="col-span-2 text-xs text-muted-foreground">
+                      Plan: <span className="font-semibold">{s.set_count ?? 1} set{(s.set_count ?? 1) > 1 ? "s" : ""} × {s.reps} rep{s.reps === 1 ? "" : "s"}</span>
+                      {(s.set_count ?? 1) > 1 && <> = {(s.set_count ?? 1) * s.reps} total reps</>}
+                    </div>
                     <div className="col-span-2 flex items-center gap-2 pt-1">
                       <Checkbox id={`ladder-${i}`} checked={!!s.is_ladder} onCheckedChange={(v) => updateStep(i, { is_ladder: !!v })} />
                       <Label htmlFor={`ladder-${i}`} className="text-xs font-normal">
                         Ladder (reps have different distances/paces) — suppresses fatigue score until per-rep targets ship
                       </Label>
+                    </div>
+                  </div>
+                )}
+                {s.kind === "strides" && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><Label className="text-xs">Reps</Label><Input type="number" value={s.reps} onChange={(e) => updateStep(i, { reps: Number(e.target.value) })} /></div>
+                    <div><Label className="text-xs">Distance (m)</Label><Input type="number" value={s.target_distance_m ?? ""} onChange={(e) => updateStep(i, { target_distance_m: Number(e.target.value), target_kind: "distance" })} /></div>
+                    <div className={`col-span-2 rounded-md border-2 p-2 ${s.counts_toward_distance ? "border-emerald-500 bg-emerald-500/5" : "border-amber-500 bg-amber-500/10"}`}>
+                      <div className="flex items-center gap-2">
+                        <Checkbox id={`ctd-${i}`} checked={!!s.counts_toward_distance} onCheckedChange={(v) => updateStep(i, { counts_toward_distance: !!v })} />
+                        <Label htmlFor={`ctd-${i}`} className="text-xs font-semibold">
+                          {s.counts_toward_distance ? "✓ Counts toward weekly distance (end-of-session Stride)" : "⚠ Does NOT count toward weekly distance (warm-up Run-through)"}
+                        </Label>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground mt-1 leading-snug">
+                        <strong>Strides</strong> = end-of-session work, counts toward weekly km and zone time. <strong>Run-throughs</strong> = warm-up prep, must NOT count. Place before/after main work accordingly and double-check this toggle before saving.
+                      </p>
                     </div>
                   </div>
                 )}
@@ -226,6 +266,7 @@ function NewSession() {
             ))}
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" size="sm" onClick={() => addStep("warmup")}><Plus className="h-3 w-3 mr-1" />Warmup</Button>
+              <Button variant="outline" size="sm" onClick={() => addStep("strides")}><Plus className="h-3 w-3 mr-1" />Strides / Run-throughs</Button>
               <Button variant="outline" size="sm" onClick={() => addStep("work")}><Plus className="h-3 w-3 mr-1" />Work</Button>
               <Button variant="outline" size="sm" onClick={() => addStep("recovery")}><Plus className="h-3 w-3 mr-1" />Recovery</Button>
               <Button variant="outline" size="sm" onClick={() => addStep("cooldown")}><Plus className="h-3 w-3 mr-1" />Cooldown</Button>
