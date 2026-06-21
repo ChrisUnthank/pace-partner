@@ -419,6 +419,7 @@ export type Database = {
           notes: string | null
           rep_number: number
           rep_trace: Json | null
+          set_number: number
           step_id: string
           stride_length_cm: number | null
         }
@@ -437,6 +438,7 @@ export type Database = {
           notes?: string | null
           rep_number: number
           rep_trace?: Json | null
+          set_number?: number
           step_id: string
           stride_length_cm?: number | null
         }
@@ -455,6 +457,7 @@ export type Database = {
           notes?: string | null
           rep_number?: number
           rep_trace?: Json | null
+          set_number?: number
           step_id?: string
           stride_length_cm?: number | null
         }
@@ -876,11 +879,16 @@ export type Database = {
       }
       steps: {
         Row: {
+          counts_toward_distance: boolean
           created_at: string
           id: string
           is_ladder: boolean
           kind: Database["public"]["Enums"]["step_kind"]
           notes: string | null
+          recovery_between_reps_mode: string | null
+          recovery_between_reps_seconds: number | null
+          recovery_between_sets_mode: string | null
+          recovery_between_sets_seconds: number | null
           recovery_mode: Database["public"]["Enums"]["recovery_mode"] | null
           recovery_target_distance_m: number | null
           recovery_target_kind:
@@ -889,6 +897,7 @@ export type Database = {
           recovery_target_seconds: number | null
           reps: number
           session_id: string
+          set_count: number
           step_order: number
           target_distance_m: number | null
           target_kind: Database["public"]["Enums"]["target_kind"] | null
@@ -896,11 +905,16 @@ export type Database = {
           target_time_seconds: number | null
         }
         Insert: {
+          counts_toward_distance?: boolean
           created_at?: string
           id?: string
           is_ladder?: boolean
           kind: Database["public"]["Enums"]["step_kind"]
           notes?: string | null
+          recovery_between_reps_mode?: string | null
+          recovery_between_reps_seconds?: number | null
+          recovery_between_sets_mode?: string | null
+          recovery_between_sets_seconds?: number | null
           recovery_mode?: Database["public"]["Enums"]["recovery_mode"] | null
           recovery_target_distance_m?: number | null
           recovery_target_kind?:
@@ -909,6 +923,7 @@ export type Database = {
           recovery_target_seconds?: number | null
           reps?: number
           session_id: string
+          set_count?: number
           step_order: number
           target_distance_m?: number | null
           target_kind?: Database["public"]["Enums"]["target_kind"] | null
@@ -916,11 +931,16 @@ export type Database = {
           target_time_seconds?: number | null
         }
         Update: {
+          counts_toward_distance?: boolean
           created_at?: string
           id?: string
           is_ladder?: boolean
           kind?: Database["public"]["Enums"]["step_kind"]
           notes?: string | null
+          recovery_between_reps_mode?: string | null
+          recovery_between_reps_seconds?: number | null
+          recovery_between_sets_mode?: string | null
+          recovery_between_sets_seconds?: number | null
           recovery_mode?: Database["public"]["Enums"]["recovery_mode"] | null
           recovery_target_distance_m?: number | null
           recovery_target_kind?:
@@ -929,6 +949,7 @@ export type Database = {
           recovery_target_seconds?: number | null
           reps?: number
           session_id?: string
+          set_count?: number
           step_order?: number
           target_distance_m?: number | null
           target_kind?: Database["public"]["Enums"]["target_kind"] | null
@@ -968,6 +989,22 @@ export type Database = {
       }
     }
     Views: {
+      athlete_weekly_distance: {
+        Row: {
+          athlete_id: string | null
+          distance_m: number | null
+          week_start: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sessions_athlete_id_fkey"
+            columns: ["athlete_id"]
+            isOneToOne: false
+            referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       athlete_zone_time_weekly: {
         Row: {
           athlete_id: string | null
@@ -1056,7 +1093,7 @@ export type Database = {
       readiness_status: "green" | "amber" | "red"
       recovery_mode: "standing" | "walk" | "jog" | "float"
       session_source: "manual" | "synced"
-      step_kind: "warmup" | "work" | "recovery" | "cooldown"
+      step_kind: "warmup" | "work" | "recovery" | "cooldown" | "strides"
       target_kind: "time" | "distance"
       zone_basis: "hr" | "pace" | "none"
       zone_source: "pace" | "hr"
@@ -1208,7 +1245,7 @@ export const Constants = {
       readiness_status: ["green", "amber", "red"],
       recovery_mode: ["standing", "walk", "jog", "float"],
       session_source: ["manual", "synced"],
-      step_kind: ["warmup", "work", "recovery", "cooldown"],
+      step_kind: ["warmup", "work", "recovery", "cooldown", "strides"],
       target_kind: ["time", "distance"],
       zone_basis: ["hr", "pace", "none"],
       zone_source: ["pace", "hr"],

@@ -52,6 +52,15 @@ function AthleteDetail() {
     },
   });
 
+  const { data: weeklyDist } = useQuery({
+    queryKey: ["weekly-distance", athleteId],
+    queryFn: async () => {
+      const { data } = await supabase.from("athlete_weekly_distance" as any).select("*")
+        .eq("athlete_id", athleteId).order("week_start", { ascending: false }).limit(4);
+      return data ?? [];
+    },
+  });
+
   if (!athlete) return <AppShell><p>Loading…</p></AppShell>;
   const today = load?.[0];
 
@@ -115,6 +124,28 @@ function AthleteDetail() {
         </div>
 
         <PhysiologyCard athleteId={athleteId} />
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Weekly distance</CardTitle>
+            <CardDescription>Excludes warm-up Run-throughs (steps flagged not to count).</CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            {!weeklyDist || weeklyDist.length === 0 ? <p className="p-4 text-sm text-muted-foreground">No distance logged yet.</p> : (
+              <table className="w-full text-sm">
+                <thead className="text-muted-foreground text-xs"><tr><th className="text-left p-2">Week of</th><th className="text-right p-2 pr-4">Distance</th></tr></thead>
+                <tbody>
+                  {weeklyDist.map((w: any) => (
+                    <tr key={w.week_start} className="border-t">
+                      <td className="p-2">{w.week_start}</td>
+                      <td className="text-right p-2 pr-4 tabular-nums">{metersFmt(Number(w.distance_m))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader><CardTitle>Recent sessions</CardTitle></CardHeader>
