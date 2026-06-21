@@ -746,6 +746,45 @@ export type Database = {
           },
         ]
       }
+      session_templates: {
+        Row: {
+          created_at: string
+          id: string
+          intent: Database["public"]["Enums"]["session_intent"]
+          is_long_run: boolean
+          name: string
+          notes: string | null
+          owner_user_id: string
+          structure: Database["public"]["Enums"]["session_structure"]
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          intent: Database["public"]["Enums"]["session_intent"]
+          is_long_run?: boolean
+          name: string
+          notes?: string | null
+          owner_user_id: string
+          structure: Database["public"]["Enums"]["session_structure"]
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          intent?: Database["public"]["Enums"]["session_intent"]
+          is_long_run?: boolean
+          name?: string
+          notes?: string | null
+          owner_user_id?: string
+          structure?: Database["public"]["Enums"]["session_structure"]
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       session_zone_time: {
         Row: {
           athlete_id: string
@@ -793,6 +832,7 @@ export type Database = {
       }
       sessions: {
         Row: {
+          applied_from_template_id: string | null
           athlete_id: string
           avg_hr: number | null
           completed_at: string | null
@@ -821,6 +861,7 @@ export type Database = {
           zone_basis: Database["public"]["Enums"]["zone_basis"]
         }
         Insert: {
+          applied_from_template_id?: string | null
           athlete_id: string
           avg_hr?: number | null
           completed_at?: string | null
@@ -849,6 +890,7 @@ export type Database = {
           zone_basis?: Database["public"]["Enums"]["zone_basis"]
         }
         Update: {
+          applied_from_template_id?: string | null
           athlete_id?: string
           avg_hr?: number | null
           completed_at?: string | null
@@ -971,6 +1013,95 @@ export type Database = {
             columns: ["session_id"]
             isOneToOne: false
             referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      template_steps: {
+        Row: {
+          counts_toward_distance: boolean
+          created_at: string
+          id: string
+          is_ladder: boolean
+          kind: Database["public"]["Enums"]["step_kind"]
+          notes: string | null
+          recovery_between_reps_mode: string | null
+          recovery_between_reps_seconds: number | null
+          recovery_between_sets_mode: string | null
+          recovery_between_sets_seconds: number | null
+          recovery_mode: Database["public"]["Enums"]["recovery_mode"] | null
+          recovery_target_distance_m: number | null
+          recovery_target_kind:
+            | Database["public"]["Enums"]["target_kind"]
+            | null
+          recovery_target_seconds: number | null
+          reps: number
+          set_count: number
+          step_order: number
+          target_distance_m: number | null
+          target_kind: Database["public"]["Enums"]["target_kind"] | null
+          target_pace_sec_per_km: number | null
+          target_time_seconds: number | null
+          template_id: string
+        }
+        Insert: {
+          counts_toward_distance?: boolean
+          created_at?: string
+          id?: string
+          is_ladder?: boolean
+          kind: Database["public"]["Enums"]["step_kind"]
+          notes?: string | null
+          recovery_between_reps_mode?: string | null
+          recovery_between_reps_seconds?: number | null
+          recovery_between_sets_mode?: string | null
+          recovery_between_sets_seconds?: number | null
+          recovery_mode?: Database["public"]["Enums"]["recovery_mode"] | null
+          recovery_target_distance_m?: number | null
+          recovery_target_kind?:
+            | Database["public"]["Enums"]["target_kind"]
+            | null
+          recovery_target_seconds?: number | null
+          reps?: number
+          set_count?: number
+          step_order: number
+          target_distance_m?: number | null
+          target_kind?: Database["public"]["Enums"]["target_kind"] | null
+          target_pace_sec_per_km?: number | null
+          target_time_seconds?: number | null
+          template_id: string
+        }
+        Update: {
+          counts_toward_distance?: boolean
+          created_at?: string
+          id?: string
+          is_ladder?: boolean
+          kind?: Database["public"]["Enums"]["step_kind"]
+          notes?: string | null
+          recovery_between_reps_mode?: string | null
+          recovery_between_reps_seconds?: number | null
+          recovery_between_sets_mode?: string | null
+          recovery_between_sets_seconds?: number | null
+          recovery_mode?: Database["public"]["Enums"]["recovery_mode"] | null
+          recovery_target_distance_m?: number | null
+          recovery_target_kind?:
+            | Database["public"]["Enums"]["target_kind"]
+            | null
+          recovery_target_seconds?: number | null
+          reps?: number
+          set_count?: number
+          step_order?: number
+          target_distance_m?: number | null
+          target_kind?: Database["public"]["Enums"]["target_kind"] | null
+          target_pace_sec_per_km?: number | null
+          target_time_seconds?: number | null
+          template_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "template_steps_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "session_templates"
             referencedColumns: ["id"]
           },
         ]
