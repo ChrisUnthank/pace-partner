@@ -74,7 +74,7 @@ function AnalyticsPage() {
   const selectedAthleteId = search.athleteId ?? (!isCoach ? myAthlete?.id : undefined);
 
   function setRange(r: RangeKey) {
-    navigate({ search: (prev) => ({ ...prev, range: r }) });
+    navigate({ search: (prev: any) => ({ ...prev, range: r }) });
   }
 
   if (isCoach && !selectedAthleteId) {
@@ -374,14 +374,13 @@ function AthleteAnalytics({
     km: Math.round((Number(r.distance_m ?? 0) / 1000) * 10) / 10,
   }));
 
-  // Zone time: aggregate across all weeks in range by zone (HR source preferred, falls back to pace)
   const zoneRollup = useMemo(() => {
     const buckets = new Map<string, number>();
-    // Prefer HR rows; if an athlete has no HR data, use pace rows.
-    const hr = (zoneTime ?? []).filter((r: any) => r.source === "hr");
-    const src = hr.length ? hr : (zoneTime ?? []).filter((r: any) => r.source === "pace");
+    const rows: any[] = (zoneTime as any) ?? [];
+    const hr = rows.filter((r) => r.source === "hr");
+    const src = hr.length ? hr : rows.filter((r) => r.source === "pace");
     for (const r of src) {
-      buckets.set(r.zone, (buckets.get(r.zone) ?? 0) + Number(r.seconds ?? 0));
+      buckets.set(r.zone as string, (buckets.get(r.zone as string) ?? 0) + Number(r.seconds ?? 0));
     }
     const order = ["recovery", "easy", "steady", "threshold", "vo2", "rep", "sprint"];
     return order
