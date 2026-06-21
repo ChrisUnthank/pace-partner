@@ -32,9 +32,17 @@ function AppHome() {
   }, [rolesLoading, isAthlete, isCoach, navigate]);
 
   const { data: roster } = useQuery({
-    queryKey: ["roster", user?.id],
+    queryKey: ["roster", user?.id, isManager],
     enabled: !!user && isCoach,
     queryFn: async () => {
+      if (isManager) {
+        const { data, error } = await supabase
+          .from("athletes")
+          .select("id, name, primary_event")
+          .order("name");
+        if (error) throw error;
+        return (data ?? []).map((a) => ({ athlete_id: a.id, athletes: a }));
+      }
       const { data, error } = await supabase
         .from("coach_athletes")
         .select("athlete_id, athletes(id, name, primary_event)")
