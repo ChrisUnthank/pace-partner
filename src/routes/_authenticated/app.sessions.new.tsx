@@ -155,15 +155,19 @@ function NewSession() {
     setStructure((tpl as any).structure);
     setIsLongRun(!!(tpl as any).is_long_run);
     setAppliedFromTemplateId(templateId);
-    setSteps((tsteps ?? []).map((s: any) => ({
+    setSteps((tsteps ?? []).map((s: any) => withUid({
       kind: s.kind, reps: s.reps, set_count: s.set_count,
       target_kind: s.target_kind, target_distance_m: s.target_distance_m,
       target_time_seconds: s.target_time_seconds, target_pace_sec_per_km: s.target_pace_sec_per_km,
       is_ladder: s.is_ladder, counts_toward_distance: s.counts_toward_distance,
       recovery_between_reps_seconds: s.recovery_between_reps_seconds,
       recovery_between_reps_mode: s.recovery_between_reps_mode,
+      recovery_between_reps_target_kind: s.recovery_between_reps_target_kind ?? "time",
+      recovery_between_reps_distance_m: s.recovery_between_reps_distance_m,
       recovery_between_sets_seconds: s.recovery_between_sets_seconds,
       recovery_between_sets_mode: s.recovery_between_sets_mode,
+      recovery_between_sets_target_kind: s.recovery_between_sets_target_kind ?? "time",
+      recovery_between_sets_distance_m: s.recovery_between_sets_distance_m,
       recovery_mode: s.recovery_mode, recovery_target_kind: s.recovery_target_kind,
       recovery_target_seconds: s.recovery_target_seconds, recovery_target_distance_m: s.recovery_target_distance_m,
       notes: s.notes,
