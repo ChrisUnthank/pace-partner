@@ -5,6 +5,7 @@ import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { metersFmt, secToClock } from "@/lib/format";
+import { paceFmt } from "@/lib/format";
 import { ReadinessBadge } from "@/components/readiness-badge";
 import { toast } from "sonner";
 import { RefreshCw, CalendarDays } from "lucide-react";
@@ -58,6 +59,14 @@ function AthleteDetail() {
       const { data } = await supabase.from("athlete_weekly_distance" as any).select("*")
         .eq("athlete_id", athleteId).order("week_start", { ascending: false }).limit(4);
       return data ?? [];
+    },
+  });
+
+  const { data: zoneProfile } = useQuery({
+    queryKey: ["zone-profile", athleteId],
+    queryFn: async () => {
+      const { data } = await supabase.from("athlete_zone_profiles").select("*").eq("athlete_id", athleteId).maybeSingle();
+      return data;
     },
   });
 
@@ -131,6 +140,10 @@ function AthleteDetail() {
         </div>
 
         <PhysiologyCard athleteId={athleteId} />
+
+        <IdentityCard athlete={athlete} />
+
+        <ZoneBoundariesCard profile={zoneProfile} />
 
         <Card>
           <CardHeader>
