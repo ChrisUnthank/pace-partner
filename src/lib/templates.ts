@@ -8,7 +8,9 @@ const STEP_STRUCTURAL_COLS = [
   "target_kind", "target_distance_m", "target_time_seconds", "target_pace_sec_per_km",
   "is_ladder", "counts_toward_distance",
   "recovery_between_reps_seconds", "recovery_between_reps_mode",
+  "recovery_between_reps_target_kind", "recovery_between_reps_distance_m",
   "recovery_between_sets_seconds", "recovery_between_sets_mode",
+  "recovery_between_sets_target_kind", "recovery_between_sets_distance_m",
   "recovery_mode", "recovery_target_kind", "recovery_target_seconds", "recovery_target_distance_m",
   "notes",
 ] as const;
