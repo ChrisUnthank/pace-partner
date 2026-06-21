@@ -4,7 +4,7 @@ import { ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyRoles, useAuthUser } from "@/lib/use-auth";
 import { Button } from "@/components/ui/button";
-import { Activity, CalendarDays, Users, User2, LogOut, Home } from "lucide-react";
+import { Activity, CalendarDays, Users, User2, LogOut, Home, BookmarkCheck } from "lucide-react";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
@@ -27,6 +27,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     { to: "/app/today", label: "Today", icon: Activity, show: isAthlete },
     { to: "/app/sessions", label: "Sessions", icon: CalendarDays, show: true },
     { to: "/app/athletes", label: "Athletes", icon: Users, show: isCoach },
+    { to: "/app/templates", label: "Templates", icon: BookmarkCheck, show: isCoach },
     { to: "/app/profile", label: "Profile", icon: User2, show: true },
   ].filter((n) => n.show);
 

@@ -66,6 +66,15 @@ function NewSession() {
     },
   });
 
+  const { data: templates } = useQuery({
+    queryKey: ["templates", user?.id],
+    enabled: !!user && isCoach,
+    queryFn: async () => {
+      const { data } = await supabase.from("session_templates").select("id, name, title, intent, structure, is_long_run, notes").order("created_at", { ascending: false });
+      return data ?? [];
+    },
+  });
+
   const [athleteId, setAthleteId] = useState<string>("");
   const [sessionDate, setSessionDate] = useState(todayISO());
   const [title, setTitle] = useState("");
@@ -74,6 +83,7 @@ function NewSession() {
   const [structure, setStructure] = useState<string>("reps_intervals");
   const [isLongRun, setIsLongRun] = useState<boolean>(false);
   const [notes, setNotes] = useState("");
+  const [appliedFromTemplateId, setAppliedFromTemplateId] = useState<string | null>(null);
   const [steps, setSteps] = useState<StepDraft[]>([
     defaultStep("warmup"),
     defaultStep("work"),
@@ -88,6 +98,35 @@ function NewSession() {
   }
   function removeStep(i: number) { setSteps((s) => s.filter((_, idx) => idx !== i)); }
   function addStep(kind: StepDraft["kind"]) { setSteps((s) => [...s, defaultStep(kind)]); }
+
+  async function loadTemplate(templateId: string) {
+    const tpl = (templates ?? []).find((t: any) => t.id === templateId);
+    if (!tpl) return;
+    const { data: tsteps, error } = await supabase
+      .from("template_steps").select("*").eq("template_id", templateId).order("step_order");
+    if (error) { toast.error(error.message); return; }
+    setTitle((tpl as any).title ?? "");
+    setNotes((tpl as any).notes ?? "");
+    setDayType("training");
+    setIntent((tpl as any).intent);
+    setStructure((tpl as any).structure);
+    setIsLongRun(!!(tpl as any).is_long_run);
+    setAppliedFromTemplateId(templateId);
+    setSteps((tsteps ?? []).map((s: any) => ({
+      kind: s.kind, reps: s.reps, set_count: s.set_count,
+      target_kind: s.target_kind, target_distance_m: s.target_distance_m,
+      target_time_seconds: s.target_time_seconds, target_pace_sec_per_km: s.target_pace_sec_per_km,
+      is_ladder: s.is_ladder, counts_toward_distance: s.counts_toward_distance,
+      recovery_between_reps_seconds: s.recovery_between_reps_seconds,
+      recovery_between_reps_mode: s.recovery_between_reps_mode,
+      recovery_between_sets_seconds: s.recovery_between_sets_seconds,
+      recovery_between_sets_mode: s.recovery_between_sets_mode,
+      recovery_mode: s.recovery_mode, recovery_target_kind: s.recovery_target_kind,
+      recovery_target_seconds: s.recovery_target_seconds, recovery_target_distance_m: s.recovery_target_distance_m,
+      notes: s.notes,
+    })));
+    toast.success(`Loaded "${(tpl as any).name}" — edit freely before saving`);
+  }
 
   async function save() {
     if (!effectiveAthleteId) { toast.error("Pick an athlete"); return; }
@@ -106,6 +145,7 @@ function NewSession() {
       is_long_run: dayType === "training" ? isLongRun : false,
       notes: notes || null,
       is_planned: true,
+      applied_from_template_id: appliedFromTemplateId,
     } as any).select().single();
     if (error || !sess) { toast.error(error?.message ?? "Failed"); return; }
 
@@ -139,6 +179,25 @@ function NewSession() {
     <AppShell>
       <div className="max-w-3xl space-y-6">
         <h1 className="text-2xl font-bold">New session</h1>
+
+        {isCoach && (templates ?? []).length > 0 && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Start from a template</CardTitle>
+              <CardDescription>Prefills the builder. Everything stays fully editable.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Select value="" onValueChange={loadTemplate}>
+                <SelectTrigger><SelectValue placeholder="Pick a template…" /></SelectTrigger>
+                <SelectContent>
+                  {(templates ?? []).map((t: any) => (
+                    <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader><CardTitle>Basics</CardTitle></CardHeader>
