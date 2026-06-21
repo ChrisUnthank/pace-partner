@@ -14,7 +14,15 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { todayISO, clockToSec, secToClock } from "@/lib/format";
 import { SESSION_INTENTS, INTENT_LABEL, SESSION_STRUCTURES, STRUCTURE_LABEL, SESSION_DAY_TYPES, DAY_TYPE_LABEL } from "@/lib/session-categories";
 import { toast } from "sonner";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, GripVertical, ArrowUp, ArrowDown, Lock } from "lucide-react";
+import {
+  DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/new")({
   component: NewSession,
@@ -32,22 +40,33 @@ type StepDraft = {
   counts_toward_distance?: boolean;
   recovery_between_reps_seconds?: number | null;
   recovery_between_reps_mode?: "standing" | "walk" | "jog" | "float";
+  recovery_between_reps_target_kind?: "time" | "distance";
+  recovery_between_reps_distance_m?: number | null;
   recovery_between_sets_seconds?: number | null;
   recovery_between_sets_mode?: "standing" | "walk" | "jog" | "float";
+  recovery_between_sets_target_kind?: "time" | "distance";
+  recovery_between_sets_distance_m?: number | null;
   recovery_mode?: "standing" | "walk" | "jog" | "float";
   recovery_target_kind?: "time" | "distance";
   recovery_target_seconds?: number | null;
   recovery_target_distance_m?: number | null;
   notes?: string;
+  _uid?: string;
 };
 
 const defaultStep = (kind: StepDraft["kind"]): StepDraft => kind === "recovery"
   ? { kind, reps: 1, recovery_mode: "jog", recovery_target_kind: "time", recovery_target_seconds: 90 }
   : kind === "work"
-    ? { kind, reps: 6, set_count: 1, target_kind: "distance", target_distance_m: 400, recovery_between_reps_seconds: 90, recovery_between_reps_mode: "jog", recovery_between_sets_seconds: 180, recovery_between_sets_mode: "walk", counts_toward_distance: true }
+    ? { kind, reps: 6, set_count: 1, target_kind: "distance", target_distance_m: 400,
+        recovery_between_reps_seconds: 90, recovery_between_reps_mode: "jog", recovery_between_reps_target_kind: "time",
+        recovery_between_sets_seconds: 180, recovery_between_sets_mode: "walk", recovery_between_sets_target_kind: "time",
+        counts_toward_distance: true }
     : kind === "strides"
       ? { kind, reps: 4, target_kind: "distance", target_distance_m: 80, counts_toward_distance: true }
       : { kind, reps: 1, target_kind: "time", target_time_seconds: 600, counts_toward_distance: true };
+
+let _uidCounter = 0;
+const withUid = (s: StepDraft): StepDraft => ({ ...s, _uid: s._uid ?? `s${++_uidCounter}_${Date.now()}` });
 
 function NewSession() {
   const navigate = useNavigate();
