@@ -4,8 +4,9 @@ import { ReactNode, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyRoles, useAuthUser } from "@/lib/use-auth";
 import { Button } from "@/components/ui/button";
-import { Activity, CalendarDays, Users, User2, LogOut, Home, BookmarkCheck, LineChart, ChevronsLeft, ChevronsRight, Zap, HeartPulse, ClipboardCheck } from "lucide-react";
+import { Activity, CalendarDays, Users, User2, LogOut, Home, BookmarkCheck, LineChart, ChevronsLeft, ChevronsRight, Zap, HeartPulse, ClipboardCheck, Megaphone, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { NotificationBell } from "@/components/notification-bell";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
@@ -33,6 +34,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     { to: "/app/analytics", label: "Analytics", icon: LineChart, show: true },
     { to: "/app/athletes", label: "Athletes", icon: Users, show: isCoach },
     { to: "/app/templates", label: "Templates", icon: BookmarkCheck, show: isCoach },
+    { to: "/app/noticeboard", label: "Noticeboard", icon: Megaphone, show: true },
+    { to: "/app/messages", label: "Messages", icon: MessageSquare, show: true },
     { to: "/app/profile", label: "Profile", icon: User2, show: true },
   ].filter((n) => n.show);
 
@@ -119,6 +122,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <NotificationBell />
             <span className="text-xs text-muted-foreground hidden sm:inline truncate max-w-[180px]">{user?.email}</span>
             <Button variant="ghost" size="sm" onClick={signOut} title="Sign out">
               <LogOut className="h-4 w-4" />
