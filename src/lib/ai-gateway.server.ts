@@ -1,4 +1,5 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import { createAnthropic } from "@ai-sdk/anthropic";
 
 const LOVABLE_AIG_RUN_ID_HEADER = "X-Lovable-AIG-Run-ID";
 
@@ -57,3 +58,17 @@ Style rules:
 - Suggest concrete adjustments (drop a session, swap intensity, push recovery, target a zone).
 - Markdown: short paragraphs, bullets for lists, **bold** for key recommendations.
 - Never recommend medical action; flag concerning patterns and suggest the athlete consult a clinician.`;
+
+/**
+ * Resolve a chat model. If the user has supplied their own Anthropic API key
+ * (athlete BYO key), route directly through Anthropic so usage is billed to
+ * them. Otherwise fall back to the Lovable AI Gateway (coach default).
+ */
+export function resolveChatModel(userAnthropicKey: string | null | undefined) {
+  if (userAnthropicKey && userAnthropicKey.trim()) {
+    const anthropic = createAnthropic({ apiKey: userAnthropicKey.trim() });
+    return anthropic("claude-3-5-sonnet-latest");
+  }
+  const gateway = createLovableAiGatewayProvider(process.env.LOVABLE_API_KEY!);
+  return gateway("google/gemini-2.5-pro");
+}
