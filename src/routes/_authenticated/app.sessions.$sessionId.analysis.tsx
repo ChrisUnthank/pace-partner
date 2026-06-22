@@ -174,7 +174,7 @@ function SessionAnalysis() {
           </p>
         </div>
 
-        {noResults ? (
+        {noResults && !hasRaw ? (
           <Card>
             <CardContent className="pt-6 text-sm text-muted-foreground">
               Detailed analysis available after device sync (coming in the next phase).{" "}
