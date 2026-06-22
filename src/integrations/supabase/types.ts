@@ -817,6 +817,8 @@ export type Database = {
           id: string
           kind: string
           link: string | null
+          push_attempts: number
+          pushed_at: string | null
           read_at: string | null
           title: string
           user_id: string
@@ -829,6 +831,8 @@ export type Database = {
           id?: string
           kind: string
           link?: string | null
+          push_attempts?: number
+          pushed_at?: string | null
           read_at?: string | null
           title: string
           user_id: string
@@ -841,6 +845,8 @@ export type Database = {
           id?: string
           kind?: string
           link?: string | null
+          push_attempts?: number
+          pushed_at?: string | null
           read_at?: string | null
           title?: string
           user_id?: string
@@ -1992,6 +1998,7 @@ export type Database = {
         Args: { _session_id: string }
         Returns: undefined
       }
+      create_birthday_posts: { Args: never; Returns: undefined }
       external_load_score: {
         Args: { _athlete_id: string; _date: string }
         Returns: number
