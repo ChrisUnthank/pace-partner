@@ -160,11 +160,12 @@ function SessionAnalysis() {
         {noResults ? (
           <Card>
             <CardContent className="pt-6 text-sm text-muted-foreground">
-              No per-rep data was recorded for this session.{" "}
+              Detailed analysis available after device sync (coming in the next phase).{" "}
+              For now, see{" "}
               <Link to="/app/sessions/$sessionId" params={{ sessionId }} className="underline">
-                See the session detail
+                the session detail
               </Link>{" "}
-              for logged totals.
+              for logged totals and per-rep entries.
             </CardContent>
           </Card>
         ) : (

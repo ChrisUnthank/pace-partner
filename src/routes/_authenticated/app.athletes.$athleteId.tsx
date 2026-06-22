@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { metersFmt, secToClock } from "@/lib/format";
 import { paceFmt } from "@/lib/format";
 import { ReadinessBadge } from "@/components/readiness-badge";
+import { VitalsPanel } from "@/components/vitals-panel";
 import { toast } from "sonner";
 import { RefreshCw, CalendarDays } from "lucide-react";
 
@@ -41,6 +42,48 @@ function AthleteDetail() {
       const { data } = await supabase.from("athlete_load_daily").select("*")
         .eq("athlete_id", athleteId).order("load_date", { ascending: false }).limit(14);
       return data ?? [];
+    },
+  });
+
+  // Volume per load_date: sum actual distance from interval_results joined via sessions on that date,
+  // falling back to planned target distance from steps for sessions without actuals.
+  const { data: volumeByDate } = useQuery({
+    queryKey: ["volume-by-date", athleteId],
+    queryFn: async () => {
+      const { data: sessRows } = await supabase
+        .from("sessions")
+        .select("id, session_date, total_distance_m, completed_at")
+        .eq("athlete_id", athleteId)
+        .gte("session_date", new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10));
+      const map = new Map<string, number>();
+      const sessIds = (sessRows ?? []).map((s: any) => s.id);
+      let actualBySession = new Map<string, number>();
+      if (sessIds.length > 0) {
+        const { data: steps } = await supabase.from("steps").select("id, session_id, target_distance_m, reps, set_count").in("session_id", sessIds);
+        const stepToSession = new Map<string, string>();
+        const plannedBySession = new Map<string, number>();
+        for (const st of steps ?? []) {
+          stepToSession.set(st.id, st.session_id);
+          const planned = Number(st.target_distance_m ?? 0) * Number(st.reps ?? 1) * Number(st.set_count ?? 1);
+          plannedBySession.set(st.session_id, (plannedBySession.get(st.session_id) ?? 0) + planned);
+        }
+        const stepIds = (steps ?? []).map((s: any) => s.id);
+        if (stepIds.length > 0) {
+          const { data: irs } = await supabase.from("interval_results").select("step_id, actual_distance_m").in("step_id", stepIds);
+          for (const r of irs ?? []) {
+            const sid = stepToSession.get(r.step_id);
+            if (!sid) continue;
+            actualBySession.set(sid, (actualBySession.get(sid) ?? 0) + Number(r.actual_distance_m ?? 0));
+          }
+        }
+        for (const s of sessRows ?? []) {
+          let m = actualBySession.get(s.id) ?? 0;
+          if (m === 0 && s.total_distance_m) m = Number(s.total_distance_m);
+          if (m === 0 && !s.completed_at) m = plannedBySession.get(s.id) ?? 0;
+          if (m > 0) map.set(s.session_date, (map.get(s.session_date) ?? 0) + m);
+        }
+      }
+      return map;
     },
   });
 
@@ -104,17 +147,27 @@ function AthleteDetail() {
           </div>
         </div>
 
+        <IdentityCard athlete={athlete} athleteId={athleteId} />
+
+        <ZoneBoundariesCard profile={zoneProfile} />
+
+        <PhysiologyCard athleteId={athleteId} />
+
         <div className="grid md:grid-cols-2 gap-4">
           <Card>
             <CardHeader><CardTitle>Training load (14 days)</CardTitle></CardHeader>
             <CardContent className="p-0">
               {!load || load.length === 0 ? <p className="p-4 text-sm text-muted-foreground">No load data yet.</p> : (
                 <table className="w-full text-sm">
-                  <thead className="text-muted-foreground text-xs"><tr><th className="text-left p-2">Date</th><th>Load</th><th>CTL</th><th>ATL</th><th>TSB</th></tr></thead>
+                  <thead className="text-muted-foreground text-xs"><tr><th className="text-left p-2">Date</th><th>Volume</th><th>Load</th><th>CTL</th><th>ATL</th><th>TSB</th></tr></thead>
                   <tbody>
                     {load.map((d: any) => (
                       <tr key={d.load_date} className="border-t">
                         <td className="p-2">{d.load_date}</td>
+                        <td className="text-center tabular-nums">{(() => {
+                          const m = volumeByDate?.get(d.load_date);
+                          return m ? `${(m / 1000).toFixed(1)} km` : "—";
+                        })()}</td>
                         <td className="text-center">{d.combined_load?.toFixed?.(0) ?? "—"}</td>
                         <td className="text-center">{d.ctl?.toFixed?.(0) ?? "—"}</td>
                         <td className="text-center">{d.atl?.toFixed?.(0) ?? "—"}</td>
@@ -144,12 +197,6 @@ function AthleteDetail() {
             </CardContent>
           </Card>
         </div>
-
-        <PhysiologyCard athleteId={athleteId} />
-
-        <IdentityCard athlete={athlete} />
-
-        <ZoneBoundariesCard profile={zoneProfile} />
 
         <Card>
           <CardHeader>
@@ -187,6 +234,16 @@ function AthleteDetail() {
                 ))}
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Vitals history</CardTitle>
+            <CardDescription>Athlete's logged daily vitals.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <VitalsPanel athleteId={athleteId} readOnly />
           </CardContent>
         </Card>
       </div>
@@ -270,16 +327,39 @@ function PieSplit({ aerobic, anaerobic }: { aerobic: number; anaerobic: number }
   );
 }
 
-function IdentityCard({ athlete }: { athlete: any }) {
+function IdentityCard({ athlete, athleteId }: { athlete: any; athleteId: string }) {
   const ageYears = athlete?.dob
     ? Math.floor((Date.now() - new Date(athlete.dob).getTime()) / (365.25 * 24 * 3600 * 1000))
     : null;
+
+  const { data: latestVitals } = useQuery({
+    queryKey: ["latest_vitals", athleteId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("daily_vitals" as any)
+        .select("weight_kg, vitals_date")
+        .eq("athlete_id", athleteId)
+        .not("weight_kg", "is", null)
+        .order("vitals_date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return data as any;
+    },
+  });
+
+  const weightDisplay = latestVitals?.weight_kg != null
+    ? `${Number(latestVitals.weight_kg).toFixed(1)} kg`
+    : athlete?.weight != null
+      ? `${Number(athlete.weight).toFixed(1)} kg (baseline)`
+      : "not yet logged";
+
   const rows: Array<[string, string]> = [
     ["Name", athlete?.name ?? "—"],
     ["Sex", athlete?.sex ?? "—"],
     ["Date of birth", athlete?.dob ? `${athlete.dob}${ageYears != null ? ` (${ageYears}y)` : ""}` : "—"],
     ["Training age", athlete?.training_age_years != null ? `${athlete.training_age_years} yrs` : "—"],
     ["Primary event", athlete?.primary_event ?? "—"],
+    ["Weight", weightDisplay],
     ["HR max", athlete?.hr_max != null ? `${athlete.hr_max} bpm` : "—"],
     ["HR rest", athlete?.hr_rest != null ? `${athlete.hr_rest} bpm` : "—"],
   ];
@@ -321,6 +401,8 @@ function ZoneBoundariesCard({ profile }: { profile: any }) {
     { z: "Z5", label: ">90%", bound: profile.hr_z5_max, range: hrMax ? `${profile.hr_z4_max + 1}–${profile.hr_z5_max} bpm` : "—" },
   ];
   const p5k: number | null = profile.pace_5k_sec_per_km ?? null;
+  const thresholdHr = hrMax ? Math.round(hrMax * 0.90) : null;
+  const thresholdPaceSec = p5k != null ? p5k + 15 : null;
   const paceRows = p5k
     ? [
         { z: "Z1", label: "5K pace + 90s or slower", range: `≥ ${paceFmt(p5k + 90)}` },
@@ -340,7 +422,24 @@ function ZoneBoundariesCard({ profile }: { profile: any }) {
           {profile.pace_zones_manual && " Pace zones overridden manually."}
         </CardDescription>
       </CardHeader>
-      <CardContent className="grid md:grid-cols-2 gap-6">
+      <CardContent className="space-y-6">
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div className="rounded-md border border-border bg-card/40 p-4">
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Threshold HR</div>
+            <div className="font-display text-3xl font-extrabold tabular-nums mt-1">
+              {thresholdHr ?? "—"}<span className="text-base font-normal text-muted-foreground ml-1">bpm</span>
+            </div>
+            <div className="text-xs text-muted-foreground mt-1">90% of HRmax</div>
+          </div>
+          <div className="rounded-md border border-border bg-card/40 p-4">
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Threshold Pace</div>
+            <div className="font-display text-3xl font-extrabold tabular-nums mt-1">
+              {thresholdPaceSec != null ? paceFmt(thresholdPaceSec) : "—"}
+            </div>
+            <div className="text-xs text-muted-foreground mt-1">5K pace + 15 s/km</div>
+          </div>
+        </div>
+        <div className="grid md:grid-cols-2 gap-6">
         <div>
           <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
             HR zones {hrMax ? `(HRmax ${hrMax})` : "(set HR max)"}
@@ -382,6 +481,7 @@ function ZoneBoundariesCard({ profile }: { profile: any }) {
           ) : (
             <p className="text-sm text-muted-foreground">Log a 5K (or 3K / 10K) PB to derive pace zones.</p>
           )}
+        </div>
         </div>
       </CardContent>
     </Card>
