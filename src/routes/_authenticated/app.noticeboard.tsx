@@ -167,20 +167,23 @@ function Noticeboard() {
   );
 }
 
-function Composer({ onCreated, createFn }: { onCreated: () => void; createFn: any }) {
-  const [open, setOpen] = useState(false);
-  const [postType, setPostType] = useState<any>("announcement");
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [link, setLink] = useState("");
-  const [eventDate, setEventDate] = useState("");
-  const [pinned, setPinned] = useState(false);
+function Composer({ onCreated, onCancel, createFn, updateFn, initial }: { onCreated: () => void; onCancel?: () => void; createFn: any; updateFn?: any; initial?: any }) {
+  const isEdit = !!initial;
+  const [open, setOpen] = useState(isEdit);
+  const [postType, setPostType] = useState<any>(initial?.post_type ?? "announcement");
+  const [title, setTitle] = useState(initial?.title ?? "");
+  const [body, setBody] = useState(initial?.body ?? "");
+  const [link, setLink] = useState(initial?.link_url ?? "");
+  const [eventDate, setEventDate] = useState(initial?.event_date ?? "");
+  const [pinned, setPinned] = useState(!!initial?.pinned);
 
   const m = useMutation({
-    mutationFn: () => createFn({ data: { post_type: postType, title, body: body || undefined, link_url: link || undefined, event_date: eventDate || undefined, pinned } }),
+    mutationFn: () => isEdit
+      ? updateFn({ data: { id: initial.id, post_type: postType, title, body: body || null, link_url: link || null, event_date: eventDate || null, pinned } })
+      : createFn({ data: { post_type: postType, title, body: body || undefined, link_url: link || undefined, event_date: eventDate || undefined, pinned } }),
     onSuccess: () => {
-      toast.success("Posted to noticeboard");
-      setTitle(""); setBody(""); setLink(""); setEventDate(""); setPinned(false); setOpen(false);
+      toast.success(isEdit ? "Post updated" : "Posted to noticeboard");
+      if (!isEdit) { setTitle(""); setBody(""); setLink(""); setEventDate(""); setPinned(false); setOpen(false); }
       onCreated();
     },
     onError: (e: any) => toast.error(String(e?.message ?? e)),
@@ -194,7 +197,7 @@ function Composer({ onCreated, createFn }: { onCreated: () => void; createFn: an
 
   return (
     <Card>
-      <CardHeader><CardTitle className="text-base">New post</CardTitle></CardHeader>
+      <CardHeader><CardTitle className="text-base">{isEdit ? "Edit post" : "New post"}</CardTitle></CardHeader>
       <CardContent className="space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
@@ -229,8 +232,8 @@ function Composer({ onCreated, createFn }: { onCreated: () => void; createFn: an
           <input type="checkbox" checked={pinned} onChange={(e) => setPinned(e.target.checked)} /> Pin to top
         </label>
         <div className="flex gap-2">
-          <Button onClick={() => m.mutate()} disabled={!title.trim() || m.isPending}>Post</Button>
-          <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+          <Button onClick={() => m.mutate()} disabled={!title.trim() || m.isPending}>{isEdit ? "Save" : "Post"}</Button>
+          <Button variant="ghost" onClick={() => { setOpen(false); onCancel?.(); }}>Cancel</Button>
         </div>
       </CardContent>
     </Card>
