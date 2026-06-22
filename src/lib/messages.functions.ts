@@ -26,7 +26,35 @@ export const listMessageContacts = createServerFn({ method: "GET" })
         (profs ?? []).forEach((p: any) => map.set(p.id, { user_id: p.id, name: p.full_name ?? "Coach" }));
       }
     }
-    return Array.from(map.values());
+
+    const contacts = Array.from(map.values());
+    if (!contacts.length) return [];
+
+    const otherIds = contacts.map((c) => c.user_id);
+    const { data: recent } = await sb
+      .from("direct_messages")
+      .select("sender_id, recipient_id, body, created_at, read_at")
+      .or(`sender_id.in.(${otherIds.join(",")}),recipient_id.in.(${otherIds.join(",")})`)
+      .order("created_at", { ascending: false })
+      .limit(500);
+
+    const decorated = contacts.map((c) => {
+      const msgs = (recent ?? []).filter(
+        (m: any) =>
+          (m.sender_id === c.user_id && m.recipient_id === context.userId) ||
+          (m.sender_id === context.userId && m.recipient_id === c.user_id),
+      );
+      const last = msgs[0];
+      const unread = msgs.filter((m: any) => m.sender_id === c.user_id && !m.read_at).length;
+      return {
+        ...c,
+        last_body: last?.body ?? null,
+        last_at: last?.created_at ?? null,
+        unread,
+      };
+    });
+    decorated.sort((a, b) => (b.last_at ?? "").localeCompare(a.last_at ?? ""));
+    return decorated;
   });
 
 export const listThread = createServerFn({ method: "POST" })
@@ -36,7 +64,7 @@ export const listThread = createServerFn({ method: "POST" })
     const sb = context.supabase;
     const { data: msgs, error } = await sb
       .from("direct_messages")
-      .select("id, sender_id, recipient_id, body, read_at, created_at")
+      .select("id, sender_id, recipient_id, body, read_at, created_at, edited_at")
       .or(
         `and(sender_id.eq.${context.userId},recipient_id.eq.${data.otherUserId}),and(sender_id.eq.${data.otherUserId},recipient_id.eq.${context.userId})`,
       )
@@ -59,6 +87,51 @@ export const sendMessage = createServerFn({ method: "POST" })
       .single();
     if (error) throw error;
     return row;
+  });
+
+export const editMessage = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { id: string; body: string }) => d)
+  .handler(async ({ data, context }) => {
+    const body = data.body.trim();
+    if (!body) throw new Error("Empty message");
+    const { data: row, error } = await (context.supabase as any)
+      .from("direct_messages")
+      .update({ body, edited_at: new Date().toISOString() })
+      .eq("id", data.id)
+      .select("id")
+      .maybeSingle();
+    if (error) throw error;
+    if (!row) throw new Error("Message can no longer be edited (24h limit).");
+    return { ok: true };
+  });
+
+export const editBroadcast = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { id: string; body: string }) => d)
+  .handler(async ({ data, context }) => {
+    const body = data.body.trim();
+    if (!body) throw new Error("Empty message");
+    const { error } = await (context.supabase as any)
+      .from("message_broadcasts")
+      .update({ body, edited_at: new Date().toISOString() })
+      .eq("id", data.id)
+      .eq("coach_id", context.userId);
+    if (error) throw error;
+    return { ok: true };
+  });
+
+export const listMyBroadcasts = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { data, error } = await context.supabase
+      .from("message_broadcasts")
+      .select("id, body, recipient_count, created_at, edited_at")
+      .eq("coach_id", context.userId)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    if (error) throw error;
+    return data ?? [];
   });
 
 export const markThreadRead = createServerFn({ method: "POST" })

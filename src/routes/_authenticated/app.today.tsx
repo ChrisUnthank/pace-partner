@@ -20,7 +20,7 @@ import { ReadinessBadge } from "@/components/readiness-badge";
 import { HeartPulse, ClipboardCheck, Sparkles } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useServerFn } from "@tanstack/react-start";
-import { generateDailyAthleteNote, getLatestAthleteNote } from "@/lib/ai.functions";
+import { generateDailyAthleteNote, getLatestAthleteNote, getAiAccessStatus } from "@/lib/ai.functions";
 
 export const Route = createFileRoute("/_authenticated/app/today")({
   component: TodayPage,
@@ -359,11 +359,14 @@ function ExternalLoadCard({ athleteId, date, existing }: { athleteId: string; da
 function DailyAINote({ athleteId }: { athleteId: string }) {
   const getNote = useServerFn(getLatestAthleteNote);
   const gen = useServerFn(generateDailyAthleteNote);
+  const access = useServerFn(getAiAccessStatus);
+  const { data: ai } = useQuery({ queryKey: ["ai-access"], queryFn: () => access() });
   const today = todayISO();
   const { data: note, refetch } = useQuery({
     queryKey: ["ai-daily-note", athleteId, today],
     queryFn: () => getNote({ data: { athleteId, kind: "daily" } }),
   });
+  if (ai && !ai.allowed) return null;
   const isToday = note?.note_date === today;
   if (!isToday && !note) {
     return (

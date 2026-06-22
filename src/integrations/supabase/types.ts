@@ -129,6 +129,24 @@ export type Database = {
           },
         ]
       }
+      ai_usage_daily: {
+        Row: {
+          call_count: number
+          used_date: string
+          user_id: string
+        }
+        Insert: {
+          call_count?: number
+          used_date?: string
+          user_id: string
+        }
+        Update: {
+          call_count?: number
+          used_date?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       ai_weekly_summaries: {
         Row: {
           athlete_id: string
@@ -578,6 +596,7 @@ export type Database = {
         Row: {
           body: string
           created_at: string
+          edited_at: string | null
           id: string
           read_at: string | null
           recipient_id: string
@@ -586,6 +605,7 @@ export type Database = {
         Insert: {
           body: string
           created_at?: string
+          edited_at?: string | null
           id?: string
           read_at?: string | null
           recipient_id: string
@@ -594,6 +614,7 @@ export type Database = {
         Update: {
           body?: string
           created_at?: string
+          edited_at?: string | null
           id?: string
           read_at?: string | null
           recipient_id?: string
@@ -715,6 +736,7 @@ export type Database = {
           body: string
           coach_id: string
           created_at: string
+          edited_at: string | null
           id: string
           recipient_count: number
         }
@@ -722,6 +744,7 @@ export type Database = {
           body: string
           coach_id: string
           created_at?: string
+          edited_at?: string | null
           id?: string
           recipient_count?: number
         }
@@ -729,6 +752,7 @@ export type Database = {
           body?: string
           coach_id?: string
           created_at?: string
+          edited_at?: string | null
           id?: string
           recipient_count?: number
         }
@@ -739,6 +763,7 @@ export type Database = {
           author_id: string
           body: string | null
           created_at: string
+          edited_at: string | null
           event_date: string | null
           id: string
           link_url: string | null
@@ -752,6 +777,7 @@ export type Database = {
           author_id: string
           body?: string | null
           created_at?: string
+          edited_at?: string | null
           event_date?: string | null
           id?: string
           link_url?: string | null
@@ -765,6 +791,7 @@ export type Database = {
           author_id?: string
           body?: string | null
           created_at?: string
+          edited_at?: string | null
           event_date?: string | null
           id?: string
           link_url?: string | null
@@ -937,6 +964,8 @@ export type Database = {
       }
       profiles: {
         Row: {
+          anthropic_api_key: string | null
+          anthropic_api_key_last4: string | null
           created_at: string
           email: string | null
           full_name: string | null
@@ -944,6 +973,8 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          anthropic_api_key?: string | null
+          anthropic_api_key_last4?: string | null
           created_at?: string
           email?: string | null
           full_name?: string | null
@@ -951,6 +982,8 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          anthropic_api_key?: string | null
+          anthropic_api_key_last4?: string | null
           created_at?: string
           email?: string | null
           full_name?: string | null
@@ -1985,6 +2018,10 @@ export type Database = {
       }
     }
     Functions: {
+      ai_consume_quota: {
+        Args: { _limit: number; _user_id: string }
+        Returns: boolean
+      }
       can_access_athlete: {
         Args: { _athlete_id: string; _user_id: string }
         Returns: boolean
