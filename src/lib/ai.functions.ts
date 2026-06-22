@@ -183,10 +183,11 @@ export const computeContinuousFatigue = createServerFn({ method: "POST" })
     const paceDriftPct = ((p2 - p1) / p1) * 100;
     // 100 = perfect (no drift). Penalize +1bpm HR drift = -1pt, +1% pace decay = -3pt.
     const score = Math.max(0, Math.min(100, Math.round(100 - hrDriftBpm - paceDriftPct * 3)));
-    const { data: row, error } = await sb.from("session_fatigue").upsert({
-      session_id: data.sessionId, athlete_id: sess.athlete_id, step_id: null, method: "continuous_drift",
+    await sb.from("session_fatigue").delete().eq("session_id", data.sessionId).eq("method", "continuous_drift");
+    const { data: row, error } = await sb.from("session_fatigue").insert({
+      session_id: data.sessionId, athlete_id: sess.athlete_id, method: "continuous_drift",
       hr_drift_bpm: hrDriftBpm, pace_drift_pct: paceDriftPct, efficiency_score: score, rep_count: pts.length,
-    } as any, { onConflict: "session_id,step_id,method" } as any).select().single();
+    } as any).select().maybeSingle();
     if (error) console.error(error);
     return row;
   });
