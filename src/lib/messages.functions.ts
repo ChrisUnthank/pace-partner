@@ -26,7 +26,35 @@ export const listMessageContacts = createServerFn({ method: "GET" })
         (profs ?? []).forEach((p: any) => map.set(p.id, { user_id: p.id, name: p.full_name ?? "Coach" }));
       }
     }
-    return Array.from(map.values());
+
+    const contacts = Array.from(map.values());
+    if (!contacts.length) return [];
+
+    const otherIds = contacts.map((c) => c.user_id);
+    const { data: recent } = await sb
+      .from("direct_messages")
+      .select("sender_id, recipient_id, body, created_at, read_at")
+      .or(`sender_id.in.(${otherIds.join(",")}),recipient_id.in.(${otherIds.join(",")})`)
+      .order("created_at", { ascending: false })
+      .limit(500);
+
+    const decorated = contacts.map((c) => {
+      const msgs = (recent ?? []).filter(
+        (m: any) =>
+          (m.sender_id === c.user_id && m.recipient_id === context.userId) ||
+          (m.sender_id === context.userId && m.recipient_id === c.user_id),
+      );
+      const last = msgs[0];
+      const unread = msgs.filter((m: any) => m.sender_id === c.user_id && !m.read_at).length;
+      return {
+        ...c,
+        last_body: last?.body ?? null,
+        last_at: last?.created_at ?? null,
+        unread,
+      };
+    });
+    decorated.sort((a, b) => (b.last_at ?? "").localeCompare(a.last_at ?? ""));
+    return decorated;
   });
 
 export const listThread = createServerFn({ method: "POST" })
