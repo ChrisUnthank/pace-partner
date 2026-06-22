@@ -9,6 +9,10 @@ import { Button } from "@/components/ui/button";
 import { todayISO } from "@/lib/format";
 import { ReadinessBadge } from "@/components/readiness-badge";
 import { toast } from "sonner";
+import { useServerFn } from "@tanstack/react-start";
+import { findProactiveFlags, generateWeeklySummary } from "@/lib/ai.functions";
+import ReactMarkdown from "react-markdown";
+import { AlertTriangle, Sparkles } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/app/")({
   component: AppHome,
@@ -111,6 +115,14 @@ function AppHome() {
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {isCoach && (
+          <ProactiveFlagsCard />
+        )}
+
+        {isCoach && roster && roster.length > 0 && (
+          <WeeklySummariesGrid athleteIds={roster.map((r: any) => r.athlete_id)} names={Object.fromEntries(roster.map((r: any) => [r.athlete_id, r.athletes?.name]))} />
         )}
 
         {isCoach && (
