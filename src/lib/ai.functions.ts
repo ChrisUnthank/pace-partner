@@ -26,8 +26,8 @@ export const buildAthletePayload = createServerFn({ method: "POST" })
       sb.from("athletes").select("name, sex, primary_event, hr_max, hr_rest, training_age_years, weight, dob").eq("id", data.athleteId).maybeSingle(),
       sb.from("sessions").select("session_date, title, intent, day_type, rpe, completion_pct, total_distance_m, total_time_seconds, completed_at").eq("athlete_id", data.athleteId).gte("session_date", since28).order("session_date", { ascending: false }).limit(30),
       sb.from("athlete_load_daily").select("load_date, combined_load, ctl, atl, tsb, readiness_status, readiness_score").eq("athlete_id", data.athleteId).gte("load_date", since14).order("load_date", { ascending: false }),
-      sb.from("daily_vitals").select("vital_date, sleep_hours, resting_hr, weight_kg, hydration_l").eq("athlete_id", data.athleteId).gte("vital_date", since14).order("vital_date", { ascending: false }),
-      sb.from("session_insights").select("created_at, feel_score, notes").eq("athlete_id", data.athleteId).order("created_at", { ascending: false }).limit(5),
+      sb.from("daily_vitals").select("vitals_date, sleep_hours, resting_hr, weight_kg, hydration").eq("athlete_id", data.athleteId).gte("vitals_date", since14).order("vitals_date", { ascending: false }),
+      sb.from("session_insights").select("created_at, feel_score, went_well, was_difficult, niggles").eq("athlete_id", data.athleteId).order("created_at", { ascending: false }).limit(5),
       sb.from("athlete_physio_profile").select("vo2_max, lactate_threshold_pace, fatigue_resistance_score").eq("athlete_id", data.athleteId).maybeSingle(),
       sb.from("athlete_zone_profiles").select("hr_z1_max, hr_z2_max, hr_z3_max, hr_z4_max, pace_z1_max, pace_z2_max, pace_z3_max, pace_z4_max").eq("athlete_id", data.athleteId).maybeSingle(),
     ]);
@@ -42,8 +42,8 @@ export const buildAthletePayload = createServerFn({ method: "POST" })
     const meanCtl = loadRows.length ? Math.round(loadRows.reduce((a, r) => a + Number(r.ctl || 0), 0) / loadRows.length) : null;
     const meanAtl = loadRows.length ? Math.round(loadRows.reduce((a, r) => a + Number(r.atl || 0), 0) / loadRows.length) : null;
     const vList = vitals.data ?? [];
-    const meanSleep = vList.length ? +(vList.reduce((a, v) => a + (v.sleep_hours || 0), 0) / vList.length).toFixed(1) : null;
-    const meanRhr = vList.length ? Math.round(vList.reduce((a, v) => a + (v.resting_hr || 0), 0) / vList.length) : null;
+    const meanSleep = vList.length ? +(vList.reduce((a, v: any) => a + (v.sleep_hours || 0), 0) / vList.length).toFixed(1) : null;
+    const meanRhr = vList.length ? Math.round(vList.reduce((a, v: any) => a + (v.resting_hr || 0), 0) / vList.length) : null;
 
     return {
       athlete: athlete.data ?? {},
@@ -53,7 +53,7 @@ export const buildAthletePayload = createServerFn({ method: "POST" })
       physio: physio.data ?? {},
       zones: zones.data ?? {},
       recent_sessions_28d: sList,
-      recent_insights: (insights.data ?? []).map((i) => ({ d: i.created_at?.slice(0, 10), feel: i.feel_score, n: i.notes?.slice(0, 140) })),
+      recent_insights: (insights.data ?? []).map((i: any) => ({ d: i.created_at?.slice(0, 10), feel: i.feel_score, well: i.went_well?.slice(0, 80), hard: i.was_difficult?.slice(0, 80), niggles: i.niggles?.slice(0, 80) })),
     };
   });
 
