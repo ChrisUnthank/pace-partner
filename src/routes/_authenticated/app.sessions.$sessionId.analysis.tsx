@@ -21,6 +21,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { secToClock, metersFmt, paceFmt } from "@/lib/format";
 import { sessionClassificationLabel } from "@/lib/session-categories";
+import { useServerFn } from "@tanstack/react-start";
+import { computeContinuousFatigue } from "@/lib/ai.functions";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/analysis")({
   component: SessionAnalysis,
@@ -120,6 +122,18 @@ function SessionAnalysis() {
     },
   });
 
+  const { data: rawPoints } = useQuery({
+    queryKey: ["raw-points", sessionId],
+    queryFn: async () => {
+      const { data } = await supabase.from("raw_session_points")
+        .select("elapsed_s, hr, pace_sec_per_km, cadence, elevation_m, lat, lng, segment_type")
+        .eq("session_id", sessionId).order("elapsed_s").limit(5000);
+      return data ?? [];
+    },
+  });
+
+  const computeFatigue = useServerFn(computeContinuousFatigue);
+
   const { samples, bands, mode, hasMetric, gpsPoints } = useMemo(
     () => buildSamples(steps ?? [], results ?? []),
     [steps, results],
@@ -143,6 +157,9 @@ function SessionAnalysis() {
   if (!session) return <AppShell><p>Loading…</p></AppShell>;
 
   const noResults = (results ?? []).length === 0;
+  const hasRaw = (rawPoints ?? []).length > 0;
+  const continuousFatigue = (fatigue ?? []).find((f: any) => f.method === "continuous_drift");
+  const repFatigue = (fatigue ?? []).filter((f: any) => f.method !== "continuous_drift");
 
   return (
     <AppShell>
