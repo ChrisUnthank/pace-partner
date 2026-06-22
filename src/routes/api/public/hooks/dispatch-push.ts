@@ -49,7 +49,7 @@ export const Route = createFileRoute("/api/public/hooks/dispatch-push")({
             continue;
           }
           const payload = JSON.stringify({
-            title: n.title, body: n.body ?? "", url: n.link ?? "/app", tag: n.kind,
+            title: n.title, body: n.body ?? "", link: n.link ?? "/app", tag: n.kind,
           });
           let anyOk = false;
           for (const s of userSubs) {

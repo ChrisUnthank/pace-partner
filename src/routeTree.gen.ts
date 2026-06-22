@@ -26,6 +26,7 @@ import { Route as AuthenticatedAppAthletesRouteImport } from './routes/_authenti
 import { Route as AuthenticatedAppAnalyticsRouteImport } from './routes/_authenticated/app.analytics'
 import { Route as AuthenticatedAppSessionsIndexRouteImport } from './routes/_authenticated/app.sessions.index'
 import { Route as AuthenticatedAppAthletesIndexRouteImport } from './routes/_authenticated/app.athletes.index'
+import { Route as ApiPublicHooksDispatchPushRouteImport } from './routes/api/public/hooks/dispatch-push'
 import { Route as AuthenticatedAppSessionsNewRouteImport } from './routes/_authenticated/app.sessions.new'
 import { Route as AuthenticatedAppSessionsCalendarRouteImport } from './routes/_authenticated/app.sessions.calendar'
 import { Route as AuthenticatedAppSessionsSessionIdRouteImport } from './routes/_authenticated/app.sessions.$sessionId'
@@ -126,6 +127,12 @@ const AuthenticatedAppAthletesIndexRoute =
     path: '/',
     getParentRoute: () => AuthenticatedAppAthletesRoute,
   } as any)
+const ApiPublicHooksDispatchPushRoute =
+  ApiPublicHooksDispatchPushRouteImport.update({
+    id: '/api/public/hooks/dispatch-push',
+    path: '/api/public/hooks/dispatch-push',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const AuthenticatedAppSessionsNewRoute =
   AuthenticatedAppSessionsNewRouteImport.update({
     id: '/new',
@@ -182,6 +189,7 @@ export interface FileRoutesByFullPath {
   '/app/sessions/$sessionId': typeof AuthenticatedAppSessionsSessionIdRouteWithChildren
   '/app/sessions/calendar': typeof AuthenticatedAppSessionsCalendarRoute
   '/app/sessions/new': typeof AuthenticatedAppSessionsNewRoute
+  '/api/public/hooks/dispatch-push': typeof ApiPublicHooksDispatchPushRoute
   '/app/athletes/': typeof AuthenticatedAppAthletesIndexRoute
   '/app/sessions/': typeof AuthenticatedAppSessionsIndexRoute
   '/app/sessions/$sessionId/analysis': typeof AuthenticatedAppSessionsSessionIdAnalysisRoute
@@ -203,6 +211,7 @@ export interface FileRoutesByTo {
   '/app/athletes/$athleteId': typeof AuthenticatedAppAthletesAthleteIdRoute
   '/app/sessions/calendar': typeof AuthenticatedAppSessionsCalendarRoute
   '/app/sessions/new': typeof AuthenticatedAppSessionsNewRoute
+  '/api/public/hooks/dispatch-push': typeof ApiPublicHooksDispatchPushRoute
   '/app/athletes': typeof AuthenticatedAppAthletesIndexRoute
   '/app/sessions': typeof AuthenticatedAppSessionsIndexRoute
   '/app/sessions/$sessionId/analysis': typeof AuthenticatedAppSessionsSessionIdAnalysisRoute
@@ -229,6 +238,7 @@ export interface FileRoutesById {
   '/_authenticated/app/sessions/$sessionId': typeof AuthenticatedAppSessionsSessionIdRouteWithChildren
   '/_authenticated/app/sessions/calendar': typeof AuthenticatedAppSessionsCalendarRoute
   '/_authenticated/app/sessions/new': typeof AuthenticatedAppSessionsNewRoute
+  '/api/public/hooks/dispatch-push': typeof ApiPublicHooksDispatchPushRoute
   '/_authenticated/app/athletes/': typeof AuthenticatedAppAthletesIndexRoute
   '/_authenticated/app/sessions/': typeof AuthenticatedAppSessionsIndexRoute
   '/_authenticated/app/sessions/$sessionId/analysis': typeof AuthenticatedAppSessionsSessionIdAnalysisRoute
@@ -255,6 +265,7 @@ export interface FileRouteTypes {
     | '/app/sessions/$sessionId'
     | '/app/sessions/calendar'
     | '/app/sessions/new'
+    | '/api/public/hooks/dispatch-push'
     | '/app/athletes/'
     | '/app/sessions/'
     | '/app/sessions/$sessionId/analysis'
@@ -276,6 +287,7 @@ export interface FileRouteTypes {
     | '/app/athletes/$athleteId'
     | '/app/sessions/calendar'
     | '/app/sessions/new'
+    | '/api/public/hooks/dispatch-push'
     | '/app/athletes'
     | '/app/sessions'
     | '/app/sessions/$sessionId/analysis'
@@ -301,6 +313,7 @@ export interface FileRouteTypes {
     | '/_authenticated/app/sessions/$sessionId'
     | '/_authenticated/app/sessions/calendar'
     | '/_authenticated/app/sessions/new'
+    | '/api/public/hooks/dispatch-push'
     | '/_authenticated/app/athletes/'
     | '/_authenticated/app/sessions/'
     | '/_authenticated/app/sessions/$sessionId/analysis'
@@ -312,6 +325,7 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   ClaimTokenRoute: typeof ClaimTokenRoute
+  ApiPublicHooksDispatchPushRoute: typeof ApiPublicHooksDispatchPushRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -434,6 +448,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/app/athletes/'
       preLoaderRoute: typeof AuthenticatedAppAthletesIndexRouteImport
       parentRoute: typeof AuthenticatedAppAthletesRoute
+    }
+    '/api/public/hooks/dispatch-push': {
+      id: '/api/public/hooks/dispatch-push'
+      path: '/api/public/hooks/dispatch-push'
+      fullPath: '/api/public/hooks/dispatch-push'
+      preLoaderRoute: typeof ApiPublicHooksDispatchPushRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_authenticated/app/sessions/new': {
       id: '/_authenticated/app/sessions/new'
@@ -573,6 +594,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   ClaimTokenRoute: ClaimTokenRoute,
+  ApiPublicHooksDispatchPushRoute: ApiPublicHooksDispatchPushRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
