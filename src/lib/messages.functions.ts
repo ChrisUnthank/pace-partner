@@ -36,7 +36,7 @@ export const listThread = createServerFn({ method: "POST" })
     const sb = context.supabase;
     const { data: msgs, error } = await sb
       .from("direct_messages")
-      .select("id, sender_id, recipient_id, body, read_at, created_at")
+      .select("id, sender_id, recipient_id, body, read_at, created_at, edited_at")
       .or(
         `and(sender_id.eq.${context.userId},recipient_id.eq.${data.otherUserId}),and(sender_id.eq.${data.otherUserId},recipient_id.eq.${context.userId})`,
       )
