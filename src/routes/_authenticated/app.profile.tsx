@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { metersFmt, secToClock, clockToSec } from "@/lib/format";
 import { toast } from "sonner";
-import { Trash2 } from "lucide-react";
+import { Trash2, Sparkles } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/app/profile")({
   component: Profile,
@@ -53,6 +53,7 @@ function Profile() {
           </CardContent>
         </Card>
         {user && <RolesCard userId={user.id} roles={roles} email={user.email ?? ""} />}
+        {user && <AiAccessCard userId={user.id} isAthlete={roles.includes("athlete")} isCoach={roles.includes("coach") || roles.includes("manager")} />}
         {athlete && (
           <>
             <AthleteForm athlete={athlete} />
