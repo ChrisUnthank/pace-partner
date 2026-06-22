@@ -76,10 +76,9 @@ export const updatePost = createServerFn({ method: "POST" })
   }) => d)
   .handler(async ({ data, context }) => {
     const { id, ...rest } = data;
-    const patch: Record<string, any> = { ...rest, edited_at: new Date().toISOString() };
-    const { error } = await context.supabase
+    const { error } = await (context.supabase as any)
       .from("noticeboard_posts")
-      .update(patch)
+      .update({ ...rest, edited_at: new Date().toISOString() })
       .eq("id", id)
       .eq("author_id", context.userId);
     if (error) throw error;
