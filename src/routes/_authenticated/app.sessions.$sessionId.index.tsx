@@ -208,8 +208,16 @@ function SessionDetail() {
         athleteId={session.athlete_id}
         onSaved={() => qc.invalidateQueries({ queryKey: ["session_insights", sessionId] })}
       />
+      <div className="max-w-4xl mt-4">
+        <SessionAINote sessionId={sessionId} athleteId={session.athlete_id} />
+      </div>
     </AppShell>
   );
+}
+
+function SessionAINote({ sessionId, athleteId }: { sessionId: string; athleteId: string }) {
+  const getNote = (require => require)(() => null) as any;
+  return <SessionAINoteInner sessionId={sessionId} athleteId={athleteId} />;
 }
 
 const ZONE_ORDER = ["easy", "steady", "threshold", "vo2", "rep", "sprint", "recovery"] as const;
