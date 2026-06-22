@@ -14,6 +14,71 @@ function weekStart(d = new Date()) {
   return x.toISOString().slice(0, 10);
 }
 
+/**
+ * Determine whether this user may invoke the AI. Coaches/managers may always
+ * use the AI (paid by app via LOVABLE_API_KEY). Athletes are opt-in: they
+ * must save their own Anthropic API key on their profile, and AI calls then
+ * route directly through Anthropic so they pay for their own usage.
+ *
+ * Returns:
+ *   { allowed: false } when no access.
+ *   { allowed: true, role: 'coach', anthropicKey: null }
+ *   { allowed: true, role: 'athlete', anthropicKey: '<key>' }
+ */
+async function resolveAiAccess(sb: any, userId: string) {
+  const { data: roles } = await sb.from("user_roles").select("role").eq("user_id", userId);
+  const roleList = (roles ?? []).map((r: any) => r.role);
+  const isCoach = roleList.includes("coach") || roleList.includes("manager");
+  if (isCoach) return { allowed: true as const, role: "coach" as const, anthropicKey: null as string | null, limit: 20 };
+
+  const { data: prof } = await sb.from("profiles").select("anthropic_api_key").eq("id", userId).maybeSingle();
+  const key = prof?.anthropic_api_key as string | null | undefined;
+  if (key && key.trim()) return { allowed: true as const, role: "athlete" as const, anthropicKey: key, limit: 10 };
+
+  return { allowed: false as const };
+}
+
+async function consumeQuotaOrThrow(sb: any, userId: string, limit: number) {
+  const { data, error } = await sb.rpc("ai_consume_quota", { _user_id: userId, _limit: limit });
+  if (error) throw new Error(error.message);
+  if (data === false) {
+    throw new Error(`Daily AI limit reached (${limit} calls). Try again tomorrow.`);
+  }
+}
+
+async function requireAi(sb: any, userId: string) {
+  const access = await resolveAiAccess(sb, userId);
+  if (!access.allowed) {
+    throw new Error("AI is not available for your account. Athletes must add an Anthropic API key in their profile to enable AI.");
+  }
+  await consumeQuotaOrThrow(sb, userId, access.limit);
+  return access;
+}
+
+/** Public-to-client status: { allowed, role, hasOwnKey, used, limit } */
+export const getAiAccessStatus = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const access = await resolveAiAccess(context.supabase, context.userId);
+    if (!access.allowed) {
+      return { allowed: false, role: null, hasOwnKey: false, used: 0, limit: 0 };
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    const { data: usage } = await context.supabase
+      .from("ai_usage_daily")
+      .select("call_count")
+      .eq("user_id", context.userId)
+      .eq("used_date", today)
+      .maybeSingle();
+    return {
+      allowed: true,
+      role: access.role,
+      hasOwnKey: !!access.anthropicKey,
+      used: usage?.call_count ?? 0,
+      limit: access.limit,
+    };
+  });
+
 /** Build a compact (<3KB) athlete payload for the AI. */
 export const buildAthletePayload = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -105,12 +170,12 @@ export const generateWeeklySummary = createServerFn({ method: "POST" })
       const { data: existing } = await sb.from("ai_weekly_summaries").select("*").eq("athlete_id", data.athleteId).eq("week_start", wk).maybeSingle();
       if (existing) return existing;
     }
+    const access = await requireAi(sb, context.userId);
     const payload = await buildAthletePayload({ data: { athleteId: data.athleteId } });
     const { generateText } = await import("ai");
-    const { createLovableAiGatewayProvider, COACH_SYSTEM_PROMPT } = await import("./ai-gateway.server");
-    const gateway = createLovableAiGatewayProvider(process.env.LOVABLE_API_KEY!);
+    const { resolveChatModel, COACH_SYSTEM_PROMPT } = await import("./ai-gateway.server");
     const result = await generateText({
-      model: gateway("google/gemini-2.5-pro"),
+      model: resolveChatModel(access.anthropicKey),
       system: COACH_SYSTEM_PROMPT,
       prompt: `Write the weekly training summary for ${(payload.athlete as any).name ?? "this athlete"}. Cover: training load trend, readiness, key sessions, fatigue or vitals concerns, and one focus area for next week. Keep it under 250 words. Data:\n${JSON.stringify(payload)}`,
     });
@@ -123,12 +188,12 @@ export const generateDailyAthleteNote = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { athleteId: string }) => d)
   .handler(async ({ data, context }) => {
+    const access = await requireAi(context.supabase, context.userId);
     const payload = await buildAthletePayload({ data: { athleteId: data.athleteId } });
     const { generateText } = await import("ai");
-    const { createLovableAiGatewayProvider, COACH_SYSTEM_PROMPT } = await import("./ai-gateway.server");
-    const gateway = createLovableAiGatewayProvider(process.env.LOVABLE_API_KEY!);
+    const { resolveChatModel, COACH_SYSTEM_PROMPT } = await import("./ai-gateway.server");
     const r = await generateText({
-      model: gateway("google/gemini-2.5-pro"),
+      model: resolveChatModel(access.anthropicKey),
       system: COACH_SYSTEM_PROMPT,
       prompt: `Write a short (≤120 words) friendly daily reflection for the athlete based on their vitals and recent training. Focus on readiness, one positive trend, and one watch-out. Data:\n${JSON.stringify(payload)}`,
     });
@@ -143,14 +208,14 @@ export const generateSessionNote = createServerFn({ method: "POST" })
   .inputValidator((d: { sessionId: string }) => d)
   .handler(async ({ data, context }) => {
     const sb = context.supabase;
+    const access = await requireAi(sb, context.userId);
     const { data: sess } = await sb.from("sessions").select("athlete_id, title, intent, total_distance_m, total_time_seconds, avg_hr, rpe, completion_pct, session_date").eq("id", data.sessionId).single();
     if (!sess) throw new Error("Session not found");
     const { data: insight } = await sb.from("session_insights").select("feel_score, notes").eq("session_id", data.sessionId).maybeSingle();
     const { generateText } = await import("ai");
-    const { createLovableAiGatewayProvider, COACH_SYSTEM_PROMPT } = await import("./ai-gateway.server");
-    const gateway = createLovableAiGatewayProvider(process.env.LOVABLE_API_KEY!);
+    const { resolveChatModel, COACH_SYSTEM_PROMPT } = await import("./ai-gateway.server");
     const r = await generateText({
-      model: gateway("google/gemini-2.5-pro"),
+      model: resolveChatModel(access.anthropicKey),
       system: COACH_SYSTEM_PROMPT,
       prompt: `Write a short (≤100 words) reflection on this completed session. Be specific. Session: ${JSON.stringify(sess)}. Athlete feel: ${JSON.stringify(insight ?? {})}.`,
     });
@@ -198,17 +263,17 @@ export const coachChatSend = createServerFn({ method: "POST" })
   .inputValidator((d: { threadId: string; message: string }) => d)
   .handler(async ({ data, context }) => {
     const sb = context.supabase;
+    const access = await requireAi(sb, context.userId);
     const { data: thread } = await sb.from("ai_chat_threads").select("*").eq("id", data.threadId).single();
     if (!thread) throw new Error("Thread not found");
     await sb.from("ai_chat_messages").insert({ thread_id: data.threadId, role: "user", content: data.message });
     const { data: history } = await sb.from("ai_chat_messages").select("role, content").eq("thread_id", data.threadId).order("created_at");
     const payload = thread.athlete_id ? await buildAthletePayload({ data: { athleteId: thread.athlete_id } }) : null;
     const { generateText } = await import("ai");
-    const { createLovableAiGatewayProvider, COACH_SYSTEM_PROMPT } = await import("./ai-gateway.server");
-    const gateway = createLovableAiGatewayProvider(process.env.LOVABLE_API_KEY!);
+    const { resolveChatModel, COACH_SYSTEM_PROMPT } = await import("./ai-gateway.server");
     const sys = COACH_SYSTEM_PROMPT + (payload ? `\n\nAthlete data:\n${JSON.stringify(payload)}` : "");
     const r = await generateText({
-      model: gateway("google/gemini-2.5-pro"),
+      model: resolveChatModel(access.anthropicKey),
       system: sys,
       messages: (history ?? []).map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
     });
