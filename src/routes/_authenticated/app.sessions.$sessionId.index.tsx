@@ -216,8 +216,29 @@ function SessionDetail() {
 }
 
 function SessionAINote({ sessionId, athleteId }: { sessionId: string; athleteId: string }) {
-  const getNote = (require => require)(() => null) as any;
-  return <SessionAINoteInner sessionId={sessionId} athleteId={athleteId} />;
+  const getNote = useServerFn(getLatestAthleteNote);
+  const gen = useServerFn(generateSessionNote);
+  const { data: note, refetch } = useQuery({
+    queryKey: ["ai-session-note", sessionId],
+    queryFn: () => getNote({ data: { athleteId, kind: "session", sessionId } }),
+  });
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2"><Sparkles className="h-4 w-4 text-[var(--accent-red)]" /> AI session reflection</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {note?.content ? (
+          <div className="text-sm prose prose-sm max-w-none dark:prose-invert"><ReactMarkdown>{note.content}</ReactMarkdown></div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No AI reflection yet.</p>
+        )}
+        <Button size="sm" variant="outline" onClick={() => gen({ data: { sessionId } }).then(() => refetch())}>
+          {note?.content ? "Regenerate" : "Generate"}
+        </Button>
+      </CardContent>
+    </Card>
+  );
 }
 
 const ZONE_ORDER = ["easy", "steady", "threshold", "vo2", "rep", "sprint", "recovery"] as const;
