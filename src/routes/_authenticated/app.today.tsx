@@ -355,3 +355,35 @@ function ExternalLoadCard({ athleteId, date, existing }: { athleteId: string; da
     </Card>
   );
 }
+
+function DailyAINote({ athleteId }: { athleteId: string }) {
+  const getNote = useServerFn(getLatestAthleteNote);
+  const gen = useServerFn(generateDailyAthleteNote);
+  const today = todayISO();
+  const { data: note, refetch } = useQuery({
+    queryKey: ["ai-daily-note", athleteId, today],
+    queryFn: () => getNote({ data: { athleteId, kind: "daily" } }),
+  });
+  const isToday = note?.note_date === today;
+  if (!isToday && !note) {
+    return (
+      <Card>
+        <CardHeader><CardTitle className="text-base flex items-center gap-2"><Sparkles className="h-4 w-4 text-[var(--accent-red)]" /> Daily AI reflection</CardTitle></CardHeader>
+        <CardContent>
+          <Button size="sm" onClick={() => gen({ data: { athleteId } }).then(() => refetch())}>Generate</Button>
+        </CardContent>
+      </Card>
+    );
+  }
+  return (
+    <Card>
+      <CardHeader><CardTitle className="text-base flex items-center gap-2"><Sparkles className="h-4 w-4 text-[var(--accent-red)]" /> Daily AI reflection</CardTitle></CardHeader>
+      <CardContent className="text-sm prose prose-sm max-w-none dark:prose-invert">
+        <ReactMarkdown>{note?.content ?? ""}</ReactMarkdown>
+        {!isToday && (
+          <Button size="sm" variant="outline" onClick={() => gen({ data: { athleteId } }).then(() => refetch())}>Regenerate for today</Button>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
