@@ -89,6 +89,51 @@ export const sendMessage = createServerFn({ method: "POST" })
     return row;
   });
 
+export const editMessage = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { id: string; body: string }) => d)
+  .handler(async ({ data, context }) => {
+    const body = data.body.trim();
+    if (!body) throw new Error("Empty message");
+    const { data: row, error } = await (context.supabase as any)
+      .from("direct_messages")
+      .update({ body, edited_at: new Date().toISOString() })
+      .eq("id", data.id)
+      .select("id")
+      .maybeSingle();
+    if (error) throw error;
+    if (!row) throw new Error("Message can no longer be edited (24h limit).");
+    return { ok: true };
+  });
+
+export const editBroadcast = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { id: string; body: string }) => d)
+  .handler(async ({ data, context }) => {
+    const body = data.body.trim();
+    if (!body) throw new Error("Empty message");
+    const { error } = await (context.supabase as any)
+      .from("message_broadcasts")
+      .update({ body, edited_at: new Date().toISOString() })
+      .eq("id", data.id)
+      .eq("coach_id", context.userId);
+    if (error) throw error;
+    return { ok: true };
+  });
+
+export const listMyBroadcasts = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { data, error } = await context.supabase
+      .from("message_broadcasts")
+      .select("id, body, recipient_count, created_at, edited_at")
+      .eq("coach_id", context.userId)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    if (error) throw error;
+    return data ?? [];
+  });
+
 export const markThreadRead = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { otherUserId: string }) => d)
