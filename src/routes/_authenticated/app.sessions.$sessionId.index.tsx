@@ -19,7 +19,7 @@ import { toast } from "sonner";
 import { CheckCircle2, Apple, BookmarkPlus, LineChart, Sparkles } from "lucide-react";
 import { PostSessionInsightModal } from "@/components/post-session-insight-modal";
 import { useServerFn } from "@tanstack/react-start";
-import { getLatestAthleteNote, generateSessionNote } from "@/lib/ai.functions";
+import { getLatestAthleteNote, generateSessionNote, getAiAccessStatus } from "@/lib/ai.functions";
 import ReactMarkdown from "react-markdown";
 import { markAttendance } from "@/lib/messages.functions";
 import { Switch } from "@/components/ui/switch";
@@ -267,10 +267,13 @@ function AttendanceCard({ sessionId, athleteId, athleteName }: { sessionId: stri
 function SessionAINote({ sessionId, athleteId }: { sessionId: string; athleteId: string }) {
   const getNote = useServerFn(getLatestAthleteNote);
   const gen = useServerFn(generateSessionNote);
+  const access = useServerFn(getAiAccessStatus);
+  const { data: ai } = useQuery({ queryKey: ["ai-access"], queryFn: () => access() });
   const { data: note, refetch } = useQuery({
     queryKey: ["ai-session-note", sessionId],
     queryFn: () => getNote({ data: { athleteId, kind: "session", sessionId } }),
   });
+  if (ai && !ai.allowed) return null;
   return (
     <Card>
       <CardHeader className="pb-2">
