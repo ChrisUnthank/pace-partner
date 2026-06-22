@@ -5,29 +5,27 @@ export const listMessageContacts = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const sb = context.supabase;
-    // coach: athletes linked + managers see all athletes with user_id
+    const map = new Map<string, { user_id: string; name: string }>();
+
+    // coach: athletes I coach
     const { data: links } = await sb
       .from("coach_athletes")
-      .select("coach_user_id, athlete_id, athletes(user_id, name)")
-      .or(`coach_user_id.eq.${context.userId}`);
-    const coachContacts = (links ?? [])
-      .filter((l: any) => l.athletes?.user_id)
-      .map((l: any) => ({ user_id: l.athletes.user_id as string, name: l.athletes.name as string }));
-    // athlete: their coaches
+      .select("athlete_id, athletes(user_id, name)")
+      .eq("coach_user_id", context.userId);
+    (links ?? []).forEach((l: any) => {
+      if (l.athletes?.user_id) map.set(l.athletes.user_id, { user_id: l.athletes.user_id, name: l.athletes.name });
+    });
+
+    // athlete: my coaches
     const { data: myAthlete } = await sb.from("athletes").select("id").eq("user_id", context.userId).maybeSingle();
-    let coachesOfMe: any[] = [];
     if (myAthlete) {
-      const { data: coaches } = await sb
-        .from("coach_athletes")
-        .select("coach_user_id, profiles!coach_athletes_coach_user_id_fkey(full_name)")
-        .eq("athlete_id", myAthlete.id);
-      coachesOfMe = (coaches ?? []).map((c: any) => ({
-        user_id: c.coach_user_id as string,
-        name: c.profiles?.full_name ?? "Coach",
-      }));
+      const { data: coaches } = await sb.from("coach_athletes").select("coach_user_id").eq("athlete_id", myAthlete.id);
+      const coachIds = (coaches ?? []).map((c: any) => c.coach_user_id);
+      if (coachIds.length) {
+        const { data: profs } = await sb.from("profiles").select("id, full_name").in("id", coachIds);
+        (profs ?? []).forEach((p: any) => map.set(p.id, { user_id: p.id, name: p.full_name ?? "Coach" }));
+      }
     }
-    const map = new Map<string, { user_id: string; name: string }>();
-    [...coachContacts, ...coachesOfMe].forEach((c) => map.set(c.user_id, c));
     return Array.from(map.values());
   });
 
