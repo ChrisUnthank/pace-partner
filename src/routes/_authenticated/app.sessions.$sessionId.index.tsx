@@ -21,6 +21,8 @@ import { PostSessionInsightModal } from "@/components/post-session-insight-modal
 import { useServerFn } from "@tanstack/react-start";
 import { getLatestAthleteNote, generateSessionNote } from "@/lib/ai.functions";
 import ReactMarkdown from "react-markdown";
+import { markAttendance } from "@/lib/messages.functions";
+import { Switch } from "@/components/ui/switch";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/")({
   component: SessionDetail,
@@ -156,6 +158,14 @@ function SessionDetail() {
           onSaved={() => qc.invalidateQueries({ queryKey: ["session", sessionId] })}
           onCompleted={() => setInsightOpen(true)}
         />
+
+        {isCoach && (
+          <AttendanceCard
+            sessionId={sessionId}
+            athleteId={session.athlete_id}
+            athleteName={session.athletes?.name ?? "Athlete"}
+          />
+        )}
 
         {insight && (
           <Card>
