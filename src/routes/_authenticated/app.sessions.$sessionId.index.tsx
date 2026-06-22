@@ -16,8 +16,11 @@ import { saveSessionAsTemplate } from "@/lib/templates";
 import { useAuthUser, useMyRoles } from "@/lib/use-auth";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { CheckCircle2, Apple, BookmarkPlus, LineChart } from "lucide-react";
+import { CheckCircle2, Apple, BookmarkPlus, LineChart, Sparkles } from "lucide-react";
 import { PostSessionInsightModal } from "@/components/post-session-insight-modal";
+import { useServerFn } from "@tanstack/react-start";
+import { getLatestAthleteNote, generateSessionNote } from "@/lib/ai.functions";
+import ReactMarkdown from "react-markdown";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/")({
   component: SessionDetail,
