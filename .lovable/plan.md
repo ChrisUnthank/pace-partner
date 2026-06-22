@@ -74,5 +74,9 @@ Empty-state message unchanged ("Detailed analysis available after device sync") 
 - Switching to Claude/Anthropic — would need the API key step you skipped.
 - Mapbox migration (keeping MapLibre+OSM).
 
-## Confirmation requested
-Reply **"go"** to start building. If you'd rather have Claude instead of Lovable AI after all, say so and I'll request the key first.
+## Status: built
+- Migration applied: `session_files`, `raw_session_points`, `pending_reminders`, `ai_chat_threads/messages`, `ai_weekly_summaries`, `ai_athlete_notes`; new cols on `sessions` (data_source, work_*, needs_review) and `athletes` (reminder times, last_checkout_at). Private `session-files` storage bucket + RLS.
+- AI server fns (`src/lib/ai.functions.ts`): athlete payload, weekly summary (lazy-cached), daily/session notes, proactive flags, continuous fatigue, chat thread + send via Lovable AI Gateway (gemini-2.5-pro). Anthropic key step skipped — used Lovable AI Gateway as the only provider that works without it.
+- File upload + parsing (`src/lib/session-files.functions.ts`): FIT via `fit-file-parser`, GPX via regex; writes `raw_session_points`, recomputes session work-aggregates. Reminder server fn writes to `pending_reminders`.
+- Routes/UI: `/app/checkout` (uploads + per-session feel + end-of-day note), dashboard "Needs attention" + "Weekly AI summaries" cards, athlete profile embeds `<CoachChat>` + Weekly summary + Reminders, session detail shows AI session reflection, Today shows daily AI reflection + Checkout CTA, analysis page prefers `raw_session_points` and shows continuous-fatigue card alongside per-step fatigue.
+- AI Elements installed (`conversation`, `message`, `prompt-input`, `shimmer`); added `icon-sm` button size. Chat UI uses non-streaming server function for simplicity. Push delivery infra deferred as agreed.
