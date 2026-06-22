@@ -6,7 +6,7 @@ export const listPosts = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("noticeboard_posts")
-      .select("id, author_id, post_type, title, body, link_url, event_date, pinned, created_at")
+      .select("id, author_id, post_type, title, body, link_url, event_date, pinned, created_at, edited_at")
       .order("pinned", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(100);
@@ -59,6 +59,29 @@ export const deletePost = createServerFn({ method: "POST" })
   .inputValidator((d: { id: string }) => d)
   .handler(async ({ data, context }) => {
     const { error } = await context.supabase.from("noticeboard_posts").delete().eq("id", data.id);
+    if (error) throw error;
+    return { ok: true };
+  });
+
+export const updatePost = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: {
+    id: string;
+    title?: string;
+    body?: string | null;
+    link_url?: string | null;
+    event_date?: string | null;
+    pinned?: boolean;
+    post_type?: "announcement" | "result" | "upcoming_race" | "training_event" | "resource";
+  }) => d)
+  .handler(async ({ data, context }) => {
+    const { id, ...rest } = data;
+    const patch: Record<string, any> = { ...rest, edited_at: new Date().toISOString() };
+    const { error } = await context.supabase
+      .from("noticeboard_posts")
+      .update(patch)
+      .eq("id", id)
+      .eq("author_id", context.userId);
     if (error) throw error;
     return { ok: true };
   });
