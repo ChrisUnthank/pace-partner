@@ -24,6 +24,43 @@ function urlBase64ToUint8Array(base64String: string) {
   return out;
 }
 
+function isLovablePreviewHost(host: string) {
+  return (
+    host.startsWith("id-preview--") ||
+    host.startsWith("preview--") ||
+    host === "lovableproject.com" ||
+    host.endsWith(".lovableproject.com") ||
+    host === "lovableproject-dev.com" ||
+    host.endsWith(".lovableproject-dev.com") ||
+    host === "beta.lovable.dev" ||
+    host.endsWith(".beta.lovable.dev")
+  );
+}
+
+function shouldRegisterServiceWorker() {
+  if (typeof window === "undefined") return false;
+  if (!import.meta.env.PROD) return false;
+  try {
+    if (window.self !== window.top) return false;
+  } catch {
+    return false;
+  }
+  if (new URL(window.location.href).searchParams.get("sw") === "off") return false;
+  if (isLovablePreviewHost(window.location.hostname)) return false;
+  return true;
+}
+
+async function unregisterAppServiceWorker() {
+  if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
+  try {
+    const regs = await navigator.serviceWorker.getRegistrations();
+    for (const r of regs) {
+      const url = r.active?.scriptURL || r.installing?.scriptURL || r.waiting?.scriptURL || "";
+      if (url.endsWith("/sw.js")) await r.unregister();
+    }
+  } catch {}
+}
+
 export function NotificationBell() {
   const list = useServerFn(listMyNotifications);
   const markOne = useServerFn(markNotificationRead);
@@ -58,6 +95,11 @@ export function NotificationBell() {
   useEffect(() => {
     if (!user || typeof window === "undefined") return;
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+    if (!shouldRegisterServiceWorker()) {
+      // Clean up any worker that was registered in preview previously.
+      void unregisterAppServiceWorker();
+      return;
+    }
     if (Notification.permission !== "granted") return;
     (async () => {
       try {
@@ -84,6 +126,10 @@ export function NotificationBell() {
   const enablePush = async () => {
     if (typeof window === "undefined") return;
     if (!("Notification" in window)) return;
+    if (!shouldRegisterServiceWorker()) {
+      console.warn("Push notifications are only available on the published site.");
+      return;
+    }
     await Notification.requestPermission();
   };
 
