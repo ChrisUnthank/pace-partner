@@ -4,7 +4,7 @@ import { ReactNode, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyRoles, useAuthUser } from "@/lib/use-auth";
 import { Button } from "@/components/ui/button";
-import { Activity, CalendarDays, Users, User2, LogOut, Home, BookmarkCheck, LineChart, ChevronsLeft, ChevronsRight, Zap, HeartPulse } from "lucide-react";
+import { Activity, CalendarDays, Users, User2, LogOut, Home, BookmarkCheck, LineChart, ChevronsLeft, ChevronsRight, Zap, HeartPulse, ClipboardCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -28,6 +28,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     { to: "/app", label: "Home", icon: Home, show: true },
     { to: "/app/today", label: "Today", icon: Activity, show: isAthlete },
     { to: "/app/vitals", label: "Vitals", icon: HeartPulse, show: isAthlete },
+    { to: "/app/checkout", label: "Checkout", icon: ClipboardCheck, show: isAthlete },
     { to: "/app/sessions", label: "Sessions", icon: CalendarDays, show: true },
     { to: "/app/analytics", label: "Analytics", icon: LineChart, show: true },
     { to: "/app/athletes", label: "Athletes", icon: Users, show: isCoach },

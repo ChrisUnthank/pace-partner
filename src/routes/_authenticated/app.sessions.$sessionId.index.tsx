@@ -16,8 +16,11 @@ import { saveSessionAsTemplate } from "@/lib/templates";
 import { useAuthUser, useMyRoles } from "@/lib/use-auth";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { CheckCircle2, Apple, BookmarkPlus, LineChart } from "lucide-react";
+import { CheckCircle2, Apple, BookmarkPlus, LineChart, Sparkles } from "lucide-react";
 import { PostSessionInsightModal } from "@/components/post-session-insight-modal";
+import { useServerFn } from "@tanstack/react-start";
+import { getLatestAthleteNote, generateSessionNote } from "@/lib/ai.functions";
+import ReactMarkdown from "react-markdown";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/")({
   component: SessionDetail,
@@ -208,7 +211,36 @@ function SessionDetail() {
         athleteId={session.athlete_id}
         onSaved={() => qc.invalidateQueries({ queryKey: ["session_insights", sessionId] })}
       />
+      <div className="max-w-4xl mt-4">
+        <SessionAINote sessionId={sessionId} athleteId={session.athlete_id} />
+      </div>
     </AppShell>
+  );
+}
+
+function SessionAINote({ sessionId, athleteId }: { sessionId: string; athleteId: string }) {
+  const getNote = useServerFn(getLatestAthleteNote);
+  const gen = useServerFn(generateSessionNote);
+  const { data: note, refetch } = useQuery({
+    queryKey: ["ai-session-note", sessionId],
+    queryFn: () => getNote({ data: { athleteId, kind: "session", sessionId } }),
+  });
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2"><Sparkles className="h-4 w-4 text-[var(--accent-red)]" /> AI session reflection</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {note?.content ? (
+          <div className="text-sm prose prose-sm max-w-none dark:prose-invert"><ReactMarkdown>{note.content}</ReactMarkdown></div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No AI reflection yet.</p>
+        )}
+        <Button size="sm" variant="outline" onClick={() => gen({ data: { sessionId } }).then(() => refetch())}>
+          {note?.content ? "Regenerate" : "Generate"}
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 

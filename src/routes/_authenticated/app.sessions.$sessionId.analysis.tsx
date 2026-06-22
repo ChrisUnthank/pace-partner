@@ -21,6 +21,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { secToClock, metersFmt, paceFmt } from "@/lib/format";
 import { sessionClassificationLabel } from "@/lib/session-categories";
+import { useServerFn } from "@tanstack/react-start";
+import { computeContinuousFatigue } from "@/lib/ai.functions";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/analysis")({
   component: SessionAnalysis,
@@ -120,6 +122,18 @@ function SessionAnalysis() {
     },
   });
 
+  const { data: rawPoints } = useQuery({
+    queryKey: ["raw-points", sessionId],
+    queryFn: async () => {
+      const { data } = await supabase.from("raw_session_points")
+        .select("elapsed_s, hr, pace_sec_per_km, cadence, elevation_m, lat, lng, segment_type")
+        .eq("session_id", sessionId).order("elapsed_s").limit(5000);
+      return data ?? [];
+    },
+  });
+
+  const computeFatigue = useServerFn(computeContinuousFatigue);
+
   const { samples, bands, mode, hasMetric, gpsPoints } = useMemo(
     () => buildSamples(steps ?? [], results ?? []),
     [steps, results],
@@ -143,6 +157,9 @@ function SessionAnalysis() {
   if (!session) return <AppShell><p>Loading…</p></AppShell>;
 
   const noResults = (results ?? []).length === 0;
+  const hasRaw = (rawPoints ?? []).length > 0;
+  const continuousFatigue = (fatigue ?? []).find((f: any) => f.method === "continuous_drift");
+  const repFatigue = (fatigue ?? []).filter((f: any) => f.method !== "continuous_drift");
 
   return (
     <AppShell>
@@ -157,7 +174,7 @@ function SessionAnalysis() {
           </p>
         </div>
 
-        {noResults ? (
+        {noResults && !hasRaw ? (
           <Card>
             <CardContent className="pt-6 text-sm text-muted-foreground">
               Detailed analysis available after device sync (coming in the next phase).{" "}
@@ -287,11 +304,45 @@ function SessionAnalysis() {
           </CardContent>
         </Card>
 
-        {(fatigue ?? []).length > 0 && (
+        {hasRaw && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Raw trace ({(rawPoints ?? []).length} samples)</CardTitle>
+              <CardDescription>Loaded from uploaded device file. See chart and route above.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button size="sm" variant="outline" onClick={() => computeFatigue({ data: { sessionId } }).then(() => window.location.reload())}>
+                Compute overall run fatigue
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {continuousFatigue && (
+          <Card>
+            <CardHeader><CardTitle>Overall run fatigue</CardTitle><CardDescription>Continuous drift method</CardDescription></CardHeader>
+            <CardContent className="text-sm space-y-1">
+              <div className="flex justify-between border rounded px-3 py-2">
+                <span className="font-medium">Efficiency score</span>
+                <span className="tabular-nums">{continuousFatigue.efficiency_score ?? "—"}/100</span>
+              </div>
+              <div className="flex justify-between border rounded px-3 py-2 text-muted-foreground">
+                <span>HR drift</span>
+                <span>{continuousFatigue.hr_drift_bpm != null ? `${Number(continuousFatigue.hr_drift_bpm).toFixed(1)} bpm` : "—"}</span>
+              </div>
+              <div className="flex justify-between border rounded px-3 py-2 text-muted-foreground">
+                <span>Pace drift</span>
+                <span>{continuousFatigue.pace_drift_pct != null ? `${Number(continuousFatigue.pace_drift_pct).toFixed(1)}%` : "—"}</span>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {repFatigue.length > 0 && (
           <Card>
             <CardHeader><CardTitle>Per-step fatigue</CardTitle></CardHeader>
             <CardContent className="space-y-2 text-sm">
-              {(fatigue ?? []).map((f: any) => {
+              {repFatigue.map((f: any) => {
                 const step = (steps ?? []).find((s: any) => s.id === f.step_id);
                 return (
                   <div key={f.step_id} className="flex flex-wrap justify-between gap-2 border rounded px-3 py-2">

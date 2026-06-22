@@ -17,7 +17,10 @@ import { sessionClassificationLabel } from "@/lib/session-categories";
 import { toast } from "sonner";
 import { Trash2, Plus } from "lucide-react";
 import { ReadinessBadge } from "@/components/readiness-badge";
-import { HeartPulse } from "lucide-react";
+import { HeartPulse, ClipboardCheck, Sparkles } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import { useServerFn } from "@tanstack/react-start";
+import { generateDailyAthleteNote, getLatestAthleteNote } from "@/lib/ai.functions";
 
 export const Route = createFileRoute("/_authenticated/app/today")({
   component: TodayPage,
@@ -151,6 +154,21 @@ function TodayPage() {
             </CardContent>
           </Card>
         )}
+
+        <Card className="border-emerald-500/30 bg-emerald-500/5">
+          <CardContent className="pt-4 pb-4 flex items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <ClipboardCheck className="h-5 w-5 text-emerald-500 mt-0.5" />
+              <div>
+                <div className="font-medium">Daily checkout</div>
+                <div className="text-xs text-muted-foreground">Upload your runs and reflect on the day.</div>
+              </div>
+            </div>
+            <Button asChild size="sm" variant="outline"><Link to="/app/checkout">Open</Link></Button>
+          </CardContent>
+        </Card>
+
+        {athlete && vitalsToday && <DailyAINote athleteId={athlete.id} />}
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -333,6 +351,38 @@ function ExternalLoadCard({ athleteId, date, existing }: { athleteId: string; da
           </div>
         </div>
         <Button onClick={add} variant="outline" className="w-full"><Plus className="h-4 w-4 mr-1" /> Add activity</Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function DailyAINote({ athleteId }: { athleteId: string }) {
+  const getNote = useServerFn(getLatestAthleteNote);
+  const gen = useServerFn(generateDailyAthleteNote);
+  const today = todayISO();
+  const { data: note, refetch } = useQuery({
+    queryKey: ["ai-daily-note", athleteId, today],
+    queryFn: () => getNote({ data: { athleteId, kind: "daily" } }),
+  });
+  const isToday = note?.note_date === today;
+  if (!isToday && !note) {
+    return (
+      <Card>
+        <CardHeader><CardTitle className="text-base flex items-center gap-2"><Sparkles className="h-4 w-4 text-[var(--accent-red)]" /> Daily AI reflection</CardTitle></CardHeader>
+        <CardContent>
+          <Button size="sm" onClick={() => gen({ data: { athleteId } }).then(() => refetch())}>Generate</Button>
+        </CardContent>
+      </Card>
+    );
+  }
+  return (
+    <Card>
+      <CardHeader><CardTitle className="text-base flex items-center gap-2"><Sparkles className="h-4 w-4 text-[var(--accent-red)]" /> Daily AI reflection</CardTitle></CardHeader>
+      <CardContent className="text-sm prose prose-sm max-w-none dark:prose-invert">
+        <ReactMarkdown>{note?.content ?? ""}</ReactMarkdown>
+        {!isToday && (
+          <Button size="sm" variant="outline" onClick={() => gen({ data: { athleteId } }).then(() => refetch())}>Regenerate for today</Button>
+        )}
       </CardContent>
     </Card>
   );

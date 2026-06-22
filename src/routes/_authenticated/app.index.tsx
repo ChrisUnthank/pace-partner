@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyRoles, useMyRawRoles, useMyAthlete, useAuthUser } from "@/lib/use-auth";
@@ -9,6 +9,10 @@ import { Button } from "@/components/ui/button";
 import { todayISO } from "@/lib/format";
 import { ReadinessBadge } from "@/components/readiness-badge";
 import { toast } from "sonner";
+import { useServerFn } from "@tanstack/react-start";
+import { findProactiveFlags, generateWeeklySummary } from "@/lib/ai.functions";
+import ReactMarkdown from "react-markdown";
+import { AlertTriangle, Sparkles } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/app/")({
   component: AppHome,
@@ -114,6 +118,14 @@ function AppHome() {
         )}
 
         {isCoach && (
+          <ProactiveFlagsCard />
+        )}
+
+        {isCoach && roster && roster.length > 0 && (
+          <WeeklySummariesGrid athleteIds={roster.map((r: any) => r.athlete_id)} names={Object.fromEntries(roster.map((r: any) => [r.athlete_id, r.athletes?.name]))} />
+        )}
+
+        {isCoach && (
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>Your athletes</CardTitle>
@@ -159,5 +171,55 @@ function AppHome() {
         )}
       </div>
     </AppShell>
+  );
+}
+
+function ProactiveFlagsCard() {
+  const fn = useServerFn(findProactiveFlags);
+  const { data: flags = [] } = useQuery({ queryKey: ["proactive-flags"], queryFn: () => fn({}) });
+  if (!flags.length) return null;
+  return (
+    <Card>
+      <CardHeader><CardTitle className="flex items-center gap-2 text-base"><AlertTriangle className="h-4 w-4 text-amber-500" /> Needs attention today</CardTitle></CardHeader>
+      <CardContent className="divide-y">
+        {flags.map((f: any) => (
+          <Link key={f.athlete_id} to="/app/athletes/$athleteId" params={{ athleteId: f.athlete_id }} className="flex items-center justify-between py-2 hover:bg-accent/50 px-2 rounded">
+            <span className="font-medium">{f.name}</span>
+            <span className="text-xs text-muted-foreground">{f.reasons.join(" · ")}</span>
+          </Link>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function WeeklySummariesGrid({ athleteIds, names }: { athleteIds: string[]; names: Record<string, string> }) {
+  const gen = useServerFn(generateWeeklySummary);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const { data, refetch } = useQuery({
+    queryKey: ["weekly-open", openId],
+    enabled: !!openId,
+    queryFn: () => gen({ data: { athleteId: openId! } }),
+  });
+  return (
+    <Card>
+      <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="h-4 w-4 text-[var(--accent-red)]" /> Weekly AI summaries</CardTitle></CardHeader>
+      <CardContent className="space-y-2">
+        <div className="flex flex-wrap gap-2">
+          {athleteIds.map((id) => (
+            <Button key={id} size="sm" variant={openId === id ? "default" : "outline"} onClick={() => setOpenId(id)}>
+              {names[id] ?? "Athlete"}
+            </Button>
+          ))}
+        </div>
+        {openId && data?.summary_md && (
+          <div className="border rounded-md p-3 text-sm prose prose-sm max-w-none dark:prose-invert">
+            <ReactMarkdown>{data.summary_md}</ReactMarkdown>
+            <Button size="sm" variant="ghost" onClick={() => gen({ data: { athleteId: openId, force: true } }).then(() => refetch())}>Regenerate</Button>
+          </div>
+        )}
+        {openId && !data && <p className="text-sm text-muted-foreground">Generating…</p>}
+      </CardContent>
+    </Card>
   );
 }

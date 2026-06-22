@@ -14,6 +14,153 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_athlete_notes: {
+        Row: {
+          athlete_id: string
+          content: string
+          created_at: string
+          id: string
+          kind: string
+          note_date: string
+          session_id: string | null
+        }
+        Insert: {
+          athlete_id: string
+          content: string
+          created_at?: string
+          id?: string
+          kind: string
+          note_date: string
+          session_id?: string | null
+        }
+        Update: {
+          athlete_id?: string
+          content?: string
+          created_at?: string
+          id?: string
+          kind?: string
+          note_date?: string
+          session_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_athlete_notes_athlete_id_fkey"
+            columns: ["athlete_id"]
+            isOneToOne: false
+            referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_athlete_notes_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_chat_messages: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          role: string
+          thread_id: string
+          tokens: number | null
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          role: string
+          thread_id: string
+          tokens?: number | null
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          role?: string
+          thread_id?: string
+          tokens?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_chat_messages_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "ai_chat_threads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_chat_threads: {
+        Row: {
+          athlete_id: string | null
+          coach_id: string
+          created_at: string
+          id: string
+          title: string | null
+          updated_at: string
+        }
+        Insert: {
+          athlete_id?: string | null
+          coach_id: string
+          created_at?: string
+          id?: string
+          title?: string | null
+          updated_at?: string
+        }
+        Update: {
+          athlete_id?: string | null
+          coach_id?: string
+          created_at?: string
+          id?: string
+          title?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_chat_threads_athlete_id_fkey"
+            columns: ["athlete_id"]
+            isOneToOne: false
+            referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_weekly_summaries: {
+        Row: {
+          athlete_id: string
+          generated_at: string
+          id: string
+          summary_md: string
+          week_start: string
+        }
+        Insert: {
+          athlete_id: string
+          generated_at?: string
+          id?: string
+          summary_md: string
+          week_start: string
+        }
+        Update: {
+          athlete_id?: string
+          generated_at?: string
+          id?: string
+          summary_md?: string
+          week_start?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_weekly_summaries_athlete_id_fkey"
+            columns: ["athlete_id"]
+            isOneToOne: false
+            referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       athlete_invites: {
         Row: {
           accepted_at: string | null
@@ -243,8 +390,11 @@ export type Database = {
           hr_max: number | null
           hr_rest: number | null
           id: string
+          last_checkout_at: string | null
           name: string
           primary_event: string | null
+          reminder_evening_local: string | null
+          reminder_morning_local: string | null
           sex: string | null
           training_age_years: number | null
           updated_at: string
@@ -257,8 +407,11 @@ export type Database = {
           hr_max?: number | null
           hr_rest?: number | null
           id?: string
+          last_checkout_at?: string | null
           name: string
           primary_event?: string | null
+          reminder_evening_local?: string | null
+          reminder_morning_local?: string | null
           sex?: string | null
           training_age_years?: number | null
           updated_at?: string
@@ -271,8 +424,11 @@ export type Database = {
           hr_max?: number | null
           hr_rest?: number | null
           id?: string
+          last_checkout_at?: string | null
           name?: string
           primary_event?: string | null
+          reminder_evening_local?: string | null
+          reminder_morning_local?: string | null
           sex?: string | null
           training_age_years?: number | null
           updated_at?: string
@@ -527,6 +683,44 @@ export type Database = {
           },
         ]
       }
+      pending_reminders: {
+        Row: {
+          athlete_id: string
+          coach_id: string
+          created_at: string
+          delivered_at: string | null
+          id: string
+          kind: string
+          message: string | null
+        }
+        Insert: {
+          athlete_id: string
+          coach_id: string
+          created_at?: string
+          delivered_at?: string | null
+          id?: string
+          kind: string
+          message?: string | null
+        }
+        Update: {
+          athlete_id?: string
+          coach_id?: string
+          created_at?: string
+          delivered_at?: string | null
+          id?: string
+          kind?: string
+          message?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pending_reminders_athlete_id_fkey"
+            columns: ["athlete_id"]
+            isOneToOne: false
+            referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       performances: {
         Row: {
           athlete_id: string
@@ -594,6 +788,82 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      raw_session_points: {
+        Row: {
+          cadence: number | null
+          created_at: string
+          elapsed_s: number
+          elevation_m: number | null
+          file_id: string | null
+          ground_contact_time_ms: number | null
+          hr: number | null
+          id: number
+          lat: number | null
+          lng: number | null
+          pace_sec_per_km: number | null
+          segment_type: string | null
+          session_id: string
+          step_id: string | null
+          vertical_oscillation_cm: number | null
+        }
+        Insert: {
+          cadence?: number | null
+          created_at?: string
+          elapsed_s: number
+          elevation_m?: number | null
+          file_id?: string | null
+          ground_contact_time_ms?: number | null
+          hr?: number | null
+          id?: number
+          lat?: number | null
+          lng?: number | null
+          pace_sec_per_km?: number | null
+          segment_type?: string | null
+          session_id: string
+          step_id?: string | null
+          vertical_oscillation_cm?: number | null
+        }
+        Update: {
+          cadence?: number | null
+          created_at?: string
+          elapsed_s?: number
+          elevation_m?: number | null
+          file_id?: string | null
+          ground_contact_time_ms?: number | null
+          hr?: number | null
+          id?: number
+          lat?: number | null
+          lng?: number | null
+          pace_sec_per_km?: number | null
+          segment_type?: string | null
+          session_id?: string
+          step_id?: string | null
+          vertical_oscillation_cm?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "raw_session_points_file_id_fkey"
+            columns: ["file_id"]
+            isOneToOne: false
+            referencedRelation: "session_files"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "raw_session_points_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "raw_session_points_step_id_fkey"
+            columns: ["step_id"]
+            isOneToOne: false
+            referencedRelation: "steps"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       session_adjustment_rules: {
         Row: {
@@ -746,6 +1016,82 @@ export type Database = {
             columns: ["step_id"]
             isOneToOne: false
             referencedRelation: "steps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      session_files: {
+        Row: {
+          activity_type: string | null
+          athlete_id: string
+          created_at: string
+          file_kind: string
+          id: string
+          mapped_step_id: string | null
+          original_filename: string | null
+          parse_error: string | null
+          parsed_at: string | null
+          session_id: string | null
+          started_at: string | null
+          storage_path: string
+          total_distance_m: number | null
+          total_time_s: number | null
+          updated_at: string
+        }
+        Insert: {
+          activity_type?: string | null
+          athlete_id: string
+          created_at?: string
+          file_kind: string
+          id?: string
+          mapped_step_id?: string | null
+          original_filename?: string | null
+          parse_error?: string | null
+          parsed_at?: string | null
+          session_id?: string | null
+          started_at?: string | null
+          storage_path: string
+          total_distance_m?: number | null
+          total_time_s?: number | null
+          updated_at?: string
+        }
+        Update: {
+          activity_type?: string | null
+          athlete_id?: string
+          created_at?: string
+          file_kind?: string
+          id?: string
+          mapped_step_id?: string | null
+          original_filename?: string | null
+          parse_error?: string | null
+          parsed_at?: string | null
+          session_id?: string | null
+          started_at?: string | null
+          storage_path?: string
+          total_distance_m?: number | null
+          total_time_s?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "session_files_athlete_id_fkey"
+            columns: ["athlete_id"]
+            isOneToOne: false
+            referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "session_files_mapped_step_id_fkey"
+            columns: ["mapped_step_id"]
+            isOneToOne: false
+            referencedRelation: "steps"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "session_files_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
             referencedColumns: ["id"]
           },
         ]
@@ -970,6 +1316,7 @@ export type Database = {
           completion_pct: number | null
           created_at: string
           created_by: string
+          data_source: string | null
           day_type: Database["public"]["Enums"]["session_day_type"]
           fueling_notes: string | null
           hr_drift_pct: number | null
@@ -977,6 +1324,7 @@ export type Database = {
           intent: Database["public"]["Enums"]["session_intent"] | null
           is_long_run: boolean
           is_planned: boolean
+          needs_review: boolean | null
           notes: string | null
           pace_decay_pct: number | null
           rpe: number | null
@@ -989,6 +1337,11 @@ export type Database = {
           total_time_seconds: number | null
           updated_at: string
           weather: string | null
+          work_avg_cadence: number | null
+          work_avg_hr: number | null
+          work_avg_pace_sec_per_km: number | null
+          work_distance_m: number | null
+          work_time_s: number | null
           zone_basis: Database["public"]["Enums"]["zone_basis"]
         }
         Insert: {
@@ -999,6 +1352,7 @@ export type Database = {
           completion_pct?: number | null
           created_at?: string
           created_by: string
+          data_source?: string | null
           day_type?: Database["public"]["Enums"]["session_day_type"]
           fueling_notes?: string | null
           hr_drift_pct?: number | null
@@ -1006,6 +1360,7 @@ export type Database = {
           intent?: Database["public"]["Enums"]["session_intent"] | null
           is_long_run?: boolean
           is_planned?: boolean
+          needs_review?: boolean | null
           notes?: string | null
           pace_decay_pct?: number | null
           rpe?: number | null
@@ -1018,6 +1373,11 @@ export type Database = {
           total_time_seconds?: number | null
           updated_at?: string
           weather?: string | null
+          work_avg_cadence?: number | null
+          work_avg_hr?: number | null
+          work_avg_pace_sec_per_km?: number | null
+          work_distance_m?: number | null
+          work_time_s?: number | null
           zone_basis?: Database["public"]["Enums"]["zone_basis"]
         }
         Update: {
@@ -1028,6 +1388,7 @@ export type Database = {
           completion_pct?: number | null
           created_at?: string
           created_by?: string
+          data_source?: string | null
           day_type?: Database["public"]["Enums"]["session_day_type"]
           fueling_notes?: string | null
           hr_drift_pct?: number | null
@@ -1035,6 +1396,7 @@ export type Database = {
           intent?: Database["public"]["Enums"]["session_intent"] | null
           is_long_run?: boolean
           is_planned?: boolean
+          needs_review?: boolean | null
           notes?: string | null
           pace_decay_pct?: number | null
           rpe?: number | null
@@ -1047,6 +1409,11 @@ export type Database = {
           total_time_seconds?: number | null
           updated_at?: string
           weather?: string | null
+          work_avg_cadence?: number | null
+          work_avg_hr?: number | null
+          work_avg_pace_sec_per_km?: number | null
+          work_distance_m?: number | null
+          work_time_s?: number | null
           zone_basis?: Database["public"]["Enums"]["zone_basis"]
         }
         Relationships: [
