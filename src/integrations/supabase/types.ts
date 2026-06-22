@@ -574,6 +574,33 @@ export type Database = {
           },
         ]
       }
+      direct_messages: {
+        Row: {
+          body: string
+          created_at: string
+          id: string
+          read_at: string | null
+          recipient_id: string
+          sender_id: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          id?: string
+          read_at?: string | null
+          recipient_id: string
+          sender_id: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          id?: string
+          read_at?: string | null
+          recipient_id?: string
+          sender_id?: string
+        }
+        Relationships: []
+      }
       external_load: {
         Row: {
           athlete_id: string
@@ -683,6 +710,143 @@ export type Database = {
           },
         ]
       }
+      message_broadcasts: {
+        Row: {
+          body: string
+          coach_id: string
+          created_at: string
+          id: string
+          recipient_count: number
+        }
+        Insert: {
+          body: string
+          coach_id: string
+          created_at?: string
+          id?: string
+          recipient_count?: number
+        }
+        Update: {
+          body?: string
+          coach_id?: string
+          created_at?: string
+          id?: string
+          recipient_count?: number
+        }
+        Relationships: []
+      }
+      noticeboard_posts: {
+        Row: {
+          author_id: string
+          body: string | null
+          created_at: string
+          event_date: string | null
+          id: string
+          link_url: string | null
+          meta: Json
+          pinned: boolean
+          post_type: Database["public"]["Enums"]["noticeboard_post_type"]
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          author_id: string
+          body?: string | null
+          created_at?: string
+          event_date?: string | null
+          id?: string
+          link_url?: string | null
+          meta?: Json
+          pinned?: boolean
+          post_type?: Database["public"]["Enums"]["noticeboard_post_type"]
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          author_id?: string
+          body?: string | null
+          created_at?: string
+          event_date?: string | null
+          id?: string
+          link_url?: string | null
+          meta?: Json
+          pinned?: boolean
+          post_type?: Database["public"]["Enums"]["noticeboard_post_type"]
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      noticeboard_reactions: {
+        Row: {
+          created_at: string
+          emoji: string
+          id: string
+          post_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          emoji: string
+          id?: string
+          post_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          emoji?: string
+          id?: string
+          post_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "noticeboard_reactions_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "noticeboard_posts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notifications: {
+        Row: {
+          body: string | null
+          created_at: string
+          data: Json
+          delivery_channels: Json
+          id: string
+          kind: string
+          link: string | null
+          read_at: string | null
+          title: string
+          user_id: string
+        }
+        Insert: {
+          body?: string | null
+          created_at?: string
+          data?: Json
+          delivery_channels?: Json
+          id?: string
+          kind: string
+          link?: string | null
+          read_at?: string | null
+          title: string
+          user_id: string
+        }
+        Update: {
+          body?: string | null
+          created_at?: string
+          data?: Json
+          delivery_channels?: Json
+          id?: string
+          kind?: string
+          link?: string | null
+          read_at?: string | null
+          title?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       pending_reminders: {
         Row: {
           athlete_id: string
@@ -786,6 +950,36 @@ export type Database = {
           full_name?: string | null
           id?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      push_subscriptions: {
+        Row: {
+          auth: string
+          created_at: string
+          endpoint: string
+          id: string
+          p256dh: string
+          user_agent: string | null
+          user_id: string
+        }
+        Insert: {
+          auth: string
+          created_at?: string
+          endpoint: string
+          id?: string
+          p256dh: string
+          user_agent?: string | null
+          user_id: string
+        }
+        Update: {
+          auth?: string
+          created_at?: string
+          endpoint?: string
+          id?: string
+          p256dh?: string
+          user_agent?: string | null
+          user_id?: string
         }
         Relationships: []
       }
@@ -946,6 +1140,48 @@ export type Database = {
           },
           {
             foreignKeyName: "session_adjustments_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      session_attendance: {
+        Row: {
+          athlete_id: string
+          confirmed_by: string | null
+          created_at: string
+          id: string
+          session_id: string
+          source: Database["public"]["Enums"]["attendance_source"]
+        }
+        Insert: {
+          athlete_id: string
+          confirmed_by?: string | null
+          created_at?: string
+          id?: string
+          session_id: string
+          source?: Database["public"]["Enums"]["attendance_source"]
+        }
+        Update: {
+          athlete_id?: string
+          confirmed_by?: string | null
+          created_at?: string
+          id?: string
+          session_id?: string
+          source?: Database["public"]["Enums"]["attendance_source"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "session_attendance_athlete_id_fkey"
+            columns: ["athlete_id"]
+            isOneToOne: false
+            referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "session_attendance_session_id_fkey"
             columns: ["session_id"]
             isOneToOne: false
             referencedRelation: "sessions"
@@ -1309,6 +1545,7 @@ export type Database = {
       }
       sessions: {
         Row: {
+          altitude_m: number | null
           applied_from_template_id: string | null
           athlete_id: string
           avg_hr: number | null
@@ -1324,6 +1561,7 @@ export type Database = {
           intent: Database["public"]["Enums"]["session_intent"] | null
           is_long_run: boolean
           is_planned: boolean
+          location_id: string | null
           needs_review: boolean | null
           notes: string | null
           pace_decay_pct: number | null
@@ -1345,6 +1583,7 @@ export type Database = {
           zone_basis: Database["public"]["Enums"]["zone_basis"]
         }
         Insert: {
+          altitude_m?: number | null
           applied_from_template_id?: string | null
           athlete_id: string
           avg_hr?: number | null
@@ -1360,6 +1599,7 @@ export type Database = {
           intent?: Database["public"]["Enums"]["session_intent"] | null
           is_long_run?: boolean
           is_planned?: boolean
+          location_id?: string | null
           needs_review?: boolean | null
           notes?: string | null
           pace_decay_pct?: number | null
@@ -1381,6 +1621,7 @@ export type Database = {
           zone_basis?: Database["public"]["Enums"]["zone_basis"]
         }
         Update: {
+          altitude_m?: number | null
           applied_from_template_id?: string | null
           athlete_id?: string
           avg_hr?: number | null
@@ -1396,6 +1637,7 @@ export type Database = {
           intent?: Database["public"]["Enums"]["session_intent"] | null
           is_long_run?: boolean
           is_planned?: boolean
+          location_id?: string | null
           needs_review?: boolean | null
           notes?: string | null
           pace_decay_pct?: number | null
@@ -1422,6 +1664,13 @@ export type Database = {
             columns: ["athlete_id"]
             isOneToOne: false
             referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sessions_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "training_locations"
             referencedColumns: ["id"]
           },
         ]
@@ -1628,6 +1877,48 @@ export type Database = {
           },
         ]
       }
+      training_locations: {
+        Row: {
+          address: string | null
+          altitude_m: number | null
+          created_at: string
+          created_by: string | null
+          id: string
+          lat: number | null
+          lng: number | null
+          name: string
+          notes: string | null
+          surface: string | null
+          updated_at: string
+        }
+        Insert: {
+          address?: string | null
+          altitude_m?: number | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          lat?: number | null
+          lng?: number | null
+          name: string
+          notes?: string | null
+          surface?: string | null
+          updated_at?: string
+        }
+        Update: {
+          address?: string | null
+          altitude_m?: number | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          lat?: number | null
+          lng?: number | null
+          name?: string
+          notes?: string | null
+          surface?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -1746,6 +2037,7 @@ export type Database = {
     }
     Enums: {
       app_role: "coach" | "athlete" | "admin" | "manager"
+      attendance_source: "auto_gps" | "manual"
       external_load_kind:
         | "work"
         | "gym"
@@ -1753,6 +2045,13 @@ export type Database = {
         | "school"
         | "travel"
         | "other"
+      noticeboard_post_type:
+        | "announcement"
+        | "result"
+        | "upcoming_race"
+        | "training_event"
+        | "birthday"
+        | "resource"
       readiness_status: "green" | "amber" | "red"
       recovery_mode: "standing" | "walk" | "jog" | "float"
       session_day_type:
@@ -1904,6 +2203,7 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["coach", "athlete", "admin", "manager"],
+      attendance_source: ["auto_gps", "manual"],
       external_load_kind: [
         "work",
         "gym",
@@ -1911,6 +2211,14 @@ export const Constants = {
         "school",
         "travel",
         "other",
+      ],
+      noticeboard_post_type: [
+        "announcement",
+        "result",
+        "upcoming_race",
+        "training_event",
+        "birthday",
+        "resource",
       ],
       readiness_status: ["green", "amber", "red"],
       recovery_mode: ["standing", "walk", "jog", "float"],

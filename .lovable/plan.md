@@ -1,82 +1,75 @@
-# Build plan — Phases 1.5, 1.5b, 1.5c
+# Build plan — Phases 1.6, 1.7, 2.0
 
-You asked me to skip the Anthropic key step and keep building. The only AI path that doesn't need that key is **Lovable AI Gateway** (no key, billed via Lovable credits, Gemini/GPT models). I'll use it instead of Claude. Everything else stays as briefed.
+This is ~6 weeks of work in one ask. I'll build it, but I need you to confirm scope and a few open questions first so I don't waste credits on the wrong shape. Reply **"go"** to start, or correct anything below.
 
-## Phase order
-Migrations → 1.5b backend (FIT/GPX parsing, raw_session_points) → 1.5c analysis rebuild → 1.5 AI surfaces (chat + proactive cards + athlete notes) → 1.5b UI (checkout + reminders + coach roster).
+## Confirmations needed before I build
 
-I'm front-loading 1.5b's data layer because both 1.5c (chart) and 1.5 (AI payload summary) read from it.
+1. **Push notifications** — you asked for "web push". I'll use the browser **Web Push API + service worker + VAPID keys** (no third-party like FCM/OneSignal). That means:
+   - I'll generate VAPID keys and store the private key as a secret
+   - Push works only on browsers where the athlete has granted permission and the PWA/site is open or installed
+   - **No iOS push** unless the user installs the site to home screen (Apple limitation)
+   - If you want true native push, that's Phase 3 (native app)
+2. **Realtime messaging** — Supabase Realtime on a `direct_messages` table with RLS scoped to participants. Read receipts via `read_at` column. Confirmed approach per your brief.
+3. **Altitude load modifier** — you flagged this for approval. Proposed: when a session falls inside a `phase_type='altitude'` phase, multiply its training_load by **1.12** (mid of 1.10–1.15) before it feeds CTL/ATL. Surface an "Altitude block" badge on readiness so the coach knows why scores shift. OK?
+4. **Race Tactics AI** — same Lovable AI Gateway / Gemini 2.5 Pro stack as Phase 1.5. Output shape: JSON with 3 strategies, each having `lap_plan[]`, `predicted_finish_s`, `decision_points[]`, `risks[]`, `cues[]`. Stored in new `race_tactics` table. OK?
+5. **Calendar planning** — drag-and-drop reschedule via `@dnd-kit/core` (already common). Acceptable?
 
-## Phase 1.5b — Daily Checkout & FIT/GPX upload
+## Phase 1.6 — Noticeboard, Notifications, Messaging, Attendance
 
-**Schema**
-- `raw_session_points` — `session_id`, `step_id`, `file_id`, `segment_type` (warmup/work/recovery/cooldown), `elapsed_s`, `lat`, `lng`, `hr`, `pace_sec_per_km`, `cadence`, `elevation_m`, `vertical_oscillation_cm`, `ground_contact_time_ms`. Indexed on `(session_id, elapsed_s)` and `(step_id)`.
-- `session_files` — uploaded file metadata: `athlete_id`, `session_id` (nullable until mapped), `file_kind` (fit/gpx), `storage_path`, `activity_type`, `started_at`, `total_distance_m`, `total_time_s`, `parsed_at`, `mapped_step_id`.
-- `sessions` — add `data_source` (manual/fit_upload/gpx_upload), `work_distance_m`, `work_time_s`, `work_avg_hr`, `work_avg_pace_sec_per_km`, `work_avg_cadence`, `last_checkout_at`, `needs_review` (bool for unreviewed uploads).
-- `athletes` — add `reminder_morning_local` (default `08:00`), `reminder_evening_local` (default `20:00`), `last_checkout_at`.
-- Storage bucket: `session-files` (private, RLS scoped to athlete).
+**Schema (one migration)**
+- `noticeboard_posts` (squad_id nullable for now → posts visible to all athletes of the coach), `post_type` enum, `pinned`, `event_date` for race/training posts, `link_url`
+- `noticeboard_reactions` (post_id, user_id, emoji)
+- `notifications` (user_id, kind, title, body, link, read_at, delivery_channels jsonb) — channel-agnostic so email slots in later
+- `push_subscriptions` (user_id, endpoint, p256dh, auth)
+- `direct_messages` (sender_id, recipient_id, body, read_at) + Realtime publication
+- `message_broadcasts` (coach_id, body, sent_at) — fans out to `notifications` per athlete
+- `session_attendance` (session_id, athlete_id, source enum: auto_gps/manual, confirmed_by)
+- `training_locations` (name, address, lat, lng, surface, altitude_m, notes, created_by)
+- Add `location_id` + `altitude_m` to `sessions`
+- DB triggers fire `notifications` rows on: session edit, session complete, noticeboard post, new DM, daily readiness=red digest (via pg_cron)
 
-**Server functions**
-- `uploadSessionFiles` — accepts file blobs, stores in bucket, returns file IDs.
-- `parseSessionFile` — server-side FIT (`fit-file-parser`) and GPX (XML) parsing → writes session-level + `raw_session_points`. Detects lap markers → creates `interval_results` rows with `segment_type='work'`, gaps between laps get `segment_type='recovery'`.
-- `groupFilesForDate` — same-date files grouped, matched against planned sessions by activity type. Returns suggested mapping for athlete confirmation.
-- `confirmFileMapping` — assigns file → step (warm-up = first, work = middle, cooldown = last; manual override supported). Recomputes `work_*` aggregates from work-step files only.
-- `submitCheckout` — writes `session_insights`, `last_checkout_at`, end-of-day note.
-
-**UI**
-- `/app/checkout` route — multi-file uploader (drag/drop, bulk), grouping confirmation modal, per-session insight form, end-of-day textarea. Submittable with note only on rest days.
-- Per-segment summary table on session detail (warm-up/work/cool-down rows from `raw_session_points`).
-- Coach dashboard: "Last checkout" column on roster, "Unreviewed uploads" queue card, per-athlete "Send reminder" button (writes a row to a `pending_reminders` table for now — push infra is future work).
-- Reminder config inputs on athlete profile (coach-editable).
-
-## Phase 1.5c — Session Analysis rebuild
-
-**Read from `raw_session_points`** instead of `interval_results.rep_trace`. Lines: HR, Pace, Elevation, Cadence, Vertical Oscillation, GCT — toggle chips, recharts ComposedChart. Color-coded shaded bands per `segment_type` (warm-up / work / recovery / cool-down). GPS polyline stays on MapLibre+OSM.
-
-**Continuous fatigue**: new `compute_continuous_fatigue(session_id)` server fn — for sessions with `structure='continuous'` and trace data, split first/second half by elapsed_s, compute HR drift (Δ mean HR for same pace bucket) and pace decline (Δ mean pace), produce `efficiency_score` 0–100 stored in `session_fatigue` with `method='continuous_drift'` and `step_id=NULL`. Render alongside existing per-step panel labelled "Overall run fatigue". Return null if insufficient data.
-
-Empty-state message unchanged ("Detailed analysis available after device sync") for sessions with no `raw_session_points`.
-
-## Phase 1.5 — AI Coaching Assistant (Lovable AI Gateway)
-
-**Schema**
-- `ai_chat_threads` — `coach_id`, `athlete_id`, `created_at`.
-- `ai_chat_messages` — `thread_id`, `role` (user/assistant), `content`, `tokens`, `created_at`.
-- `ai_weekly_summaries` — `athlete_id`, `week_start`, `summary_md`, `generated_at` (lazy, cached 7 days).
-- `ai_athlete_notes` — `athlete_id`, `note_date`, `kind` (daily/session), `session_id` (nullable), `content`.
-
-**Server functions** (all use `createServerFn` + Lovable AI Gateway via `@ai-sdk/openai-compatible`, model `google/gemini-2.5-pro`, max_tokens 1000, system prompt = experienced middle-distance running coach):
-- `buildAthletePayload(athleteId)` — compact summary: 28d session list (date/title/intent/RPE/completion), readiness + CTL/ATL/TSB trend (last 14d), fatigue scores avg, physio profile, vitals trend (sleep/RHR/weight last 14d means), zone time % last 14d, recent adjustments, recent insights. Never raw rows.
-- `coachChatSend(threadId, message)` — appends to thread, fetches payload, streams response, persists assistant reply.
-- `generateWeeklySummary(athleteId)` — lazy; checks `ai_weekly_summaries` for current week, generates if missing.
-- `generateDailyAthleteNote(athleteId)` — called after vitals submit.
-- `generateSessionNote(sessionId)` — called after session marked complete or after FIT upload parses.
-- `findProactiveFlags()` — rules-based (not AI): readiness=red OR ATL > rolling 28d ATL mean + 1σ. Returns flagged athletes for dashboard card.
+**Server fns**
+- `subscribePush`, `sendPushToUser` (web-push lib, VAPID), `markNotificationRead`, `createPost`, `reactToPost`, `sendDirectMessage`, `markThreadRead`, `broadcastMessage`, `detectSquadAttendance` (200m / 30min match against `raw_session_points` start), `markAttendance`
 
 **UI**
-- `<CoachChat athleteId>` component — embedded on athlete profile, also on dashboard as a thread switcher. AI Elements (Conversation/Message/PromptInput/Shimmer). Per-athlete thread persists.
-- Dashboard "Needs attention today" card (proactive flags) and "Weekly summaries" grid (lazy-generated on click).
-- Athlete-facing: AI daily note shown on `/app/today` after vitals submit; AI session note shown on session detail for athlete view.
+- `/app/noticeboard` — feed + composer (coach-only), type filter, reactions
+- Bell icon in app shell with unread badge + dropdown notification centre
+- `/app/messages` — thread list + chat panel, realtime subscription, read receipts, broadcast composer for coaches
+- Session detail: "Attended" chip row
+- Service worker for push (`public/sw.js`)
 
-## Technical details (you can skim)
+## Phase 1.7 — Training Plans, Calendar, Goals
 
-- `data_source` enum-like CHECK column.
-- FIT parsing runs in TanStack server fn (Worker runtime supports `fit-file-parser`). Files >5MB rejected client-side.
-- Recovery-between-laps detection: any non-lap gap >5s with HR/pace data tagged `segment_type='recovery'` and excluded from rep averages.
-- Multi-file same-date: server fn returns proposed mapping, athlete confirms via dropdown per file before persistence.
-- AI payloads serialized to <3KB to keep token cost predictable.
-- All new tables: RLS scoped to athlete/coach via existing `coach_athletes` and `auth.uid()` patterns + service_role grants.
-- No third-party sync — fully self-contained as briefed.
+**Schema**
+- `training_plans`, `training_phases` (with phase_type enum incl. `altitude`), `goals` (kind: season/race/fitness)
+- `weekly_patterns` (coach_id, name, pattern jsonb {mon: template_id, tue: …})
+- `sessions.plan_id`, `sessions.phase_id` (both nullable)
+- Altitude load modifier wired into `session_training_load()` SQL fn
 
-## Out of scope (explicitly deferred)
-- Push notification delivery infra (FCM/APNs). Reminder config is stored and surfaced; actual push goes in a later phase.
-- Strava/Garmin sync.
-- Switching to Claude/Anthropic — would need the API key step you skipped.
-- Mapbox migration (keeping MapLibre+OSM).
+**UI**
+- Upgrade existing calendar: click date → quick-add modal (template or scratch), click week → bulk-apply pattern, "Copy week →", "Copy month →", drag to reschedule (`@dnd-kit`)
+- `/app/plans/:planId` — horizontal phase timeline (colour-coded), per-phase CTL/ATL bars, planned vs actual count, dominant intent. Add/edit/delete phases.
+- Goals widgets on athlete profile + dashboard
+- **Folded: Calculators** `/app/calculators` — McMillan equivalency, VDOT training paces, intensity/effort, Hansons paces. Pre-fill from athlete PBs + zone profile.
+- **Folded: Environment section** in session builder (temp/humidity/wind/weather/time-of-day/terrain multi-select/altitude)
+- **Folded: Terrain breakdown chart** in analytics
+- **Folded: Analytics 7-day + custom date range picker**
+- **Folded: GCT** — add `ground_contact_time_ms` to interval_results form + analysis chart + biomechanics summary (column already exists in schema per memory of earlier migration; will verify)
+- **Folded: External load expansion** — new activity types, duration, subjective_effort, recovery_benefit flag; update `combined_load` trigger
+- **Folded: Notes & Resources** — `athlete_notes` (private/shared), `squad_resources` (files in new `resources` bucket)
 
-## Status: built
-- Migration applied: `session_files`, `raw_session_points`, `pending_reminders`, `ai_chat_threads/messages`, `ai_weekly_summaries`, `ai_athlete_notes`; new cols on `sessions` (data_source, work_*, needs_review) and `athletes` (reminder times, last_checkout_at). Private `session-files` storage bucket + RLS.
-- AI server fns (`src/lib/ai.functions.ts`): athlete payload, weekly summary (lazy-cached), daily/session notes, proactive flags, continuous fatigue, chat thread + send via Lovable AI Gateway (gemini-2.5-pro). Anthropic key step skipped — used Lovable AI Gateway as the only provider that works without it.
-- File upload + parsing (`src/lib/session-files.functions.ts`): FIT via `fit-file-parser`, GPX via regex; writes `raw_session_points`, recomputes session work-aggregates. Reminder server fn writes to `pending_reminders`.
-- Routes/UI: `/app/checkout` (uploads + per-session feel + end-of-day note), dashboard "Needs attention" + "Weekly AI summaries" cards, athlete profile embeds `<CoachChat>` + Weekly summary + Reminders, session detail shows AI session reflection, Today shows daily AI reflection + Checkout CTA, analysis page prefers `raw_session_points` and shows continuous-fatigue card alongside per-step fatigue.
-- AI Elements installed (`conversation`, `message`, `prompt-input`, `shimmer`); added `icon-sm` button size. Chat UI uses non-streaming server function for simplicity. Push delivery infra deferred as agreed.
+## Phase 2.0 — Race Tactics Planner
+
+**Schema**: `race_tactics` (athlete_id, race_date, race_name, distance_m, venue, conditions jsonb, field_notes, lane, goal, constraints, payload jsonb, chosen_option, generated_at, actual_result_id nullable)
+
+**Server fn**: `generateRaceTactics(athleteId, raceInput)` — builds payload (readiness trend, physio profile, threshold, PBs, CTL/ATL on race day from plan), calls Lovable AI Gateway with strict JSON schema, persists row.
+
+**UI**: `/app/athletes/:id/race-tactics` — input form + 3-option side-by-side card layout with lap tables, decision points, risks, cues. "Select this strategy" persists chosen_option. Post-race: link to actual session for comparison.
+
+## Out of scope (per your brief)
+Email delivery, Strava/Garmin/Coros API, Terra/Spike, native app, iOS push beyond PWA.
+
+## Order of build
+1.6 schema → 1.6 backend → 1.6 UI → 1.7 schema → 1.7 calendar/plans → folded extras → 2.0.
+
+Reply **"go"** (and answer Q1–Q5 above, especially the altitude multiplier and push approach) and I'll start with the 1.6 migration.
