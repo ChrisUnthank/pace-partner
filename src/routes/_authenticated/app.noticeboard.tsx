@@ -10,8 +10,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Pin, Trash2, ExternalLink, Megaphone, Trophy, CalendarDays, MapPin, BookOpen } from "lucide-react";
-import { listPosts, createPost, deletePost, toggleReaction } from "@/lib/noticeboard.functions";
+import { Pin, Trash2, ExternalLink, Megaphone, Trophy, CalendarDays, MapPin, BookOpen, Pencil } from "lucide-react";
+import { listPosts, createPost, deletePost, toggleReaction, updatePost } from "@/lib/noticeboard.functions";
 import { useMyRoles, useAuthUser } from "@/lib/use-auth";
 import { format } from "date-fns";
 import { toast } from "sonner";
@@ -38,6 +38,7 @@ function Noticeboard() {
   const create = useServerFn(createPost);
   const del = useServerFn(deletePost);
   const react = useServerFn(toggleReaction);
+  const update = useServerFn(updatePost);
   const qc = useQueryClient();
   const { user } = useAuthUser();
   const { data: roles = [] } = useMyRoles();
@@ -45,6 +46,7 @@ function Noticeboard() {
 
   const { data: posts = [] } = useQuery({ queryKey: ["noticeboard"], queryFn: () => list() });
   const [filter, setFilter] = useState<string>("all");
+  const [editing, setEditing] = useState<any | null>(null);
 
   const reactM = useMutation({
     mutationFn: (v: { post_id: string; emoji: string }) => react({ data: v }),
@@ -77,6 +79,17 @@ function Noticeboard() {
 
       {isCoach && <Composer onCreated={() => qc.invalidateQueries({ queryKey: ["noticeboard"] })} createFn={create} />}
 
+      {editing && (
+        <Composer
+          key={editing.id}
+          initial={editing}
+          onCreated={() => { setEditing(null); qc.invalidateQueries({ queryKey: ["noticeboard"] }); }}
+          onCancel={() => setEditing(null)}
+          createFn={create}
+          updateFn={update}
+        />
+      )}
+
       <div className="space-y-3">
         {visible.length === 0 && <p className="text-sm text-muted-foreground">No posts yet.</p>}
         {visible.map((p: any) => {
@@ -103,15 +116,23 @@ function Noticeboard() {
                       <p className="text-xs text-muted-foreground">
                         {p.author_name} · {format(new Date(p.created_at), "MMM d, h:mm a")}
                         {p.event_date && ` · event ${format(new Date(p.event_date), "MMM d")}`}
+                        {p.edited_at && ` · edited ${format(new Date(p.edited_at), "MMM d, h:mm a")}`}
                       </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <Badge variant="outline" className="text-[10px]">{meta.label}</Badge>
                     {p.author_id === user?.id && (
+                      <>
+                        {p.post_type !== "birthday" && (
+                          <Button variant="ghost" size="icon" onClick={() => setEditing(p)} aria-label="Edit post">
+                            <Pencil className="h-4 w-4 text-muted-foreground" />
+                          </Button>
+                        )}
                       <Button variant="ghost" size="icon" onClick={() => delM.mutate(p.id)}>
                         <Trash2 className="h-4 w-4 text-muted-foreground" />
                       </Button>
+                      </>
                     )}
                   </div>
                 </div>
