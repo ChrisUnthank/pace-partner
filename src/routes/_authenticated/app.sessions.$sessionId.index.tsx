@@ -228,10 +228,6 @@ function SessionDetail() {
   );
 }
 
-function SessionAINote({ sessionId, athleteId }: { sessionId: string; athleteId: string }) {
-  return _SessionAINote({ sessionId, athleteId });
-}
-
 function AttendanceCard({ sessionId, athleteId, athleteName }: { sessionId: string; athleteId: string; athleteName: string }) {
   const qc = useQueryClient();
   const markFn = useServerFn(markAttendance);
@@ -268,7 +264,7 @@ function AttendanceCard({ sessionId, athleteId, athleteName }: { sessionId: stri
   );
 }
 
-function _SessionAINote({ sessionId, athleteId }: { sessionId: string; athleteId: string }) {
+function SessionAINote({ sessionId, athleteId }: { sessionId: string; athleteId: string }) {
   const getNote = useServerFn(getLatestAthleteNote);
   const gen = useServerFn(generateSessionNote);
   const { data: note, refetch } = useQuery({
