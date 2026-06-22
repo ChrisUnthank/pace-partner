@@ -6,16 +6,20 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, Send, Brain } from "lucide-react";
-import { getOrCreateAthleteThread, listThreadMessages, coachChatSend } from "@/lib/ai.functions";
+import { getOrCreateAthleteThread, listThreadMessages, coachChatSend, getAiAccessStatus } from "@/lib/ai.functions";
 
 export function CoachChat({ athleteId, athleteName }: { athleteId: string; athleteName?: string }) {
   const getThread = useServerFn(getOrCreateAthleteThread);
   const listMsgs = useServerFn(listThreadMessages);
   const sendMsg = useServerFn(coachChatSend);
+  const access = useServerFn(getAiAccessStatus);
   const qc = useQueryClient();
+
+  const { data: ai } = useQuery({ queryKey: ["ai-access"], queryFn: () => access() });
 
   const { data: thread } = useQuery({
     queryKey: ["ai-thread", athleteId],
+    enabled: ai?.allowed === true,
     queryFn: () => getThread({ data: { athleteId } }),
   });
   const { data: messages = [] } = useQuery({
@@ -44,12 +48,28 @@ export function CoachChat({ athleteId, athleteName }: { athleteId: string; athle
     send.mutate(t);
   };
 
+  if (ai && !ai.allowed) {
+    return (
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Brain className="h-4 w-4 text-[var(--accent-red)]" /> AI Coaching Assistant
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground">
+          AI is available to coaches by default. Athletes can enable it by adding their own Anthropic API key on the Profile page.
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-base">
           <Brain className="h-4 w-4 text-[var(--accent-red)]" />
           AI Coaching Assistant{athleteName ? ` — ${athleteName}` : ""}
+          {ai && <span className="ml-auto text-[10px] font-normal text-muted-foreground">{ai.used}/{ai.limit} today</span>}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
