@@ -245,3 +245,65 @@ function Row({ label, v }: { label: string; v?: number | null }) {
     </div>
   );
 }
+
+function AiAccessCard({ userId, isAthlete, isCoach }: { userId: string; isAthlete: boolean; isCoach: boolean }) {
+  const qc = useQueryClient();
+  const { data: profile } = useQuery({
+    queryKey: ["profile-ai-key", userId],
+    queryFn: async () => {
+      const { data } = await supabase.from("profiles").select("anthropic_api_key_last4").eq("id", userId).maybeSingle();
+      return data;
+    },
+  });
+  const [key, setKey] = useState("");
+  const hasKey = !!profile?.anthropic_api_key_last4;
+
+  async function save() {
+    if (!key.trim() || !key.startsWith("sk-")) { toast.error("Enter a valid Anthropic API key (sk-...)"); return; }
+    const last4 = key.slice(-4);
+    const { error } = await supabase.from("profiles").update({ anthropic_api_key: key.trim(), anthropic_api_key_last4: last4 }).eq("id", userId);
+    if (error) { toast.error(error.message); return; }
+    setKey(""); toast.success("AI key saved");
+    qc.invalidateQueries({ queryKey: ["profile-ai-key", userId] });
+    qc.invalidateQueries({ queryKey: ["ai-access"] });
+  }
+  async function remove() {
+    const { error } = await supabase.from("profiles").update({ anthropic_api_key: null, anthropic_api_key_last4: null }).eq("id", userId);
+    if (error) { toast.error(error.message); return; }
+    toast.success("AI key removed");
+    qc.invalidateQueries({ queryKey: ["profile-ai-key", userId] });
+    qc.invalidateQueries({ queryKey: ["ai-access"] });
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-[var(--accent-red)]" /> AI assistant</CardTitle>
+        <CardDescription>
+          {isCoach
+            ? "As a coach, the AI assistant is enabled for you (subject to a daily rate limit). No setup needed."
+            : isAthlete
+              ? "AI is opt-in for athletes. Paste your own Anthropic API key to enable a chat assistant against your training data. Calls go directly to Anthropic and are billed to you."
+              : "AI is available to coaches by default, or to athletes who provide their own Anthropic API key."}
+        </CardDescription>
+      </CardHeader>
+      {!isCoach && (
+        <CardContent className="space-y-3">
+          {hasKey && (
+            <div className="text-sm flex items-center justify-between border rounded px-3 py-2">
+              <span>Key on file ending <span className="font-mono">…{profile?.anthropic_api_key_last4}</span></span>
+              <Button variant="ghost" size="sm" onClick={remove}>Remove</Button>
+            </div>
+          )}
+          <div className="grid sm:grid-cols-[1fr_auto] gap-2">
+            <Input type="password" placeholder="sk-ant-..." value={key} onChange={(e) => setKey(e.target.value)} />
+            <Button onClick={save}>{hasKey ? "Replace key" : "Save key"}</Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Get a key at console.anthropic.com. Your key is stored in your profile and only used server-side to call the model on your behalf.
+          </p>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
