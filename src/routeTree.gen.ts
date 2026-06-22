@@ -14,6 +14,7 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ClaimTokenRouteImport } from './routes/claim.$token'
 import { Route as AuthenticatedAppIndexRouteImport } from './routes/_authenticated/app.index'
+import { Route as AuthenticatedAppVitalsRouteImport } from './routes/_authenticated/app.vitals'
 import { Route as AuthenticatedAppTodayRouteImport } from './routes/_authenticated/app.today'
 import { Route as AuthenticatedAppTemplatesRouteImport } from './routes/_authenticated/app.templates'
 import { Route as AuthenticatedAppSessionsRouteImport } from './routes/_authenticated/app.sessions'
@@ -51,6 +52,11 @@ const ClaimTokenRoute = ClaimTokenRouteImport.update({
 const AuthenticatedAppIndexRoute = AuthenticatedAppIndexRouteImport.update({
   id: '/app/',
   path: '/app/',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedAppVitalsRoute = AuthenticatedAppVitalsRouteImport.update({
+  id: '/app/vitals',
+  path: '/app/vitals',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedAppTodayRoute = AuthenticatedAppTodayRouteImport.update({
@@ -146,6 +152,7 @@ export interface FileRoutesByFullPath {
   '/app/sessions': typeof AuthenticatedAppSessionsRouteWithChildren
   '/app/templates': typeof AuthenticatedAppTemplatesRoute
   '/app/today': typeof AuthenticatedAppTodayRoute
+  '/app/vitals': typeof AuthenticatedAppVitalsRoute
   '/app/': typeof AuthenticatedAppIndexRoute
   '/app/athletes/$athleteId': typeof AuthenticatedAppAthletesAthleteIdRoute
   '/app/sessions/$sessionId': typeof AuthenticatedAppSessionsSessionIdRouteWithChildren
@@ -164,6 +171,7 @@ export interface FileRoutesByTo {
   '/app/profile': typeof AuthenticatedAppProfileRoute
   '/app/templates': typeof AuthenticatedAppTemplatesRoute
   '/app/today': typeof AuthenticatedAppTodayRoute
+  '/app/vitals': typeof AuthenticatedAppVitalsRoute
   '/app': typeof AuthenticatedAppIndexRoute
   '/app/athletes/$athleteId': typeof AuthenticatedAppAthletesAthleteIdRoute
   '/app/sessions/calendar': typeof AuthenticatedAppSessionsCalendarRoute
@@ -185,6 +193,7 @@ export interface FileRoutesById {
   '/_authenticated/app/sessions': typeof AuthenticatedAppSessionsRouteWithChildren
   '/_authenticated/app/templates': typeof AuthenticatedAppTemplatesRoute
   '/_authenticated/app/today': typeof AuthenticatedAppTodayRoute
+  '/_authenticated/app/vitals': typeof AuthenticatedAppVitalsRoute
   '/_authenticated/app/': typeof AuthenticatedAppIndexRoute
   '/_authenticated/app/athletes/$athleteId': typeof AuthenticatedAppAthletesAthleteIdRoute
   '/_authenticated/app/sessions/$sessionId': typeof AuthenticatedAppSessionsSessionIdRouteWithChildren
@@ -207,6 +216,7 @@ export interface FileRouteTypes {
     | '/app/sessions'
     | '/app/templates'
     | '/app/today'
+    | '/app/vitals'
     | '/app/'
     | '/app/athletes/$athleteId'
     | '/app/sessions/$sessionId'
@@ -225,6 +235,7 @@ export interface FileRouteTypes {
     | '/app/profile'
     | '/app/templates'
     | '/app/today'
+    | '/app/vitals'
     | '/app'
     | '/app/athletes/$athleteId'
     | '/app/sessions/calendar'
@@ -245,6 +256,7 @@ export interface FileRouteTypes {
     | '/_authenticated/app/sessions'
     | '/_authenticated/app/templates'
     | '/_authenticated/app/today'
+    | '/_authenticated/app/vitals'
     | '/_authenticated/app/'
     | '/_authenticated/app/athletes/$athleteId'
     | '/_authenticated/app/sessions/$sessionId'
@@ -298,6 +310,13 @@ declare module '@tanstack/react-router' {
       path: '/app'
       fullPath: '/app/'
       preLoaderRoute: typeof AuthenticatedAppIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/vitals': {
+      id: '/_authenticated/app/vitals'
+      path: '/app/vitals'
+      fullPath: '/app/vitals'
+      preLoaderRoute: typeof AuthenticatedAppVitalsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/app/today': {
@@ -465,6 +484,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAppSessionsRoute: typeof AuthenticatedAppSessionsRouteWithChildren
   AuthenticatedAppTemplatesRoute: typeof AuthenticatedAppTemplatesRoute
   AuthenticatedAppTodayRoute: typeof AuthenticatedAppTodayRoute
+  AuthenticatedAppVitalsRoute: typeof AuthenticatedAppVitalsRoute
   AuthenticatedAppIndexRoute: typeof AuthenticatedAppIndexRoute
 }
 
@@ -475,6 +495,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAppSessionsRoute: AuthenticatedAppSessionsRouteWithChildren,
   AuthenticatedAppTemplatesRoute: AuthenticatedAppTemplatesRoute,
   AuthenticatedAppTodayRoute: AuthenticatedAppTodayRoute,
+  AuthenticatedAppVitalsRoute: AuthenticatedAppVitalsRoute,
   AuthenticatedAppIndexRoute: AuthenticatedAppIndexRoute,
 }
 
@@ -490,13 +511,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

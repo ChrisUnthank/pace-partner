@@ -17,6 +17,7 @@ import { useAuthUser, useMyRoles } from "@/lib/use-auth";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { CheckCircle2, Apple, BookmarkPlus, LineChart } from "lucide-react";
+import { PostSessionInsightModal } from "@/components/post-session-insight-modal";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/")({
   component: SessionDetail,
@@ -30,6 +31,7 @@ function SessionDetail() {
   const isCoach = roles.includes("coach");
   const [saveTplOpen, setSaveTplOpen] = useState(false);
   const [tplName, setTplName] = useState("");
+  const [insightOpen, setInsightOpen] = useState(false);
 
   const { data: session, isLoading } = useQuery({
     queryKey: ["session", sessionId],
@@ -90,6 +92,14 @@ function SessionDetail() {
     },
   });
 
+  const { data: insight } = useQuery({
+    queryKey: ["session_insights", sessionId],
+    queryFn: async () => {
+      const { data } = await supabase.from("session_insights" as any).select("*").eq("session_id", sessionId).maybeSingle();
+      return data as any;
+    },
+  });
+
   if (isLoading || !session) return <AppShell><p>Loading…</p></AppShell>;
 
   const canSaveAsTemplate = isCoach && (session as any).day_type === "training";
@@ -138,7 +148,29 @@ function SessionDetail() {
           ))}
         </div>
 
-        <SessionSummary session={session} onSaved={() => qc.invalidateQueries({ queryKey: ["session", sessionId] })} />
+        <SessionSummary
+          session={session}
+          onSaved={() => qc.invalidateQueries({ queryKey: ["session", sessionId] })}
+          onCompleted={() => setInsightOpen(true)}
+        />
+
+        {insight && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Athlete reflection</CardTitle>
+              <CardDescription>How the session felt afterwards.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-muted-foreground uppercase tracking-wider">Feel</span>
+                <span className="font-display text-2xl font-extrabold tabular-nums">{insight.feel_score ?? "—"}<span className="text-sm font-normal text-muted-foreground">/10</span></span>
+              </div>
+              {insight.went_well && <p><span className="text-xs text-muted-foreground uppercase tracking-wider mr-2">Went well</span>{insight.went_well}</p>}
+              {insight.was_difficult && <p><span className="text-xs text-muted-foreground uppercase tracking-wider mr-2">Difficult</span>{insight.was_difficult}</p>}
+              {insight.niggles && <p className="text-amber-500"><span className="text-xs text-muted-foreground uppercase tracking-wider mr-2">Niggles</span>{insight.niggles}</p>}
+            </CardContent>
+          </Card>
+        )}
 
         <SessionAvgFatigue rows={fatigue ?? []} />
         <ZoneTimePanel rows={(zoneTime ?? []).filter((r: any) => r.source === "pace")} title="Time in pace zones" subtitle="Pace-based" />
@@ -168,6 +200,14 @@ function SessionDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <PostSessionInsightModal
+        open={insightOpen}
+        onOpenChange={setInsightOpen}
+        sessionId={sessionId}
+        athleteId={session.athlete_id}
+        onSaved={() => qc.invalidateQueries({ queryKey: ["session_insights", sessionId] })}
+      />
     </AppShell>
   );
 }
@@ -453,13 +493,14 @@ function FuelingPanel({ session }: { session: any }) {
   );
 }
 
-function SessionSummary({ session, onSaved }: { session: any; onSaved: () => void }) {
+function SessionSummary({ session, onSaved, onCompleted }: { session: any; onSaved: () => void; onCompleted?: () => void }) {
   const [totalDist, setTotalDist] = useState(session.total_distance_m ?? "");
   const [totalTime, setTotalTime] = useState(session.total_time_seconds ? secToClock(session.total_time_seconds) : "");
   const [avgHr, setAvgHr] = useState(session.avg_hr ?? "");
   const [rpe, setRpe] = useState(session.rpe ?? 5);
 
   async function complete() {
+    const wasAlreadyComplete = !!session.completed_at;
     const { error } = await supabase.from("sessions").update({
       total_distance_m: totalDist === "" ? null : Number(totalDist),
       total_time_seconds: clockToSec(totalTime as any),
@@ -468,7 +509,11 @@ function SessionSummary({ session, onSaved }: { session: any; onSaved: () => voi
       completed_at: new Date().toISOString(),
     }).eq("id", session.id);
     if (error) toast.error(error.message);
-    else { toast.success("Session marked complete"); onSaved(); }
+    else {
+      toast.success("Session marked complete");
+      onSaved();
+      if (!wasAlreadyComplete) onCompleted?.();
+    }
   }
 
   return (

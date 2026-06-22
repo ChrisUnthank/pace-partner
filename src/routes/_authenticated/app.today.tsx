@@ -17,6 +17,7 @@ import { sessionClassificationLabel } from "@/lib/session-categories";
 import { toast } from "sonner";
 import { Trash2, Plus } from "lucide-react";
 import { ReadinessBadge } from "@/components/readiness-badge";
+import { HeartPulse } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/app/today")({
   component: TodayPage,
@@ -67,6 +68,20 @@ function TodayPage() {
         .eq("athlete_id", athlete!.id)
         .eq("load_date", today);
       return data ?? [];
+    },
+  });
+
+  const { data: vitalsToday } = useQuery({
+    queryKey: ["vitals-today", athlete?.id, today],
+    enabled: !!athlete,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("daily_vitals" as any)
+        .select("id")
+        .eq("athlete_id", athlete!.id)
+        .eq("vitals_date", today)
+        .maybeSingle();
+      return data as any;
     },
   });
 
@@ -121,6 +136,21 @@ function TodayPage() {
     <AppShell>
       <div className="space-y-6 max-w-2xl">
         <h1 className="text-2xl font-bold">Today</h1>
+
+        {!vitalsToday && (
+          <Card className="border-[var(--accent-red)]/40 bg-[var(--accent-red)]/5">
+            <CardContent className="pt-4 pb-4 flex items-center justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <HeartPulse className="h-5 w-5 text-[var(--accent-red)] mt-0.5" />
+                <div>
+                  <div className="font-medium">Log today's vitals</div>
+                  <div className="text-xs text-muted-foreground">Sleep, resting HR, weight, hydration.</div>
+                </div>
+              </div>
+              <Button asChild size="sm"><Link to="/app/vitals">Open Vitals</Link></Button>
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">

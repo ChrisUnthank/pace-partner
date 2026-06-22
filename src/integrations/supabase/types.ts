@@ -368,6 +368,56 @@ export type Database = {
           },
         ]
       }
+      daily_vitals: {
+        Row: {
+          athlete_id: string
+          created_at: string
+          external_notes: string | null
+          hydration: number | null
+          id: string
+          recovery_modalities: string[] | null
+          resting_hr: number | null
+          sleep_hours: number | null
+          updated_at: string
+          vitals_date: string
+          weight_kg: number | null
+        }
+        Insert: {
+          athlete_id: string
+          created_at?: string
+          external_notes?: string | null
+          hydration?: number | null
+          id?: string
+          recovery_modalities?: string[] | null
+          resting_hr?: number | null
+          sleep_hours?: number | null
+          updated_at?: string
+          vitals_date: string
+          weight_kg?: number | null
+        }
+        Update: {
+          athlete_id?: string
+          created_at?: string
+          external_notes?: string | null
+          hydration?: number | null
+          id?: string
+          recovery_modalities?: string[] | null
+          resting_hr?: number | null
+          sleep_hours?: number | null
+          updated_at?: string
+          vitals_date?: string
+          weight_kg?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_vitals_athlete_id_fkey"
+            columns: ["athlete_id"]
+            isOneToOne: false
+            referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       external_load: {
         Row: {
           athlete_id: string
@@ -748,6 +798,60 @@ export type Database = {
             columns: ["step_id"]
             isOneToOne: false
             referencedRelation: "steps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      session_insights: {
+        Row: {
+          athlete_id: string
+          created_at: string
+          end_of_day_note: string | null
+          feel_score: number | null
+          id: string
+          niggles: string | null
+          session_id: string
+          updated_at: string
+          was_difficult: string | null
+          went_well: string | null
+        }
+        Insert: {
+          athlete_id: string
+          created_at?: string
+          end_of_day_note?: string | null
+          feel_score?: number | null
+          id?: string
+          niggles?: string | null
+          session_id: string
+          updated_at?: string
+          was_difficult?: string | null
+          went_well?: string | null
+        }
+        Update: {
+          athlete_id?: string
+          created_at?: string
+          end_of_day_note?: string | null
+          feel_score?: number | null
+          id?: string
+          niggles?: string | null
+          session_id?: string
+          updated_at?: string
+          was_difficult?: string | null
+          went_well?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "session_insights_athlete_id_fkey"
+            columns: ["athlete_id"]
+            isOneToOne: false
+            referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "session_insights_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: true
+            referencedRelation: "sessions"
             referencedColumns: ["id"]
           },
         ]
