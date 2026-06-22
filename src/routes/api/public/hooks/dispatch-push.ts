@@ -1,5 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-import webpush from "web-push";
 
 export const Route = createFileRoute("/api/public/hooks/dispatch-push")({
   server: {
@@ -13,6 +12,7 @@ export const Route = createFileRoute("/api/public/hooks/dispatch-push")({
             status: 500, headers: { "Content-Type": "application/json" },
           });
         }
+        const { default: webpush } = await import("web-push");
         webpush.setVapidDetails(subject, publicKey, privateKey);
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
