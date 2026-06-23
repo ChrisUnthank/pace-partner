@@ -2307,6 +2307,10 @@ export type Database = {
         Args: { _session_id: string }
         Returns: undefined
       }
+      request_athlete_join_by_email: {
+        Args: { _athlete_name?: string; _email: string; _message?: string }
+        Returns: Json
+      }
       respond_to_join_request: {
         Args: { _accept: boolean; _request_id: string }
         Returns: Json
