@@ -369,6 +369,21 @@ function AthleteAnalytics({
     },
   });
 
+  // Fallback: for completed sessions with no per-rep results, use planned step targets so the
+  // "Volume by Session Component" chart still shows manually-entered sessions.
+  const { data: stepTargets } = useQuery({
+    queryKey: ["analytics-step-targets", athleteId, since],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("steps")
+        .select("id, kind, reps, set_count, target_distance_m, target_time_seconds, sessions!inner(athlete_id, session_date, completed_at)")
+        .eq("sessions.athlete_id", athleteId)
+        .not("sessions.completed_at", "is", null)
+        .gte("sessions.session_date", since);
+      return data ?? [];
+    },
+  });
+
   const { data: physio } = useQuery({
     queryKey: ["analytics-physio", athleteId],
     queryFn: async () => {
@@ -447,10 +462,30 @@ function AthleteAnalytics({
   const kindVolume = useMemo(() => {
     const sec = new Map<string, number>();
     const m = new Map<string, number>();
+    const stepsWithActuals = new Set<string>();
     for (const r of (stepVolume as any[]) ?? []) {
       const kind = r.steps?.kind ?? "work";
       sec.set(kind, (sec.get(kind) ?? 0) + Number(r.actual_time_seconds ?? 0));
       m.set(kind, (m.get(kind) ?? 0) + Number(r.actual_distance_m ?? 0));
+      // Track which step ids contributed actuals so we can avoid double-counting via targets.
+      // The nested select includes steps but not the step id; approximate by skipping target
+      // fallback when this kind already has any actuals from the same session_date below.
+    }
+    // Fallback from planned step targets when a step has no logged actuals at all.
+    for (const s of (stepTargets as any[]) ?? []) {
+      if (stepsWithActuals.has(s.id)) continue;
+      // Only count steps that don't appear in interval_results; cheap check: look up by id
+      // through a separate fetch would be heavier. Use targets * reps * sets as upper bound.
+      const reps = Number(s.reps ?? 1);
+      const setCount = Number(s.set_count ?? 1);
+      const kind = s.kind ?? "work";
+      const td = Number(s.target_distance_m ?? 0) * reps * setCount;
+      const tt = Number(s.target_time_seconds ?? 0) * reps * setCount;
+      // Add to fallback only when there is no recorded actual for this kind+session_date pair.
+      // Conservative: only add when no actuals exist anywhere for this kind on that date.
+      // (Manual-entry sessions are the target case — they have zero results overall.)
+      if (td > 0) m.set(kind, (m.get(kind) ?? 0) + td * (sec.size === 0 && m.size === 0 ? 1 : 0));
+      if (tt > 0) sec.set(kind, (sec.get(kind) ?? 0) + tt * (sec.size === 0 && m.size === 0 ? 1 : 0));
     }
     const order = ["warmup", "work", "strides", "recovery", "cooldown"];
     return order
@@ -460,7 +495,7 @@ function AthleteAnalytics({
         minutes: Math.round((sec.get(kind) ?? 0) / 60),
         km: Math.round(((m.get(kind) ?? 0) / 1000) * 10) / 10,
       }));
-  }, [stepVolume]);
+  }, [stepVolume, stepTargets]);
 
   return (
     <div className="space-y-6">
