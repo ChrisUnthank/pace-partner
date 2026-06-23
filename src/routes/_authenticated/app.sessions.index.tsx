@@ -17,15 +17,16 @@ export const Route = createFileRoute("/_authenticated/app/sessions/")({
 
 function SessionsList() {
   const { user } = useAuthUser();
-  const { data: roles = [] } = useMyRoles();
-  const { data: rawRoles = [] } = useMyRawRoles();
-  const { data: athlete } = useMyAthlete();
+  const { data: roles = [], isLoading: rolesLoading } = useMyRoles();
+  const { data: rawRoles = [], isLoading: rawRolesLoading } = useMyRawRoles();
+  const { data: athlete, isLoading: athleteLoading } = useMyAthlete();
   const isCoach = roles.includes("coach");
   const isManager = rawRoles.includes("manager");
+  const identityReady = !!user && !rolesLoading && !rawRolesLoading && !athleteLoading;
 
-  const { data: athleteIds } = useQuery({
-    queryKey: ["visible-athlete-ids", user?.id],
-    enabled: !!user,
+  const { data: athleteIds, isLoading: athleteIdsLoading } = useQuery({
+    queryKey: ["visible-athlete-ids", user?.id, isCoach, isManager, athlete?.id],
+    enabled: identityReady,
     queryFn: async () => {
       const ids: string[] = [];
       if (athlete) ids.push(athlete.id);
@@ -40,9 +41,9 @@ function SessionsList() {
     },
   });
 
-  const { data: sessions } = useQuery({
+  const { data: sessions, isLoading: sessionsLoading } = useQuery({
     queryKey: ["sessions-list", athleteIds],
-    enabled: !!athleteIds && athleteIds.length > 0,
+    enabled: identityReady && !!athleteIds && athleteIds.length > 0,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sessions")
@@ -54,6 +55,8 @@ function SessionsList() {
       return data;
     },
   });
+
+  const loading = !identityReady || athleteIdsLoading || (athleteIds && athleteIds.length > 0 && sessionsLoading);
 
   return (
     <AppShell>
@@ -68,7 +71,9 @@ function SessionsList() {
       <Card>
         <CardHeader><CardTitle>Recent</CardTitle></CardHeader>
         <CardContent className="p-0">
-          {!sessions || sessions.length === 0 ? (
+          {loading ? (
+            <p className="p-6 text-sm text-muted-foreground">Loading sessions…</p>
+          ) : !sessions || sessions.length === 0 ? (
             <p className="p-6 text-sm text-muted-foreground">No sessions yet.</p>
           ) : (
             <div className="divide-y">
