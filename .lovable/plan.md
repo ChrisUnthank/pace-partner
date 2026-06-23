@@ -1,52 +1,19 @@
+## What's happening
 
-## Phase 1.5b — Daily Log & AI Reviews (2026-06-23)
+After Josh signed up as an Athlete, the app correctly tried to send him to **/app/daily-log** (sign-up → /app → auto-redirect for athletes → /app/today → redirects to /app/daily-log), but the page rendered as **404 Page not found** even though `src/routes/_authenticated/app.daily-log.tsx` exists and is registered in the generated route tree.
 
-### Shipped this pass
-- Unified `/app/daily-log` page (vitals + sessions + end-of-day note); `/app/today`, `/app/checkout`, `/app/vitals` redirect here.
-- Multi-session blocks with bulk FIT/GPX upload per block; >90-min gap warning; activity types: run/track/gym/ride/swim. Gym is manual-only.
-- Reminder system: automatic, schedule-driven. `pg_cron` job every 15 min calls `/api/public/hooks/run-daily-reminders`, which dedups via `notifications`. Manual reminder buttons removed from coach UI; replaced with read-only schedule + edit panel. Server fns kept internally.
-- Coach `coach_settings` table for squad defaults (UI not yet exposed).
-- Athletes carry `last_log_at` (auto-touched by trigger) and `reminders_enabled`. Coach roster now shows "last log Xm ago".
-- AI Reviews: coach-initiated `Generate Review` on athlete profile (weekly/monthly/phase/yearly/custom). `ai_reviews` table with RLS. Dashboard "Recent Reviews" card replaces the auto-generated weekly summaries grid. Phase option stubbed (greyed) — no `training_phases` table yet (per user choice).
+The runtime-error feed for this preview showed `Failed to fetch dynamically imported module: /@id/virtual:tanstack-start-client-entry` just before the 404 — a classic symptom of the preview holding onto a stale bundle from before `app.daily-log.tsx` was added. The route file is correct; the live preview tab is out of sync.
 
-### Deferred / follow-ups
-- Per-activity-type CTL/ATL/TSB split: `sessions.activity_type` exists, but `athlete_load_daily` aggregation still treats everything as one stream. Volume-by-type view + readiness split is next pass.
-- Coach-side unreviewed/unmatched uploads queue on dashboard.
-- Squad-wide coach settings UI (table + server fns exist; no UI surface yet).
-- `training_phases` table + UI; reviews "Completed Phase" stays disabled until then.
-- Drag-and-drop step mapping for multi-file uploads within one block (currently auto-attaches all files to one session and warns on >90-min gaps).
-- Calendar tile activity-type labels.
-## Diagnosis
+## Fix steps
 
-Two issues introduced in Phase 1.6 push delivery:
+1. **Restart the dev server** so Vite rebuilds the route tree and serves fresh client modules to the preview (clears the stale `virtual:tanstack-start-client-entry` chunk causing the 404).
+2. **Drive a quick Playwright check** against `http://localhost:8080`:
+   - Restore Josh's Supabase session (from sandbox env if available, otherwise just hit `/app/daily-log` while signed-in via the test creds).
+   - Navigate to `/app/daily-log` and screenshot. Expect either the Daily Log UI or the "No athlete profile linked" fallback — anything but 404.
+3. **If 404 still appears after restart**, inspect:
+   - Browser console for any module-load error on `app.daily-log.tsx`.
+   - `routeTree.gen.ts` to confirm `/_authenticated/app/daily-log` is wired into `AuthenticatedAppRouteChildren` (it currently is).
+   - Whether the user landed at a typo'd URL like `/app/daily -log` (with a space). If so, harden by also accepting `/app/daily_log` → redirect, but only if reproduced.
+4. **Tell the user** to hard-refresh their preview tab (Cmd/Ctrl+Shift+R) — the stale-bundle 404 only clears once the browser fetches the new client entry.
 
-### 1. `web-push` import breaks the server bundle (primary suspect)
-`src/routes/api/public/hooks/dispatch-push.ts` has a top-level `import webpush from "web-push"`. Route files are part of the client/SSR module graph — only handler bodies are stripped. `web-push` is a Node-only package (uses `child_process`, native crypto bindings) that the Cloudflare Worker bundler cannot handle, so SSR fails on every route and the catastrophic-error fallback (`renderErrorPage`) is what the user sees on every page. The "Try again" / "Go home" buttons don't recover because every navigation re-triggers the same SSR failure.
-
-### 2. Service worker registration has no preview guard
-`NotificationBell` registers `/sw.js` whenever `Notification.permission === "granted"`. Per Lovable PWA guidance, service workers must not register in the Lovable preview/iframe context — and once registered, a stale `sw.js` can keep serving cached HTML. If the user clicked "Enable push" earlier, that SW is now live in preview and may compound the white-screen.
-
-## Fix
-
-### A. Make `dispatch-push.ts` Worker-safe
-- Move `import webpush from "web-push"` to a dynamic `await import("web-push")` inside the POST handler so it never enters the SSR/client graph.
-- If `web-push` itself proves Worker-incompatible at runtime (it relies on Node crypto + http agents), fall back to a hand-rolled VAPID fetch using Web Crypto (`crypto.subtle`) directly against each subscription's endpoint. We'll try the dynamic import first; if the Worker rejects it, swap to the Web Crypto path in a follow-up.
-
-### B. Guard service worker registration + add kill-switch
-In `src/components/notification-bell.tsx`:
-- Refuse to register `/sw.js` when running in dev, inside an iframe, or on a Lovable preview/project hostname (`id-preview--*`, `preview--*`, `*.lovableproject.com`, `*.lovableproject-dev.com`, `beta.lovable.dev`), or when URL has `?sw=off`.
-- In any refused context, actively `unregister()` any existing `/sw.js` registration so previously-installed workers stop intercepting requests for current preview users.
-- Keep the registration path for production only, gated behind `import.meta.env.PROD` plus the hostname checks.
-
-### C. Replace `public/sw.js` with the kill-switch-compatible messaging worker
-- Keep the push + notificationclick handlers (these are messaging-only, not an app-shell cache), but ensure `install` calls `skipWaiting()` and `activate` claims clients without caching navigations. It already does this — no behavioral change needed beyond confirming no `fetch` handler is added.
-
-### D. Verify
-1. Reload `/` and `/app/noticeboard` in preview — both should render normally (no error fallback).
-2. Confirm in DevTools → Application → Service Workers that no `/sw.js` is active in preview.
-3. Confirm `/_serverFn/*` requests return 200 and the notification bell loads.
-4. Only after the app is confirmed loading, optionally test the production push path by calling the `/api/public/hooks/dispatch-push` URL on the published deploy.
-
-## Scope guard
-
-No other Phase 1.6/1.7/2.0 work in this change — strictly a recovery patch.
+No code changes to the route itself are expected; this is a preview-bundle staleness issue confirmed by the route tree and the runtime error pattern. If the Playwright check reproduces the 404 on a freshly built server, I'll dig into `app.daily-log.tsx`'s imports (likely culprit: a server-only symbol leaking into a client chunk).
