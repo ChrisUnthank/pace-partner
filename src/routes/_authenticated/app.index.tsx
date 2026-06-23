@@ -218,7 +218,7 @@ function AthleteHome({ athleteId }: { athleteId: string }) {
     queryKey: ["home-next-session", athleteId, today],
     queryFn: async () => {
       const { data } = await supabase.from("sessions")
-        .select("id, title, session_date, day_type, intent")
+        .select("id, title, session_date, day_type, intent, activity_type")
         .eq("athlete_id", athleteId)
         .gte("session_date", today)
         .is("completed_at", null)
@@ -265,9 +265,12 @@ function AthleteHome({ athleteId }: { athleteId: string }) {
           {nextSession ? (
             <Link to="/app/sessions/$sessionId" params={{ sessionId: nextSession.id }}
               className="flex items-center justify-between gap-3 hover:bg-accent/50 rounded p-2 -m-2">
-              <div className="min-w-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <ActivityIcon session={nextSession as any} size={20} className="text-muted-foreground shrink-0" />
+                <div className="min-w-0">
                 <div className="text-xs text-muted-foreground">{relativeDate(nextSession.session_date)}</div>
                 <div className="font-medium truncate">{nextSession.title ?? "Session"}</div>
+                </div>
               </div>
               <div className="flex gap-1">
                 {nextSession.day_type && <Badge variant="outline" className="capitalize">{String(nextSession.day_type).replace("_", " ")}</Badge>}
