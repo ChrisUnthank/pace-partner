@@ -1,29 +1,7 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
-import { useMyAthlete } from "@/lib/use-auth";
-import { AppShell } from "@/components/app-shell";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Slider } from "@/components/ui/slider";
-import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { todayISO } from "@/lib/format";
-import { sessionClassificationLabel } from "@/lib/session-categories";
-import { toast } from "sonner";
-import { Trash2, Plus } from "lucide-react";
-import { ReadinessBadge } from "@/components/readiness-badge";
-import { HeartPulse, ClipboardCheck, Sparkles } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import { useServerFn } from "@tanstack/react-start";
-import { generateDailyAthleteNote, getLatestAthleteNote, getAiAccessStatus } from "@/lib/ai.functions";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_authenticated/app/today")({
-  component: TodayPage,
+  beforeLoad: () => { throw redirect({ to: "/app/daily-log" }); },
 });
 
 function TodayPage() {

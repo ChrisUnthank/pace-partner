@@ -21,6 +21,7 @@ import { Route as AuthenticatedAppSessionsRouteImport } from './routes/_authenti
 import { Route as AuthenticatedAppProfileRouteImport } from './routes/_authenticated/app.profile'
 import { Route as AuthenticatedAppNoticeboardRouteImport } from './routes/_authenticated/app.noticeboard'
 import { Route as AuthenticatedAppMessagesRouteImport } from './routes/_authenticated/app.messages'
+import { Route as AuthenticatedAppDailyLogRouteImport } from './routes/_authenticated/app.daily-log'
 import { Route as AuthenticatedAppCheckoutRouteImport } from './routes/_authenticated/app.checkout'
 import { Route as AuthenticatedAppAthletesRouteImport } from './routes/_authenticated/app.athletes'
 import { Route as AuthenticatedAppAnalyticsRouteImport } from './routes/_authenticated/app.analytics'
@@ -96,6 +97,12 @@ const AuthenticatedAppMessagesRoute =
   AuthenticatedAppMessagesRouteImport.update({
     id: '/app/messages',
     path: '/app/messages',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppDailyLogRoute =
+  AuthenticatedAppDailyLogRouteImport.update({
+    id: '/app/daily-log',
+    path: '/app/daily-log',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedAppCheckoutRoute =
@@ -184,6 +191,7 @@ export interface FileRoutesByFullPath {
   '/app/analytics': typeof AuthenticatedAppAnalyticsRoute
   '/app/athletes': typeof AuthenticatedAppAthletesRouteWithChildren
   '/app/checkout': typeof AuthenticatedAppCheckoutRoute
+  '/app/daily-log': typeof AuthenticatedAppDailyLogRoute
   '/app/messages': typeof AuthenticatedAppMessagesRoute
   '/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
   '/app/profile': typeof AuthenticatedAppProfileRoute
@@ -209,6 +217,7 @@ export interface FileRoutesByTo {
   '/claim/$token': typeof ClaimTokenRoute
   '/app/analytics': typeof AuthenticatedAppAnalyticsRoute
   '/app/checkout': typeof AuthenticatedAppCheckoutRoute
+  '/app/daily-log': typeof AuthenticatedAppDailyLogRoute
   '/app/messages': typeof AuthenticatedAppMessagesRoute
   '/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
   '/app/profile': typeof AuthenticatedAppProfileRoute
@@ -235,6 +244,7 @@ export interface FileRoutesById {
   '/_authenticated/app/analytics': typeof AuthenticatedAppAnalyticsRoute
   '/_authenticated/app/athletes': typeof AuthenticatedAppAthletesRouteWithChildren
   '/_authenticated/app/checkout': typeof AuthenticatedAppCheckoutRoute
+  '/_authenticated/app/daily-log': typeof AuthenticatedAppDailyLogRoute
   '/_authenticated/app/messages': typeof AuthenticatedAppMessagesRoute
   '/_authenticated/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
   '/_authenticated/app/profile': typeof AuthenticatedAppProfileRoute
@@ -263,6 +273,7 @@ export interface FileRouteTypes {
     | '/app/analytics'
     | '/app/athletes'
     | '/app/checkout'
+    | '/app/daily-log'
     | '/app/messages'
     | '/app/noticeboard'
     | '/app/profile'
@@ -288,6 +299,7 @@ export interface FileRouteTypes {
     | '/claim/$token'
     | '/app/analytics'
     | '/app/checkout'
+    | '/app/daily-log'
     | '/app/messages'
     | '/app/noticeboard'
     | '/app/profile'
@@ -313,6 +325,7 @@ export interface FileRouteTypes {
     | '/_authenticated/app/analytics'
     | '/_authenticated/app/athletes'
     | '/_authenticated/app/checkout'
+    | '/_authenticated/app/daily-log'
     | '/_authenticated/app/messages'
     | '/_authenticated/app/noticeboard'
     | '/_authenticated/app/profile'
@@ -426,6 +439,13 @@ declare module '@tanstack/react-router' {
       path: '/app/messages'
       fullPath: '/app/messages'
       preLoaderRoute: typeof AuthenticatedAppMessagesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/daily-log': {
+      id: '/_authenticated/app/daily-log'
+      path: '/app/daily-log'
+      fullPath: '/app/daily-log'
+      preLoaderRoute: typeof AuthenticatedAppDailyLogRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/app/checkout': {
@@ -583,6 +603,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAppAnalyticsRoute: typeof AuthenticatedAppAnalyticsRoute
   AuthenticatedAppAthletesRoute: typeof AuthenticatedAppAthletesRouteWithChildren
   AuthenticatedAppCheckoutRoute: typeof AuthenticatedAppCheckoutRoute
+  AuthenticatedAppDailyLogRoute: typeof AuthenticatedAppDailyLogRoute
   AuthenticatedAppMessagesRoute: typeof AuthenticatedAppMessagesRoute
   AuthenticatedAppNoticeboardRoute: typeof AuthenticatedAppNoticeboardRoute
   AuthenticatedAppProfileRoute: typeof AuthenticatedAppProfileRoute
@@ -597,6 +618,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAppAnalyticsRoute: AuthenticatedAppAnalyticsRoute,
   AuthenticatedAppAthletesRoute: AuthenticatedAppAthletesRouteWithChildren,
   AuthenticatedAppCheckoutRoute: AuthenticatedAppCheckoutRoute,
+  AuthenticatedAppDailyLogRoute: AuthenticatedAppDailyLogRoute,
   AuthenticatedAppMessagesRoute: AuthenticatedAppMessagesRoute,
   AuthenticatedAppNoticeboardRoute: AuthenticatedAppNoticeboardRoute,
   AuthenticatedAppProfileRoute: AuthenticatedAppProfileRoute,
