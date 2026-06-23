@@ -139,11 +139,17 @@ function SessionDetail() {
                 size="lg"
               />
               <div>
-                <h1 className="text-2xl font-bold">{session.title}</h1>
+                <h1 className="text-2xl font-bold flex items-center gap-2">
+                  <ActivityIcon session={session as any} size={22} className="text-muted-foreground" />
+                  {session.title}
+                </h1>
                 <p className="text-sm text-muted-foreground">
                   {session.session_date} · {session.athletes?.name} · {sessionClassificationLabel(session as any)}
                   {(session as any).applied_from_template_id && <span className="ml-2 italic">· from template</span>}
                   {session.completed_at && <span className="ml-2 text-emerald-600">Completed</span>}
+                  {session.completed_at && session.rpe != null && (
+                    <span className="ml-2">· RPE <span className="tabular-nums font-medium">{session.rpe}</span>/10</span>
+                  )}
                 </p>
               </div>
             </div>
