@@ -620,10 +620,17 @@ function FuelingPanel({ session }: { session: any }) {
 }
 
 function SessionSummary({ session, onSaved, onCompleted }: { session: any; onSaved: () => void; onCompleted?: () => void }) {
-  const [totalDist, setTotalDist] = useState(session.total_distance_m ?? "");
-  const [totalTime, setTotalTime] = useState(session.total_time_seconds ? secToClock(session.total_time_seconds) : "");
-  const [avgHr, setAvgHr] = useState(session.avg_hr ?? "");
-  const [rpe, setRpe] = useState(session.rpe ?? 5);
+  const [totalDist, setTotalDist] = useState<string | number>("");
+  const [totalTime, setTotalTime] = useState("");
+  const [avgHr, setAvgHr] = useState<string | number>("");
+  const [rpe, setRpe] = useState<number>(5);
+  // Re-sync whenever the underlying session row changes (after server-side recompute).
+  useEffect(() => {
+    setTotalDist(session.total_distance_m ?? "");
+    setTotalTime(session.total_time_seconds ? secToClock(session.total_time_seconds) : "");
+    setAvgHr(session.avg_hr ?? "");
+    setRpe(session.rpe ?? 5);
+  }, [session.id, session.updated_at, session.total_distance_m, session.total_time_seconds, session.avg_hr, session.rpe]);
 
   async function complete() {
     const wasAlreadyComplete = !!session.completed_at;
