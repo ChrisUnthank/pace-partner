@@ -376,15 +376,15 @@ function StepBlock({ session, step, results, fatigue, fuelEvents }: { session: a
   const setCount = Math.max(1, step.set_count ?? 1);
 
   async function saveRep(setNumber: number, repNumber: number, patch: any) {
-    const existing = results.find((r) => r.rep_number === repNumber && (r.set_number ?? 1) === setNumber);
-    if (existing) {
-      await supabase.from("interval_results").update(patch).eq("id", existing.id);
-    } else {
-      await supabase.from("interval_results").insert({ step_id: step.id, set_number: setNumber, rep_number: repNumber, ...patch });
+    const row = { step_id: step.id, set_number: setNumber, rep_number: repNumber, ...patch };
+    const { error } = await supabase
+      .from("interval_results")
+      .upsert(row, { onConflict: "step_id,set_number,rep_number" });
+    if (error) {
+      toast.error(`Save failed: ${error.message}`);
+      return;
     }
-    qc.invalidateQueries({ queryKey: ["results"] });
-    qc.invalidateQueries({ queryKey: ["fatigue"] });
-    qc.invalidateQueries({ queryKey: ["zone-time"] });
+    invalidateSession(qc, session.id, session.athlete_id);
   }
 
   async function addFuelNote(repNumber: number) {
