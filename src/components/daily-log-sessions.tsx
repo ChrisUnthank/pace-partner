@@ -13,6 +13,7 @@ import { uploadAndParseSessionFile } from "@/lib/session-files.functions";
 import { Loader2, Plus, Trash2, Upload, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { todayISO } from "@/lib/format";
 import { toast } from "sonner";
+import { invalidateSession } from "@/lib/session-invalidation";
 
 type ActivityType = "run" | "track" | "gym" | "ride" | "swim";
 
@@ -112,9 +113,10 @@ export function DailyLogSessions({ athleteId }: { athleteId: string }) {
   async function saveBlock(b: Block) {
     try {
       const sessionId = await ensureSession(b, `${labelFor(b.activity)} session`);
-      if (b.activity === "gym") {
-        await supabase.from("sessions").update({ total_time_seconds: b.gymDuration * 60 }).eq("id", sessionId);
-      }
+      const sessionPatch: any = { rpe: b.feel };
+      if (b.activity === "gym") sessionPatch.total_time_seconds = b.gymDuration * 60;
+      if (b.note) sessionPatch.notes = b.note;
+      await supabase.from("sessions").update(sessionPatch).eq("id", sessionId);
       await supabase.from("session_insights").upsert({
         session_id: sessionId,
         athlete_id: athleteId,
@@ -124,12 +126,9 @@ export function DailyLogSessions({ athleteId }: { athleteId: string }) {
         niggles: b.niggles || null,
         end_of_day_note: null,
       } as any, { onConflict: "session_id" } as any);
-      if (b.note) {
-        await supabase.from("sessions").update({ notes: b.note }).eq("id", sessionId);
-      }
       updateBlock(b.uid, { saved: true });
       toast.success("Session saved");
-      qc.invalidateQueries({ queryKey: ["daily-log-sessions", athleteId, today] });
+      invalidateSession(qc, sessionId, athleteId);
     } catch (err: any) {
       toast.error(err?.message ?? "Save failed");
     }

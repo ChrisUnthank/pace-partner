@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -25,6 +25,7 @@ import { markAttendance } from "@/lib/messages.functions";
 import { Switch } from "@/components/ui/switch";
 import { UserAvatar } from "@/components/user-avatar";
 import { ActivityIcon } from "@/lib/activity-icon";
+import { invalidateSession } from "@/lib/session-invalidation";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/")({
   component: SessionDetail,
@@ -62,7 +63,7 @@ function SessionDetail() {
   });
 
   const stepIds = steps?.map((s) => s.id) ?? [];
-  const { data: results } = useQuery({
+  const { data: results, isFetching: resultsLoading } = useQuery({
     queryKey: ["results", sessionId, stepIds.join(",")],
     enabled: stepIds.length > 0,
     queryFn: async () => {
@@ -171,7 +172,9 @@ function SessionDetail() {
         {session.notes && <Card><CardContent className="pt-4 text-sm">{session.notes}</CardContent></Card>}
 
         <div className="space-y-3">
-          {(steps ?? []).map((step: any) => (
+          {stepIds.length > 0 && resultsLoading && !results ? (
+            <Card><CardContent className="pt-4 text-sm text-muted-foreground">Loading session data…</CardContent></Card>
+          ) : (steps ?? []).map((step: any) => (
             <StepBlock
               key={step.id}
               session={session}
@@ -185,7 +188,7 @@ function SessionDetail() {
 
         <SessionSummary
           session={session}
-          onSaved={() => qc.invalidateQueries({ queryKey: ["session", sessionId] })}
+          onSaved={() => invalidateSession(qc, sessionId, session.athlete_id)}
           onCompleted={() => setInsightOpen(true)}
         />
 
@@ -373,15 +376,15 @@ function StepBlock({ session, step, results, fatigue, fuelEvents }: { session: a
   const setCount = Math.max(1, step.set_count ?? 1);
 
   async function saveRep(setNumber: number, repNumber: number, patch: any) {
-    const existing = results.find((r) => r.rep_number === repNumber && (r.set_number ?? 1) === setNumber);
-    if (existing) {
-      await supabase.from("interval_results").update(patch).eq("id", existing.id);
-    } else {
-      await supabase.from("interval_results").insert({ step_id: step.id, set_number: setNumber, rep_number: repNumber, ...patch });
+    const row = { step_id: step.id, set_number: setNumber, rep_number: repNumber, ...patch };
+    const { error } = await supabase
+      .from("interval_results")
+      .upsert(row, { onConflict: "step_id,set_number,rep_number" });
+    if (error) {
+      toast.error(`Save failed: ${error.message}`);
+      return;
     }
-    qc.invalidateQueries({ queryKey: ["results"] });
-    qc.invalidateQueries({ queryKey: ["fatigue"] });
-    qc.invalidateQueries({ queryKey: ["zone-time"] });
+    invalidateSession(qc, session.id, session.athlete_id);
   }
 
   async function addFuelNote(repNumber: number) {
@@ -481,13 +484,25 @@ function StepBlock({ session, step, results, fatigue, fuelEvents }: { session: a
 
 function RepRow({ step, rep, result, onSave, onAddFuel, fuelNotes }: { step: any; rep: number; result?: any; onSave: (patch: any) => void; onAddFuel: () => void; fuelNotes: any[] }) {
   const isRecovery = step.kind === "recovery";
-  const [time, setTime] = useState(result?.actual_time_seconds ? secToClock(result.actual_time_seconds) : "");
-  const [dist, setDist] = useState(result?.actual_distance_m ?? "");
-  const [hrEnd, setHrEnd] = useState(result?.hr_end ?? "");
-  const [hrRec, setHrRec] = useState(result?.hr_end_recovery ?? "");
-  const [hrAvg, setHrAvg] = useState(result?.hr_avg ?? "");
-  const [cadence, setCadence] = useState(result?.cadence ?? "");
-  const [stride, setStride] = useState(result?.stride_length_cm ?? "");
+  const [time, setTime] = useState("");
+  const [dist, setDist] = useState<string | number>("");
+  const [hrEnd, setHrEnd] = useState<string | number>("");
+  const [hrRec, setHrRec] = useState<string | number>("");
+  const [hrAvg, setHrAvg] = useState<string | number>("");
+  const [cadence, setCadence] = useState<string | number>("");
+  const [stride, setStride] = useState<string | number>("");
+  // Hydrate / re-hydrate from the loaded result whenever it changes.
+  const resultKey = result?.id ?? "none";
+  useEffect(() => {
+    setTime(result?.actual_time_seconds ? secToClock(result.actual_time_seconds) : "");
+    setDist(result?.actual_distance_m ?? "");
+    setHrEnd(result?.hr_end ?? "");
+    setHrRec(result?.hr_end_recovery ?? "");
+    setHrAvg(result?.hr_avg ?? "");
+    setCadence(result?.cadence ?? "");
+    setStride(result?.stride_length_cm ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resultKey]);
 
   function commit() {
     const patch: any = {
@@ -605,10 +620,17 @@ function FuelingPanel({ session }: { session: any }) {
 }
 
 function SessionSummary({ session, onSaved, onCompleted }: { session: any; onSaved: () => void; onCompleted?: () => void }) {
-  const [totalDist, setTotalDist] = useState(session.total_distance_m ?? "");
-  const [totalTime, setTotalTime] = useState(session.total_time_seconds ? secToClock(session.total_time_seconds) : "");
-  const [avgHr, setAvgHr] = useState(session.avg_hr ?? "");
-  const [rpe, setRpe] = useState(session.rpe ?? 5);
+  const [totalDist, setTotalDist] = useState<string | number>("");
+  const [totalTime, setTotalTime] = useState("");
+  const [avgHr, setAvgHr] = useState<string | number>("");
+  const [rpe, setRpe] = useState<number>(5);
+  // Re-sync whenever the underlying session row changes (after server-side recompute).
+  useEffect(() => {
+    setTotalDist(session.total_distance_m ?? "");
+    setTotalTime(session.total_time_seconds ? secToClock(session.total_time_seconds) : "");
+    setAvgHr(session.avg_hr ?? "");
+    setRpe(session.rpe ?? 5);
+  }, [session.id, session.updated_at, session.total_distance_m, session.total_time_seconds, session.avg_hr, session.rpe]);
 
   async function complete() {
     const wasAlreadyComplete = !!session.completed_at;
