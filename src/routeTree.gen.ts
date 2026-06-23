@@ -26,6 +26,7 @@ import { Route as AuthenticatedAppAthletesRouteImport } from './routes/_authenti
 import { Route as AuthenticatedAppAnalyticsRouteImport } from './routes/_authenticated/app.analytics'
 import { Route as AuthenticatedAppSessionsIndexRouteImport } from './routes/_authenticated/app.sessions.index'
 import { Route as AuthenticatedAppAthletesIndexRouteImport } from './routes/_authenticated/app.athletes.index'
+import { Route as ApiPublicHooksRunDailyRemindersRouteImport } from './routes/api/public/hooks/run-daily-reminders'
 import { Route as ApiPublicHooksDispatchPushRouteImport } from './routes/api/public/hooks/dispatch-push'
 import { Route as AuthenticatedAppSessionsNewRouteImport } from './routes/_authenticated/app.sessions.new'
 import { Route as AuthenticatedAppSessionsCalendarRouteImport } from './routes/_authenticated/app.sessions.calendar'
@@ -127,6 +128,12 @@ const AuthenticatedAppAthletesIndexRoute =
     path: '/',
     getParentRoute: () => AuthenticatedAppAthletesRoute,
   } as any)
+const ApiPublicHooksRunDailyRemindersRoute =
+  ApiPublicHooksRunDailyRemindersRouteImport.update({
+    id: '/api/public/hooks/run-daily-reminders',
+    path: '/api/public/hooks/run-daily-reminders',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicHooksDispatchPushRoute =
   ApiPublicHooksDispatchPushRouteImport.update({
     id: '/api/public/hooks/dispatch-push',
@@ -190,6 +197,7 @@ export interface FileRoutesByFullPath {
   '/app/sessions/calendar': typeof AuthenticatedAppSessionsCalendarRoute
   '/app/sessions/new': typeof AuthenticatedAppSessionsNewRoute
   '/api/public/hooks/dispatch-push': typeof ApiPublicHooksDispatchPushRoute
+  '/api/public/hooks/run-daily-reminders': typeof ApiPublicHooksRunDailyRemindersRoute
   '/app/athletes/': typeof AuthenticatedAppAthletesIndexRoute
   '/app/sessions/': typeof AuthenticatedAppSessionsIndexRoute
   '/app/sessions/$sessionId/analysis': typeof AuthenticatedAppSessionsSessionIdAnalysisRoute
@@ -212,6 +220,7 @@ export interface FileRoutesByTo {
   '/app/sessions/calendar': typeof AuthenticatedAppSessionsCalendarRoute
   '/app/sessions/new': typeof AuthenticatedAppSessionsNewRoute
   '/api/public/hooks/dispatch-push': typeof ApiPublicHooksDispatchPushRoute
+  '/api/public/hooks/run-daily-reminders': typeof ApiPublicHooksRunDailyRemindersRoute
   '/app/athletes': typeof AuthenticatedAppAthletesIndexRoute
   '/app/sessions': typeof AuthenticatedAppSessionsIndexRoute
   '/app/sessions/$sessionId/analysis': typeof AuthenticatedAppSessionsSessionIdAnalysisRoute
@@ -239,6 +248,7 @@ export interface FileRoutesById {
   '/_authenticated/app/sessions/calendar': typeof AuthenticatedAppSessionsCalendarRoute
   '/_authenticated/app/sessions/new': typeof AuthenticatedAppSessionsNewRoute
   '/api/public/hooks/dispatch-push': typeof ApiPublicHooksDispatchPushRoute
+  '/api/public/hooks/run-daily-reminders': typeof ApiPublicHooksRunDailyRemindersRoute
   '/_authenticated/app/athletes/': typeof AuthenticatedAppAthletesIndexRoute
   '/_authenticated/app/sessions/': typeof AuthenticatedAppSessionsIndexRoute
   '/_authenticated/app/sessions/$sessionId/analysis': typeof AuthenticatedAppSessionsSessionIdAnalysisRoute
@@ -266,6 +276,7 @@ export interface FileRouteTypes {
     | '/app/sessions/calendar'
     | '/app/sessions/new'
     | '/api/public/hooks/dispatch-push'
+    | '/api/public/hooks/run-daily-reminders'
     | '/app/athletes/'
     | '/app/sessions/'
     | '/app/sessions/$sessionId/analysis'
@@ -288,6 +299,7 @@ export interface FileRouteTypes {
     | '/app/sessions/calendar'
     | '/app/sessions/new'
     | '/api/public/hooks/dispatch-push'
+    | '/api/public/hooks/run-daily-reminders'
     | '/app/athletes'
     | '/app/sessions'
     | '/app/sessions/$sessionId/analysis'
@@ -314,6 +326,7 @@ export interface FileRouteTypes {
     | '/_authenticated/app/sessions/calendar'
     | '/_authenticated/app/sessions/new'
     | '/api/public/hooks/dispatch-push'
+    | '/api/public/hooks/run-daily-reminders'
     | '/_authenticated/app/athletes/'
     | '/_authenticated/app/sessions/'
     | '/_authenticated/app/sessions/$sessionId/analysis'
@@ -326,6 +339,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   ClaimTokenRoute: typeof ClaimTokenRoute
   ApiPublicHooksDispatchPushRoute: typeof ApiPublicHooksDispatchPushRoute
+  ApiPublicHooksRunDailyRemindersRoute: typeof ApiPublicHooksRunDailyRemindersRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -448,6 +462,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/app/athletes/'
       preLoaderRoute: typeof AuthenticatedAppAthletesIndexRouteImport
       parentRoute: typeof AuthenticatedAppAthletesRoute
+    }
+    '/api/public/hooks/run-daily-reminders': {
+      id: '/api/public/hooks/run-daily-reminders'
+      path: '/api/public/hooks/run-daily-reminders'
+      fullPath: '/api/public/hooks/run-daily-reminders'
+      preLoaderRoute: typeof ApiPublicHooksRunDailyRemindersRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/public/hooks/dispatch-push': {
       id: '/api/public/hooks/dispatch-push'
@@ -595,6 +616,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   ClaimTokenRoute: ClaimTokenRoute,
   ApiPublicHooksDispatchPushRoute: ApiPublicHooksDispatchPushRoute,
+  ApiPublicHooksRunDailyRemindersRoute: ApiPublicHooksRunDailyRemindersRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
