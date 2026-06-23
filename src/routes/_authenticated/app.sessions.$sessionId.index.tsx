@@ -388,17 +388,6 @@ function StepBlock({ session, step, results, fatigue, fuelEvents }: { session: a
     invalidateSession(qc, session.id, session.athlete_id);
   }
 
-  async function addFuelNote(repNumber: number) {
-    const note = window.prompt(`Fueling note for rep ${repNumber}:`);
-    if (!note) return;
-    await supabase.from("session_fuel_events").insert({
-      session_id: session.id, step_id: step.id, rep_number: repNumber,
-      athlete_id: session.athlete_id, note,
-    });
-    qc.invalidateQueries({ queryKey: ["fuel-events", session.id] });
-    toast.success("Fueling note added");
-  }
-
   const reps = Array.from({ length: step.reps || 1 }, (_, i) => i + 1);
   const sets = Array.from({ length: setCount }, (_, i) => i + 1);
 
