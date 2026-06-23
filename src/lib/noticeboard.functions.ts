@@ -16,12 +16,13 @@ export const listPosts = createServerFn({ method: "GET" })
       ids.length
         ? context.supabase.from("noticeboard_reactions").select("post_id, user_id, emoji").in("post_id", ids)
         : Promise.resolve({ data: [] as any[] }),
-      context.supabase.from("profiles").select("id, full_name").in("id", Array.from(new Set((data ?? []).map((p) => p.author_id)))),
+      context.supabase.from("profiles").select("id, full_name, profile_image_url").in("id", Array.from(new Set((data ?? []).map((p) => p.author_id)))),
     ]);
-    const authorMap = new Map((authors ?? []).map((a: any) => [a.id, a.full_name]));
+    const authorMap = new Map((authors ?? []).map((a: any) => [a.id, { name: a.full_name, image: a.profile_image_url ?? null }]));
     return (data ?? []).map((p) => ({
       ...p,
-      author_name: authorMap.get(p.author_id) ?? "Coach",
+      author_name: authorMap.get(p.author_id)?.name ?? "Coach",
+      author_image_url: authorMap.get(p.author_id)?.image ?? null,
       reactions: (reactions ?? []).filter((r: any) => r.post_id === p.id),
     }));
   });

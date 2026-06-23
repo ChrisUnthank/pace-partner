@@ -10,10 +10,10 @@ export const listMessageContacts = createServerFn({ method: "GET" })
     // coach: athletes I coach
     const { data: links } = await sb
       .from("coach_athletes")
-      .select("athlete_id, athletes(user_id, name)")
+      .select("athlete_id, athletes(user_id, name, profile_image_url)")
       .eq("coach_user_id", context.userId);
     (links ?? []).forEach((l: any) => {
-      if (l.athletes?.user_id) map.set(l.athletes.user_id, { user_id: l.athletes.user_id, name: l.athletes.name });
+      if (l.athletes?.user_id) map.set(l.athletes.user_id, { user_id: l.athletes.user_id, name: l.athletes.name, image_url: l.athletes.profile_image_url ?? null } as any);
     });
 
     // athlete: my coaches
@@ -22,8 +22,8 @@ export const listMessageContacts = createServerFn({ method: "GET" })
       const { data: coaches } = await sb.from("coach_athletes").select("coach_user_id").eq("athlete_id", myAthlete.id);
       const coachIds = (coaches ?? []).map((c: any) => c.coach_user_id);
       if (coachIds.length) {
-        const { data: profs } = await sb.from("profiles").select("id, full_name").in("id", coachIds);
-        (profs ?? []).forEach((p: any) => map.set(p.id, { user_id: p.id, name: p.full_name ?? "Coach" }));
+        const { data: profs } = await sb.from("profiles").select("id, full_name, profile_image_url").in("id", coachIds);
+        (profs ?? []).forEach((p: any) => map.set(p.id, { user_id: p.id, name: p.full_name ?? "Coach", image_url: p.profile_image_url ?? null } as any));
       }
     }
 

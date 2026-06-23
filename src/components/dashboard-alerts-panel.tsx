@@ -37,7 +37,7 @@ export function DashboardAlertsPanel() {
   const isMobile = useIsMobile();
   const [collapsed, setCollapsed] = useState<boolean | null>(null);
 
-  const { data: alerts = [], isLoading } = useQuery({
+  const { data: alerts = [] as DashAlert[], isLoading } = useQuery({
     queryKey: ["dashboard-alerts"],
     queryFn: () => listFn(),
   });
@@ -94,7 +94,7 @@ export function DashboardAlertsPanel() {
       </CardHeader>
       {!isCollapsed && (
         <CardContent className="space-y-2.5">
-          {alerts.map((a) => (
+          {(alerts as DashAlert[]).map((a) => (
             <div
               key={`${a.athlete_id}-${a.alert_type}`}
               className={`border border-border border-l-4 ${SEV_BORDER[a.severity]} bg-card rounded-md p-3`}
@@ -131,7 +131,7 @@ export function DashboardAlertsPanel() {
                   )}
                   {a.actions.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mt-2">
-                      {a.actions.map((act, i) => {
+                      {a.actions.map((act: DashAlert["actions"][number], i: number) => {
                         if (act.kind === "link" && act.target) {
                           return (
                             <Button key={i} asChild size="sm" variant="outline" className="h-7 text-xs">
