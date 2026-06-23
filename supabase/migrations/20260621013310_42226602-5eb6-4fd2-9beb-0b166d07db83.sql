@@ -350,8 +350,8 @@ BEGIN
   END IF;
 
   IF status_v = 'ok' THEN
-    -- Map ratio 1.04..1.18 -> 0..100 anaerobic
-    raw_an := GREATEST(0, LEAST(100, (ratio_r - 1.04) / (1.18 - 1.04) * 100));
+    -- Map ratio 1.06..1.22 -> 0..100 anaerobic
+    raw_an := GREATEST(0, LEAST(100, (ratio_r - 1.06) / (1.22 - 1.06) * 100));
 
     -- Age shift
     IF age_years IS NOT NULL THEN
