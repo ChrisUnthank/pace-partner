@@ -12,6 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { metersFmt, secToClock, clockToSec } from "@/lib/format";
 import { toast } from "sonner";
 import { Trash2, Sparkles } from "lucide-react";
+import { ProfileImageUploader } from "@/components/profile-image-uploader";
 
 export const Route = createFileRoute("/_authenticated/app/profile")({
   component: Profile,
@@ -52,6 +53,7 @@ function Profile() {
             <div><span className="text-muted-foreground">Roles:</span> {roles.join(", ") || "none"}</div>
           </CardContent>
         </Card>
+        {user && <ProfileImageUploader userId={user.id} name={user.user_metadata?.full_name ?? user.email ?? ""} />}
         {user && <RolesCard userId={user.id} roles={roles} email={user.email ?? ""} />}
         {user && <AiAccessCard userId={user.id} isAthlete={roles.includes("athlete")} isCoach={roles.includes("coach") || roles.includes("manager")} />}
         {athlete && (

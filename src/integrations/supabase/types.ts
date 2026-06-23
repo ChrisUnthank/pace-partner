@@ -179,6 +179,41 @@ export type Database = {
           },
         ]
       }
+      alert_dismissals: {
+        Row: {
+          alert_type: string
+          athlete_id: string
+          coach_user_id: string
+          created_at: string
+          dismissed_date: string
+          id: string
+        }
+        Insert: {
+          alert_type: string
+          athlete_id: string
+          coach_user_id: string
+          created_at?: string
+          dismissed_date?: string
+          id?: string
+        }
+        Update: {
+          alert_type?: string
+          athlete_id?: string
+          coach_user_id?: string
+          created_at?: string
+          dismissed_date?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "alert_dismissals_athlete_id_fkey"
+            columns: ["athlete_id"]
+            isOneToOne: false
+            referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       athlete_invites: {
         Row: {
           accepted_at: string | null
@@ -411,6 +446,7 @@ export type Database = {
           last_checkout_at: string | null
           name: string
           primary_event: string | null
+          profile_image_url: string | null
           reminder_evening_local: string | null
           reminder_morning_local: string | null
           sex: string | null
@@ -428,6 +464,7 @@ export type Database = {
           last_checkout_at?: string | null
           name: string
           primary_event?: string | null
+          profile_image_url?: string | null
           reminder_evening_local?: string | null
           reminder_morning_local?: string | null
           sex?: string | null
@@ -445,6 +482,7 @@ export type Database = {
           last_checkout_at?: string | null
           name?: string
           primary_event?: string | null
+          profile_image_url?: string | null
           reminder_evening_local?: string | null
           reminder_morning_local?: string | null
           sex?: string | null
@@ -970,6 +1008,7 @@ export type Database = {
           email: string | null
           full_name: string | null
           id: string
+          profile_image_url: string | null
           updated_at: string
         }
         Insert: {
@@ -979,6 +1018,7 @@ export type Database = {
           email?: string | null
           full_name?: string | null
           id: string
+          profile_image_url?: string | null
           updated_at?: string
         }
         Update: {
@@ -988,6 +1028,7 @@ export type Database = {
           email?: string | null
           full_name?: string | null
           id?: string
+          profile_image_url?: string | null
           updated_at?: string
         }
         Relationships: []
