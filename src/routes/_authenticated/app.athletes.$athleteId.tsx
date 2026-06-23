@@ -9,13 +9,11 @@ import { paceFmt } from "@/lib/format";
 import { ReadinessBadge } from "@/components/readiness-badge";
 import { VitalsPanel } from "@/components/vitals-panel";
 import { CoachChat } from "@/components/coach-chat";
-import { useServerFn } from "@tanstack/react-start";
-import { generateWeeklySummary } from "@/lib/ai.functions";
-import { sendReminder } from "@/lib/session-files.functions";
-import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
 import { RefreshCw, CalendarDays } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
+import { GenerateReviewCard } from "@/components/generate-review-card";
+import { AthleteReminderSettings } from "@/components/reminder-settings";
 
 export const Route = createFileRoute("/_authenticated/app/athletes/$athleteId")({
   component: AthleteDetail,
@@ -257,50 +255,13 @@ function AthleteDetail() {
         </Card>
 
         <CoachChat athleteId={athleteId} athleteName={athlete?.name ?? undefined} />
-        <WeeklySummaryCard athleteId={athleteId} />
-        <ReminderCard athleteId={athleteId} />
+        <GenerateReviewCard athleteId={athleteId} />
+        <AthleteReminderSettings athleteId={athleteId} />
       </div>
     </AppShell>
   );
 }
 
-function WeeklySummaryCard({ athleteId }: { athleteId: string }) {
-  const gen = useServerFn(generateWeeklySummary);
-  const { data, refetch, isFetching } = useQuery({
-    queryKey: ["weekly-summary", athleteId],
-    queryFn: () => gen({ data: { athleteId } }),
-  });
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="text-base">Weekly AI summary</CardTitle>
-        <Button size="sm" variant="outline" onClick={() => gen({ data: { athleteId, force: true } }).then(() => refetch())} disabled={isFetching}>
-          {isFetching ? "Generating…" : "Regenerate"}
-        </Button>
-      </CardHeader>
-      <CardContent className="text-sm prose prose-sm max-w-none dark:prose-invert">
-        {data?.summary_md ? <ReactMarkdown>{data.summary_md}</ReactMarkdown> : <p className="text-muted-foreground">Generating…</p>}
-      </CardContent>
-    </Card>
-  );
-}
-
-function ReminderCard({ athleteId }: { athleteId: string }) {
-  const send = useServerFn(sendReminder);
-  return (
-    <Card>
-      <CardHeader><CardTitle className="text-base">Reminders</CardTitle></CardHeader>
-      <CardContent className="flex flex-wrap gap-2">
-        <Button size="sm" variant="outline" onClick={() => send({ data: { athleteId, kind: "log_vitals", message: "Don't forget to log vitals" } }).then(() => toast.success("Reminder queued"))}>
-          Remind: log vitals
-        </Button>
-        <Button size="sm" variant="outline" onClick={() => send({ data: { athleteId, kind: "checkout", message: "Daily checkout pending" } }).then(() => toast.success("Reminder queued"))}>
-          Remind: daily checkout
-        </Button>
-      </CardContent>
-    </Card>
-  );
-}
 
 function PhysiologyCard({ athleteId }: { athleteId: string }) {
   const qc = useQueryClient();
