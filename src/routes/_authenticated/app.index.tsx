@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyRoles, useMyRawRoles, useMyAthlete, useAuthUser } from "@/lib/use-auth";
 import { AppShell } from "@/components/app-shell";
@@ -12,13 +12,15 @@ import { toast } from "sonner";
 import { DashboardAlertsPanel } from "@/components/dashboard-alerts-panel";
 import { UserAvatar } from "@/components/user-avatar";
 import { RecentReviewsCard } from "@/components/recent-reviews-card";
+import { Badge } from "@/components/ui/badge";
+import { ClipboardList, CalendarDays, Megaphone, MessageSquare } from "lucide-react";
+import { listPosts } from "@/lib/noticeboard.functions";
 
 export const Route = createFileRoute("/_authenticated/app/")({
   component: AppHome,
 });
 
 function AppHome() {
-  const navigate = useNavigate();
   const { user } = useAuthUser();
   const { data: roles = [], isLoading: rolesLoading } = useMyRoles();
   const { data: rawRoles = [] } = useMyRawRoles();
@@ -35,13 +37,6 @@ function AppHome() {
       return data;
     },
   });
-
-  // Auto-redirect athletes to Today on first visit
-  useEffect(() => {
-    if (!rolesLoading && isAthlete && !isCoach) {
-      navigate({ to: "/app/today", replace: true });
-    }
-  }, [rolesLoading, isAthlete, isCoach, navigate]);
 
   const { data: roster } = useQuery({
     queryKey: ["roster", user?.id, isManager],
