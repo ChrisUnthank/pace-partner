@@ -304,6 +304,8 @@ function SessionAnalysis() {
           </CardContent>
         </Card>
 
+        <WorkSegmentPanel steps={steps ?? []} results={results ?? []} />
+
         {hasRaw && (
           <Card>
             <CardHeader>
@@ -370,6 +372,73 @@ function Stat({ label, value }: { label: string; value: string }) {
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className="font-medium tabular-nums">{value}</div>
     </div>
+  );
+}
+
+function WorkSegmentPanel({ steps, results }: { steps: any[]; results: any[] }) {
+  const workStepIds = new Set(steps.filter((s) => s.kind === "work").map((s) => s.id));
+  const workResults = results.filter((r) => workStepIds.has(r.step_id) && (r.actual_time_seconds || r.actual_distance_m));
+  if (workResults.length === 0) return null;
+  const totalTime = workResults.reduce((a, r) => a + Number(r.actual_time_seconds ?? 0), 0);
+  const totalDist = workResults.reduce((a, r) => a + Number(r.actual_distance_m ?? 0), 0);
+  const hrSec = workResults.reduce((a, r) => a + (r.hr_avg ? Number(r.actual_time_seconds ?? 0) : 0), 0);
+  const hrWeighted = workResults.reduce((a, r) => a + (r.hr_avg ? Number(r.hr_avg) * Number(r.actual_time_seconds ?? 0) : 0), 0);
+  const avgHr = hrSec > 0 ? Math.round(hrWeighted / hrSec) : null;
+  const maxHr = workResults.reduce((m, r) => Math.max(m, Number(r.hr_max ?? r.hr_end ?? 0)), 0) || null;
+  const cads = workResults.map((r) => r.cadence).filter((x: any) => x);
+  const avgCad = cads.length ? Math.round(cads.reduce((a: number, b: number) => a + Number(b), 0) / cads.length) : null;
+  const avgPace = totalDist > 0 ? (totalTime / totalDist) * 1000 : null;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Work segment breakdown</CardTitle>
+        <CardDescription>Aggregated from work reps only — excludes warmup, recovery, and cooldown.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+          <Stat label="Work distance" value={metersFmt(totalDist)} />
+          <Stat label="Work duration" value={secToClock(totalTime)} />
+          <Stat label="Avg pace" value={avgPace ? `${paceFmt(avgPace)} /km` : "—"} />
+          <Stat label="Avg HR" value={avgHr ? `${avgHr} bpm` : "—"} />
+          <Stat label="Max HR" value={maxHr ? `${maxHr} bpm` : "—"} />
+          <Stat label="Avg cadence" value={avgCad ? `${avgCad} spm` : "—"} />
+        </div>
+        <div>
+          <div className="text-xs font-semibold text-muted-foreground mb-1">Per-rep</div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="text-muted-foreground">
+                <tr className="border-b">
+                  <th className="text-left py-1 pr-2">Rep</th>
+                  <th className="text-right py-1 pr-2">Time</th>
+                  <th className="text-right py-1 pr-2">Dist</th>
+                  <th className="text-right py-1 pr-2">Pace</th>
+                  <th className="text-right py-1 pr-2">HR avg</th>
+                  <th className="text-right py-1 pr-2">Cad</th>
+                  <th className="text-right py-1">La</th>
+                </tr>
+              </thead>
+              <tbody>
+                {workResults.map((r) => {
+                  const p = r.actual_pace_sec_per_km ?? (r.actual_time_seconds && r.actual_distance_m ? (r.actual_time_seconds / r.actual_distance_m) * 1000 : null);
+                  return (
+                    <tr key={r.id} className="border-b last:border-b-0">
+                      <td className="py-1 pr-2">{(r.set_number ?? 1) > 1 ? `S${r.set_number} ` : ""}R{r.rep_number}</td>
+                      <td className="py-1 pr-2 text-right tabular-nums">{r.actual_time_seconds ? secToClock(r.actual_time_seconds) : "—"}</td>
+                      <td className="py-1 pr-2 text-right tabular-nums">{r.actual_distance_m ? metersFmt(r.actual_distance_m) : "—"}</td>
+                      <td className="py-1 pr-2 text-right tabular-nums">{p ? paceFmt(p) : "—"}</td>
+                      <td className="py-1 pr-2 text-right tabular-nums">{r.hr_avg ?? "—"}</td>
+                      <td className="py-1 pr-2 text-right tabular-nums">{r.cadence ?? "—"}</td>
+                      <td className="py-1 text-right tabular-nums">{r.lactate_taken && r.lactate_mmol != null ? Number(r.lactate_mmol).toFixed(1) : "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

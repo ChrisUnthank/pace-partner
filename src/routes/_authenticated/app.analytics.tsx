@@ -361,10 +361,25 @@ function AthleteAnalytics({
     queryFn: async () => {
       const { data } = await supabase
         .from("interval_results")
-        .select("actual_time_seconds, actual_distance_m, steps!inner(kind, sessions!inner(athlete_id, session_date, completed_at))")
+        .select("step_id, actual_time_seconds, actual_distance_m, steps!inner(kind, sessions!inner(athlete_id, session_date, completed_at))")
         .eq("steps.sessions.athlete_id", athleteId)
         .not("steps.sessions.completed_at", "is", null)
         .gte("steps.sessions.session_date", since);
+      return data ?? [];
+    },
+  });
+
+  // Fallback: for completed sessions with no per-rep results, use planned step targets so the
+  // "Volume by Session Component" chart still shows manually-entered sessions.
+  const { data: stepTargets } = useQuery({
+    queryKey: ["analytics-step-targets", athleteId, since],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("steps")
+        .select("id, kind, reps, set_count, target_distance_m, target_time_seconds, sessions!inner(athlete_id, session_date, completed_at)")
+        .eq("sessions.athlete_id", athleteId)
+        .not("sessions.completed_at", "is", null)
+        .gte("sessions.session_date", since);
       return data ?? [];
     },
   });
@@ -447,10 +462,24 @@ function AthleteAnalytics({
   const kindVolume = useMemo(() => {
     const sec = new Map<string, number>();
     const m = new Map<string, number>();
+    const stepsWithActuals = new Set<string>();
     for (const r of (stepVolume as any[]) ?? []) {
       const kind = r.steps?.kind ?? "work";
       sec.set(kind, (sec.get(kind) ?? 0) + Number(r.actual_time_seconds ?? 0));
       m.set(kind, (m.get(kind) ?? 0) + Number(r.actual_distance_m ?? 0));
+      if (r.step_id) stepsWithActuals.add(r.step_id);
+    }
+    // Fallback for manually-entered sessions: when a step has no per-rep results at all,
+    // attribute its planned target volume to the right kind so the chart isn't empty.
+    for (const s of (stepTargets as any[]) ?? []) {
+      if (stepsWithActuals.has(s.id)) continue;
+      const reps = Number(s.reps ?? 1);
+      const setCount = Number(s.set_count ?? 1);
+      const kind = s.kind ?? "work";
+      const td = Number(s.target_distance_m ?? 0) * reps * setCount;
+      const tt = Number(s.target_time_seconds ?? 0) * reps * setCount;
+      if (td > 0) m.set(kind, (m.get(kind) ?? 0) + td);
+      if (tt > 0) sec.set(kind, (sec.get(kind) ?? 0) + tt);
     }
     const order = ["warmup", "work", "strides", "recovery", "cooldown"];
     return order
@@ -460,7 +489,7 @@ function AthleteAnalytics({
         minutes: Math.round((sec.get(kind) ?? 0) / 60),
         km: Math.round(((m.get(kind) ?? 0) / 1000) * 10) / 10,
       }));
-  }, [stepVolume]);
+  }, [stepVolume, stepTargets]);
 
   return (
     <div className="space-y-6">
