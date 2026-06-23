@@ -94,7 +94,7 @@ function CalendarPage() {
       const [{ data: sessions }, { data: load }] = await Promise.all([
         supabase
           .from("sessions")
-          .select("id, title, session_date, day_type, intent, structure, is_long_run, completed_at, is_planned")
+          .select("id, title, session_date, day_type, intent, structure, is_long_run, completed_at, is_planned, activity_type")
           .eq("athlete_id", selectedAthleteId)
           .gte("session_date", rangeStart)
           .lte("session_date", rangeEnd)
