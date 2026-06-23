@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { metersFmt, secToClock } from "@/lib/format";
 import { sessionClassificationLabel } from "@/lib/session-categories";
 import { Plus, CalendarDays } from "lucide-react";
+import { ActivityIcon } from "@/lib/activity-icon";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/")({
   component: SessionsList,
@@ -74,10 +75,13 @@ function SessionsList() {
               {sessions.map((s: any) => (
                 <Link key={s.id} to="/app/sessions/$sessionId" params={{ sessionId: s.id }}
                   className="flex items-center justify-between px-4 py-3 hover:bg-accent/40">
-                  <div>
-                    <div className="font-medium">{s.title}</div>
-                    <div className="text-xs text-muted-foreground">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <ActivityIcon session={s} size={18} className="text-muted-foreground shrink-0" />
+                    <div className="min-w-0">
+                    <div className="font-medium truncate">{s.title}</div>
+                    <div className="text-xs text-muted-foreground truncate">
                       {s.session_date} · {s.athletes?.name} · {sessionClassificationLabel(s)}
+                    </div>
                     </div>
                   </div>
                   <div className="flex gap-2 items-center text-sm">
