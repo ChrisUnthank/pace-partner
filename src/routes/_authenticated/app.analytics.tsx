@@ -760,7 +760,7 @@ function VolumePieCard({ data }: { data: { kind: string; minutes: number; km: nu
       <CardHeader>
         <div className="flex items-start justify-between gap-2 flex-wrap">
           <div>
-            <CardTitle>Weekly Volume by Step Kind</CardTitle>
+            <CardTitle>Weekly Volume by Session Component</CardTitle>
             <CardDescription>
               Share of {mode === "minutes" ? "time" : "distance"} across warmup, work, strides, recovery, and cooldown.
             </CardDescription>
