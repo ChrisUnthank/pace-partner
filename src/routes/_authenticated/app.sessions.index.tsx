@@ -10,6 +10,9 @@ import { metersFmt, secToClock } from "@/lib/format";
 import { sessionClassificationLabel } from "@/lib/session-categories";
 import { Plus, CalendarDays } from "lucide-react";
 import { ActivityIcon } from "@/lib/activity-icon";
+import { useState, useMemo } from "react";
+import { BulkFitUpload } from "@/components/bulk-fit-upload";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/")({
   component: SessionsList,
@@ -23,6 +26,8 @@ function SessionsList() {
   const isCoach = roles.includes("coach");
   const isManager = rawRoles.includes("manager");
   const identityReady = !!user && !rolesLoading && !rawRolesLoading && !athleteLoading;
+  const [filterAthlete, setFilterAthlete] = useState<string>("all");
+  const [filterStatus, setFilterStatus] = useState<string>("all");
 
   const { data: athleteIds, isLoading: athleteIdsLoading } = useQuery({
     queryKey: ["visible-athlete-ids", user?.id, isCoach, isManager, athlete?.id],
@@ -56,6 +61,23 @@ function SessionsList() {
     },
   });
 
+  const filtered = useMemo(() => {
+    return (sessions ?? []).filter((s: any) => {
+      if (filterAthlete !== "all" && s.athlete_id !== filterAthlete) return false;
+      if (filterStatus === "done" && !s.completed_at) return false;
+      if (filterStatus === "planned" && s.completed_at) return false;
+      return true;
+    });
+  }, [sessions, filterAthlete, filterStatus]);
+
+  const athleteOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of sessions ?? []) {
+      if (!map.has(s.athlete_id)) map.set(s.athlete_id, s.athletes?.name ?? "Unknown");
+    }
+    return Array.from(map.entries());
+  }, [sessions]);
+
   const loading = !identityReady || athleteIdsLoading || (athleteIds && athleteIds.length > 0 && sessionsLoading);
 
   return (
@@ -68,16 +90,38 @@ function SessionsList() {
         </div>
       </div>
 
+      {(isCoach || athlete) && athleteOptions.length > 1 && (
+        <div className="flex flex-wrap gap-2 mb-3">
+          <Select value={filterAthlete} onValueChange={setFilterAthlete}>
+            <SelectTrigger className="h-9 w-[200px]"><SelectValue placeholder="All athletes" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All athletes</SelectItem>
+              {athleteOptions.map(([id, name]) => (
+                <SelectItem key={id} value={id}>{name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={filterStatus} onValueChange={setFilterStatus}>
+            <SelectTrigger className="h-9 w-[160px]"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All statuses</SelectItem>
+              <SelectItem value="planned">Planned</SelectItem>
+              <SelectItem value="done">Completed</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
       <Card>
         <CardHeader><CardTitle>Recent</CardTitle></CardHeader>
         <CardContent className="p-0">
           {loading ? (
             <p className="p-6 text-sm text-muted-foreground">Loading sessions…</p>
-          ) : !sessions || sessions.length === 0 ? (
-            <p className="p-6 text-sm text-muted-foreground">No sessions yet.</p>
+          ) : !filtered || filtered.length === 0 ? (
+            <p className="p-6 text-sm text-muted-foreground">No sessions match the current filter.</p>
           ) : (
             <div className="divide-y">
-              {sessions.map((s: any) => (
+              {filtered.map((s: any) => (
                 <Link key={s.id} to="/app/sessions/$sessionId" params={{ sessionId: s.id }}
                   className="flex items-center justify-between px-4 py-3 hover:bg-accent/40">
                   <div className="flex items-center gap-2 min-w-0">
@@ -100,6 +144,8 @@ function SessionsList() {
           )}
         </CardContent>
       </Card>
+
+      {athlete && <div className="mt-6"><BulkFitUpload athleteId={athlete.id} /></div>}
     </AppShell>
   );
 }

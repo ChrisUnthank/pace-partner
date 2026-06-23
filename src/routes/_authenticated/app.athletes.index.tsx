@@ -26,6 +26,9 @@ function AthletesPage() {
   const [event, setEvent] = useState("");
   const [email, setEmail] = useState("");
   const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [joinEmail, setJoinEmail] = useState("");
+  const [joinName, setJoinName] = useState("");
+  const [joinMessage, setJoinMessage] = useState("");
 
   const { data: roster } = useQuery({
     queryKey: ["roster", user?.id, isManager],
@@ -97,6 +100,27 @@ function AthletesPage() {
     catch { toast.error("Copy failed — select the link manually"); }
   }
 
+  async function sendJoinRequest() {
+    if (!joinEmail) { toast.error("Email required"); return; }
+    const { data, error } = await supabase.rpc("request_athlete_join_by_email", {
+      _email: joinEmail,
+      _athlete_name: joinName || null,
+      _message: joinMessage || null,
+    });
+    if (error) { toast.error(error.message); return; }
+    const result = data as any;
+    if (!result?.ok) {
+      if (result?.error === "no_account") toast.error("No account uses that email yet — use the invite-link flow above instead.");
+      else if (result?.error === "not_coach") toast.error("You need a coach role to send join requests.");
+      else toast.error(result?.error ?? "Failed");
+      return;
+    }
+    if (result.already_linked) toast.success("Athlete is already on your roster");
+    else toast.success("Join request sent");
+    setJoinEmail(""); setJoinName(""); setJoinMessage("");
+    qc.invalidateQueries({ queryKey: ["roster"] });
+  }
+
   return (
     <AppShell>
       <div className="space-y-6 max-w-3xl">
@@ -111,6 +135,19 @@ function AthletesPage() {
             <div><Label>Primary event</Label><Input placeholder="800m" value={event} onChange={(e) => setEvent(e.target.value)} /></div>
             <div><Label>Invite email (optional)</Label><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
             <div className="sm:col-span-3"><Button onClick={addAthlete}>Add</Button></div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Invite an existing account</CardTitle>
+            <CardDescription>If the athlete already has a Strider account, send them a join request — they'll see it on their Profile.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid sm:grid-cols-3 gap-3">
+            <div><Label>Account email</Label><Input type="email" value={joinEmail} onChange={(e) => setJoinEmail(e.target.value)} /></div>
+            <div><Label>Display name (optional)</Label><Input value={joinName} onChange={(e) => setJoinName(e.target.value)} /></div>
+            <div><Label>Message (optional)</Label><Input value={joinMessage} onChange={(e) => setJoinMessage(e.target.value)} /></div>
+            <div className="sm:col-span-3"><Button variant="outline" onClick={sendJoinRequest}>Send join request</Button></div>
           </CardContent>
         </Card>
 

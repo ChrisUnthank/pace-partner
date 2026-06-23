@@ -13,6 +13,8 @@ import { metersFmt, secToClock, clockToSec } from "@/lib/format";
 import { toast } from "sonner";
 import { Trash2, Sparkles } from "lucide-react";
 import { ProfileImageUploader } from "@/components/profile-image-uploader";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { setStoredUnits } from "@/lib/units";
 
 export const Route = createFileRoute("/_authenticated/app/profile")({
   component: Profile,
@@ -55,6 +57,8 @@ function Profile() {
         </Card>
         {user && <ProfileImageUploader userId={user.id} name={user.user_metadata?.full_name ?? user.email ?? ""} />}
         {user && <RolesCard userId={user.id} roles={roles} email={user.email ?? ""} />}
+        {user && <PreferencesCard userId={user.id} />}
+        {user && <JoinRequestsInbox userId={user.id} />}
         {user && <AiAccessCard userId={user.id} isAthlete={roles.includes("athlete")} isCoach={roles.includes("coach") || roles.includes("manager")} />}
         {athlete && (
           <>
@@ -65,6 +69,104 @@ function Profile() {
         )}
       </div>
     </AppShell>
+  );
+}
+
+function PreferencesCard({ userId }: { userId: string }) {
+  const qc = useQueryClient();
+  const { data: profile } = useQuery({
+    queryKey: ["my-profile", userId],
+    queryFn: async () => {
+      const { data } = await supabase.from("profiles").select("units, timezone").eq("id", userId).maybeSingle();
+      return data;
+    },
+  });
+  const [units, setUnits] = useState<string>((profile?.units as string) ?? "metric");
+  const [tz, setTz] = useState<string>((profile?.timezone as string) ?? (typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "UTC"));
+  // Re-sync when query loads
+  if (profile && profile.units && profile.units !== units && units === "metric") {
+    setUnits(profile.units);
+  }
+  async function save() {
+    const { error } = await supabase.from("profiles").update({ units, timezone: tz }).eq("id", userId);
+    if (error) { toast.error(error.message); return; }
+    setStoredUnits(units as any);
+    toast.success("Preferences saved");
+    qc.invalidateQueries({ queryKey: ["my-profile", userId] });
+  }
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Display preferences</CardTitle>
+        <CardDescription>Choose units and time zone used across the app.</CardDescription>
+      </CardHeader>
+      <CardContent className="grid sm:grid-cols-2 gap-3">
+        <div>
+          <Label>Units</Label>
+          <Select value={units} onValueChange={setUnits}>
+            <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="metric">Metric (km)</SelectItem>
+              <SelectItem value="imperial">Imperial (mi)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label>Time zone</Label>
+          <Input value={tz} onChange={(e) => setTz(e.target.value)} placeholder="e.g. Europe/London" className="mt-1" />
+        </div>
+        <div className="sm:col-span-2"><Button onClick={save}>Save preferences</Button></div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function JoinRequestsInbox({ userId }: { userId: string }) {
+  const qc = useQueryClient();
+  const { data: requests } = useQuery({
+    queryKey: ["my-join-requests", userId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("athlete_join_requests")
+        .select("id, status, message, created_at, coach_user_id, athlete_id, athletes(name), profiles!athlete_join_requests_coach_user_id_fkey(full_name, email)")
+        .eq("target_user_id", userId)
+        .eq("status", "pending")
+        .order("created_at", { ascending: false });
+      return data ?? [];
+    },
+  });
+  async function respond(id: string, accept: boolean) {
+    const { data, error } = await supabase.rpc("respond_to_join_request", { _request_id: id, _accept: accept });
+    if (error) { toast.error(error.message); return; }
+    const result = data as any;
+    if (result?.ok === false) { toast.error(result.error ?? "Failed"); return; }
+    toast.success(accept ? "Joined coach's squad" : "Declined");
+    qc.invalidateQueries({ queryKey: ["my-join-requests"] });
+    qc.invalidateQueries({ queryKey: ["my-athlete"] });
+    qc.invalidateQueries({ queryKey: ["my-roles"] });
+  }
+  if (!requests || requests.length === 0) return null;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Coach invitations</CardTitle>
+        <CardDescription>Coaches who want to add you to their roster.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {requests.map((r: any) => (
+          <div key={r.id} className="flex items-center justify-between gap-3 border rounded px-3 py-2 text-sm">
+            <div className="min-w-0">
+              <div className="font-medium truncate">{r.profiles?.full_name ?? r.profiles?.email ?? "A coach"}</div>
+              {r.message && <div className="text-xs text-muted-foreground truncate">{r.message}</div>}
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <Button size="sm" variant="outline" onClick={() => respond(r.id, false)}>Decline</Button>
+              <Button size="sm" onClick={() => respond(r.id, true)}>Accept</Button>
+            </div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   );
 }
 
