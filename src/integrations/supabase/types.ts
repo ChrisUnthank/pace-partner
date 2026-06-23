@@ -129,6 +129,50 @@ export type Database = {
           },
         ]
       }
+      ai_reviews: {
+        Row: {
+          athlete_id: string
+          coach_id: string
+          content_md: string
+          created_at: string
+          id: string
+          meta: Json | null
+          period_end: string
+          period_start: string
+          review_type: string
+        }
+        Insert: {
+          athlete_id: string
+          coach_id: string
+          content_md: string
+          created_at?: string
+          id?: string
+          meta?: Json | null
+          period_end: string
+          period_start: string
+          review_type: string
+        }
+        Update: {
+          athlete_id?: string
+          coach_id?: string
+          content_md?: string
+          created_at?: string
+          id?: string
+          meta?: Json | null
+          period_end?: string
+          period_start?: string
+          review_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_reviews_athlete_id_fkey"
+            columns: ["athlete_id"]
+            isOneToOne: false
+            referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_usage_daily: {
         Row: {
           call_count: number
@@ -444,11 +488,13 @@ export type Database = {
           hr_rest: number | null
           id: string
           last_checkout_at: string | null
+          last_log_at: string | null
           name: string
           primary_event: string | null
           profile_image_url: string | null
           reminder_evening_local: string | null
           reminder_morning_local: string | null
+          reminders_enabled: boolean
           sex: string | null
           training_age_years: number | null
           updated_at: string
@@ -462,11 +508,13 @@ export type Database = {
           hr_rest?: number | null
           id?: string
           last_checkout_at?: string | null
+          last_log_at?: string | null
           name: string
           primary_event?: string | null
           profile_image_url?: string | null
           reminder_evening_local?: string | null
           reminder_morning_local?: string | null
+          reminders_enabled?: boolean
           sex?: string | null
           training_age_years?: number | null
           updated_at?: string
@@ -480,11 +528,13 @@ export type Database = {
           hr_rest?: number | null
           id?: string
           last_checkout_at?: string | null
+          last_log_at?: string | null
           name?: string
           primary_event?: string | null
           profile_image_url?: string | null
           reminder_evening_local?: string | null
           reminder_morning_local?: string | null
+          reminders_enabled?: boolean
           sex?: string | null
           training_age_years?: number | null
           updated_at?: string
@@ -520,6 +570,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      coach_settings: {
+        Row: {
+          coach_id: string
+          created_at: string
+          default_reminder_evening_local: string
+          default_reminder_morning_local: string
+          reminders_enabled_default: boolean
+          updated_at: string
+        }
+        Insert: {
+          coach_id: string
+          created_at?: string
+          default_reminder_evening_local?: string
+          default_reminder_morning_local?: string
+          reminders_enabled_default?: boolean
+          updated_at?: string
+        }
+        Update: {
+          coach_id?: string
+          created_at?: string
+          default_reminder_evening_local?: string
+          default_reminder_morning_local?: string
+          reminders_enabled_default?: boolean
+          updated_at?: string
+        }
+        Relationships: []
       }
       daily_checkins: {
         Row: {
