@@ -484,13 +484,25 @@ function StepBlock({ session, step, results, fatigue, fuelEvents }: { session: a
 
 function RepRow({ step, rep, result, onSave, onAddFuel, fuelNotes }: { step: any; rep: number; result?: any; onSave: (patch: any) => void; onAddFuel: () => void; fuelNotes: any[] }) {
   const isRecovery = step.kind === "recovery";
-  const [time, setTime] = useState(result?.actual_time_seconds ? secToClock(result.actual_time_seconds) : "");
-  const [dist, setDist] = useState(result?.actual_distance_m ?? "");
-  const [hrEnd, setHrEnd] = useState(result?.hr_end ?? "");
-  const [hrRec, setHrRec] = useState(result?.hr_end_recovery ?? "");
-  const [hrAvg, setHrAvg] = useState(result?.hr_avg ?? "");
-  const [cadence, setCadence] = useState(result?.cadence ?? "");
-  const [stride, setStride] = useState(result?.stride_length_cm ?? "");
+  const [time, setTime] = useState("");
+  const [dist, setDist] = useState<string | number>("");
+  const [hrEnd, setHrEnd] = useState<string | number>("");
+  const [hrRec, setHrRec] = useState<string | number>("");
+  const [hrAvg, setHrAvg] = useState<string | number>("");
+  const [cadence, setCadence] = useState<string | number>("");
+  const [stride, setStride] = useState<string | number>("");
+  // Hydrate / re-hydrate from the loaded result whenever it changes.
+  const resultKey = result?.id ?? "none";
+  useEffect(() => {
+    setTime(result?.actual_time_seconds ? secToClock(result.actual_time_seconds) : "");
+    setDist(result?.actual_distance_m ?? "");
+    setHrEnd(result?.hr_end ?? "");
+    setHrRec(result?.hr_end_recovery ?? "");
+    setHrAvg(result?.hr_avg ?? "");
+    setCadence(result?.cadence ?? "");
+    setStride(result?.stride_length_cm ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resultKey]);
 
   function commit() {
     const patch: any = {
