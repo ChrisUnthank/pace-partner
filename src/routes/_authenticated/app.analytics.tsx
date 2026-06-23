@@ -361,7 +361,7 @@ function AthleteAnalytics({
     queryFn: async () => {
       const { data } = await supabase
         .from("interval_results")
-        .select("actual_time_seconds, actual_distance_m, steps!inner(kind, sessions!inner(athlete_id, session_date, completed_at))")
+        .select("step_id, actual_time_seconds, actual_distance_m, steps!inner(kind, sessions!inner(athlete_id, session_date, completed_at))")
         .eq("steps.sessions.athlete_id", athleteId)
         .not("steps.sessions.completed_at", "is", null)
         .gte("steps.sessions.session_date", since);
@@ -467,25 +467,19 @@ function AthleteAnalytics({
       const kind = r.steps?.kind ?? "work";
       sec.set(kind, (sec.get(kind) ?? 0) + Number(r.actual_time_seconds ?? 0));
       m.set(kind, (m.get(kind) ?? 0) + Number(r.actual_distance_m ?? 0));
-      // Track which step ids contributed actuals so we can avoid double-counting via targets.
-      // The nested select includes steps but not the step id; approximate by skipping target
-      // fallback when this kind already has any actuals from the same session_date below.
+      if (r.step_id) stepsWithActuals.add(r.step_id);
     }
-    // Fallback from planned step targets when a step has no logged actuals at all.
+    // Fallback for manually-entered sessions: when a step has no per-rep results at all,
+    // attribute its planned target volume to the right kind so the chart isn't empty.
     for (const s of (stepTargets as any[]) ?? []) {
       if (stepsWithActuals.has(s.id)) continue;
-      // Only count steps that don't appear in interval_results; cheap check: look up by id
-      // through a separate fetch would be heavier. Use targets * reps * sets as upper bound.
       const reps = Number(s.reps ?? 1);
       const setCount = Number(s.set_count ?? 1);
       const kind = s.kind ?? "work";
       const td = Number(s.target_distance_m ?? 0) * reps * setCount;
       const tt = Number(s.target_time_seconds ?? 0) * reps * setCount;
-      // Add to fallback only when there is no recorded actual for this kind+session_date pair.
-      // Conservative: only add when no actuals exist anywhere for this kind on that date.
-      // (Manual-entry sessions are the target case — they have zero results overall.)
-      if (td > 0) m.set(kind, (m.get(kind) ?? 0) + td * (sec.size === 0 && m.size === 0 ? 1 : 0));
-      if (tt > 0) sec.set(kind, (sec.get(kind) ?? 0) + tt * (sec.size === 0 && m.size === 0 ? 1 : 0));
+      if (td > 0) m.set(kind, (m.get(kind) ?? 0) + td);
+      if (tt > 0) sec.set(kind, (sec.get(kind) ?? 0) + tt);
     }
     const order = ["warmup", "work", "strides", "recovery", "cooldown"];
     return order
