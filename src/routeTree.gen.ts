@@ -21,11 +21,13 @@ import { Route as AuthenticatedAppSessionsRouteImport } from './routes/_authenti
 import { Route as AuthenticatedAppProfileRouteImport } from './routes/_authenticated/app.profile'
 import { Route as AuthenticatedAppNoticeboardRouteImport } from './routes/_authenticated/app.noticeboard'
 import { Route as AuthenticatedAppMessagesRouteImport } from './routes/_authenticated/app.messages'
+import { Route as AuthenticatedAppDailyLogRouteImport } from './routes/_authenticated/app.daily-log'
 import { Route as AuthenticatedAppCheckoutRouteImport } from './routes/_authenticated/app.checkout'
 import { Route as AuthenticatedAppAthletesRouteImport } from './routes/_authenticated/app.athletes'
 import { Route as AuthenticatedAppAnalyticsRouteImport } from './routes/_authenticated/app.analytics'
 import { Route as AuthenticatedAppSessionsIndexRouteImport } from './routes/_authenticated/app.sessions.index'
 import { Route as AuthenticatedAppAthletesIndexRouteImport } from './routes/_authenticated/app.athletes.index'
+import { Route as ApiPublicHooksRunDailyRemindersRouteImport } from './routes/api/public/hooks/run-daily-reminders'
 import { Route as ApiPublicHooksDispatchPushRouteImport } from './routes/api/public/hooks/dispatch-push'
 import { Route as AuthenticatedAppSessionsNewRouteImport } from './routes/_authenticated/app.sessions.new'
 import { Route as AuthenticatedAppSessionsCalendarRouteImport } from './routes/_authenticated/app.sessions.calendar'
@@ -97,6 +99,12 @@ const AuthenticatedAppMessagesRoute =
     path: '/app/messages',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAppDailyLogRoute =
+  AuthenticatedAppDailyLogRouteImport.update({
+    id: '/app/daily-log',
+    path: '/app/daily-log',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAppCheckoutRoute =
   AuthenticatedAppCheckoutRouteImport.update({
     id: '/app/checkout',
@@ -126,6 +134,12 @@ const AuthenticatedAppAthletesIndexRoute =
     id: '/',
     path: '/',
     getParentRoute: () => AuthenticatedAppAthletesRoute,
+  } as any)
+const ApiPublicHooksRunDailyRemindersRoute =
+  ApiPublicHooksRunDailyRemindersRouteImport.update({
+    id: '/api/public/hooks/run-daily-reminders',
+    path: '/api/public/hooks/run-daily-reminders',
+    getParentRoute: () => rootRouteImport,
   } as any)
 const ApiPublicHooksDispatchPushRoute =
   ApiPublicHooksDispatchPushRouteImport.update({
@@ -177,6 +191,7 @@ export interface FileRoutesByFullPath {
   '/app/analytics': typeof AuthenticatedAppAnalyticsRoute
   '/app/athletes': typeof AuthenticatedAppAthletesRouteWithChildren
   '/app/checkout': typeof AuthenticatedAppCheckoutRoute
+  '/app/daily-log': typeof AuthenticatedAppDailyLogRoute
   '/app/messages': typeof AuthenticatedAppMessagesRoute
   '/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
   '/app/profile': typeof AuthenticatedAppProfileRoute
@@ -190,6 +205,7 @@ export interface FileRoutesByFullPath {
   '/app/sessions/calendar': typeof AuthenticatedAppSessionsCalendarRoute
   '/app/sessions/new': typeof AuthenticatedAppSessionsNewRoute
   '/api/public/hooks/dispatch-push': typeof ApiPublicHooksDispatchPushRoute
+  '/api/public/hooks/run-daily-reminders': typeof ApiPublicHooksRunDailyRemindersRoute
   '/app/athletes/': typeof AuthenticatedAppAthletesIndexRoute
   '/app/sessions/': typeof AuthenticatedAppSessionsIndexRoute
   '/app/sessions/$sessionId/analysis': typeof AuthenticatedAppSessionsSessionIdAnalysisRoute
@@ -201,6 +217,7 @@ export interface FileRoutesByTo {
   '/claim/$token': typeof ClaimTokenRoute
   '/app/analytics': typeof AuthenticatedAppAnalyticsRoute
   '/app/checkout': typeof AuthenticatedAppCheckoutRoute
+  '/app/daily-log': typeof AuthenticatedAppDailyLogRoute
   '/app/messages': typeof AuthenticatedAppMessagesRoute
   '/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
   '/app/profile': typeof AuthenticatedAppProfileRoute
@@ -212,6 +229,7 @@ export interface FileRoutesByTo {
   '/app/sessions/calendar': typeof AuthenticatedAppSessionsCalendarRoute
   '/app/sessions/new': typeof AuthenticatedAppSessionsNewRoute
   '/api/public/hooks/dispatch-push': typeof ApiPublicHooksDispatchPushRoute
+  '/api/public/hooks/run-daily-reminders': typeof ApiPublicHooksRunDailyRemindersRoute
   '/app/athletes': typeof AuthenticatedAppAthletesIndexRoute
   '/app/sessions': typeof AuthenticatedAppSessionsIndexRoute
   '/app/sessions/$sessionId/analysis': typeof AuthenticatedAppSessionsSessionIdAnalysisRoute
@@ -226,6 +244,7 @@ export interface FileRoutesById {
   '/_authenticated/app/analytics': typeof AuthenticatedAppAnalyticsRoute
   '/_authenticated/app/athletes': typeof AuthenticatedAppAthletesRouteWithChildren
   '/_authenticated/app/checkout': typeof AuthenticatedAppCheckoutRoute
+  '/_authenticated/app/daily-log': typeof AuthenticatedAppDailyLogRoute
   '/_authenticated/app/messages': typeof AuthenticatedAppMessagesRoute
   '/_authenticated/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
   '/_authenticated/app/profile': typeof AuthenticatedAppProfileRoute
@@ -239,6 +258,7 @@ export interface FileRoutesById {
   '/_authenticated/app/sessions/calendar': typeof AuthenticatedAppSessionsCalendarRoute
   '/_authenticated/app/sessions/new': typeof AuthenticatedAppSessionsNewRoute
   '/api/public/hooks/dispatch-push': typeof ApiPublicHooksDispatchPushRoute
+  '/api/public/hooks/run-daily-reminders': typeof ApiPublicHooksRunDailyRemindersRoute
   '/_authenticated/app/athletes/': typeof AuthenticatedAppAthletesIndexRoute
   '/_authenticated/app/sessions/': typeof AuthenticatedAppSessionsIndexRoute
   '/_authenticated/app/sessions/$sessionId/analysis': typeof AuthenticatedAppSessionsSessionIdAnalysisRoute
@@ -253,6 +273,7 @@ export interface FileRouteTypes {
     | '/app/analytics'
     | '/app/athletes'
     | '/app/checkout'
+    | '/app/daily-log'
     | '/app/messages'
     | '/app/noticeboard'
     | '/app/profile'
@@ -266,6 +287,7 @@ export interface FileRouteTypes {
     | '/app/sessions/calendar'
     | '/app/sessions/new'
     | '/api/public/hooks/dispatch-push'
+    | '/api/public/hooks/run-daily-reminders'
     | '/app/athletes/'
     | '/app/sessions/'
     | '/app/sessions/$sessionId/analysis'
@@ -277,6 +299,7 @@ export interface FileRouteTypes {
     | '/claim/$token'
     | '/app/analytics'
     | '/app/checkout'
+    | '/app/daily-log'
     | '/app/messages'
     | '/app/noticeboard'
     | '/app/profile'
@@ -288,6 +311,7 @@ export interface FileRouteTypes {
     | '/app/sessions/calendar'
     | '/app/sessions/new'
     | '/api/public/hooks/dispatch-push'
+    | '/api/public/hooks/run-daily-reminders'
     | '/app/athletes'
     | '/app/sessions'
     | '/app/sessions/$sessionId/analysis'
@@ -301,6 +325,7 @@ export interface FileRouteTypes {
     | '/_authenticated/app/analytics'
     | '/_authenticated/app/athletes'
     | '/_authenticated/app/checkout'
+    | '/_authenticated/app/daily-log'
     | '/_authenticated/app/messages'
     | '/_authenticated/app/noticeboard'
     | '/_authenticated/app/profile'
@@ -314,6 +339,7 @@ export interface FileRouteTypes {
     | '/_authenticated/app/sessions/calendar'
     | '/_authenticated/app/sessions/new'
     | '/api/public/hooks/dispatch-push'
+    | '/api/public/hooks/run-daily-reminders'
     | '/_authenticated/app/athletes/'
     | '/_authenticated/app/sessions/'
     | '/_authenticated/app/sessions/$sessionId/analysis'
@@ -326,6 +352,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   ClaimTokenRoute: typeof ClaimTokenRoute
   ApiPublicHooksDispatchPushRoute: typeof ApiPublicHooksDispatchPushRoute
+  ApiPublicHooksRunDailyRemindersRoute: typeof ApiPublicHooksRunDailyRemindersRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -414,6 +441,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppMessagesRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/app/daily-log': {
+      id: '/_authenticated/app/daily-log'
+      path: '/app/daily-log'
+      fullPath: '/app/daily-log'
+      preLoaderRoute: typeof AuthenticatedAppDailyLogRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/app/checkout': {
       id: '/_authenticated/app/checkout'
       path: '/app/checkout'
@@ -448,6 +482,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/app/athletes/'
       preLoaderRoute: typeof AuthenticatedAppAthletesIndexRouteImport
       parentRoute: typeof AuthenticatedAppAthletesRoute
+    }
+    '/api/public/hooks/run-daily-reminders': {
+      id: '/api/public/hooks/run-daily-reminders'
+      path: '/api/public/hooks/run-daily-reminders'
+      fullPath: '/api/public/hooks/run-daily-reminders'
+      preLoaderRoute: typeof ApiPublicHooksRunDailyRemindersRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/public/hooks/dispatch-push': {
       id: '/api/public/hooks/dispatch-push'
@@ -562,6 +603,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAppAnalyticsRoute: typeof AuthenticatedAppAnalyticsRoute
   AuthenticatedAppAthletesRoute: typeof AuthenticatedAppAthletesRouteWithChildren
   AuthenticatedAppCheckoutRoute: typeof AuthenticatedAppCheckoutRoute
+  AuthenticatedAppDailyLogRoute: typeof AuthenticatedAppDailyLogRoute
   AuthenticatedAppMessagesRoute: typeof AuthenticatedAppMessagesRoute
   AuthenticatedAppNoticeboardRoute: typeof AuthenticatedAppNoticeboardRoute
   AuthenticatedAppProfileRoute: typeof AuthenticatedAppProfileRoute
@@ -576,6 +618,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAppAnalyticsRoute: AuthenticatedAppAnalyticsRoute,
   AuthenticatedAppAthletesRoute: AuthenticatedAppAthletesRouteWithChildren,
   AuthenticatedAppCheckoutRoute: AuthenticatedAppCheckoutRoute,
+  AuthenticatedAppDailyLogRoute: AuthenticatedAppDailyLogRoute,
   AuthenticatedAppMessagesRoute: AuthenticatedAppMessagesRoute,
   AuthenticatedAppNoticeboardRoute: AuthenticatedAppNoticeboardRoute,
   AuthenticatedAppProfileRoute: AuthenticatedAppProfileRoute,
@@ -595,6 +638,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   ClaimTokenRoute: ClaimTokenRoute,
   ApiPublicHooksDispatchPushRoute: ApiPublicHooksDispatchPushRoute,
+  ApiPublicHooksRunDailyRemindersRoute: ApiPublicHooksRunDailyRemindersRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

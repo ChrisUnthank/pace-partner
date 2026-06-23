@@ -1,3 +1,21 @@
+
+## Phase 1.5b — Daily Log & AI Reviews (2026-06-23)
+
+### Shipped this pass
+- Unified `/app/daily-log` page (vitals + sessions + end-of-day note); `/app/today`, `/app/checkout`, `/app/vitals` redirect here.
+- Multi-session blocks with bulk FIT/GPX upload per block; >90-min gap warning; activity types: run/track/gym/ride/swim. Gym is manual-only.
+- Reminder system: automatic, schedule-driven. `pg_cron` job every 15 min calls `/api/public/hooks/run-daily-reminders`, which dedups via `notifications`. Manual reminder buttons removed from coach UI; replaced with read-only schedule + edit panel. Server fns kept internally.
+- Coach `coach_settings` table for squad defaults (UI not yet exposed).
+- Athletes carry `last_log_at` (auto-touched by trigger) and `reminders_enabled`. Coach roster now shows "last log Xm ago".
+- AI Reviews: coach-initiated `Generate Review` on athlete profile (weekly/monthly/phase/yearly/custom). `ai_reviews` table with RLS. Dashboard "Recent Reviews" card replaces the auto-generated weekly summaries grid. Phase option stubbed (greyed) — no `training_phases` table yet (per user choice).
+
+### Deferred / follow-ups
+- Per-activity-type CTL/ATL/TSB split: `sessions.activity_type` exists, but `athlete_load_daily` aggregation still treats everything as one stream. Volume-by-type view + readiness split is next pass.
+- Coach-side unreviewed/unmatched uploads queue on dashboard.
+- Squad-wide coach settings UI (table + server fns exist; no UI surface yet).
+- `training_phases` table + UI; reviews "Completed Phase" stays disabled until then.
+- Drag-and-drop step mapping for multi-file uploads within one block (currently auto-attaches all files to one session and warns on >90-min gaps).
+- Calendar tile activity-type labels.
 ## Diagnosis
 
 Two issues introduced in Phase 1.6 push delivery:

@@ -4,7 +4,7 @@ import { ReactNode, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyRoles, useAuthUser } from "@/lib/use-auth";
 import { Button } from "@/components/ui/button";
-import { Activity, CalendarDays, Users, User2, LogOut, Home, BookmarkCheck, LineChart, ChevronsLeft, ChevronsRight, Zap, HeartPulse, ClipboardCheck, Megaphone, MessageSquare } from "lucide-react";
+import { CalendarDays, Users, User2, LogOut, Home, BookmarkCheck, LineChart, ChevronsLeft, ChevronsRight, Zap, ClipboardList, Megaphone, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NotificationBell } from "@/components/notification-bell";
 
@@ -27,9 +27,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const navItems: { to: string; label: string; icon: any; show: boolean }[] = [
     { to: "/app", label: "Home", icon: Home, show: true },
-    { to: "/app/today", label: "Today", icon: Activity, show: isAthlete },
-    { to: "/app/vitals", label: "Vitals", icon: HeartPulse, show: isAthlete },
-    { to: "/app/checkout", label: "Checkout", icon: ClipboardCheck, show: isAthlete },
+    { to: "/app/daily-log", label: "Daily Log", icon: ClipboardList, show: isAthlete },
     { to: "/app/sessions", label: "Sessions", icon: CalendarDays, show: true },
     { to: "/app/analytics", label: "Analytics", icon: LineChart, show: true },
     { to: "/app/athletes", label: "Athletes", icon: Users, show: isCoach },

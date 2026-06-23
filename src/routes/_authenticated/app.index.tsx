@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyRoles, useMyRawRoles, useMyAthlete, useAuthUser } from "@/lib/use-auth";
@@ -9,12 +9,9 @@ import { Button } from "@/components/ui/button";
 import { todayISO } from "@/lib/format";
 import { ReadinessBadge } from "@/components/readiness-badge";
 import { toast } from "sonner";
-import { useServerFn } from "@tanstack/react-start";
-import { generateWeeklySummary } from "@/lib/ai.functions";
-import ReactMarkdown from "react-markdown";
-import { Sparkles } from "lucide-react";
 import { DashboardAlertsPanel } from "@/components/dashboard-alerts-panel";
 import { UserAvatar } from "@/components/user-avatar";
+import { RecentReviewsCard } from "@/components/recent-reviews-card";
 
 export const Route = createFileRoute("/_authenticated/app/")({
   component: AppHome,
@@ -53,14 +50,14 @@ function AppHome() {
       if (isManager) {
       const { data, error } = await supabase
         .from("athletes")
-        .select("id, name, primary_event, profile_image_url")
+        .select("id, name, primary_event, profile_image_url, last_log_at")
         .order("name");
         if (error) throw error;
         return (data ?? []).map((a) => ({ athlete_id: a.id, athletes: a }));
       }
       const { data, error } = await supabase
         .from("coach_athletes")
-        .select("athlete_id, athletes(id, name, primary_event, profile_image_url)")
+        .select("athlete_id, athletes(id, name, primary_event, profile_image_url, last_log_at)")
         .eq("coach_user_id", user!.id);
       if (error) throw error;
       return data;
@@ -139,9 +136,7 @@ function AppHome() {
           <DashboardAlertsPanel />
         )}
 
-        {isCoach && roster && roster.length > 0 && (
-          <WeeklySummariesGrid athleteIds={roster.map((r: any) => r.athlete_id)} names={Object.fromEntries(roster.map((r: any) => [r.athlete_id, r.athletes?.name]))} />
-        )}
+        {isCoach && <RecentReviewsCard />}
 
         {isCoach && (
           <Card>
@@ -163,7 +158,10 @@ function AppHome() {
                           <UserAvatar name={r.athletes?.name} imageUrl={r.athletes?.profile_image_url} size="sm" />
                           <div className="min-w-0">
                             <div className="font-medium truncate">{r.athletes?.name}</div>
-                            <div className="text-xs text-muted-foreground">{r.athletes?.primary_event ?? "—"}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {r.athletes?.primary_event ?? "—"}
+                              {r.athletes?.last_log_at && <> · last log {formatRelative(r.athletes.last_log_at)}</>}
+                            </div>
                           </div>
                         </div>
                         <ReadinessBadge
@@ -184,7 +182,7 @@ function AppHome() {
           <Card>
             <CardHeader><CardTitle>Quick links</CardTitle></CardHeader>
             <CardContent className="flex flex-wrap gap-2">
-              <Button asChild><Link to="/app/today">Today's session & check-in</Link></Button>
+              <Button asChild><Link to="/app/daily-log">Open Daily Log</Link></Button>
               <Button asChild variant="outline"><Link to="/app/sessions">All sessions</Link></Button>
               <Button asChild variant="outline"><Link to="/app/profile">PBs & zones</Link></Button>
             </CardContent>
@@ -195,33 +193,13 @@ function AppHome() {
   );
 }
 
-function WeeklySummariesGrid({ athleteIds, names }: { athleteIds: string[]; names: Record<string, string> }) {
-  const gen = useServerFn(generateWeeklySummary);
-  const [openId, setOpenId] = useState<string | null>(null);
-  const { data, refetch } = useQuery({
-    queryKey: ["weekly-open", openId],
-    enabled: !!openId,
-    queryFn: () => gen({ data: { athleteId: openId! } }),
-  });
-  return (
-    <Card>
-      <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="h-4 w-4 text-[var(--accent-red)]" /> Weekly AI summaries</CardTitle></CardHeader>
-      <CardContent className="space-y-2">
-        <div className="flex flex-wrap gap-2">
-          {athleteIds.map((id) => (
-            <Button key={id} size="sm" variant={openId === id ? "default" : "outline"} onClick={() => setOpenId(id)}>
-              {names[id] ?? "Athlete"}
-            </Button>
-          ))}
-        </div>
-        {openId && data?.summary_md && (
-          <div className="border rounded-md p-3 text-sm prose prose-sm max-w-none dark:prose-invert">
-            <ReactMarkdown>{data.summary_md}</ReactMarkdown>
-            <Button size="sm" variant="ghost" onClick={() => gen({ data: { athleteId: openId, force: true } }).then(() => refetch())}>Regenerate</Button>
-          </div>
-        )}
-        {openId && !data && <p className="text-sm text-muted-foreground">Generating…</p>}
-      </CardContent>
-    </Card>
-  );
+function formatRelative(iso: string) {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
 }
