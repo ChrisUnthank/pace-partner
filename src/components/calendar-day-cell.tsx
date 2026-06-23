@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
 import { sessionClassificationLabel, INTENT_LABEL, DAY_TYPE_LABEL } from "@/lib/session-categories";
+import { ActivityIcon } from "@/lib/activity-icon";
 
 export type CalendarSession = {
   id: string;
@@ -12,6 +13,7 @@ export type CalendarSession = {
   is_long_run: boolean | null;
   completed_at: string | null;
   is_planned: boolean | null;
+  activity_type?: string | null;
 };
 
 export type DayData = {
@@ -171,6 +173,7 @@ function SessionPill({
       <span className={cn("w-1 shrink-0 rounded-sm", sessionColorClass(s), isFuturePlanned && "opacity-60")} />
       <span className="flex-1 min-w-0 py-0.5">
         <span className="block text-[11px] leading-tight font-medium truncate">
+          <ActivityIcon session={s} size={11} className="inline-block mr-1 -mt-0.5 text-muted-foreground" />
           {sessionShortLabel(s)}
           {isFuturePlanned && <span className="text-muted-foreground font-normal"> · planned</span>}
         </span>

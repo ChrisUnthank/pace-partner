@@ -24,6 +24,7 @@ import ReactMarkdown from "react-markdown";
 import { markAttendance } from "@/lib/messages.functions";
 import { Switch } from "@/components/ui/switch";
 import { UserAvatar } from "@/components/user-avatar";
+import { ActivityIcon } from "@/lib/activity-icon";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/")({
   component: SessionDetail,
@@ -39,7 +40,7 @@ function SessionDetail() {
   const [tplName, setTplName] = useState("");
   const [insightOpen, setInsightOpen] = useState(false);
 
-  const { data: session, isLoading } = useQuery({
+  const { data: session, isLoading, error } = useQuery({
     queryKey: ["session", sessionId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -47,6 +48,7 @@ function SessionDetail() {
       if (error) throw error;
       return data;
     },
+    retry: false,
   });
 
   const { data: steps } = useQuery({
@@ -106,7 +108,21 @@ function SessionDetail() {
     },
   });
 
-  if (isLoading || !session) return <AppShell><p>Loading…</p></AppShell>;
+  if (isLoading) return <AppShell><p>Loading…</p></AppShell>;
+  if (error || !session) {
+    return (
+      <AppShell>
+        <div className="space-y-3 max-w-lg">
+          <h1 className="text-lg font-semibold">Session not found</h1>
+          <p className="text-sm text-muted-foreground">
+            This session may have been deleted, or you may not have access to it.
+            {error ? <> <span className="block mt-1 text-xs">({(error as any).message})</span></> : null}
+          </p>
+          <Button asChild variant="outline" size="sm"><Link to="/app/sessions">← Back to sessions</Link></Button>
+        </div>
+      </AppShell>
+    );
+  }
 
   const canSaveAsTemplate = isCoach && (session as any).day_type === "training";
 
@@ -123,11 +139,17 @@ function SessionDetail() {
                 size="lg"
               />
               <div>
-                <h1 className="text-2xl font-bold">{session.title}</h1>
+                <h1 className="text-2xl font-bold flex items-center gap-2">
+                  <ActivityIcon session={session as any} size={22} className="text-muted-foreground" />
+                  {session.title}
+                </h1>
                 <p className="text-sm text-muted-foreground">
                   {session.session_date} · {session.athletes?.name} · {sessionClassificationLabel(session as any)}
                   {(session as any).applied_from_template_id && <span className="ml-2 italic">· from template</span>}
                   {session.completed_at && <span className="ml-2 text-emerald-600">Completed</span>}
+                  {session.completed_at && session.rpe != null && (
+                    <span className="ml-2">· RPE <span className="tabular-nums font-medium">{session.rpe}</span>/10</span>
+                  )}
                 </p>
               </div>
             </div>
@@ -595,11 +617,11 @@ function SessionSummary({ session, onSaved, onCompleted }: { session: any; onSav
       total_time_seconds: clockToSec(totalTime as any),
       avg_hr: avgHr === "" ? null : Number(avgHr),
       rpe,
-      completed_at: new Date().toISOString(),
+      ...(wasAlreadyComplete ? {} : { completed_at: new Date().toISOString() }),
     }).eq("id", session.id);
     if (error) toast.error(error.message);
     else {
-      toast.success("Session marked complete");
+      toast.success(wasAlreadyComplete ? "Session updated" : "Session marked complete");
       onSaved();
       if (!wasAlreadyComplete) onCompleted?.();
     }
@@ -618,7 +640,10 @@ function SessionSummary({ session, onSaved, onCompleted }: { session: any; onSav
           <Label>RPE (1–10): <span className="tabular-nums">{rpe}</span></Label>
           <Slider min={1} max={10} step={1} value={[rpe]} onValueChange={(v) => setRpe(v[0])} className="mt-2" />
         </div>
-        <Button onClick={complete} className="w-full"><CheckCircle2 className="h-4 w-4 mr-1" /> Mark complete</Button>
+        <Button onClick={complete} className="w-full">
+          <CheckCircle2 className="h-4 w-4 mr-1" />
+          {session.completed_at ? "Update totals & RPE" : "Mark complete"}
+        </Button>
       </CardContent>
     </Card>
   );
