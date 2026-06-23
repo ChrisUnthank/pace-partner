@@ -218,7 +218,7 @@ function AthleteHome({ athleteId }: { athleteId: string }) {
     queryKey: ["home-next-session", athleteId, today],
     queryFn: async () => {
       const { data } = await supabase.from("sessions")
-        .select("id, title, session_date, activity_type, intent")
+        .select("id, title, session_date, day_type, intent")
         .eq("athlete_id", athleteId)
         .gte("session_date", today)
         .is("completed_at", null)
@@ -270,7 +270,7 @@ function AthleteHome({ athleteId }: { athleteId: string }) {
                 <div className="font-medium truncate">{nextSession.title ?? "Session"}</div>
               </div>
               <div className="flex gap-1">
-                {nextSession.activity_type && <Badge variant="outline" className="capitalize">{nextSession.activity_type}</Badge>}
+                {nextSession.day_type && <Badge variant="outline" className="capitalize">{String(nextSession.day_type).replace("_", " ")}</Badge>}
                 {nextSession.intent && <Badge variant="outline" className="capitalize">{nextSession.intent}</Badge>}
               </div>
             </Link>
