@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
@@ -25,9 +25,15 @@ export function AthleteReminderSettings({ athleteId }: { athleteId: string }) {
   });
 
   const [editing, setEditing] = useState(false);
-  const [morning, setMorning] = useState(a?.reminder_morning_local?.slice(0, 5) ?? "08:00");
-  const [evening, setEvening] = useState(a?.reminder_evening_local?.slice(0, 5) ?? "20:00");
-  const [enabled, setEnabled] = useState<boolean>(a?.reminders_enabled ?? true);
+  const [morning, setMorning] = useState("08:00");
+  const [evening, setEvening] = useState("20:00");
+  const [enabled, setEnabled] = useState<boolean>(true);
+  useEffect(() => {
+    if (!a) return;
+    setMorning((a.reminder_morning_local ?? "08:00").slice(0, 5));
+    setEvening((a.reminder_evening_local ?? "20:00").slice(0, 5));
+    setEnabled(!!a.reminders_enabled);
+  }, [a?.reminder_morning_local, a?.reminder_evening_local, a?.reminders_enabled]);
 
   if (!a) return null;
   const m = (a.reminder_morning_local ?? "08:00").slice(0, 5);
