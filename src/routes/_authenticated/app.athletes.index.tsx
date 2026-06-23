@@ -102,10 +102,10 @@ function AthletesPage() {
 
   async function sendJoinRequest() {
     if (!joinEmail) { toast.error("Email required"); return; }
-    const { data, error } = await supabase.rpc("request_athlete_join_by_email", {
+    const { data, error } = await (supabase.rpc as any)("request_athlete_join_by_email", {
       _email: joinEmail,
-      _athlete_name: joinName || undefined,
-      _message: joinMessage || undefined,
+      _athlete_name: joinName || null,
+      _message: joinMessage || null,
     });
     if (error) { toast.error(error.message); return; }
     const result = data as any;
