@@ -438,7 +438,6 @@ function StepBlock({ session, step, results, fatigue, fuelEvents }: { session: a
                 )}
                 {reps.map((rep) => {
                   const r = results.find((x) => x.rep_number === rep && (x.set_number ?? 1) === setN);
-                  const fuelForRep = fuelEvents.filter((f) => f.rep_number === rep);
                   return (
                     <RepRow
                       key={`${setN}-${rep}`}
@@ -446,8 +445,6 @@ function StepBlock({ session, step, results, fatigue, fuelEvents }: { session: a
                       rep={rep}
                       result={r}
                       onSave={(p) => saveRep(setN, rep, p)}
-                      onAddFuel={() => addFuelNote(rep)}
-                      fuelNotes={fuelForRep}
                     />
                   );
                 })}
@@ -459,21 +456,24 @@ function StepBlock({ session, step, results, fatigue, fuelEvents }: { session: a
           <div className="space-y-2">
             {reps.map((rep) => {
               const r = results.find((x) => x.rep_number === rep);
-              return <RepRow key={rep} step={step} rep={rep} result={r} onSave={(p) => saveRep(1, rep, p)} onAddFuel={() => addFuelNote(rep)} fuelNotes={[]} />;
+              return <RepRow key={rep} step={step} rep={rep} result={r} onSave={(p) => saveRep(1, rep, p)} />;
             })}
           </div>
         )}
         {(step.kind === "warmup" || step.kind === "cooldown") && (
-          <RepRow step={step} rep={1} result={results[0]} onSave={(p) => saveRep(1, 1, p)} onAddFuel={() => addFuelNote(1)} fuelNotes={fuelEvents.filter((f) => f.rep_number === 1)} />
+          <RepRow step={step} rep={1} result={results[0]} onSave={(p) => saveRep(1, 1, p)} />
         )}
+        {isWork && <WorkFuelNote step={step} sessionId={session.id} />}
+        {isWork && <LactateSummary results={results} />}
         {isWork && <StepFatiguePanel fatigue={fatigue} isLadder={step.is_ladder} reps={results.length} />}
       </CardContent>
     </Card>
   );
 }
 
-function RepRow({ step, rep, result, onSave, onAddFuel, fuelNotes }: { step: any; rep: number; result?: any; onSave: (patch: any) => void; onAddFuel: () => void; fuelNotes: any[] }) {
+function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?: any; onSave: (patch: any) => void }) {
   const isRecovery = step.kind === "recovery";
+  const isWorkOrStride = step.kind === "work" || step.kind === "strides";
   const [time, setTime] = useState("");
   const [dist, setDist] = useState<string | number>("");
   const [hrEnd, setHrEnd] = useState<string | number>("");
@@ -481,6 +481,10 @@ function RepRow({ step, rep, result, onSave, onAddFuel, fuelNotes }: { step: any
   const [hrAvg, setHrAvg] = useState<string | number>("");
   const [cadence, setCadence] = useState<string | number>("");
   const [stride, setStride] = useState<string | number>("");
+  const [adjustmentNote, setAdjustmentNote] = useState<string>("");
+  const [lactateTaken, setLactateTaken] = useState<boolean>(false);
+  const [lactateMmol, setLactateMmol] = useState<string | number>("");
+  const [lactateTiming, setLactateTiming] = useState<string>("end_of_rep");
   // Hydrate / re-hydrate from the loaded result whenever it changes.
   const resultKey = result?.id ?? "none";
   useEffect(() => {
@@ -491,6 +495,10 @@ function RepRow({ step, rep, result, onSave, onAddFuel, fuelNotes }: { step: any
     setHrAvg(result?.hr_avg ?? "");
     setCadence(result?.cadence ?? "");
     setStride(result?.stride_length_cm ?? "");
+    setAdjustmentNote(result?.adjustment_note ?? "");
+    setLactateTaken(!!result?.lactate_taken);
+    setLactateMmol(result?.lactate_mmol ?? "");
+    setLactateTiming(result?.lactate_timing ?? "end_of_rep");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resultKey]);
 
@@ -503,6 +511,10 @@ function RepRow({ step, rep, result, onSave, onAddFuel, fuelNotes }: { step: any
       hr_avg: hrAvg === "" ? null : Number(hrAvg),
       cadence: cadence === "" ? null : Number(cadence),
       stride_length_cm: stride === "" ? null : Number(stride),
+      adjustment_note: adjustmentNote.trim() === "" ? null : adjustmentNote.trim(),
+      lactate_taken: lactateTaken,
+      lactate_mmol: lactateMmol === "" ? null : Number(lactateMmol),
+      lactate_timing: lactateTaken ? lactateTiming : null,
     };
     if (patch.actual_time_seconds && patch.actual_distance_m) {
       patch.actual_pace_sec_per_km = (patch.actual_time_seconds / patch.actual_distance_m) * 1000;
@@ -514,11 +526,6 @@ function RepRow({ step, rep, result, onSave, onAddFuel, fuelNotes }: { step: any
     <div className="space-y-2 border-l-2 pl-2">
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <span>Rep {rep}</span>
-        {!isRecovery && (
-          <Button type="button" size="sm" variant="ghost" className="h-6 px-2" onClick={onAddFuel}>
-            <Apple className="h-3 w-3 mr-1" /> Fueling note
-          </Button>
-        )}
       </div>
       <div className="grid grid-cols-12 gap-2 items-end text-sm">
         <div className="col-span-4 sm:col-span-3"><Label className="text-xs">Time</Label><Input placeholder="mm:ss" value={time} onChange={(e) => setTime(e.target.value)} onBlur={commit} /></div>
@@ -530,11 +537,82 @@ function RepRow({ step, rep, result, onSave, onAddFuel, fuelNotes }: { step: any
           <div className="col-span-4 sm:col-span-2"><Label className="text-xs">Stride (cm)</Label><Input type="number" value={stride} onChange={(e) => setStride(e.target.value)} onBlur={commit} /></div>
         </>}
       </div>
-      {fuelNotes.length > 0 && (
-        <div className="text-xs text-muted-foreground space-y-0.5">
-          {fuelNotes.map((f) => <div key={f.id}>🍌 {f.note}</div>)}
+      {!isRecovery && (
+        <Input
+          className="h-7 text-xs"
+          placeholder="Adjustment note (e.g. eased off, switched to spikes)"
+          value={adjustmentNote}
+          onChange={(e) => setAdjustmentNote(e.target.value)}
+          onBlur={commit}
+        />
+      )}
+      {isWorkOrStride && (
+        <div className="flex flex-wrap items-end gap-2 text-xs pt-1">
+          <label className="flex items-center gap-1.5">
+            <Switch checked={lactateTaken} onCheckedChange={(v) => { setLactateTaken(v); setTimeout(commit, 0); }} />
+            <span className="text-muted-foreground">Lactate</span>
+          </label>
+          {lactateTaken && (
+            <>
+              <div>
+                <Label className="text-[10px]">mmol/L</Label>
+                <Input className="h-7 w-20" type="number" step="0.1" value={lactateMmol}
+                  onChange={(e) => setLactateMmol(e.target.value)} onBlur={commit} />
+              </div>
+              <div className="min-w-[140px]">
+                <Label className="text-[10px]">Timing</Label>
+                <Select value={lactateTiming} onValueChange={(v) => { setLactateTiming(v); setTimeout(commit, 0); }}>
+                  <SelectTrigger className="h-7"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="end_of_rep">End of rep</SelectItem>
+                    <SelectItem value="end_of_recovery">End of recovery</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </>
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+function WorkFuelNote({ step, sessionId }: { step: any; sessionId: string }) {
+  const qc = useQueryClient();
+  const [note, setNote] = useState<string>(step.fuel_note ?? "");
+  useEffect(() => { setNote(step.fuel_note ?? ""); }, [step.id, step.fuel_note]);
+  async function save() {
+    const { error } = await supabase.from("steps").update({ fuel_note: note.trim() || null }).eq("id", step.id);
+    if (error) { toast.error(error.message); return; }
+    qc.invalidateQueries({ queryKey: ["steps", sessionId] });
+    toast.success("Fueling note saved");
+  }
+  return (
+    <div className="mt-3 border-t pt-3 space-y-1.5">
+      <Label className="text-xs flex items-center gap-1"><Apple className="h-3 w-3" /> Fueling note (this work block)</Label>
+      <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. gel before rep 4, sips of water between sets" className="text-sm" rows={2} />
+      <Button size="sm" variant="outline" onClick={save}>Save fueling note</Button>
+    </div>
+  );
+}
+
+function LactateSummary({ results }: { results: any[] }) {
+  const rows = results.filter((r) => r.lactate_taken && r.lactate_mmol != null);
+  if (rows.length === 0) return null;
+  return (
+    <div className="mt-3 border-t pt-3">
+      <div className="text-xs font-semibold text-muted-foreground mb-1.5">Lactate readings</div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+        {rows.map((r) => (
+          <div key={r.id} className="border rounded px-2 py-1 flex justify-between">
+            <span className="text-muted-foreground">
+              {(r.set_number ?? 1) > 1 ? `S${r.set_number} ` : ""}Rep {r.rep_number}
+              {r.lactate_timing === "end_of_recovery" ? " · rec" : ""}
+            </span>
+            <span className="tabular-nums font-medium">{Number(r.lactate_mmol).toFixed(1)} mmol</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
