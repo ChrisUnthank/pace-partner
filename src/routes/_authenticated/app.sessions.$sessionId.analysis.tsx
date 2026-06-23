@@ -304,6 +304,8 @@ function SessionAnalysis() {
           </CardContent>
         </Card>
 
+        <WorkSegmentPanel steps={steps ?? []} results={results ?? []} />
+
         {hasRaw && (
           <Card>
             <CardHeader>
