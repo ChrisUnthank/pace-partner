@@ -40,6 +40,8 @@ type RangeKey = keyof typeof RANGES;
 const searchSchema = z.object({
   athleteId: z.string().optional(),
   range: z.enum(["4w", "3m", "6m", "all"]).optional(),
+  from: z.string().optional(),
+  to: z.string().optional(),
 });
 
 export const Route = createFileRoute("/_authenticated/app/analytics")({
@@ -71,18 +73,23 @@ function AnalyticsPage() {
   const { data: myAthlete } = useMyAthlete();
   const isCoach = roles.includes("coach");
   const range: RangeKey = (search.range ?? "3m") as RangeKey;
+  const customFrom = search.from;
+  const customTo = search.to;
 
   // Athlete view if athleteId is set, or if user is athlete-only
   const selectedAthleteId = search.athleteId ?? (!isCoach ? myAthlete?.id : undefined);
 
   function setRange(r: RangeKey) {
-    navigate({ search: (prev: any) => ({ ...prev, range: r }) });
+    navigate({ search: (prev: any) => ({ ...prev, range: r, from: undefined, to: undefined }) });
+  }
+  function setCustomRange(from?: string, to?: string) {
+    navigate({ search: (prev: any) => ({ ...prev, from, to }) });
   }
 
   if (isCoach && !selectedAthleteId) {
     return (
       <AppShell>
-        <CoachRoster range={range} onRangeChange={setRange} />
+        <CoachRoster range={range} onRangeChange={setRange} customFrom={customFrom} customTo={customTo} onCustomRange={setCustomRange} />
       </AppShell>
     );
   }
@@ -97,14 +104,15 @@ function AnalyticsPage() {
 
   return (
     <AppShell>
-      <AthleteAnalytics athleteId={selectedAthleteId} range={range} onRangeChange={setRange} showBack={isCoach} />
+      <AthleteAnalytics athleteId={selectedAthleteId} range={range} onRangeChange={setRange} showBack={isCoach}
+        customFrom={customFrom} customTo={customTo} onCustomRange={setCustomRange} />
     </AppShell>
   );
 }
 
 // ---------- Coach roster ----------
 
-function CoachRoster({ range, onRangeChange }: { range: RangeKey; onRangeChange: (r: RangeKey) => void }) {
+function CoachRoster({ range, onRangeChange, customFrom, customTo, onCustomRange }: { range: RangeKey; onRangeChange: (r: RangeKey) => void; customFrom?: string; customTo?: string; onCustomRange: (from?: string, to?: string) => void }) {
   const { user } = useAuthUser();
   const { data: rawRoles = [] } = useMyRawRoles();
   const isManager = rawRoles.includes("manager");
@@ -190,7 +198,7 @@ function CoachRoster({ range, onRangeChange }: { range: RangeKey; onRangeChange:
           <h1 className="text-2xl font-bold">Roster analytics</h1>
           <p className="text-sm text-muted-foreground">Readiness band and 14-day fitness trend for every athlete.</p>
         </div>
-        <RangePicker value={range} onChange={onRangeChange} />
+        <RangePicker value={range} onChange={onRangeChange} customFrom={customFrom} customTo={customTo} onCustomRange={onCustomRange} />
       </div>
 
       <Card>
@@ -274,14 +282,21 @@ function AthleteAnalytics({
   range,
   onRangeChange,
   showBack,
+  customFrom,
+  customTo,
+  onCustomRange,
 }: {
   athleteId: string;
   range: RangeKey;
   onRangeChange: (r: RangeKey) => void;
   showBack: boolean;
+  customFrom?: string;
+  customTo?: string;
+  onCustomRange: (from?: string, to?: string) => void;
 }) {
   const days = RANGES[range].days;
-  const since = isoDaysAgo(days);
+  const since = customFrom ?? isoDaysAgo(days);
+  // (We still cap analytics queries by "since"; "to" is applied client-side where it matters.)
 
   const { data: athlete } = useQuery({
     queryKey: ["analytics-athlete", athleteId],
@@ -509,7 +524,7 @@ function AthleteAnalytics({
             />
           </div>
         </div>
-        <RangePicker value={range} onChange={onRangeChange} />
+        <RangePicker value={range} onChange={onRangeChange} customFrom={customFrom} customTo={customTo} onCustomRange={onCustomRange} />
       </div>
 
       {/* PMC */}
@@ -694,15 +709,16 @@ function AthleteAnalytics({
   );
 }
 
-function RangePicker({ value, onChange }: { value: RangeKey; onChange: (r: RangeKey) => void }) {
+function RangePicker({ value, onChange, customFrom, customTo, onCustomRange }: { value: RangeKey; onChange: (r: RangeKey) => void; customFrom?: string; customTo?: string; onCustomRange?: (from?: string, to?: string) => void }) {
+  const isCustom = !!(customFrom || customTo);
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-2 flex-wrap">
       <div className="hidden sm:flex border rounded-md overflow-hidden">
         {(Object.keys(RANGES) as RangeKey[]).map((k) => (
           <button
             key={k}
             onClick={() => onChange(k)}
-            className={`px-3 py-1.5 text-xs ${value === k ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+            className={`px-3 py-1.5 text-xs ${value === k && !isCustom ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
           >
             {k === "all" ? "All" : k.toUpperCase()}
           </button>
@@ -718,6 +734,16 @@ function RangePicker({ value, onChange }: { value: RangeKey; onChange: (r: Range
           </SelectContent>
         </Select>
       </div>
+      {onCustomRange && (
+        <div className="flex items-center gap-1 text-xs">
+          <input type="date" value={customFrom ?? ""} onChange={(e) => onCustomRange(e.target.value || undefined, customTo)} className="h-8 px-2 border rounded bg-background" aria-label="From" />
+          <span className="text-muted-foreground">→</span>
+          <input type="date" value={customTo ?? ""} onChange={(e) => onCustomRange(customFrom, e.target.value || undefined)} className="h-8 px-2 border rounded bg-background" aria-label="To" />
+          {isCustom && (
+            <button onClick={() => onCustomRange(undefined, undefined)} className="px-2 h-8 text-xs hover:bg-accent rounded">Clear</button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
