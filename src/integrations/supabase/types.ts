@@ -1702,6 +1702,7 @@ export type Database = {
       }
       sessions: {
         Row: {
+          activity_type: string | null
           altitude_m: number | null
           applied_from_template_id: string | null
           athlete_id: string
@@ -1719,6 +1720,7 @@ export type Database = {
           is_long_run: boolean
           is_planned: boolean
           location_id: string | null
+          max_hr: number | null
           needs_review: boolean | null
           notes: string | null
           pace_decay_pct: number | null
@@ -1740,6 +1742,7 @@ export type Database = {
           zone_basis: Database["public"]["Enums"]["zone_basis"]
         }
         Insert: {
+          activity_type?: string | null
           altitude_m?: number | null
           applied_from_template_id?: string | null
           athlete_id: string
@@ -1757,6 +1760,7 @@ export type Database = {
           is_long_run?: boolean
           is_planned?: boolean
           location_id?: string | null
+          max_hr?: number | null
           needs_review?: boolean | null
           notes?: string | null
           pace_decay_pct?: number | null
@@ -1778,6 +1782,7 @@ export type Database = {
           zone_basis?: Database["public"]["Enums"]["zone_basis"]
         }
         Update: {
+          activity_type?: string | null
           altitude_m?: number | null
           applied_from_template_id?: string | null
           athlete_id?: string
@@ -1795,6 +1800,7 @@ export type Database = {
           is_long_run?: boolean
           is_planned?: boolean
           location_id?: string | null
+          max_hr?: number | null
           needs_review?: boolean | null
           notes?: string | null
           pace_decay_pct?: number | null
@@ -2191,6 +2197,10 @@ export type Database = {
         Returns: undefined
       }
       recompute_readiness_all: { Args: { _date: string }; Returns: undefined }
+      recompute_session_totals: {
+        Args: { _session_id: string }
+        Returns: undefined
+      }
       recompute_session_zones: {
         Args: { _session_id: string }
         Returns: undefined
