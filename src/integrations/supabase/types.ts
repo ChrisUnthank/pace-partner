@@ -296,6 +296,47 @@ export type Database = {
           },
         ]
       }
+      athlete_join_requests: {
+        Row: {
+          athlete_id: string
+          coach_user_id: string
+          created_at: string
+          id: string
+          message: string | null
+          responded_at: string | null
+          status: string
+          target_user_id: string
+        }
+        Insert: {
+          athlete_id: string
+          coach_user_id: string
+          created_at?: string
+          id?: string
+          message?: string | null
+          responded_at?: string | null
+          status?: string
+          target_user_id: string
+        }
+        Update: {
+          athlete_id?: string
+          coach_user_id?: string
+          created_at?: string
+          id?: string
+          message?: string | null
+          responded_at?: string | null
+          status?: string
+          target_user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "athlete_join_requests_athlete_id_fkey"
+            columns: ["athlete_id"]
+            isOneToOne: false
+            referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       athlete_load_daily: {
         Row: {
           athlete_id: string
@@ -483,6 +524,7 @@ export type Database = {
         Row: {
           created_at: string
           created_by: string | null
+          distance_unit: string
           dob: string | null
           hr_max: number | null
           hr_rest: number | null
@@ -496,6 +538,7 @@ export type Database = {
           reminder_morning_local: string | null
           reminders_enabled: boolean
           sex: string | null
+          timezone: string
           training_age_years: number | null
           updated_at: string
           user_id: string | null
@@ -503,6 +546,7 @@ export type Database = {
         Insert: {
           created_at?: string
           created_by?: string | null
+          distance_unit?: string
           dob?: string | null
           hr_max?: number | null
           hr_rest?: number | null
@@ -516,6 +560,7 @@ export type Database = {
           reminder_morning_local?: string | null
           reminders_enabled?: boolean
           sex?: string | null
+          timezone?: string
           training_age_years?: number | null
           updated_at?: string
           user_id?: string | null
@@ -523,6 +568,7 @@ export type Database = {
         Update: {
           created_at?: string
           created_by?: string | null
+          distance_unit?: string
           dob?: string | null
           hr_max?: number | null
           hr_rest?: number | null
@@ -536,6 +582,7 @@ export type Database = {
           reminder_morning_local?: string | null
           reminders_enabled?: boolean
           sex?: string | null
+          timezone?: string
           training_age_years?: number | null
           updated_at?: string
           user_id?: string | null
@@ -783,6 +830,7 @@ export type Database = {
           actual_distance_m: number | null
           actual_pace_sec_per_km: number | null
           actual_time_seconds: number | null
+          adjustment_note: string | null
           cadence: number | null
           created_at: string
           effort: number | null
@@ -791,6 +839,9 @@ export type Database = {
           hr_end_recovery: number | null
           hr_max: number | null
           id: string
+          lactate_mmol: number | null
+          lactate_taken: boolean
+          lactate_timing: string | null
           notes: string | null
           rep_number: number
           rep_trace: Json | null
@@ -802,6 +853,7 @@ export type Database = {
           actual_distance_m?: number | null
           actual_pace_sec_per_km?: number | null
           actual_time_seconds?: number | null
+          adjustment_note?: string | null
           cadence?: number | null
           created_at?: string
           effort?: number | null
@@ -810,6 +862,9 @@ export type Database = {
           hr_end_recovery?: number | null
           hr_max?: number | null
           id?: string
+          lactate_mmol?: number | null
+          lactate_taken?: boolean
+          lactate_timing?: string | null
           notes?: string | null
           rep_number: number
           rep_trace?: Json | null
@@ -821,6 +876,7 @@ export type Database = {
           actual_distance_m?: number | null
           actual_pace_sec_per_km?: number | null
           actual_time_seconds?: number | null
+          adjustment_note?: string | null
           cadence?: number | null
           created_at?: string
           effort?: number | null
@@ -829,6 +885,9 @@ export type Database = {
           hr_end_recovery?: number | null
           hr_max?: number | null
           id?: string
+          lactate_mmol?: number | null
+          lactate_taken?: boolean
+          lactate_timing?: string | null
           notes?: string | null
           rep_number?: number
           rep_trace?: Json | null
@@ -1035,36 +1094,63 @@ export type Database = {
       }
       performances: {
         Row: {
+          age_group: string | null
+          age_group_place: number | null
           athlete_id: string
+          conditions: Json | null
           context: string | null
           created_at: string
           distance_m: number
+          event_name: string | null
+          field_size: number | null
+          fit_file_id: string | null
           id: string
           is_pb: boolean
           notes: string | null
+          overall_place: number | null
           performance_date: string
+          round: string | null
+          splits: Json | null
           time_seconds: number
         }
         Insert: {
+          age_group?: string | null
+          age_group_place?: number | null
           athlete_id: string
+          conditions?: Json | null
           context?: string | null
           created_at?: string
           distance_m: number
+          event_name?: string | null
+          field_size?: number | null
+          fit_file_id?: string | null
           id?: string
           is_pb?: boolean
           notes?: string | null
+          overall_place?: number | null
           performance_date: string
+          round?: string | null
+          splits?: Json | null
           time_seconds: number
         }
         Update: {
+          age_group?: string | null
+          age_group_place?: number | null
           athlete_id?: string
+          conditions?: Json | null
           context?: string | null
           created_at?: string
           distance_m?: number
+          event_name?: string | null
+          field_size?: number | null
+          fit_file_id?: string | null
           id?: string
           is_pb?: boolean
           notes?: string | null
+          overall_place?: number | null
           performance_date?: string
+          round?: string | null
+          splits?: Json | null
           time_seconds?: number
         }
         Relationships: [
@@ -1073,6 +1159,13 @@ export type Database = {
             columns: ["athlete_id"]
             isOneToOne: false
             referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "performances_fit_file_id_fkey"
+            columns: ["fit_file_id"]
+            isOneToOne: false
+            referencedRelation: "session_files"
             referencedColumns: ["id"]
           },
         ]
@@ -1842,6 +1935,7 @@ export type Database = {
         Row: {
           counts_toward_distance: boolean
           created_at: string
+          fuel_note: string | null
           id: string
           is_ladder: boolean
           kind: Database["public"]["Enums"]["step_kind"]
@@ -1872,6 +1966,7 @@ export type Database = {
         Insert: {
           counts_toward_distance?: boolean
           created_at?: string
+          fuel_note?: string | null
           id?: string
           is_ladder?: boolean
           kind: Database["public"]["Enums"]["step_kind"]
@@ -1902,6 +1997,7 @@ export type Database = {
         Update: {
           counts_toward_distance?: boolean
           created_at?: string
+          fuel_note?: string | null
           id?: string
           is_ladder?: boolean
           kind?: Database["public"]["Enums"]["step_kind"]
@@ -2205,6 +2301,10 @@ export type Database = {
         Args: { _session_id: string }
         Returns: undefined
       }
+      respond_to_join_request: {
+        Args: { _accept: boolean; _request_id: string }
+        Returns: Json
+      }
       session_training_load: { Args: { _session_id: string }; Returns: number }
     }
     Enums: {
@@ -2240,6 +2340,7 @@ export type Database = {
         | "vo2"
         | "anaerobic"
         | "speed"
+        | "time_trial"
       session_source: "manual" | "synced"
       session_structure: "continuous" | "reps_intervals"
       step_kind: "warmup" | "work" | "recovery" | "cooldown" | "strides"
@@ -2409,6 +2510,7 @@ export const Constants = {
         "vo2",
         "anaerobic",
         "speed",
+        "time_trial",
       ],
       session_source: ["manual", "synced"],
       session_structure: ["continuous", "reps_intervals"],
