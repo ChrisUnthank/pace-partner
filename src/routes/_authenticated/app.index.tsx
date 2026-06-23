@@ -10,9 +10,11 @@ import { todayISO } from "@/lib/format";
 import { ReadinessBadge } from "@/components/readiness-badge";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
-import { findProactiveFlags, generateWeeklySummary } from "@/lib/ai.functions";
+import { generateWeeklySummary } from "@/lib/ai.functions";
 import ReactMarkdown from "react-markdown";
-import { AlertTriangle, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
+import { DashboardAlertsPanel } from "@/components/dashboard-alerts-panel";
+import { UserAvatar } from "@/components/user-avatar";
 
 export const Route = createFileRoute("/_authenticated/app/")({
   component: AppHome,
@@ -40,16 +42,16 @@ function AppHome() {
     enabled: !!user && isCoach,
     queryFn: async () => {
       if (isManager) {
-        const { data, error } = await supabase
-          .from("athletes")
-          .select("id, name, primary_event")
-          .order("name");
+      const { data, error } = await supabase
+        .from("athletes")
+        .select("id, name, primary_event, profile_image_url")
+        .order("name");
         if (error) throw error;
         return (data ?? []).map((a) => ({ athlete_id: a.id, athletes: a }));
       }
       const { data, error } = await supabase
         .from("coach_athletes")
-        .select("athlete_id, athletes(id, name, primary_event)")
+        .select("athlete_id, athletes(id, name, primary_event, profile_image_url)")
         .eq("coach_user_id", user!.id);
       if (error) throw error;
       return data;
@@ -118,7 +120,7 @@ function AppHome() {
         )}
 
         {isCoach && (
-          <ProactiveFlagsCard />
+          <DashboardAlertsPanel />
         )}
 
         {isCoach && roster && roster.length > 0 && (
@@ -140,10 +142,13 @@ function AppHome() {
                     const ready = readiness?.find((x) => x.athlete_id === r.athlete_id);
                     return (
                       <Link key={r.athlete_id} to="/app/athletes/$athleteId" params={{ athleteId: r.athlete_id }}
-                        className="flex items-center justify-between py-3 hover:bg-accent/50 px-2 rounded">
-                        <div>
-                          <div className="font-medium">{r.athletes?.name}</div>
-                          <div className="text-xs text-muted-foreground">{r.athletes?.primary_event ?? "—"}</div>
+                        className="flex items-center justify-between py-3 hover:bg-accent/50 px-2 rounded gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <UserAvatar name={r.athletes?.name} imageUrl={r.athletes?.profile_image_url} size="sm" />
+                          <div className="min-w-0">
+                            <div className="font-medium truncate">{r.athletes?.name}</div>
+                            <div className="text-xs text-muted-foreground">{r.athletes?.primary_event ?? "—"}</div>
+                          </div>
                         </div>
                         <ReadinessBadge
                           status={ready?.readiness_status as any}
@@ -171,25 +176,6 @@ function AppHome() {
         )}
       </div>
     </AppShell>
-  );
-}
-
-function ProactiveFlagsCard() {
-  const fn = useServerFn(findProactiveFlags);
-  const { data: flags = [] } = useQuery({ queryKey: ["proactive-flags"], queryFn: () => fn({}) });
-  if (!flags.length) return null;
-  return (
-    <Card>
-      <CardHeader><CardTitle className="flex items-center gap-2 text-base"><AlertTriangle className="h-4 w-4 text-amber-500" /> Needs attention today</CardTitle></CardHeader>
-      <CardContent className="divide-y">
-        {flags.map((f: any) => (
-          <Link key={f.athlete_id} to="/app/athletes/$athleteId" params={{ athleteId: f.athlete_id }} className="flex items-center justify-between py-2 hover:bg-accent/50 px-2 rounded">
-            <span className="font-medium">{f.name}</span>
-            <span className="text-xs text-muted-foreground">{f.reasons.join(" · ")}</span>
-          </Link>
-        ))}
-      </CardContent>
-    </Card>
   );
 }
 

@@ -12,6 +12,7 @@ import { useAuthUser, useMyRoles } from "@/lib/use-auth";
 import { listMessageContacts, listThread, sendMessage, markThreadRead, broadcastToAthletes, editMessage, listMyBroadcasts, editBroadcast } from "@/lib/messages.functions";
 import { format, formatDistanceToNow, differenceInHours } from "date-fns";
 import { toast } from "sonner";
+import { UserAvatar } from "@/components/user-avatar";
 
 export const Route = createFileRoute("/_authenticated/app/messages")({
   component: () => <AppShell><Messages /></AppShell>,
@@ -146,9 +147,7 @@ function Messages() {
                 onClick={() => setActiveId(c.user_id)}
                 className={`w-full text-left px-3 py-2.5 border-b border-border/60 flex items-start gap-3 hover:bg-muted/40 ${activeId === c.user_id ? "bg-muted/40" : ""}`}
               >
-                <span className="h-9 w-9 rounded-full bg-muted text-foreground/80 grid place-items-center text-xs font-semibold shrink-0">
-                  {initialsOf(c.name)}
-                </span>
+                <UserAvatar name={c.name} imageUrl={(c as any).image_url} size="md" className="shrink-0" />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
                     <span className={`text-sm truncate ${c.unread > 0 ? "font-semibold" : "font-medium"}`}>{c.name}</span>

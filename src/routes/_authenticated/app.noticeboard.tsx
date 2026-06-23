@@ -15,6 +15,7 @@ import { listPosts, createPost, deletePost, toggleReaction, updatePost } from "@
 import { useMyRoles, useAuthUser } from "@/lib/use-auth";
 import { format } from "date-fns";
 import { toast } from "sonner";
+import { UserAvatar } from "@/components/user-avatar";
 
 export const Route = createFileRoute("/_authenticated/app/noticeboard")({
   component: () => <AppShell><Noticeboard /></AppShell>,
@@ -113,10 +114,12 @@ function Noticeboard() {
                         {p.pinned && <Pin className="h-3.5 w-3.5 text-[var(--accent-red)]" />}
                         {p.title}
                       </CardTitle>
-                      <p className="text-xs text-muted-foreground">
-                        {p.author_name} · {format(new Date(p.created_at), "MMM d, h:mm a")}
+                      <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                        <UserAvatar name={p.author_name} imageUrl={p.author_image_url} size="xs" />
+                        <span>{p.author_name} · {format(new Date(p.created_at), "MMM d, h:mm a")}
                         {p.event_date && ` · event ${format(new Date(p.event_date), "MMM d")}`}
                         {p.edited_at && ` · edited ${format(new Date(p.edited_at), "MMM d, h:mm a")}`}
+                        </span>
                       </p>
                     </div>
                   </div>
