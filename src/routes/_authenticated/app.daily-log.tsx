@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyAthlete } from "@/lib/use-auth";
@@ -71,10 +71,25 @@ function VitalsSection({ athleteId }: { athleteId: string }) {
   const [injury, setInjury] = useState<boolean>(c?.injury_flag ?? false);
   const [injuryNotes, setInjuryNotes] = useState<string>(c?.injury_notes ?? "");
 
-  // hydrate from server once loaded
-  if (v && sleepHours === "" && v.sleep_hours != null) { setSleepHours(String(v.sleep_hours)); }
-  if (v && restingHr === "" && v.resting_hr != null) { setRestingHr(String(v.resting_hr)); }
-  if (v && weight === "" && v.weight_kg != null) { setWeight(String(v.weight_kg)); }
+  useEffect(() => {
+    if (!v) return;
+    if (v.sleep_hours != null) setSleepHours(String(v.sleep_hours));
+    if (v.resting_hr != null) setRestingHr(String(v.resting_hr));
+    if (v.weight_kg != null) setWeight(String(v.weight_kg));
+    if (v.hydration != null) setHydration(v.hydration);
+    if (Array.isArray(v.recovery_modalities)) setModalities(v.recovery_modalities);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [v?.id]);
+  useEffect(() => {
+    if (!c) return;
+    if (c.sleep_quality != null) setSleepQ(c.sleep_quality);
+    if (c.soreness != null) setSoreness(c.soreness);
+    if (c.stress != null) setStress(c.stress);
+    if (c.motivation != null) setMotivation(c.motivation);
+    setInjury(!!c.injury_flag);
+    setInjuryNotes(c.injury_notes ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [c?.id]);
 
   async function save() {
     const vitalsPayload = {
@@ -179,7 +194,8 @@ function EndOfDaySection({ athleteId }: { athleteId: string }) {
       return data as any;
     },
   });
-  const [note, setNote] = useState<string>(anyInsight?.end_of_day_note ?? "");
+  const [note, setNote] = useState<string>("");
+  useEffect(() => { if (anyInsight?.end_of_day_note) setNote(anyInsight.end_of_day_note); }, [anyInsight?.id]);
   async function save() {
     // attach to the most recent session_insight for today; create a placeholder if none
     const { data: latest } = await supabase.from("session_insights")
