@@ -612,16 +612,17 @@ function SessionSummary({ session, onSaved, onCompleted }: { session: any; onSav
 
   async function complete() {
     const wasAlreadyComplete = !!session.completed_at;
-    const { error } = await supabase.from("sessions").update({
+    const patch: Record<string, any> = {
       total_distance_m: totalDist === "" ? null : Number(totalDist),
       total_time_seconds: clockToSec(totalTime as any),
       avg_hr: avgHr === "" ? null : Number(avgHr),
       rpe,
-      completed_at: new Date().toISOString(),
-    }).eq("id", session.id);
+    };
+    if (!wasAlreadyComplete) patch.completed_at = new Date().toISOString();
+    const { error } = await supabase.from("sessions").update(patch).eq("id", session.id);
     if (error) toast.error(error.message);
     else {
-      toast.success("Session marked complete");
+      toast.success(wasAlreadyComplete ? "Session updated" : "Session marked complete");
       onSaved();
       if (!wasAlreadyComplete) onCompleted?.();
     }
@@ -640,7 +641,10 @@ function SessionSummary({ session, onSaved, onCompleted }: { session: any; onSav
           <Label>RPE (1–10): <span className="tabular-nums">{rpe}</span></Label>
           <Slider min={1} max={10} step={1} value={[rpe]} onValueChange={(v) => setRpe(v[0])} className="mt-2" />
         </div>
-        <Button onClick={complete} className="w-full"><CheckCircle2 className="h-4 w-4 mr-1" /> Mark complete</Button>
+        <Button onClick={complete} className="w-full">
+          <CheckCircle2 className="h-4 w-4 mr-1" />
+          {session.completed_at ? "Update totals & RPE" : "Mark complete"}
+        </Button>
       </CardContent>
     </Card>
   );
