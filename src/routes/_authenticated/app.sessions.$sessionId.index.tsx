@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -25,6 +25,7 @@ import { markAttendance } from "@/lib/messages.functions";
 import { Switch } from "@/components/ui/switch";
 import { UserAvatar } from "@/components/user-avatar";
 import { ActivityIcon } from "@/lib/activity-icon";
+import { invalidateSession } from "@/lib/session-invalidation";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/")({
   component: SessionDetail,
@@ -62,7 +63,7 @@ function SessionDetail() {
   });
 
   const stepIds = steps?.map((s) => s.id) ?? [];
-  const { data: results } = useQuery({
+  const { data: results, isFetching: resultsLoading } = useQuery({
     queryKey: ["results", sessionId, stepIds.join(",")],
     enabled: stepIds.length > 0,
     queryFn: async () => {
@@ -171,7 +172,9 @@ function SessionDetail() {
         {session.notes && <Card><CardContent className="pt-4 text-sm">{session.notes}</CardContent></Card>}
 
         <div className="space-y-3">
-          {(steps ?? []).map((step: any) => (
+          {stepIds.length > 0 && resultsLoading && !results ? (
+            <Card><CardContent className="pt-4 text-sm text-muted-foreground">Loading session data…</CardContent></Card>
+          ) : (steps ?? []).map((step: any) => (
             <StepBlock
               key={step.id}
               session={session}
@@ -185,7 +188,7 @@ function SessionDetail() {
 
         <SessionSummary
           session={session}
-          onSaved={() => qc.invalidateQueries({ queryKey: ["session", sessionId] })}
+          onSaved={() => invalidateSession(qc, sessionId, session.athlete_id)}
           onCompleted={() => setInsightOpen(true)}
         />
 
