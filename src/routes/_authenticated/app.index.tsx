@@ -15,6 +15,7 @@ import { RecentReviewsCard } from "@/components/recent-reviews-card";
 import { Badge } from "@/components/ui/badge";
 import { ClipboardList, CalendarDays, Megaphone, MessageSquare } from "lucide-react";
 import { listPosts } from "@/lib/noticeboard.functions";
+import { ActivityIcon } from "@/lib/activity-icon";
 
 export const Route = createFileRoute("/_authenticated/app/")({
   component: AppHome,
