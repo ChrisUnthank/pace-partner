@@ -24,6 +24,7 @@ import ReactMarkdown from "react-markdown";
 import { markAttendance } from "@/lib/messages.functions";
 import { Switch } from "@/components/ui/switch";
 import { UserAvatar } from "@/components/user-avatar";
+import { ActivityIcon } from "@/lib/activity-icon";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/")({
   component: SessionDetail,
@@ -39,7 +40,7 @@ function SessionDetail() {
   const [tplName, setTplName] = useState("");
   const [insightOpen, setInsightOpen] = useState(false);
 
-  const { data: session, isLoading } = useQuery({
+  const { data: session, isLoading, error } = useQuery({
     queryKey: ["session", sessionId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -47,6 +48,7 @@ function SessionDetail() {
       if (error) throw error;
       return data;
     },
+    retry: false,
   });
 
   const { data: steps } = useQuery({
@@ -106,7 +108,21 @@ function SessionDetail() {
     },
   });
 
-  if (isLoading || !session) return <AppShell><p>Loading…</p></AppShell>;
+  if (isLoading) return <AppShell><p>Loading…</p></AppShell>;
+  if (error || !session) {
+    return (
+      <AppShell>
+        <div className="space-y-3 max-w-lg">
+          <h1 className="text-lg font-semibold">Session not found</h1>
+          <p className="text-sm text-muted-foreground">
+            This session may have been deleted, or you may not have access to it.
+            {error ? <> <span className="block mt-1 text-xs">({(error as any).message})</span></> : null}
+          </p>
+          <Button asChild variant="outline" size="sm"><Link to="/app/sessions">← Back to sessions</Link></Button>
+        </div>
+      </AppShell>
+    );
+  }
 
   const canSaveAsTemplate = isCoach && (session as any).day_type === "training";
 
