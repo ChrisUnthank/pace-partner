@@ -128,15 +128,19 @@ function JoinRequestsInbox({ userId }: { userId: string }) {
     queryFn: async () => {
       const { data } = await supabase
         .from("athlete_join_requests")
-        .select("id, status, message, created_at, coach_user_id, athlete_id, athletes(name), profiles!athlete_join_requests_coach_user_id_fkey(full_name, email)")
+        .select("id, status, message, created_at, coach_user_id, athlete_id, athletes(name)")
         .eq("target_user_id", userId)
         .eq("status", "pending")
         .order("created_at", { ascending: false });
-      return data ?? [];
+      if (!data?.length) return [];
+      const coachIds = Array.from(new Set(data.map((r: any) => r.coach_user_id)));
+      const { data: coaches } = await supabase.from("profiles").select("id, full_name, email").in("id", coachIds);
+      const coachMap = new Map((coaches ?? []).map((c: any) => [c.id, c]));
+      return data.map((r: any) => ({ ...r, coach: coachMap.get(r.coach_user_id) }));
     },
   });
   async function respond(id: string, accept: boolean) {
-    const { data, error } = await supabase.rpc("respond_to_join_request", { _request_id: id, _accept: accept });
+    const { data, error } = await (supabase.rpc as any)("respond_to_join_request", { _request_id: id, _accept: accept });
     if (error) { toast.error(error.message); return; }
     const result = data as any;
     if (result?.ok === false) { toast.error(result.error ?? "Failed"); return; }
@@ -156,7 +160,7 @@ function JoinRequestsInbox({ userId }: { userId: string }) {
         {requests.map((r: any) => (
           <div key={r.id} className="flex items-center justify-between gap-3 border rounded px-3 py-2 text-sm">
             <div className="min-w-0">
-              <div className="font-medium truncate">{r.profiles?.full_name ?? r.profiles?.email ?? "A coach"}</div>
+              <div className="font-medium truncate">{r.coach?.full_name ?? r.coach?.email ?? "A coach"}</div>
               {r.message && <div className="text-xs text-muted-foreground truncate">{r.message}</div>}
             </div>
             <div className="flex gap-2 shrink-0">
