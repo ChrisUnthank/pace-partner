@@ -15,6 +15,7 @@ import { sendReminder } from "@/lib/session-files.functions";
 import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
 import { RefreshCw, CalendarDays } from "lucide-react";
+import { UserAvatar } from "@/components/user-avatar";
 
 export const Route = createFileRoute("/_authenticated/app/athletes/$athleteId")({
   component: AthleteDetail,
@@ -129,13 +130,16 @@ function AthleteDetail() {
             ← Roster
           </Link>
           <div className="flex items-end justify-between gap-4 mt-3 flex-wrap">
-            <div>
-              <h1 className="font-display text-4xl font-extrabold tracking-tight leading-none">
-                {athlete.name}
-              </h1>
-              <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
-                {athlete.primary_event ?? "Unassigned event"}
-              </p>
+            <div className="flex items-center gap-4">
+              <UserAvatar name={athlete.name} imageUrl={(athlete as any).profile_image_url} size="xl" />
+              <div>
+                <h1 className="font-display text-4xl font-extrabold tracking-tight leading-none">
+                  {athlete.name}
+                </h1>
+                <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                  {athlete.primary_event ?? "Unassigned event"}
+                </p>
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <Button asChild variant="outline" size="sm">

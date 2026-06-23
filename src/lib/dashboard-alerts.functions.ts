@@ -29,7 +29,7 @@ export interface DashAlert {
   extra?: { note?: string | null };
 }
 
-const QUALITY_INTENTS = new Set(["threshold", "vo2", "anaerobic", "speed"]);
+const QUALITY_INTENTS = new Set(["threshold", "vo2", "anaerobic", "speed", "tempo", "aerobic"]);
 
 function isoDate(d: Date) { return d.toISOString().slice(0, 10); }
 function daysAgo(n: number) { return isoDate(new Date(Date.now() - n * 86400_000)); }

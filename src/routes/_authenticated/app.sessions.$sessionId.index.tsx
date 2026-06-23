@@ -23,6 +23,7 @@ import { getLatestAthleteNote, generateSessionNote, getAiAccessStatus } from "@/
 import ReactMarkdown from "react-markdown";
 import { markAttendance } from "@/lib/messages.functions";
 import { Switch } from "@/components/ui/switch";
+import { UserAvatar } from "@/components/user-avatar";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/")({
   component: SessionDetail,
@@ -42,7 +43,7 @@ function SessionDetail() {
     queryKey: ["session", sessionId],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("sessions").select("*, athletes(name)").eq("id", sessionId).single();
+        .from("sessions").select("*, athletes(name, profile_image_url)").eq("id", sessionId).single();
       if (error) throw error;
       return data;
     },
@@ -115,13 +116,20 @@ function SessionDetail() {
         <div>
           <Link to="/app/sessions" className="text-sm text-muted-foreground underline">← Sessions</Link>
           <div className="flex items-start justify-between gap-3 mt-2">
-            <div>
-              <h1 className="text-2xl font-bold">{session.title}</h1>
-              <p className="text-sm text-muted-foreground">
-                {session.session_date} · {session.athletes?.name} · {sessionClassificationLabel(session as any)}
-                {(session as any).applied_from_template_id && <span className="ml-2 italic">· from template</span>}
-                {session.completed_at && <span className="ml-2 text-emerald-600">Completed</span>}
-              </p>
+            <div className="flex items-start gap-3">
+              <UserAvatar
+                name={session.athletes?.name}
+                imageUrl={(session.athletes as any)?.profile_image_url}
+                size="lg"
+              />
+              <div>
+                <h1 className="text-2xl font-bold">{session.title}</h1>
+                <p className="text-sm text-muted-foreground">
+                  {session.session_date} · {session.athletes?.name} · {sessionClassificationLabel(session as any)}
+                  {(session as any).applied_from_template_id && <span className="ml-2 italic">· from template</span>}
+                  {session.completed_at && <span className="ml-2 text-emerald-600">Completed</span>}
+                </p>
+              </div>
             </div>
             {canSaveAsTemplate && (
               <Button size="sm" variant="outline" onClick={() => { setTplName(session.title ?? ""); setSaveTplOpen(true); }}>

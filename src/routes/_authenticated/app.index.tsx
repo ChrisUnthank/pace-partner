@@ -30,6 +30,15 @@ function AppHome() {
   const isAthlete = roles.includes("athlete");
   const isManager = rawRoles.includes("manager");
 
+  const { data: myProfile } = useQuery({
+    queryKey: ["my-profile-image", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data } = await supabase.from("profiles").select("profile_image_url, full_name").eq("id", user!.id).maybeSingle();
+      return data;
+    },
+  });
+
   // Auto-redirect athletes to Today on first visit
   useEffect(() => {
     if (!rolesLoading && isAthlete && !isCoach) {
@@ -76,9 +85,15 @@ function AppHome() {
   return (
     <AppShell>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold">Welcome back</h1>
-          <p className="text-muted-foreground text-sm">
+        <div className="flex items-center gap-3">
+          <UserAvatar
+            name={(myProfile as any)?.full_name ?? athlete?.name ?? user?.email ?? ""}
+            imageUrl={(myProfile as any)?.profile_image_url ?? (athlete as any)?.profile_image_url}
+            size="lg"
+          />
+          <div>
+            <h1 className="text-2xl font-bold">Welcome back</h1>
+            <p className="text-muted-foreground text-sm">
             {(() => {
               const labels: string[] = [];
               if (isManager) labels.push("Manager");
@@ -86,7 +101,8 @@ function AppHome() {
               if (isAthlete) labels.push("Athlete");
               return labels.length ? `${labels.join(" & ")} view` : "Choose a role to get started";
             })()}
-          </p>
+            </p>
+          </div>
         </div>
 
         {!rolesLoading && rawRoles.length === 0 && (

@@ -13,6 +13,7 @@ import { ChevronLeft, ChevronRight, List as ListIcon } from "lucide-react";
 import { CalendarDayCell, type CalendarSession, type DayData, sessionColorClass, sessionShortLabel } from "@/components/calendar-day-cell";
 import { sessionClassificationLabel } from "@/lib/session-categories";
 import { cn } from "@/lib/utils";
+import { UserAvatar } from "@/components/user-avatar";
 
 const searchSchema = z.object({
   athleteId: z.string().optional(),
@@ -57,14 +58,14 @@ function CalendarPage() {
     enabled: !!user && isCoach,
     queryFn: async () => {
       if (isManager) {
-        const { data } = await supabase.from("athletes").select("id, name").order("name");
-        return (data ?? []) as { id: string; name: string }[];
+        const { data } = await supabase.from("athletes").select("id, name, profile_image_url").order("name");
+        return (data ?? []) as { id: string; name: string; profile_image_url: string | null }[];
       }
       const { data } = await supabase
         .from("coach_athletes")
-        .select("athlete_id, athletes(id, name)")
+        .select("athlete_id, athletes(id, name, profile_image_url)")
         .eq("coach_user_id", user!.id);
-      return (data ?? []).map((r: any) => r.athletes).filter(Boolean) as { id: string; name: string }[];
+      return (data ?? []).map((r: any) => r.athletes).filter(Boolean) as { id: string; name: string; profile_image_url: string | null }[];
     },
   });
 
@@ -190,7 +191,11 @@ function CalendarPage() {
             <span className="ml-2 text-sm font-medium">{view === "month" ? monthLabel : weekLabel}</span>
           </div>
           <div className="flex items-center gap-2">
-            {isCoach && roster && roster.length > 0 && (
+            {isCoach && roster && roster.length > 0 && (() => {
+              const sel = roster.find((a) => a.id === selectedAthleteId) ?? (myAthlete && myAthlete.id === selectedAthleteId ? { id: myAthlete.id, name: myAthlete.name, profile_image_url: (myAthlete as any).profile_image_url } : null);
+              return (
+              <div className="flex items-center gap-2">
+                {sel && <UserAvatar name={sel.name} imageUrl={sel.profile_image_url} size="sm" />}
               <Select value={selectedAthleteId} onValueChange={(v) => navigate({ search: (p: any) => ({ ...p, athleteId: v }) })}>
                 <SelectTrigger className="h-9 w-[180px]"><SelectValue placeholder="Select athlete" /></SelectTrigger>
                 <SelectContent>
@@ -200,7 +205,9 @@ function CalendarPage() {
                   ))}
                 </SelectContent>
               </Select>
-            )}
+              </div>
+              );
+            })()}
             <div className="inline-flex rounded-md border overflow-hidden">
               <button onClick={() => setView("month")} className={cn("px-3 py-1.5 text-xs", view === "month" ? "bg-accent" : "bg-background")}>Month</button>
               <button onClick={() => setView("week")} className={cn("px-3 py-1.5 text-xs border-l", view === "week" ? "bg-accent" : "bg-background")}>Week</button>
