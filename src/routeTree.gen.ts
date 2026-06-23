@@ -18,6 +18,7 @@ import { Route as AuthenticatedAppVitalsRouteImport } from './routes/_authentica
 import { Route as AuthenticatedAppTodayRouteImport } from './routes/_authenticated/app.today'
 import { Route as AuthenticatedAppTemplatesRouteImport } from './routes/_authenticated/app.templates'
 import { Route as AuthenticatedAppSessionsRouteImport } from './routes/_authenticated/app.sessions'
+import { Route as AuthenticatedAppRacesRouteImport } from './routes/_authenticated/app.races'
 import { Route as AuthenticatedAppProfileRouteImport } from './routes/_authenticated/app.profile'
 import { Route as AuthenticatedAppNoticeboardRouteImport } from './routes/_authenticated/app.noticeboard'
 import { Route as AuthenticatedAppMessagesRouteImport } from './routes/_authenticated/app.messages'
@@ -82,6 +83,11 @@ const AuthenticatedAppSessionsRoute =
     path: '/app/sessions',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAppRacesRoute = AuthenticatedAppRacesRouteImport.update({
+  id: '/app/races',
+  path: '/app/races',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedAppProfileRoute = AuthenticatedAppProfileRouteImport.update({
   id: '/app/profile',
   path: '/app/profile',
@@ -195,6 +201,7 @@ export interface FileRoutesByFullPath {
   '/app/messages': typeof AuthenticatedAppMessagesRoute
   '/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
   '/app/profile': typeof AuthenticatedAppProfileRoute
+  '/app/races': typeof AuthenticatedAppRacesRoute
   '/app/sessions': typeof AuthenticatedAppSessionsRouteWithChildren
   '/app/templates': typeof AuthenticatedAppTemplatesRoute
   '/app/today': typeof AuthenticatedAppTodayRoute
@@ -221,6 +228,7 @@ export interface FileRoutesByTo {
   '/app/messages': typeof AuthenticatedAppMessagesRoute
   '/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
   '/app/profile': typeof AuthenticatedAppProfileRoute
+  '/app/races': typeof AuthenticatedAppRacesRoute
   '/app/templates': typeof AuthenticatedAppTemplatesRoute
   '/app/today': typeof AuthenticatedAppTodayRoute
   '/app/vitals': typeof AuthenticatedAppVitalsRoute
@@ -248,6 +256,7 @@ export interface FileRoutesById {
   '/_authenticated/app/messages': typeof AuthenticatedAppMessagesRoute
   '/_authenticated/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
   '/_authenticated/app/profile': typeof AuthenticatedAppProfileRoute
+  '/_authenticated/app/races': typeof AuthenticatedAppRacesRoute
   '/_authenticated/app/sessions': typeof AuthenticatedAppSessionsRouteWithChildren
   '/_authenticated/app/templates': typeof AuthenticatedAppTemplatesRoute
   '/_authenticated/app/today': typeof AuthenticatedAppTodayRoute
@@ -277,6 +286,7 @@ export interface FileRouteTypes {
     | '/app/messages'
     | '/app/noticeboard'
     | '/app/profile'
+    | '/app/races'
     | '/app/sessions'
     | '/app/templates'
     | '/app/today'
@@ -303,6 +313,7 @@ export interface FileRouteTypes {
     | '/app/messages'
     | '/app/noticeboard'
     | '/app/profile'
+    | '/app/races'
     | '/app/templates'
     | '/app/today'
     | '/app/vitals'
@@ -329,6 +340,7 @@ export interface FileRouteTypes {
     | '/_authenticated/app/messages'
     | '/_authenticated/app/noticeboard'
     | '/_authenticated/app/profile'
+    | '/_authenticated/app/races'
     | '/_authenticated/app/sessions'
     | '/_authenticated/app/templates'
     | '/_authenticated/app/today'
@@ -418,6 +430,13 @@ declare module '@tanstack/react-router' {
       path: '/app/sessions'
       fullPath: '/app/sessions'
       preLoaderRoute: typeof AuthenticatedAppSessionsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/races': {
+      id: '/_authenticated/app/races'
+      path: '/app/races'
+      fullPath: '/app/races'
+      preLoaderRoute: typeof AuthenticatedAppRacesRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/app/profile': {
@@ -607,6 +626,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAppMessagesRoute: typeof AuthenticatedAppMessagesRoute
   AuthenticatedAppNoticeboardRoute: typeof AuthenticatedAppNoticeboardRoute
   AuthenticatedAppProfileRoute: typeof AuthenticatedAppProfileRoute
+  AuthenticatedAppRacesRoute: typeof AuthenticatedAppRacesRoute
   AuthenticatedAppSessionsRoute: typeof AuthenticatedAppSessionsRouteWithChildren
   AuthenticatedAppTemplatesRoute: typeof AuthenticatedAppTemplatesRoute
   AuthenticatedAppTodayRoute: typeof AuthenticatedAppTodayRoute
@@ -622,6 +642,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAppMessagesRoute: AuthenticatedAppMessagesRoute,
   AuthenticatedAppNoticeboardRoute: AuthenticatedAppNoticeboardRoute,
   AuthenticatedAppProfileRoute: AuthenticatedAppProfileRoute,
+  AuthenticatedAppRacesRoute: AuthenticatedAppRacesRoute,
   AuthenticatedAppSessionsRoute: AuthenticatedAppSessionsRouteWithChildren,
   AuthenticatedAppTemplatesRoute: AuthenticatedAppTemplatesRoute,
   AuthenticatedAppTodayRoute: AuthenticatedAppTodayRoute,
