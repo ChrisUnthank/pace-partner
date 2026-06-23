@@ -42,7 +42,7 @@ function SessionDetail() {
     queryKey: ["session", sessionId],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("sessions").select("*, athletes(name)").eq("id", sessionId).single();
+        .from("sessions").select("*, athletes(name, profile_image_url)").eq("id", sessionId).single();
       if (error) throw error;
       return data;
     },
