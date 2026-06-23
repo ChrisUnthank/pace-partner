@@ -1179,6 +1179,8 @@ export type Database = {
           full_name: string | null
           id: string
           profile_image_url: string | null
+          timezone: string | null
+          units: string
           updated_at: string
         }
         Insert: {
@@ -1189,6 +1191,8 @@ export type Database = {
           full_name?: string | null
           id: string
           profile_image_url?: string | null
+          timezone?: string | null
+          units?: string
           updated_at?: string
         }
         Update: {
@@ -1199,6 +1203,8 @@ export type Database = {
           full_name?: string | null
           id?: string
           profile_image_url?: string | null
+          timezone?: string | null
+          units?: string
           updated_at?: string
         }
         Relationships: []
@@ -2300,6 +2306,10 @@ export type Database = {
       recompute_session_zones: {
         Args: { _session_id: string }
         Returns: undefined
+      }
+      request_athlete_join_by_email: {
+        Args: { _athlete_name?: string; _email: string; _message?: string }
+        Returns: Json
       }
       respond_to_join_request: {
         Args: { _accept: boolean; _request_id: string }

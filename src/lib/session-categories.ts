@@ -1,8 +1,8 @@
-export const SESSION_INTENTS = ["easy","aerobic","tempo","threshold","vo2","anaerobic","speed"] as const;
+export const SESSION_INTENTS = ["easy","aerobic","tempo","threshold","vo2","anaerobic","speed","time_trial"] as const;
 export type SessionIntent = (typeof SESSION_INTENTS)[number];
 export const INTENT_LABEL: Record<SessionIntent, string> = {
   easy: "Easy", aerobic: "Aerobic", tempo: "Tempo", threshold: "Threshold",
-  vo2: "VO2", anaerobic: "Anaerobic", speed: "Speed",
+  vo2: "VO2", anaerobic: "Anaerobic", speed: "Speed", time_trial: "Time Trial",
 };
 
 export const SESSION_STRUCTURES = ["continuous","reps_intervals"] as const;

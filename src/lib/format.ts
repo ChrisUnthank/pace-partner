@@ -26,6 +26,17 @@ export function clockToSec(v: string): number | null {
 
 export function metersFmt(m?: number | null): string {
   if (m == null) return "—";
+  // Honour the user's units preference when running in the browser.
+  if (typeof window !== "undefined") {
+    try {
+      const u = window.localStorage.getItem("strider:units");
+      if (u === "imperial") {
+        const miles = m / 1609.344;
+        if (miles >= 0.1) return `${miles.toFixed(miles >= 10 ? 1 : 2)} mi`;
+        return `${Math.round(m * 1.09361)} yd`;
+      }
+    } catch { /* ignore */ }
+  }
   if (m >= 1000) return `${(m / 1000).toFixed(m % 1000 === 0 ? 0 : 2)} km`;
   return `${Math.round(m)} m`;
 }
