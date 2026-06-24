@@ -12,6 +12,18 @@ function mapFitSport(sport?: string): string {
   return "run";
 }
 
+function normalizeCadence(cad?: number): number | null {
+  if (!cad || cad <= 0) return null;
+
+  // filter obvious garbage
+  if (cad > 260) return null;
+
+  // detect strides vs steps
+  if (cad < 120) return cad * 2;
+
+  return cad;
+}
+
 /** Parse a GPX XML string into normalized samples. */
 function parseGPX(xml: string) {
   const trkpts: {
@@ -141,7 +153,7 @@ async function parseFIT(buffer: ArrayBuffer) {
         lng: r.position_long,
         elevation_m: r.altitude,
         hr: r.heart_rate,
-        cadence: r.cadence,
+        cadence: normalizeCadence(r.cadence),
         pace_sec_per_km: r.speed && r.speed > 0.1 ? 1000 / r.speed : null,
         vertical_oscillation_cm: r.vertical_oscillation ?? null,
         ground_contact_time_ms: r.stance_time ?? null,
