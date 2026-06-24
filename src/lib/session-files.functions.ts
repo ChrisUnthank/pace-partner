@@ -13,9 +13,11 @@ function parseGPX(xml: string) {
     const hr = /<(?:gpxtpx:)?hr>([^<]+)<\/(?:gpxtpx:)?hr>/.exec(inner);
     const cad = /<(?:gpxtpx:)?cad>([^<]+)<\/(?:gpxtpx:)?cad>/.exec(inner);
     trkpts.push({
-      lat: parseFloat(m[1]), lng: parseFloat(m[2]),
+      lat: parseFloat(m[1]),
+      lng: parseFloat(m[2]),
       ele: ele ? parseFloat(ele[1]) : undefined,
-      time: time?.[1], hr: hr ? parseInt(hr[1], 10) : undefined,
+      time: time?.[1],
+      hr: hr ? parseInt(hr[1], 10) : undefined,
       cad: cad ? parseInt(cad[1], 10) : undefined,
     });
   }
@@ -26,9 +28,11 @@ function parseGPX(xml: string) {
     if (i > 0) {
       const prev = trkpts[i - 1];
       const R = 6371000;
-      const dLat = (p.lat - prev.lat) * Math.PI / 180;
-      const dLng = (p.lng - prev.lng) * Math.PI / 180;
-      const a = Math.sin(dLat / 2) ** 2 + Math.cos(prev.lat * Math.PI / 180) * Math.cos(p.lat * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+      const dLat = ((p.lat - prev.lat) * Math.PI) / 180;
+      const dLng = ((p.lng - prev.lng) * Math.PI) / 180;
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos((prev.lat * Math.PI) / 180) * Math.cos((p.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
       totalDist += 2 * R * Math.asin(Math.sqrt(a));
     }
     const elapsed = p.time ? (new Date(p.time).getTime() - t0) / 1000 : i;
@@ -36,121 +40,213 @@ function parseGPX(xml: string) {
     let pace: number | undefined;
     if (prev?.time && p.time) {
       const R = 6371000;
-      const dLat = (p.lat - prev.lat) * Math.PI / 180;
-      const dLng = (p.lng - prev.lng) * Math.PI / 180;
-      const a = Math.sin(dLat / 2) ** 2 + Math.cos(prev.lat * Math.PI / 180) * Math.cos(p.lat * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+      const dLat = ((p.lat - prev.lat) * Math.PI) / 180;
+      const dLng = ((p.lng - prev.lng) * Math.PI) / 180;
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos((prev.lat * Math.PI) / 180) * Math.cos((p.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
       const d = 2 * R * Math.asin(Math.sqrt(a));
       const dt = (new Date(p.time).getTime() - new Date(prev.time).getTime()) / 1000;
       if (d > 1 && dt > 0) pace = (dt / d) * 1000;
     }
     return {
-      elapsed_s: elapsed, lat: p.lat, lng: p.lng,
-      elevation_m: p.ele, hr: p.hr, cadence: p.cad, pace_sec_per_km: pace,
+      elapsed_s: elapsed,
+      lat: p.lat,
+      lng: p.lng,
+      elevation_m: p.ele,
+      hr: p.hr,
+      cadence: p.cad,
+      pace_sec_per_km: pace,
     };
   });
-  const totalTime = trkpts[trkpts.length - 1].time && trkpts[0].time
-    ? (new Date(trkpts[trkpts.length - 1].time!).getTime() - t0) / 1000 : 0;
+  const totalTime =
+    trkpts[trkpts.length - 1].time && trkpts[0].time
+      ? (new Date(trkpts[trkpts.length - 1].time!).getTime() - t0) / 1000
+      : 0;
   return { points, totalDistanceM: totalDist, totalTimeS: totalTime, startedAt: trkpts[0].time ?? null };
 }
 
 async function parseFIT(buffer: ArrayBuffer) {
   const FitParser = (await import("fit-file-parser")).default as any;
   const parser = new FitParser({ force: true, speedUnit: "m/s", lengthUnit: "m", elapsedRecordField: true });
-  return await new Promise<{ points: any[]; totalDistanceM: number; totalTimeS: number; startedAt: string | null }>((resolve, reject) => {
-    parser.parse(Buffer.from(buffer), (err: any, data: any) => {
-      if (err) return reject(err);
-      const records = data?.records ?? [];
-      if (!records.length) return resolve({ points: [], totalDistanceM: 0, totalTimeS: 0, startedAt: null });
-      const t0 = records[0].timestamp ? new Date(records[0].timestamp).getTime() : 0;
-      const points = records.map((r: any) => ({
-        elapsed_s: r.elapsed_time ?? (r.timestamp ? (new Date(r.timestamp).getTime() - t0) / 1000 : 0),
-        lat: r.position_lat, lng: r.position_long,
-        elevation_m: r.altitude, hr: r.heart_rate, cadence: r.cadence,
-        pace_sec_per_km: r.speed && r.speed > 0.1 ? 1000 / r.speed : null,
-        vertical_oscillation_cm: r.vertical_oscillation,
-        ground_contact_time_ms: r.stance_time,
-      }));
-      const sess = data?.sessions?.[0];
-      resolve({
-        points,
-        totalDistanceM: sess?.total_distance ?? 0,
-        totalTimeS: sess?.total_timer_time ?? 0,
-        startedAt: records[0].timestamp ?? null,
+  return await new Promise<{ points: any[]; totalDistanceM: number; totalTimeS: number; startedAt: string | null }>(
+    (resolve, reject) => {
+      parser.parse(Buffer.from(buffer), (err: any, data: any) => {
+        if (err) return reject(err);
+        const records = data?.records ?? [];
+        if (!records.length) return resolve({ points: [], totalDistanceM: 0, totalTimeS: 0, startedAt: null });
+        const t0 = records[0].timestamp ? new Date(records[0].timestamp).getTime() : 0;
+        const points = records.map((r: any) => ({
+          elapsed_s: r.elapsed_time ?? (r.timestamp ? (new Date(r.timestamp).getTime() - t0) / 1000 : 0),
+          lat: r.position_lat,
+          lng: r.position_long,
+          elevation_m: r.altitude,
+          hr: r.heart_rate,
+          cadence: r.cadence,
+          pace_sec_per_km: r.speed && r.speed > 0.1 ? 1000 / r.speed : null,
+          vertical_oscillation_cm: r.vertical_oscillation,
+          ground_contact_time_ms: r.stance_time,
+        }));
+        const sess = data?.sessions?.[0];
+        resolve({
+          points,
+          totalDistanceM: sess?.total_distance ?? 0,
+          totalTimeS: sess?.total_timer_time ?? 0,
+          startedAt: records[0].timestamp ?? null,
+        });
       });
-    });
-  });
+    },
+  );
 }
 
 export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { athleteId: string; sessionId?: string; filename: string; kind: "fit" | "gpx"; fileBase64: string }) => d)
+  .inputValidator((d: { athleteId: string; filename: string; kind: "fit" | "gpx"; fileBase64: string }) => d)
   .handler(async ({ data, context }) => {
     const sb = context.supabase;
+    const { data: sess, error: sessError } = await sb
+      .from("sessions")
+      .insert({
+        athlete_id: data.athleteId,
+        created_by: context.userId,
+        session_date: new Date().toISOString().slice(0, 10),
+        title: data.filename.replace(/\.(fit|gpx)$/i, ""),
+        day_type: "training",
+        intent: "aerobic",
+        structure: "continuous",
+        is_planned: false,
+        completed_at: new Date().toISOString(),
+        source: "fit_import",
+        data_source: data.kind === "fit" ? "fit_upload" : "gpx_upload",
+        activity_type: "run",
+      } as any)
+      .select()
+      .single();
+
+    if (sessError || !sess) {
+      throw sessError ?? new Error("Failed to create session");
+    }
     const buf = Uint8Array.from(atob(data.fileBase64), (c) => c.charCodeAt(0));
     const storagePath = `${data.athleteId}/${Date.now()}-${data.filename}`;
-    const { error: upErr } = await sb.storage.from("session-files").upload(storagePath, buf, { contentType: data.kind === "fit" ? "application/octet-stream" : "application/gpx+xml" });
+    const { error: upErr } = await sb.storage
+      .from("session-files")
+      .upload(storagePath, buf, {
+        contentType: data.kind === "fit" ? "application/octet-stream" : "application/gpx+xml",
+      });
     if (upErr) throw upErr;
 
     let parsed: { points: any[]; totalDistanceM: number; totalTimeS: number; startedAt: string | null };
     try {
       parsed = data.kind === "gpx" ? parseGPX(new TextDecoder().decode(buf)) : await parseFIT(buf.buffer);
     } catch (e: any) {
-      const { data: fileRow } = await sb.from("session_files").insert({
-        athlete_id: data.athleteId, session_id: data.sessionId ?? null, file_kind: data.kind,
-        storage_path: storagePath, original_filename: data.filename, parse_error: String(e?.message ?? e),
-      }).select().single();
+      const { data: fileRow } = await sb
+        .from("session_files")
+        .insert({
+          athlete_id: data.athleteId,
+          session_id: data.sessionId,
+          file_kind: data.kind,
+          storage_path: storagePath,
+          original_filename: data.filename,
+          parse_error: String(e?.message ?? e),
+        })
+        .select()
+        .single();
       return { file: fileRow, points: 0, error: String(e?.message ?? e) };
     }
 
-    const { data: fileRow, error: insErr } = await sb.from("session_files").insert({
-      athlete_id: data.athleteId, session_id: data.sessionId ?? null, file_kind: data.kind,
-      storage_path: storagePath, original_filename: data.filename,
-      started_at: parsed.startedAt, total_distance_m: parsed.totalDistanceM, total_time_s: parsed.totalTimeS,
-      parsed_at: new Date().toISOString(),
-    }).select().single();
+    const { data: fileRow, error: insErr } = await sb
+      .from("session_files")
+      .insert({
+        athlete_id: data.athleteId,
+        session_id: data.sessionId ?? null,
+        file_kind: data.kind,
+        storage_path: storagePath,
+        original_filename: data.filename,
+        started_at: parsed.startedAt,
+        total_distance_m: parsed.totalDistanceM,
+        total_time_s: parsed.totalTimeS,
+        parsed_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
     if (insErr) throw insErr;
 
-    if (data.sessionId && parsed.points.length) {
+    if (parsed.points.length) {
       // chunked insert
       const rows = parsed.points.map((p) => ({
-        session_id: data.sessionId!, file_id: fileRow.id, segment_type: "work",
-        elapsed_s: p.elapsed_s, lat: p.lat, lng: p.lng, hr: p.hr,
-        pace_sec_per_km: p.pace_sec_per_km, cadence: p.cadence, elevation_m: p.elevation_m,
-        vertical_oscillation_cm: p.vertical_oscillation_cm, ground_contact_time_ms: p.ground_contact_time_ms,
+        session_id: sess.id,
+        file_id: fileRow.id,
+        segment_type: "work",
+        elapsed_s: p.elapsed_s,
+        lat: p.lat,
+        lng: p.lng,
+        hr: p.hr,
+        pace_sec_per_km: p.pace_sec_per_km,
+        cadence: p.cadence,
+        elevation_m: p.elevation_m,
+        vertical_oscillation_cm: p.vertical_oscillation_cm,
+        ground_contact_time_ms: p.ground_contact_time_ms,
       }));
       for (let i = 0; i < rows.length; i += 500) {
         await sb.from("raw_session_points").insert(rows.slice(i, i + 500));
       }
       // recompute work aggregates
       const hrs = parsed.points.map((p) => p.hr).filter((x): x is number => typeof x === "number");
-      const paces = parsed.points.map((p) => p.pace_sec_per_km).filter((x): x is number => typeof x === "number" && x > 0);
+      const paces = parsed.points
+        .map((p) => p.pace_sec_per_km)
+        .filter((x): x is number => typeof x === "number" && x > 0);
       const cads = parsed.points.map((p) => p.cadence).filter((x): x is number => typeof x === "number" && x > 0);
-      await sb.from("sessions").update({
-        data_source: data.kind === "fit" ? "fit_upload" : "gpx_upload",
-        work_distance_m: parsed.totalDistanceM,
-        work_time_s: parsed.totalTimeS,
-        work_avg_hr: hrs.length ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null,
-        work_avg_pace_sec_per_km: paces.length ? Math.round(paces.reduce((a, b) => a + b, 0) / paces.length) : null,
-        work_avg_cadence: cads.length ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length) : null,
-        needs_review: true,
-      }).eq("id", data.sessionId);
+      await sb
+        .from("sessions")
+        .update({
+          data_source: data.kind === "fit" ? "fit_upload" : "gpx_upload",
+          work_distance_m: parsed.totalDistanceM,
+          work_time_s: parsed.totalTimeS,
+          work_avg_hr: hrs.length ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null,
+          work_avg_pace_sec_per_km: paces.length ? Math.round(paces.reduce((a, b) => a + b, 0) / paces.length) : null,
+          work_avg_cadence: cads.length ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length) : null,
+          needs_review: true,
+        })
+        .eq("id", sess.id);
     }
     return { file: fileRow, points: parsed.points.length };
   });
 
 export const submitCheckout = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { athleteId: string; sessionInsights: { sessionId: string; feel: number; wentWell?: string; wasDifficult?: string; niggles?: string }[]; endOfDayNote?: string }) => d)
+  .inputValidator(
+    (d: {
+      athleteId: string;
+      sessionInsights: {
+        sessionId: string;
+        feel: number;
+        wentWell?: string;
+        wasDifficult?: string;
+        niggles?: string;
+      }[];
+      endOfDayNote?: string;
+    }) => d,
+  )
   .handler(async ({ data, context }) => {
     const sb = context.supabase;
     for (const ins of data.sessionInsights) {
-      await sb.from("session_insights").upsert({
-        session_id: ins.sessionId, athlete_id: data.athleteId,
-        feel_score: ins.feel, went_well: ins.wentWell, was_difficult: ins.wasDifficult, niggles: ins.niggles,
-      } as any, { onConflict: "session_id" } as any);
+      await sb.from("session_insights").upsert(
+        {
+          session_id: ins.sessionId,
+          athlete_id: data.athleteId,
+          feel_score: ins.feel,
+          went_well: ins.wentWell,
+          was_difficult: ins.wasDifficult,
+          niggles: ins.niggles,
+        } as any,
+        { onConflict: "session_id" } as any,
+      );
     }
     if (data.endOfDayNote && data.sessionInsights[0]) {
-      await sb.from("session_insights").update({ end_of_day_note: data.endOfDayNote }).eq("session_id", data.sessionInsights[0].sessionId);
+      await sb
+        .from("session_insights")
+        .update({ end_of_day_note: data.endOfDayNote })
+        .eq("session_id", data.sessionInsights[0].sessionId);
     }
     await sb.from("athletes").update({ last_checkout_at: new Date().toISOString() }).eq("id", data.athleteId);
     return { ok: true };
@@ -160,9 +256,16 @@ export const sendReminder = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { athleteId: string; kind: string; message?: string }) => d)
   .handler(async ({ data, context }) => {
-    const { data: row, error } = await context.supabase.from("pending_reminders").insert({
-      athlete_id: data.athleteId, coach_id: context.userId, kind: data.kind, message: data.message,
-    }).select().single();
+    const { data: row, error } = await context.supabase
+      .from("pending_reminders")
+      .insert({
+        athlete_id: data.athleteId,
+        coach_id: context.userId,
+        kind: data.kind,
+        message: data.message,
+      })
+      .select()
+      .single();
     if (error) throw error;
     return row;
   });
