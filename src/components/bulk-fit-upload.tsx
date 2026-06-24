@@ -60,12 +60,11 @@ export function BulkFitUpload({ athleteId }: { athleteId: string }) {
     setStatuses(list.map((f) => ({ name: f.name, state: "queued" })));
 
     /* ---------------- AUTH CHECK ---------------- */
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+    const { data, error: userError } = await supabase.auth.getUser();
 
-    if (userError || !user) {
+    const user = data?.user ?? null;
+
+    if (userError || !user?.id) {
       setBusy(false);
       throw new Error("Not authenticated");
     }
