@@ -1,0 +1,1 @@
+ALTER TYPE public.session_source ADD VALUE IF NOT EXISTS 'fit_import';

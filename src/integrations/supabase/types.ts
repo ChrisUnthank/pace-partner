@@ -2351,7 +2351,7 @@ export type Database = {
         | "anaerobic"
         | "speed"
         | "time_trial"
-      session_source: "manual" | "synced"
+      session_source: "manual" | "synced" | "fit_import"
       session_structure: "continuous" | "reps_intervals"
       step_kind: "warmup" | "work" | "recovery" | "cooldown" | "strides"
       target_kind: "time" | "distance"
@@ -2522,7 +2522,7 @@ export const Constants = {
         "speed",
         "time_trial",
       ],
-      session_source: ["manual", "synced"],
+      session_source: ["manual", "synced", "fit_import"],
       session_structure: ["continuous", "reps_intervals"],
       step_kind: ["warmup", "work", "recovery", "cooldown", "strides"],
       target_kind: ["time", "distance"],
