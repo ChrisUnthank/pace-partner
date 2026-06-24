@@ -161,7 +161,9 @@ async function parseFIT(buffer: ArrayBuffer) {
 
 export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { athleteId: string; sessionId?: string; filename: string; kind: "fit" | "gpx"; fileBase64: string }) => d)
+  .inputValidator(
+    (d: { athleteId: string; sessionId?: string; filename: string; kind: "fit" | "gpx"; fileBase64: string }) => d,
+  )
   .handler(async ({ data, context }) => {
     const sb = context.supabase;
 
@@ -254,7 +256,7 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
     if (parseError) {
       return { file: fileRow, points: 0, error: parseError };
     }
-    
+
     if (parsed.points.length) {
       const rows = parsed.points.map((p) => ({
         session_id: sess.id,
@@ -293,7 +295,7 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
           total_time_seconds: parsed.totalTimeS || null,
           avg_hr: avgHr,
           max_hr: maxHr,
-          completion_pct: 100,
+          completion_pct: Math.min(100, 100),
           work_distance_m: parsed.totalDistanceM,
           work_time_s: parsed.totalTimeS,
           work_avg_hr: avgHr,
@@ -306,11 +308,7 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
       // work-segment breakdown, completion %, zones, fatigue, and the analytics
       // "Volume by Session Component" chart light up for imported sessions.
       // Skip when the session already has structured steps (planned sessions).
-      const { data: existingSteps } = await sb
-        .from("steps")
-        .select("id")
-        .eq("session_id", sess.id)
-        .limit(1);
+      const { data: existingSteps } = await sb.from("steps").select("id").eq("session_id", sess.id).limit(1);
 
       if (!existingSteps || existingSteps.length === 0) {
         const { data: stepRow, error: stepErr } = await sb
