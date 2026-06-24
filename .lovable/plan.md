@@ -1,66 +1,39 @@
-## Phase B3 — Implementation plan
+## Implementation — Option (a) for imported FIT/GPX sessions
 
-7 items grouped by surface area. Each item gets its own commit-sized change. No item touches the session-workflow code path stabilized in B1/B2.
+Single file change: `src/lib/session-files.functions.ts` → `uploadAndParseSessionFile.handler`.
 
-### 4 — Analytics date range
-- Add custom date-range option to the existing `RangePicker` (alongside 4w/3m/6m/all).
-- Extend `searchSchema` with optional `from`/`to` ISO dates; when present they override the preset.
-- Reuse existing `analytics-*` queries by feeding `since`/`until` into their query keys.
-- Add a small popover with two `<input type="date">` controls.
+No SQL migration. All target columns already exist (`sessions.total_distance_m`, `total_time_seconds`, `avg_hr`, `max_hr`, `completion_pct`; `steps.*`; `interval_results.*`).
 
-### 7 — `time_trial` session-type wiring
-- Add `time_trial` to the session-type enum used by `app.sessions.new.tsx`, `session-categories.ts`, and the activity-icon switch (use existing `Timer` icon).
-- Treat a time-trial like a single `work` step but mark `intent='race_pace'` and surface a "Distance / Target time" pair in the new-session form.
-- Show "Time Trial" badge on Session List and Session Detail headers via `sessionClassificationLabel`.
-- On completion, the existing `recompute_session_totals` already covers it — no DB change.
+### Changes inside the handler
 
-### 11 — Coach Sessions page
-- New route `/_authenticated/app/coach/sessions.tsx` (coach + manager only).
-- Lists every session across the coach's athletes, default sort by `session_date` desc.
-- Filters: athlete (multi-select), status (planned/completed), date range.
-- Reuses `sessions-list` query shape with `in('athlete_id', ids)`; links each row to existing session detail.
-- Adds a left-nav entry in `app-shell.tsx` shown only when `useMyRoles().includes('coach')`.
+1. **Reuse session when `data.sessionId` is supplied.**
+   - Replace the unconditional `insert` with: if `data.sessionId` → `select * from sessions where id = sessionId` and use that row; else keep current insert path. Throws if the supplied id is not found.
 
-### 15 — Bulk FIT upload
-- New `BulkFitUpload` component on `/app/sessions` (coach + athlete).
-- Accepts multiple `.fit` files; for each: create a `sessions` row (athlete = current selection / self) and upload to `session_files` bucket, then call existing FIT-parser server fn one at a time, surfacing per-file progress and errors.
-- No new server fn — drives the existing single-file parser in a loop with `Promise.allSettled`.
+2. **Write totals to the columns the UI actually reads.**
+   - In the post-points update, add `total_distance_m`, `total_time_seconds`, `avg_hr`, `max_hr`, `completion_pct: 100`.
+   - Keep all existing `work_*` writes (legacy panels).
+   - `avg_hr` = mean of point HRs; `max_hr` = max of point HRs.
 
-### 16 — Race results UI
-- New route `/_authenticated/app/races.tsx` listing rows from `performances` (already exists).
-- Form to add a result: event, distance, time, date, placing, notes.
-- Edit + delete with confirm dialog.
-- Surface PBs (best time per event) on athlete profile page (`app.athletes.$athleteId.tsx`) via a small "Personal Bests" card.
+3. **Synthesise one `steps` + one `interval_results` row** (only when the session has no existing steps — protects planned sessions).
+   - `steps`: `step_order=1, kind='work', reps=1, set_count=1, target_kind = totalDistanceM>0 ? 'distance' : 'time', target_distance_m`, `target_time_seconds`, `counts_toward_distance=true`.
+   - `interval_results`: `set_number=1, rep_number=1, actual_time_seconds, actual_distance_m, actual_pace_sec_per_km, hr_avg, hr_max, cadence`.
+   - This lights up: detail rep grid, Work segment breakdown, Time-in-zone, Per-step fatigue, Completion %, Analytics "Volume by Session Component".
+   - The existing triggers `trg_recompute_totals_from_rep`, `trg_recompute_completion_from_rep`, `trg_recompute_zones_from_rep` then fire automatically — values they recompute will match what we just wrote.
 
-### 17 — Units & timezone UI
-- Add `units` (`metric` | `imperial`) and `timezone` columns to `profiles` (migration with GRANTs).
-- Build a Settings section under `/app/profile` with a unit toggle and an IANA timezone select (default to `Intl.DateTimeFormat().resolvedOptions().timeZone`).
-- Helper `src/lib/units.ts` reads from a React Query `["my-profile"]` cache and exposes `formatDistance`, `formatPace`, `formatTime` that honour the chosen units.
-- Migrate the most user-visible formatters in `format.ts` to call the helpers; remaining surfaces stay metric until later.
+4. **`raw_session_points` left untouched** (per spec).
 
-### 19 — Join requests UI + invite-existing-account flow
-- Coach-side: new "Join requests" tab on `/app/athletes` listing `athlete_join_requests` rows, with Accept (creates `coach_athletes`, marks request `accepted`) / Decline buttons.
-- Athlete-side: button on `/app/profile` → "Request to join a coach" with coach-email lookup.
-- Invite-existing-account: extend the existing `athlete_invites` flow so when the invited email already has an account, accepting the invite immediately creates the `coach_athletes` row instead of provisioning a new athlete.
+### Out of scope this pass
 
-### Files touched (estimate)
-- New: `src/routes/_authenticated/app.coach.sessions.tsx`, `src/routes/_authenticated/app.races.tsx`, `src/components/bulk-fit-upload.tsx`, `src/lib/units.ts`.
-- Edited: `app.analytics.tsx`, `app.sessions.new.tsx`, `app.sessions.index.tsx`, `app.athletes.index.tsx`, `app.athletes.$athleteId.tsx`, `app.profile.tsx`, `app-shell.tsx`, `session-categories.ts`, `activity-icon.tsx`, `format.ts`.
-- Migrations: one for `profiles.units/timezone` + GRANTs; one to ensure `time_trial` enum value exists.
+- 1W / custom `to` analytics range, VO/GCT manual inputs, Time Trial wiring through builder+importer, "Step Kind" → "Session Component" relabel. Tracked but not changed here.
 
-### Order of execution
-1. Migrations (units/timezone, time_trial enum).
-2. Units helper + profile settings UI (#17).
-3. time_trial wiring (#7).
-4. Analytics date range (#4).
-5. Coach sessions page (#11).
-6. Race results page + PB card (#16).
-7. Join requests + invite-existing flow (#19).
-8. Bulk FIT upload (#15) — last because it depends on existing parser shape.
+### Files touched
 
-### Verification (after each item)
-- Build passes.
-- Targeted Playwright check for the new screen renders without console errors.
-- For #17 and #19, confirm RLS policies + GRANTs let the right roles read/write.
+- `src/lib/session-files.functions.ts` only.
 
-No changes to session workflow files stabilized in B1/B2 except adding the `time_trial` icon variant.
+### Acceptance checks I will run after the edit
+
+1. Bulk-upload a FIT → new session row has non-null `total_*`, `avg_hr`, `max_hr`, `completion_pct=100`.
+2. Session detail page shows Duration, Distance, Avg HR populated, completion badge 100%.
+3. Analysis page Totals card + Work segment breakdown render with the imported values.
+4. Analytics → Volume by Session Component shows a "Work" entry for the imported session.
+5. Upload via daily-log with an explicit `sessionId` → no duplicate `sessions` row created; existing planned session is enriched.

@@ -189,28 +189,41 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
       ? new Date(parsed.startedAt).toISOString().slice(0, 10)
       : new Date().toISOString().slice(0, 10);
 
-    const { data: sess, error: sessError } = await sb
-      .from("sessions")
-      .insert({
-        athlete_id: data.athleteId,
-        created_by: context.userId,
-        session_date: sessionDate,
-        title: data.filename.replace(/\.(fit|gpx)$/i, ""),
-        day_type: "training",
-        intent: "aerobic",
-        structure: "continuous",
-        is_planned: false,
-        completed_at: new Date().toISOString(),
-        source: "fit_import",
-        data_source: data.kind === "fit" ? "fit_upload" : "gpx_upload",
-        activity_type: activityType,
-        needs_review: true,
-      } as any)
-      .select()
-      .single();
-
-    if (sessError || !sess) {
-      throw sessError ?? new Error("Failed to create session");
+    let sess: any;
+    if (data.sessionId) {
+      const { data: existing, error: fetchErr } = await sb
+        .from("sessions")
+        .select("*")
+        .eq("id", data.sessionId)
+        .single();
+      if (fetchErr || !existing) {
+        throw fetchErr ?? new Error("Session not found");
+      }
+      sess = existing;
+    } else {
+      const { data: inserted, error: sessError } = await sb
+        .from("sessions")
+        .insert({
+          athlete_id: data.athleteId,
+          created_by: context.userId,
+          session_date: sessionDate,
+          title: data.filename.replace(/\.(fit|gpx)$/i, ""),
+          day_type: "training",
+          intent: "aerobic",
+          structure: "continuous",
+          is_planned: false,
+          completed_at: new Date().toISOString(),
+          source: "fit_import",
+          data_source: data.kind === "fit" ? "fit_upload" : "gpx_upload",
+          activity_type: activityType,
+          needs_review: true,
+        } as any)
+        .select()
+        .single();
+      if (sessError || !inserted) {
+        throw sessError ?? new Error("Failed to create session");
+      }
+      sess = inserted;
     }
 
     const storagePath = `${data.athleteId}/${Date.now()}-${data.filename}`;
@@ -268,16 +281,72 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
         .filter((x): x is number => typeof x === "number" && x > 0);
       const cads = parsed.points.map((p) => p.cadence).filter((x): x is number => typeof x === "number" && x > 0);
 
+      const avgHr = hrs.length ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null;
+      const maxHr = hrs.length ? Math.max(...hrs) : null;
+      const avgPace = paces.length ? Math.round(paces.reduce((a, b) => a + b, 0) / paces.length) : null;
+      const avgCad = cads.length ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length) : null;
+
       await sb
         .from("sessions")
         .update({
+          total_distance_m: parsed.totalDistanceM || null,
+          total_time_seconds: parsed.totalTimeS || null,
+          avg_hr: avgHr,
+          max_hr: maxHr,
+          completion_pct: 100,
           work_distance_m: parsed.totalDistanceM,
           work_time_s: parsed.totalTimeS,
-          work_avg_hr: hrs.length ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null,
-          work_avg_pace_sec_per_km: paces.length ? Math.round(paces.reduce((a, b) => a + b, 0) / paces.length) : null,
-          work_avg_cadence: cads.length ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length) : null,
+          work_avg_hr: avgHr,
+          work_avg_pace_sec_per_km: avgPace,
+          work_avg_cadence: avgCad,
         } as any)
         .eq("id", sess.id);
+
+      // Synthesise one work step + one interval_results row so the detail UI,
+      // work-segment breakdown, completion %, zones, fatigue, and the analytics
+      // "Volume by Session Component" chart light up for imported sessions.
+      // Skip when the session already has structured steps (planned sessions).
+      const { data: existingSteps } = await sb
+        .from("steps")
+        .select("id")
+        .eq("session_id", sess.id)
+        .limit(1);
+
+      if (!existingSteps || existingSteps.length === 0) {
+        const { data: stepRow, error: stepErr } = await sb
+          .from("steps")
+          .insert({
+            session_id: sess.id,
+            step_order: 1,
+            kind: "work",
+            reps: 1,
+            set_count: 1,
+            target_kind: parsed.totalDistanceM > 0 ? "distance" : "time",
+            target_distance_m: parsed.totalDistanceM > 0 ? parsed.totalDistanceM : null,
+            target_time_seconds: parsed.totalTimeS > 0 ? parsed.totalTimeS : null,
+            counts_toward_distance: true,
+          } as any)
+          .select()
+          .single();
+
+        if (!stepErr && stepRow) {
+          const actualPace =
+            parsed.totalDistanceM > 0 && parsed.totalTimeS > 0
+              ? (parsed.totalTimeS / parsed.totalDistanceM) * 1000
+              : null;
+          await sb.from("interval_results").insert({
+            step_id: stepRow.id,
+            set_number: 1,
+            rep_number: 1,
+            actual_time_seconds: parsed.totalTimeS || null,
+            actual_distance_m: parsed.totalDistanceM || null,
+            actual_pace_sec_per_km: actualPace,
+            hr_avg: avgHr,
+            hr_max: maxHr,
+            cadence: avgCad,
+          } as any);
+        }
+      }
     }
 
     return { file: fileRow, points: parsed.points.length };
