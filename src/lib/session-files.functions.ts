@@ -155,6 +155,7 @@ async function parseFIT(buffer: ArrayBuffer) {
         hr: r.heart_rate,
         cadence: normalizeCadence(r.cadence),
         pace_sec_per_km: r.speed && r.speed > 0.1 ? 1000 / r.speed : null,
+        stride_length_m: r.speed && r.cadence ? r.speed / (normalizeCadence(r.cadence) / 60) : null,
         vertical_oscillation_cm: r.vertical_oscillation ?? null,
         ground_contact_time_ms: r.stance_time ?? null,
       }));
