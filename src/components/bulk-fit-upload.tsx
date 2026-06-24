@@ -3,10 +3,13 @@ import { useServerFn } from "@tanstack/react-start";
 import { useQueryClient } from "@tanstack/react-query";
 import { uploadAndParseSessionFile } from "@/lib/session-files.functions";
 import { supabase } from "@/integrations/supabase/client";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Upload, Check, AlertCircle } from "lucide-react";
+import { Upload } from "lucide-react";
 import { toast } from "sonner";
+
+/* ------------------------------------------------------------------ */
+/* TYPES                                                              */
+/* ------------------------------------------------------------------ */
 
 type FileStatus =
   | { name: string; state: "queued" }
@@ -14,49 +17,70 @@ type FileStatus =
   | { name: string; state: "done"; points: number }
   | { name: string; state: "error"; message: string };
 
+/* ------------------------------------------------------------------ */
+/* HELPERS                                                           */
+/* ------------------------------------------------------------------ */
+
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
+
     r.onload = () => {
       const s = String(r.result || "");
       const idx = s.indexOf(",");
       resolve(idx >= 0 ? s.slice(idx + 1) : s);
     };
+
     r.onerror = () => reject(r.error);
     r.readAsDataURL(file);
   });
 }
 
+/* ------------------------------------------------------------------ */
+/* COMPONENT                                                         */
+/* ------------------------------------------------------------------ */
+
 export function BulkFitUpload({ athleteId }: { athleteId: string }) {
   const qc = useQueryClient();
   const upload = useServerFn(uploadAndParseSessionFile);
+
   const [busy, setBusy] = useState(false);
   const [statuses, setStatuses] = useState<FileStatus[]>([]);
 
+  /* ================================================================ */
+  /* HANDLE UPLOAD                                                   */
+  /* ================================================================ */
+
   async function handle(files: FileList | null) {
     if (!files || !files.length) return;
+
     setBusy(true);
+
     const list = Array.from(files);
     setStatuses(list.map((f) => ({ name: f.name, state: "queued" })));
 
+    /* ---------------- AUTH CHECK ---------------- */
     const {
       data: { user },
       error: userError,
     } = await supabase.auth.getUser();
 
     if (userError || !user) {
+      setBusy(false);
       throw new Error("Not authenticated");
     }
 
+    /* ---------------- FILE LOOP ---------------- */
     for (let i = 0; i < list.length; i++) {
       const f = list[i];
 
       const kind: "fit" | "gpx" = f.name.toLowerCase().endsWith(".gpx") ? "gpx" : "fit";
 
+      /* mark uploading */
       setStatuses((s) => s.map((x, idx) => (idx === i ? { name: f.name, state: "uploading" } : x)));
 
       try {
-        // Create stub session row
+        /* ---------------- CREATE SESSION ---------------- */
         const { data: sess, error } = await supabase
           .from("sessions")
           .insert({
@@ -80,6 +104,7 @@ export function BulkFitUpload({ athleteId }: { athleteId: string }) {
           throw new Error(error?.message ?? "Failed to create session");
         }
 
+        /* ---------------- FILE PROCESSING ---------------- */
         const base64 = await fileToBase64(f);
 
         const res: any = await upload({
@@ -92,10 +117,20 @@ export function BulkFitUpload({ athleteId }: { athleteId: string }) {
           },
         });
 
+        /* ---------------- SUCCESS STATE ---------------- */
         setStatuses((s) =>
-          s.map((x, idx) => (idx === i ? { name: f.name, state: "done", points: res?.points ?? 0 } : x)),
+          s.map((x, idx) =>
+            idx === i
+              ? {
+                  name: f.name,
+                  state: "done",
+                  points: res?.points ?? 0,
+                }
+              : x,
+          ),
         );
       } catch (e: any) {
+        /* ---------------- ERROR STATE ---------------- */
         setStatuses((s) =>
           s.map((x, idx) =>
             idx === i
@@ -108,9 +143,45 @@ export function BulkFitUpload({ athleteId }: { athleteId: string }) {
           ),
         );
       }
-    }
+    } // ✅ END LOOP
+
+    /* ---------------- FINALISE ---------------- */
     setBusy(false);
     qc.invalidateQueries({ queryKey: ["sessions-list"] });
     toast.success("Bulk upload complete");
   }
+
+  /* ------------------------------------------------------------------ */
+  /* RENDER                                                           */
+  /* ------------------------------------------------------------------ */
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Upload className="h-4 w-4" />
+          Bulk upload FIT / GPX
+        </CardTitle>
+        <CardDescription>Drops each file into a new completed session.</CardDescription>
+      </CardHeader>
+
+      <CardContent className="space-y-3">
+        <input
+          type="file"
+          multiple
+          accept=".fit,.gpx"
+          disabled={busy}
+          onChange={(e) => handle(e.currentTarget.files)}
+        />
+
+        <ul className="text-xs space-y-1">
+          {statuses.map((s, i) => (
+            <li key={i}>
+              {s.name} — {s.state}
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
+  );
 }
