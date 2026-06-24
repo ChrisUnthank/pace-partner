@@ -256,12 +256,6 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
     }
     
     if (parsed.points.length) {
-    if (!parsed.points || parsed.points.length === 0) {
-      throw new Error("No valid data points found in uploaded file");
-  }
-
-  const rows = parsed.points.map((p) => ({
-
       const rows = parsed.points.map((p) => ({
         session_id: sess.id,
         file_id: fileRow.id,
