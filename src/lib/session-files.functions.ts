@@ -128,11 +128,9 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
     }
     const buf = Uint8Array.from(atob(data.fileBase64), (c) => c.charCodeAt(0));
     const storagePath = `${data.athleteId}/${Date.now()}-${data.filename}`;
-    const { error: upErr } = await sb.storage
-      .from("session-files")
-      .upload(storagePath, buf, {
-        contentType: data.kind === "fit" ? "application/octet-stream" : "application/gpx+xml",
-      });
+    const { error: upErr } = await sb.storage.from("session-files").upload(storagePath, buf, {
+      contentType: data.kind === "fit" ? "application/octet-stream" : "application/gpx+xml",
+    });
     if (upErr) throw upErr;
 
     let parsed: { points: any[]; totalDistanceM: number; totalTimeS: number; startedAt: string | null };
@@ -143,7 +141,7 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
         .from("session_files")
         .insert({
           athlete_id: data.athleteId,
-          session_id: data.sessionId,
+          session_id: sess.id,
           file_kind: data.kind,
           storage_path: storagePath,
           original_filename: data.filename,
@@ -158,7 +156,7 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
       .from("session_files")
       .insert({
         athlete_id: data.athleteId,
-        session_id: data.sessionId ?? null,
+        session_id: sess.id,
         file_kind: data.kind,
         storage_path: storagePath,
         original_filename: data.filename,
