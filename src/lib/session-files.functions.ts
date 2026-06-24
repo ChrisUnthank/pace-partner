@@ -94,7 +94,7 @@ function parseGPX(xml: string) {
       lng: p.lng,
       elevation_m: p.ele,
       hr: p.hr,
-      cadence: p.cad,
+      cadence: normalizeCadence(p.cad),
       pace_sec_per_km: pace,
       vertical_oscillation_cm: undefined,
       ground_contact_time_ms: undefined,
