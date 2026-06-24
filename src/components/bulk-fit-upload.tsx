@@ -80,6 +80,9 @@ export function BulkFitUpload({ athleteId }: { athleteId: string }) {
 
       try {
         /* ---------------- CREATE SESSION ---------------- */
+        console.log("USER DEBUG:", user);
+        console.log("USER ID:", user?.id);
+
         const { data: sess, error } = await supabase
           .from("sessions")
           .insert({
