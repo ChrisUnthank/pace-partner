@@ -59,12 +59,11 @@ export function BulkFitUpload({ athleteId }: { athleteId: string }) {
     const list = Array.from(files);
     setStatuses(list.map((f) => ({ name: f.name, state: "queued" })));
 
-    /* ---------------- AUTH CHECK ---------------- */
-    const { data, error: userError } = await supabase.auth.getUser();
+    /* ---------------- AUTH (single source of truth) ---------------- */
+    const { data, error } = await supabase.auth.getUser();
+    const userId = data?.user?.id;
 
-    const user = data?.user ?? null;
-
-    if (userError || !user?.id) {
+    if (error || !userId) {
       setBusy(false);
       throw new Error("Not authenticated");
     }
@@ -80,14 +79,11 @@ export function BulkFitUpload({ athleteId }: { athleteId: string }) {
 
       try {
         /* ---------------- CREATE SESSION ---------------- */
-        console.log("USER DEBUG:", user);
-        console.log("USER ID:", user?.id);
-
-        const { data: sess, error } = await supabase
+        const { data: sess, error: insertError } = await supabase
           .from("sessions")
           .insert({
             athlete_id: athleteId,
-            created_by: user.id,
+            created_by: userId,
             session_date: new Date().toISOString().slice(0, 10),
             title: f.name.replace(/\.(fit|gpx)$/i, ""),
             day_type: "training" as any,
@@ -102,8 +98,8 @@ export function BulkFitUpload({ athleteId }: { athleteId: string }) {
           .select()
           .single();
 
-        if (error || !sess) {
-          throw new Error(error?.message ?? "Failed to create session");
+        if (insertError || !sess) {
+          throw new Error(insertError?.message ?? "Failed to create session");
         }
 
         /* ---------------- FILE PROCESSING ---------------- */
@@ -119,7 +115,7 @@ export function BulkFitUpload({ athleteId }: { athleteId: string }) {
           },
         });
 
-        /* ---------------- SUCCESS STATE ---------------- */
+        /* ---------------- SUCCESS ---------------- */
         setStatuses((s) =>
           s.map((x, idx) =>
             idx === i
@@ -132,7 +128,7 @@ export function BulkFitUpload({ athleteId }: { athleteId: string }) {
           ),
         );
       } catch (e: any) {
-        /* ---------------- ERROR STATE ---------------- */
+        /* ---------------- ERROR ---------------- */
         setStatuses((s) =>
           s.map((x, idx) =>
             idx === i
@@ -145,7 +141,7 @@ export function BulkFitUpload({ athleteId }: { athleteId: string }) {
           ),
         );
       }
-    } // ✅ END LOOP
+    }
 
     /* ---------------- FINALISE ---------------- */
     setBusy(false);
@@ -154,7 +150,7 @@ export function BulkFitUpload({ athleteId }: { athleteId: string }) {
   }
 
   /* ------------------------------------------------------------------ */
-  /* RENDER                                                           */
+  /* UI                                                               */
   /* ------------------------------------------------------------------ */
 
   return (
