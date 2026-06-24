@@ -161,7 +161,7 @@ async function parseFIT(buffer: ArrayBuffer) {
 
 export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { athleteId: string; filename: string; kind: "fit" | "gpx"; fileBase64: string }) => d)
+  .inputValidator((d: { athleteId: string; sessionId?: string; filename: string; kind: "fit" | "gpx"; fileBase64: string }) => d)
   .handler(async ({ data, context }) => {
     const sb = context.supabase;
 
@@ -250,7 +250,7 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
         elapsed_s: p.elapsed_s,
         lat: p.lat,
         lng: p.lng,
-        heart_rate_bpm: p.hr,
+        hr: p.hr,
         pace_sec_per_km: p.pace_sec_per_km,
         cadence: p.cadence,
         elevation_m: p.elevation_m,
