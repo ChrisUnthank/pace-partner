@@ -134,16 +134,36 @@ function SessionAnalysis() {
 
   const computeFatigue = useServerFn(computeContinuousFatigue);
 
-  const { samples, bands, mode, hasMetric, gpsPoints } = useMemo(
+  const hasRaw = (rawPoints ?? []).length > 10;
+  const hasResults = (results ?? []).length > 0;
+  const graphMode: "trace" | "rep" | "empty" = hasRaw ? "trace" : hasResults ? "rep" : "empty";
+
+  const repBuild = useMemo(
     () => buildSamples(steps ?? [], results ?? []),
     [steps, results],
   );
 
-  const xCanUseDistance = samples.length > 0 && samples.every((s) => s.d != null);
+  const traceBuild = useMemo(
+    () => buildTraceFromRaw(rawPoints ?? [], steps ?? [], results ?? []),
+    [rawPoints, steps, results],
+  );
+
+  const repSeries = useMemo(
+    () => buildRepSeries(steps ?? [], results ?? []),
+    [steps, results],
+  );
+
+  const samples = graphMode === "trace" ? traceBuild.samples : repBuild.samples;
+  const bands = graphMode === "trace" ? traceBuild.bands : repBuild.bands;
+  const hasMetric = graphMode === "trace" ? traceBuild.hasMetric : graphMode === "rep" ? repSeries.hasMetric : { hr: false, pace: false, cadence: false, elev: false };
+  const gpsPoints = traceBuild.gpsPoints.length > 0 ? traceBuild.gpsPoints : repBuild.gpsPoints;
+
+  const xCanUseDistance = graphMode === "trace" && samples.length > 0 && samples.every((s) => s.d != null);
   const xKey: keyof Sample = xMode === "distance" && xCanUseDistance ? "d" : "t";
 
   // Build per-metric series so React doesn't have to skip nulls
   const seriesData = useMemo(() => {
+    if (graphMode === "rep") return repSeries.data;
     return samples.map((s) => ({
       x: (s[xKey] as number) ?? 0,
       stepKind: s.stepKind,
@@ -152,12 +172,10 @@ function SessionAnalysis() {
       cadence: s.cadence,
       elev: s.elev,
     }));
-  }, [samples, xKey]);
+  }, [graphMode, repSeries, samples, xKey]);
 
   if (!session) return <AppShell><p>Loading…</p></AppShell>;
 
-  const noResults = (results ?? []).length === 0;
-  const hasRaw = (rawPoints ?? []).length > 0;
   const continuousFatigue = (fatigue ?? []).find((f: any) => f.method === "continuous_drift");
   const repFatigue = (fatigue ?? []).filter((f: any) => f.method !== "continuous_drift");
 
@@ -174,15 +192,23 @@ function SessionAnalysis() {
           </p>
         </div>
 
-        {noResults && !hasRaw ? (
+        {graphMode === "empty" ? (
           <Card>
-            <CardContent className="pt-6 text-sm text-muted-foreground">
-              Detailed analysis available after device sync (coming in the next phase).{" "}
-              For now, see{" "}
-              <Link to="/app/sessions/$sessionId" params={{ sessionId }} className="underline">
-                the session detail
-              </Link>{" "}
-              for logged totals and per-rep entries.
+            <CardHeader>
+              <CardTitle>Session graph</CardTitle>
+              <CardDescription>No detailed trace available</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-2 text-sm text-muted-foreground space-y-2">
+              <p>
+                This session was entered manually without file-based or rep-level data, so there is nothing to plot.
+              </p>
+              <p>
+                Upload a FIT or GPX file, or add per-rep results from{" "}
+                <Link to="/app/sessions/$sessionId" params={{ sessionId }} className="underline">
+                  the session detail
+                </Link>{" "}
+                to unlock the graph.
+              </p>
             </CardContent>
           </Card>
         ) : (
@@ -192,16 +218,20 @@ function SessionAnalysis() {
                 <div>
                   <CardTitle>Session graph</CardTitle>
                   <CardDescription>
-                    {mode === "trace" ? "High-resolution trace" : "Summary view — no high-res trace recorded"}
+                    {graphMode === "trace"
+                      ? "High-resolution trace from uploaded file"
+                      : "Rep-by-rep summary — upload a FIT/GPX file for a high-resolution trace"}
                   </CardDescription>
                 </div>
-                <div className="flex gap-1">
-                  <Button size="sm" variant={xKey === "t" ? "default" : "outline"}
-                    onClick={() => setXMode("time")}>Time</Button>
-                  <Button size="sm" variant={xKey === "d" ? "default" : "outline"}
-                    disabled={!xCanUseDistance}
-                    onClick={() => setXMode("distance")}>Distance</Button>
-                </div>
+                {graphMode === "trace" && (
+                  <div className="flex gap-1">
+                    <Button size="sm" variant={xKey === "t" ? "default" : "outline"}
+                      onClick={() => setXMode("time")}>Time</Button>
+                    <Button size="sm" variant={xKey === "d" ? "default" : "outline"}
+                      disabled={!xCanUseDistance}
+                      onClick={() => setXMode("distance")}>Distance</Button>
+                  </div>
+                )}
               </div>
               <div className="flex flex-wrap gap-1 mt-2">
                 {METRICS.map((m) => {
@@ -229,7 +259,13 @@ function SessionAnalysis() {
                       dataKey="x"
                       type="number"
                       domain={["dataMin", "dataMax"]}
-                      tickFormatter={(v) => xKey === "t" ? secToClock(v) : metersFmt(v)}
+                      tickFormatter={(v) =>
+                        graphMode === "rep"
+                          ? `R${v}`
+                          : xKey === "t"
+                            ? secToClock(v)
+                            : metersFmt(v)
+                      }
                     />
                     <YAxis yAxisId="hr" orientation="left" hide={!enabled.hr || !hasMetric.hr}
                       tick={{ fontSize: 11 }} width={36} />
@@ -241,7 +277,13 @@ function SessionAnalysis() {
                     <YAxis yAxisId="elev" orientation="right" hide={!enabled.elev || !hasMetric.elev}
                       tick={{ fontSize: 11 }} width={32} />
                     <Tooltip
-                      labelFormatter={(v) => xKey === "t" ? secToClock(Number(v)) : metersFmt(Number(v))}
+                      labelFormatter={(v) =>
+                        graphMode === "rep"
+                          ? `Rep ${v}`
+                          : xKey === "t"
+                            ? secToClock(Number(v))
+                            : metersFmt(Number(v))
+                      }
                       formatter={(v: any, n: any) => {
                         if (n === "pace") return [paceFmt(Number(v)), "Pace"];
                         if (n === "hr") return [`${Math.round(Number(v))} bpm`, "HR"];
