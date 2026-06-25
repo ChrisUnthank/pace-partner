@@ -93,6 +93,10 @@ export function BulkFitUpload({ athleteId }: { athleteId: string }) {
           },
         });
 
+        if (res?.error) {
+          throw new Error(res.error);
+        }
+
         setStatuses((s) =>
           s.map((x, idx) =>
             idx === i
