@@ -29,12 +29,14 @@ export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/an
 });
 
 type Sample = {
-  t: number; // seconds from session start OR rep order in rep mode
-  d?: number; // meters from session start
+  t: number;
+  d?: number;
   hr?: number;
   pace?: number;
   cadence?: number;
   elev?: number;
+  vo?: number; // vertical oscillation cm
+  gct?: number; // ground contact time ms
   lat?: number;
   lng?: number;
   stepId: string;
@@ -63,6 +65,8 @@ const METRICS = [
   { key: "pace", label: "Pace", color: "#3b82f6", unit: "/km", axis: "right" as const },
   { key: "cadence", label: "Cadence", color: "#8b5cf6", unit: "spm", axis: "leftInner" as const },
   { key: "elev", label: "Elevation", color: "#10b981", unit: "m", axis: "rightInner" as const },
+  { key: "vo", label: "Vert Osc", color: "#f97316", unit: "cm", axis: "leftInner" as const },
+  { key: "gct", label: "Gnd Contact", color: "#a855f7", unit: "ms", axis: "rightInner" as const },
 ] as const;
 
 type MetricKey = (typeof METRICS)[number]["key"];
@@ -75,6 +79,8 @@ function SessionAnalysis() {
     pace: true,
     cadence: false,
     elev: false,
+    vo: false,
+    gct: false,
   });
 
   const [xMode, setXMode] = useState<"time" | "distance">("time");
@@ -143,7 +149,9 @@ function SessionAnalysis() {
     queryFn: async () => {
       const { data } = await supabase
         .from("raw_session_points")
-        .select("elapsed_s, hr, pace_sec_per_km, cadence, elevation_m, lat, lng, segment_type")
+        .select(
+          "elapsed_s, hr, pace_sec_per_km, cadence, elevation_m, lat, lng, segment_type, vertical_oscillation_cm, ground_contact_time_ms",
+        )
         .eq("session_id", sessionId)
         .order("elapsed_s")
         .limit(5000);
@@ -178,6 +186,8 @@ function SessionAnalysis() {
       pace: s.pace ?? null,
       cadence: s.cadence ?? null,
       elev: s.elev ?? null,
+      vo: s.vo ?? null,
+      gct: s.gct ?? null,
     }));
   }, [samples, xKey]);
 
@@ -331,6 +341,8 @@ function SessionAnalysis() {
                         if (n === "hr") return [`${Math.round(Number(v))} bpm`, "HR"];
                         if (n === "cadence") return [`${Math.round(Number(v))} spm`, "Cadence"];
                         if (n === "elev") return [`${Math.round(Number(v))} m`, "Elevation"];
+                        if (n === "vo") return [`${Number(v).toFixed(1)} cm`, "Vert Osc"];
+                        if (n === "gct") return [`${Math.round(Number(v))} ms`, "Gnd Contact"];
                         return [v, n];
                       }}
                     />
@@ -398,6 +410,31 @@ function SessionAnalysis() {
                         dot={false}
                         type="monotone"
                         connectNulls
+                        strokeWidth={1.5}
+                        isAnimationActive={false}
+                      />
+                    )}
+                    {enabled.vo && hasMetric.vo && (
+                      <Line
+                        yAxisId="vo"
+                        dataKey="vo"
+                        stroke="#f97316"
+                        dot={false}
+                        type="monotone"
+                        connectNulls={false}
+                        strokeWidth={1.5}
+                        isAnimationActive={false}
+                      />
+                    )}
+
+                    {enabled.gct && hasMetric.gct && (
+                      <Line
+                        yAxisId="gct"
+                        dataKey="gct"
+                        stroke="#a855f7"
+                        dot={false}
+                        type="monotone"
+                        connectNulls={false}
                         strokeWidth={1.5}
                         isAnimationActive={false}
                       />
@@ -775,18 +812,33 @@ function buildSamples(
     pace: false,
     cadence: false,
     elev: false,
+    vo: false,
+    gct: false,
   };
 
   // ✅ High-resolution FIT/GPX trace mode
   if (Array.isArray(rawPoints) && rawPoints.length > 10) {
     const samples: Sample[] = rawPoints.map((p: any, idx: number) => {
+      const rawPace = p.pace_sec_per_km != null ? Number(p.pace_sec_per_km) : undefined;
+      const rawPace = p.pace_sec_per_km != null ? Number(p.pace_sec_per_km) : undefined;
       const s: Sample = {
         t: Number(p.elapsed_s ?? idx),
         d: undefined,
         hr: p.hr != null ? Number(p.hr) : undefined,
-        pace: p.pace_sec_per_km != null ? Number(p.pace_sec_per_km) : undefined,
+        // Filter out GPS noise: pace > 600 sec/km (10:00/km) treated as null
+        pace: rawPace != null && rawPace <= 600 ? rawPace : undefined,
         cadence: p.cadence != null ? Number(p.cadence) : undefined,
         elev: p.elevation_m != null ? Number(p.elevation_m) : undefined,
+        // Divide by 10 to convert mm → cm (Garmin stores in mm)
+        vo:
+          p.vertical_oscillation_cm != null && Number(p.vertical_oscillation_cm) > 0
+            ? Number(p.vertical_oscillation_cm) / 10
+            : undefined,
+        // Ground contact time already in ms — store as-is, null if zero/missing
+        gct:
+          p.ground_contact_time_ms != null && Number(p.ground_contact_time_ms) > 0
+            ? Number(p.ground_contact_time_ms)
+            : undefined,
         lat: p.lat != null ? Number(p.lat) : undefined,
         lng: p.lng != null ? Number(p.lng) : undefined,
         stepId: "trace",
@@ -798,7 +850,8 @@ function buildSamples(
       if (s.pace != null) has.pace = true;
       if (s.cadence != null) has.cadence = true;
       if (s.elev != null) has.elev = true;
-
+      if (s.vo != null) has.vo = true;
+      if (s.gct != null) has.gct = true;
       return s;
     });
 
