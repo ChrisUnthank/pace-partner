@@ -332,7 +332,22 @@ function SessionAnalysis() {
                       tick={{ fontSize: 11 }}
                       width={32}
                     />
+                    <YAxis
+                      yAxisId="vo"
+                      orientation="left"
+                      hide={!enabled.vo || !hasMetric.vo}
+                      tick={{ fontSize: 11 }}
+                      width={32}
+                      tickFormatter={(v) => `${Number(v).toFixed(1)}`}
+                    />
 
+                    <YAxis
+                      yAxisId="gct"
+                      orientation="right"
+                      hide={!enabled.gct || !hasMetric.gct}
+                      tick={{ fontSize: 11 }}
+                      width={36}
+                    />
                     <Tooltip
                       labelFormatter={(v) => (xKey === "t" ? secToClock(Number(v)) : metersFmt(Number(v)))}
                       formatter={(v: any, n: any) => {
@@ -819,7 +834,6 @@ function buildSamples(
   // ✅ High-resolution FIT/GPX trace mode
   if (Array.isArray(rawPoints) && rawPoints.length > 10) {
     const samples: Sample[] = rawPoints.map((p: any, idx: number) => {
-      const rawPace = p.pace_sec_per_km != null ? Number(p.pace_sec_per_km) : undefined;
       const rawPace = p.pace_sec_per_km != null ? Number(p.pace_sec_per_km) : undefined;
       const s: Sample = {
         t: Number(p.elapsed_s ?? idx),
