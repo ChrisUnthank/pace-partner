@@ -296,7 +296,7 @@ function classifyLaps(laps: ParsedLap[], plannedSteps: any[] = []): ParsedLap[] 
   // If planned structure exists, and especially if ladder is enabled,
   // keep all meaningful non-rest laps as work and preserve order.
   if (hasPlannedWork) {
-    let classified = laps.map((lap) => {
+    let classified: ParsedLap[] = laps.map((lap) => {
       if (lap.intensity === "rest") return { ...lap, kind: "recovery" as const };
 
       const isWork = lap.total_distance >= 20 && lap.total_elapsed_time >= 6;
@@ -350,7 +350,7 @@ function classifyLaps(laps: ParsedLap[], plannedSteps: any[] = []): ParsedLap[] 
 
   const tolerance = Math.max(15, dominantDistance * 0.25);
 
-  let classified = laps.map((lap) => {
+  let classified: ParsedLap[] = laps.map((lap) => {
     if (lap.intensity === "rest") {
       return { ...lap, kind: "recovery" as const };
     }
@@ -579,7 +579,7 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
       .select("id")
       .eq("session_id", sess.id)
       .eq("original_filename", data.filename)
-      .eq("started_at", parsed.startedAt)
+      .eq("started_at", parsed.startedAt ?? "")
       .eq("total_distance_m", parsed.totalDistanceM)
       .maybeSingle();
 
@@ -640,7 +640,7 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
       }));
 
       for (let i = 0; i < rows.length; i += 500) {
-        await sb.from("raw_session_points").insert(rows.slice(i, i + 500));
+        await sb.from("raw_session_points").insert(rows.slice(i, i + 500) as any);
       }
 
       const { avgHr, maxHr, avgPace, avgCad } = summarizeImportedPoints(parsed.points);
@@ -857,6 +857,7 @@ export const deleteSessionFileBlock = createServerFn({ method: "POST" })
     }
 
     const sessionId = fileRow.session_id;
+    if (!sessionId) throw new Error("Session file is not linked to a session");
 
     await sb.from("raw_session_points").delete().eq("file_id", fileRow.id);
 
