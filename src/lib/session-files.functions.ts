@@ -579,7 +579,7 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
       .select("id")
       .eq("session_id", sess.id)
       .eq("original_filename", data.filename)
-      .eq("started_at", parsed.startedAt)
+      .eq("started_at", parsed.startedAt ?? "")
       .eq("total_distance_m", parsed.totalDistanceM)
       .maybeSingle();
 
@@ -640,7 +640,7 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
       }));
 
       for (let i = 0; i < rows.length; i += 500) {
-        await sb.from("raw_session_points").insert(rows.slice(i, i + 500));
+        await sb.from("raw_session_points").insert(rows.slice(i, i + 500) as any);
       }
 
       const { avgHr, maxHr, avgPace, avgCad } = summarizeImportedPoints(parsed.points);
