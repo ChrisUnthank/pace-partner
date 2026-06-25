@@ -14,7 +14,14 @@ import { secToClock, clockToSec, metersFmt } from "@/lib/format";
 import { sessionClassificationLabel } from "@/lib/session-categories";
 import { saveSessionAsTemplate } from "@/lib/templates";
 import { useAuthUser, useMyRoles } from "@/lib/use-auth";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { CheckCircle2, Apple, BookmarkPlus, LineChart, Sparkles } from "lucide-react";
 import { PostSessionInsightModal } from "@/components/post-session-insight-modal";
@@ -42,11 +49,22 @@ function SessionDetail() {
   const [tplName, setTplName] = useState("");
   const [insightOpen, setInsightOpen] = useState(false);
 
-  const { data: session, isLoading, error } = useQuery({
+  // ✅ FIT upload setup
+  const uploadFile = useServerFn(uploadAndParseSessionFile);
+  const [uploading, setUploading] = useState(false);
+
+  const {
+    data: session,
+    isLoading,
+    error,
+  } = useQuery({
     queryKey: ["session", sessionId],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("sessions").select("*, athletes(name, profile_image_url)").eq("id", sessionId).single();
+        .from("sessions")
+        .select("*, athletes(name, profile_image_url)")
+        .eq("id", sessionId)
+        .single();
       if (error) throw error;
       return data;
     },
@@ -56,8 +74,7 @@ function SessionDetail() {
   const { data: steps } = useQuery({
     queryKey: ["steps", sessionId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("steps").select("*").eq("session_id", sessionId).order("step_order");
+      const { data, error } = await supabase.from("steps").select("*").eq("session_id", sessionId).order("step_order");
       if (error) throw error;
       return data;
     },
@@ -69,7 +86,11 @@ function SessionDetail() {
     enabled: stepIds.length > 0,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("interval_results").select("*").in("step_id", stepIds).order("set_number").order("rep_number");
+        .from("interval_results")
+        .select("*")
+        .in("step_id", stepIds)
+        .order("set_number")
+        .order("rep_number");
       if (error) throw error;
       return data;
     },
@@ -97,7 +118,11 @@ function SessionDetail() {
   const { data: fuelEvents } = useQuery({
     queryKey: ["fuel-events", sessionId],
     queryFn: async () => {
-      const { data } = await supabase.from("session_fuel_events").select("*").eq("session_id", sessionId).order("created_at");
+      const { data } = await supabase
+        .from("session_fuel_events")
+        .select("*")
+        .eq("session_id", sessionId)
+        .order("created_at");
       return data ?? [];
     },
   });
@@ -105,12 +130,65 @@ function SessionDetail() {
   const { data: insight } = useQuery({
     queryKey: ["session_insights", sessionId],
     queryFn: async () => {
-      const { data } = await supabase.from("session_insights" as any).select("*").eq("session_id", sessionId).maybeSingle();
+      const { data } = await supabase
+        .from("session_insights" as any)
+        .select("*")
+        .eq("session_id", sessionId)
+        .maybeSingle();
       return data as any;
     },
   });
 
-  if (isLoading) return <AppShell><p>Loading…</p></AppShell>;
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+
+    const reader = new FileReader();
+
+    reader.onload = async () => {
+      const base64 = String(reader.result || "").split(",")[1];
+
+      try {
+        const res: any = await uploadFile({
+          data: {
+            athleteId: session.athlete_id,
+            sessionId: sessionId, // ✅ THIS LINKS TO EXISTING SESSION
+            filename: file.name,
+            kind: file.name.toLowerCase().endsWith(".gpx") ? "gpx" : "fit",
+            fileBase64: base64,
+          },
+        });
+
+        // ✅ CRITICAL FIX (catch parse errors)
+        if (res?.error) {
+          throw new Error(res.error);
+        }
+
+        toast.success("File uploaded and session updated");
+
+        // refresh UI
+        qc.invalidateQueries({ queryKey: ["session", sessionId] });
+        qc.invalidateQueries({ queryKey: ["steps", sessionId] });
+        qc.invalidateQueries({ queryKey: ["results", sessionId] });
+      } catch (err: any) {
+        console.error("FIT upload error:", err);
+        toast.error(err.message);
+      }
+
+      setUploading(false);
+    };
+
+    reader.readAsDataURL(file);
+  }
+
+  if (isLoading)
+    return (
+      <AppShell>
+        <p>Loading…</p>
+      </AppShell>
+    );
   if (error || !session) {
     return (
       <AppShell>
@@ -118,9 +196,16 @@ function SessionDetail() {
           <h1 className="text-lg font-semibold">Session not found</h1>
           <p className="text-sm text-muted-foreground">
             This session may have been deleted, or you may not have access to it.
-            {error ? <> <span className="block mt-1 text-xs">({(error as any).message})</span></> : null}
+            {error ? (
+              <>
+                {" "}
+                <span className="block mt-1 text-xs">({(error as any).message})</span>
+              </>
+            ) : null}
           </p>
-          <Button asChild variant="outline" size="sm"><Link to="/app/sessions">← Back to sessions</Link></Button>
+          <Button asChild variant="outline" size="sm">
+            <Link to="/app/sessions">← Back to sessions</Link>
+          </Button>
         </div>
       </AppShell>
     );
@@ -132,7 +217,9 @@ function SessionDetail() {
     <AppShell>
       <div className="space-y-6 max-w-3xl">
         <div>
-          <Link to="/app/sessions" className="text-sm text-muted-foreground underline">← Sessions</Link>
+          <Link to="/app/sessions" className="text-sm text-muted-foreground underline">
+            ← Sessions
+          </Link>
           <div className="flex items-start justify-between gap-3 mt-2">
             <div className="flex items-start gap-3">
               <UserAvatar
@@ -150,49 +237,75 @@ function SessionDetail() {
                   {(session as any).applied_from_template_id && <span className="ml-2 italic">· from template</span>}
                   {session.completed_at && <span className="ml-2 text-emerald-600">Completed</span>}
                   {session.completed_at && session.rpe != null && (
-                    <span className="ml-2">· RPE <span className="tabular-nums font-medium">{session.rpe}</span>/10</span>
+                    <span className="ml-2">
+                      · RPE <span className="tabular-nums font-medium">{session.rpe}</span>/10
+                    </span>
                   )}
                 </p>
               </div>
             </div>
             {canSaveAsTemplate && (
-              <Button size="sm" variant="outline" onClick={() => { setTplName(session.title ?? ""); setSaveTplOpen(true); }}>
-                <BookmarkPlus className="h-4 w-4 mr-1" />Save as template
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setTplName(session.title ?? "");
+                  setSaveTplOpen(true);
+                }}
+              >
+                <BookmarkPlus className="h-4 w-4 mr-1" />
+                Save as template
               </Button>
             )}
             {session.completed_at && (
               <Button asChild size="sm" variant="outline">
                 <Link to="/app/sessions/$sessionId/analysis" params={{ sessionId }}>
-                  <LineChart className="h-4 w-4 mr-1" />View analysis
+                  <LineChart className="h-4 w-4 mr-1" />
+                  View analysis
                 </Link>
               </Button>
             )}
           </div>
         </div>
-
-        {session.notes && <Card><CardContent className="pt-4 text-sm">{session.notes}</CardContent></Card>}
-
+        {session.notes && (
+          <Card>
+            <CardContent className="pt-4 text-sm">{session.notes}</CardContent>
+          </Card>
+        )}
         <div className="space-y-3">
           {stepIds.length > 0 && resultsLoading && !results ? (
-            <Card><CardContent className="pt-4 text-sm text-muted-foreground">Loading session data…</CardContent></Card>
-          ) : (steps ?? []).map((step: any) => (
-            <StepBlock
-              key={step.id}
-              session={session}
-              step={step}
-              results={(results ?? []).filter((r: any) => r.step_id === step.id)}
-              fatigue={(fatigue ?? []).find((f: any) => f.step_id === step.id)}
-              fuelEvents={(fuelEvents ?? []).filter((f: any) => f.step_id === step.id)}
-            />
-          ))}
+            <Card>
+              <CardContent className="pt-4 text-sm text-muted-foreground">Loading session data…</CardContent>
+            </Card>
+          ) : (
+            (steps ?? []).map((step: any) => (
+              <StepBlock
+                key={step.id}
+                session={session}
+                step={step}
+                results={(results ?? []).filter((r: any) => r.step_id === step.id)}
+                fatigue={(fatigue ?? []).find((f: any) => f.step_id === step.id)}
+                fuelEvents={(fuelEvents ?? []).filter((f: any) => f.step_id === step.id)}
+              />
+            ))
+          )}
         </div>
-
         <SessionSummary
           session={session}
           onSaved={() => invalidateSession(qc, sessionId, session.athlete_id)}
           onCompleted={() => setInsightOpen(true)}
         />
-
+        {/* ✅ FIT Upload */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Attach activity file</CardTitle>
+            <CardDescription>Upload FIT or GPX file to automatically populate this session</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <input type="file" accept=".fit,.gpx" disabled={uploading} onChange={handleFileUpload} />
+          </CardContent>
+        </Card>
+        ``
         {isCoach && (
           <AttendanceCard
             sessionId={sessionId}
@@ -200,7 +313,6 @@ function SessionDetail() {
             athleteName={session.athletes?.name ?? "Athlete"}
           />
         )}
-
         {insight && (
           <Card>
             <CardHeader>
@@ -210,18 +322,43 @@ function SessionDetail() {
             <CardContent className="space-y-2 text-sm">
               <div className="flex items-center gap-3">
                 <span className="text-xs text-muted-foreground uppercase tracking-wider">Feel</span>
-                <span className="font-display text-2xl font-extrabold tabular-nums">{insight.feel_score ?? "—"}<span className="text-sm font-normal text-muted-foreground">/10</span></span>
+                <span className="font-display text-2xl font-extrabold tabular-nums">
+                  {insight.feel_score ?? "—"}
+                  <span className="text-sm font-normal text-muted-foreground">/10</span>
+                </span>
               </div>
-              {insight.went_well && <p><span className="text-xs text-muted-foreground uppercase tracking-wider mr-2">Went well</span>{insight.went_well}</p>}
-              {insight.was_difficult && <p><span className="text-xs text-muted-foreground uppercase tracking-wider mr-2">Difficult</span>{insight.was_difficult}</p>}
-              {insight.niggles && <p className="text-amber-500"><span className="text-xs text-muted-foreground uppercase tracking-wider mr-2">Niggles</span>{insight.niggles}</p>}
+              {insight.went_well && (
+                <p>
+                  <span className="text-xs text-muted-foreground uppercase tracking-wider mr-2">Went well</span>
+                  {insight.went_well}
+                </p>
+              )}
+              {insight.was_difficult && (
+                <p>
+                  <span className="text-xs text-muted-foreground uppercase tracking-wider mr-2">Difficult</span>
+                  {insight.was_difficult}
+                </p>
+              )}
+              {insight.niggles && (
+                <p className="text-amber-500">
+                  <span className="text-xs text-muted-foreground uppercase tracking-wider mr-2">Niggles</span>
+                  {insight.niggles}
+                </p>
+              )}
             </CardContent>
           </Card>
         )}
-
         <SessionAvgFatigue rows={fatigue ?? []} />
-        <ZoneTimePanel rows={(zoneTime ?? []).filter((r: any) => r.source === "pace")} title="Time in pace zones" subtitle="Pace-based" />
-        <ZoneTimePanel rows={(zoneTime ?? []).filter((r: any) => r.source === "hr")} title="Time in HR zones" subtitle="HR-based" />
+        <ZoneTimePanel
+          rows={(zoneTime ?? []).filter((r: any) => r.source === "pace")}
+          title="Time in pace zones"
+          subtitle="Pace-based"
+        />
+        <ZoneTimePanel
+          rows={(zoneTime ?? []).filter((r: any) => r.source === "hr")}
+          title="Time in HR zones"
+          subtitle="HR-based"
+        />
         <FuelingPanel session={session} />
       </div>
 
@@ -229,21 +366,41 @@ function SessionDetail() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Save session as template</DialogTitle>
-            <DialogDescription>Saves the structure (steps, sets, reps, targets, recovery) — not athlete, date, or results.</DialogDescription>
+            <DialogDescription>
+              Saves the structure (steps, sets, reps, targets, recovery) — not athlete, date, or results.
+            </DialogDescription>
           </DialogHeader>
           <div>
             <Label>Template name</Label>
-            <Input className="mt-1" value={tplName} onChange={(e) => setTplName(e.target.value)} placeholder="e.g. Tuesday threshold — 6x800m" />
+            <Input
+              className="mt-1"
+              value={tplName}
+              onChange={(e) => setTplName(e.target.value)}
+              placeholder="e.g. Tuesday threshold — 6x800m"
+            />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setSaveTplOpen(false)}>Cancel</Button>
-            <Button onClick={async () => {
-              if (!tplName.trim()) { toast.error("Name required"); return; }
-              const res = await saveSessionAsTemplate({ sessionId, ownerUserId: user!.id, name: tplName.trim() });
-              if (!res.ok) { toast.error(res.error); return; }
-              toast.success("Template saved"); setSaveTplOpen(false);
-              qc.invalidateQueries({ queryKey: ["templates"] });
-            }}>Save</Button>
+            <Button variant="outline" onClick={() => setSaveTplOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                if (!tplName.trim()) {
+                  toast.error("Name required");
+                  return;
+                }
+                const res = await saveSessionAsTemplate({ sessionId, ownerUserId: user!.id, name: tplName.trim() });
+                if (!res.ok) {
+                  toast.error(res.error);
+                  return;
+                }
+                toast.success("Template saved");
+                setSaveTplOpen(false);
+                qc.invalidateQueries({ queryKey: ["templates"] });
+              }}
+            >
+              Save
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -262,7 +419,15 @@ function SessionDetail() {
   );
 }
 
-function AttendanceCard({ sessionId, athleteId, athleteName }: { sessionId: string; athleteId: string; athleteName: string }) {
+function AttendanceCard({
+  sessionId,
+  athleteId,
+  athleteName,
+}: {
+  sessionId: string;
+  athleteId: string;
+  athleteName: string;
+}) {
   const qc = useQueryClient();
   const markFn = useServerFn(markAttendance);
   const { data: attended } = useQuery({
@@ -311,11 +476,15 @@ function SessionAINote({ sessionId, athleteId }: { sessionId: string; athleteId:
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-base flex items-center gap-2"><Sparkles className="h-4 w-4 text-[var(--accent-red)]" /> AI session reflection</CardTitle>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-[var(--accent-red)]" /> AI session reflection
+        </CardTitle>
       </CardHeader>
       <CardContent className="space-y-2">
         {note?.content ? (
-          <div className="text-sm prose prose-sm max-w-none dark:prose-invert"><ReactMarkdown>{note.content}</ReactMarkdown></div>
+          <div className="text-sm prose prose-sm max-w-none dark:prose-invert">
+            <ReactMarkdown>{note.content}</ReactMarkdown>
+          </div>
         ) : (
           <p className="text-sm text-muted-foreground">No AI reflection yet.</p>
         )}
@@ -329,7 +498,15 @@ function SessionAINote({ sessionId, athleteId }: { sessionId: string; athleteId:
 
 const ZONE_ORDER = ["easy", "steady", "threshold", "vo2", "rep", "sprint", "recovery"] as const;
 
-function ZoneTimePanel({ rows, title, subtitle }: { rows: { zone: string; seconds: number; source: string }[]; title: string; subtitle: string }) {
+function ZoneTimePanel({
+  rows,
+  title,
+  subtitle,
+}: {
+  rows: { zone: string; seconds: number; source: string }[];
+  title: string;
+  subtitle: string;
+}) {
   if (rows.length === 0) {
     return null;
   }
@@ -344,13 +521,20 @@ function ZoneTimePanel({ rows, title, subtitle }: { rows: { zone: string; second
       <CardContent className="space-y-2">
         <div className="flex h-3 w-full overflow-hidden rounded bg-muted">
           {sorted.map((r) => (
-            <div key={`${r.zone}-${r.source}`} className={zoneBarClass(r.zone)} style={{ width: `${(Number(r.seconds) / total) * 100}%` }} />
+            <div
+              key={`${r.zone}-${r.source}`}
+              className={zoneBarClass(r.zone)}
+              style={{ width: `${(Number(r.seconds) / total) * 100}%` }}
+            />
           ))}
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
           {sorted.map((r) => (
             <div key={`${r.zone}-${r.source}`} className="flex justify-between border rounded px-2 py-1">
-              <span className="capitalize flex items-center gap-2"><span className={`h-2 w-2 rounded ${zoneDotClass(r.zone)}`} />{r.zone}</span>
+              <span className="capitalize flex items-center gap-2">
+                <span className={`h-2 w-2 rounded ${zoneDotClass(r.zone)}`} />
+                {r.zone}
+              </span>
               <span className="tabular-nums">{secToClock(Number(r.seconds))}</span>
             </div>
           ))}
@@ -362,14 +546,33 @@ function ZoneTimePanel({ rows, title, subtitle }: { rows: { zone: string; second
 
 function zoneBarClass(zone: string) {
   const m: Record<string, string> = {
-    easy: "bg-emerald-400", steady: "bg-sky-400", threshold: "bg-amber-400",
-    vo2: "bg-orange-500", rep: "bg-red-500", sprint: "bg-fuchsia-500", recovery: "bg-slate-300",
+    easy: "bg-emerald-400",
+    steady: "bg-sky-400",
+    threshold: "bg-amber-400",
+    vo2: "bg-orange-500",
+    rep: "bg-red-500",
+    sprint: "bg-fuchsia-500",
+    recovery: "bg-slate-300",
   };
   return m[zone] ?? "bg-muted";
 }
-function zoneDotClass(zone: string) { return zoneBarClass(zone); }
+function zoneDotClass(zone: string) {
+  return zoneBarClass(zone);
+}
 
-function StepBlock({ session, step, results, fatigue, fuelEvents }: { session: any; step: any; results: any[]; fatigue?: any; fuelEvents: any[] }) {
+function StepBlock({
+  session,
+  step,
+  results,
+  fatigue,
+  fuelEvents,
+}: {
+  session: any;
+  step: any;
+  results: any[];
+  fatigue?: any;
+  fuelEvents: any[];
+}) {
   const qc = useQueryClient();
   const isWork = step.kind === "work";
   const isRecovery = step.kind === "recovery";
@@ -396,37 +599,72 @@ function StepBlock({ session, step, results, fatigue, fuelEvents }: { session: a
       <CardHeader className="pb-2">
         <CardTitle className="text-base capitalize">
           {step.kind === "recovery" ? "Recovery between blocks" : step.kind}
-          {isWork && step.target_kind === "distance" && ` · ${setCount > 1 ? `${setCount}×` : ""}${step.reps}×${metersFmt(step.target_distance_m)}`}
+          {isWork &&
+            step.target_kind === "distance" &&
+            ` · ${setCount > 1 ? `${setCount}×` : ""}${step.reps}×${metersFmt(step.target_distance_m)}`}
           {isWork && step.target_kind === "time" && ` · ${step.reps}×${secToClock(step.target_time_seconds)}`}
           {isStrides && ` · ${step.reps}×${metersFmt(step.target_distance_m)}`}
-          {isRecovery && ` · ${step.recovery_mode} · ${step.recovery_target_kind === "time" ? secToClock(step.recovery_target_seconds) : metersFmt(step.recovery_target_distance_m)}`}
-          {step.is_ladder && <Badge variant="outline" className="ml-2 text-[10px]">Ladder</Badge>}
-          {isStrides && (
-            step.counts_toward_distance
-              ? <Badge className="ml-2 text-[10px] bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/15">Stride · counts</Badge>
-              : <Badge className="ml-2 text-[10px] bg-amber-500/20 text-amber-700 hover:bg-amber-500/20">Run-through · excluded from weekly km</Badge>
+          {isRecovery &&
+            ` · ${step.recovery_mode} · ${step.recovery_target_kind === "time" ? secToClock(step.recovery_target_seconds) : metersFmt(step.recovery_target_distance_m)}`}
+          {step.is_ladder && (
+            <Badge variant="outline" className="ml-2 text-[10px]">
+              Ladder
+            </Badge>
           )}
+          {isStrides &&
+            (step.counts_toward_distance ? (
+              <Badge className="ml-2 text-[10px] bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/15">
+                Stride · counts
+              </Badge>
+            ) : (
+              <Badge className="ml-2 text-[10px] bg-amber-500/20 text-amber-700 hover:bg-amber-500/20">
+                Run-through · excluded from weekly km
+              </Badge>
+            ))}
         </CardTitle>
-        {step.target_pace_sec_per_km && <CardDescription>Target pace {secToClock(step.target_pace_sec_per_km)} /km</CardDescription>}
-        {isWork && (() => {
-          const repsKind = step.recovery_between_reps_target_kind ?? "time";
-          const setsKind = step.recovery_between_sets_target_kind ?? "time";
-          const repsVal = repsKind === "distance"
-            ? (step.recovery_between_reps_distance_m ? metersFmt(step.recovery_between_reps_distance_m) : null)
-            : (step.recovery_between_reps_seconds ? secToClock(step.recovery_between_reps_seconds) : null);
-          const setsVal = setsKind === "distance"
-            ? (step.recovery_between_sets_distance_m ? metersFmt(step.recovery_between_sets_distance_m) : null)
-            : (step.recovery_between_sets_seconds ? secToClock(step.recovery_between_sets_seconds) : null);
-          const mode = step.recovery_between_reps_mode;
-          if (!repsVal && !setsVal) return null;
-          return (
-            <CardDescription className="text-xs">
-              {repsVal && <>Recovery between reps: {mode ? `${mode} ` : ""}{repsVal}</>}
-              {repsVal && setsVal && " · "}
-              {setsVal && <>Between sets: {step.recovery_between_sets_mode ? `${step.recovery_between_sets_mode} ` : ""}{setsVal}</>}
-            </CardDescription>
-          );
-        })()}
+        {step.target_pace_sec_per_km && (
+          <CardDescription>Target pace {secToClock(step.target_pace_sec_per_km)} /km</CardDescription>
+        )}
+        {isWork &&
+          (() => {
+            const repsKind = step.recovery_between_reps_target_kind ?? "time";
+            const setsKind = step.recovery_between_sets_target_kind ?? "time";
+            const repsVal =
+              repsKind === "distance"
+                ? step.recovery_between_reps_distance_m
+                  ? metersFmt(step.recovery_between_reps_distance_m)
+                  : null
+                : step.recovery_between_reps_seconds
+                  ? secToClock(step.recovery_between_reps_seconds)
+                  : null;
+            const setsVal =
+              setsKind === "distance"
+                ? step.recovery_between_sets_distance_m
+                  ? metersFmt(step.recovery_between_sets_distance_m)
+                  : null
+                : step.recovery_between_sets_seconds
+                  ? secToClock(step.recovery_between_sets_seconds)
+                  : null;
+            const mode = step.recovery_between_reps_mode;
+            if (!repsVal && !setsVal) return null;
+            return (
+              <CardDescription className="text-xs">
+                {repsVal && (
+                  <>
+                    Recovery between reps: {mode ? `${mode} ` : ""}
+                    {repsVal}
+                  </>
+                )}
+                {repsVal && setsVal && " · "}
+                {setsVal && (
+                  <>
+                    Between sets: {step.recovery_between_sets_mode ? `${step.recovery_between_sets_mode} ` : ""}
+                    {setsVal}
+                  </>
+                )}
+              </CardDescription>
+            );
+          })()}
       </CardHeader>
       <CardContent>
         {(isWork || isStrides) && (
@@ -434,7 +672,9 @@ function StepBlock({ session, step, results, fatigue, fuelEvents }: { session: a
             {sets.map((setN) => (
               <div key={setN} className="space-y-2">
                 {setCount > 1 && (
-                  <div className="text-xs font-semibold text-muted-foreground border-b pb-1">Set {setN} of {setCount}</div>
+                  <div className="text-xs font-semibold text-muted-foreground border-b pb-1">
+                    Set {setN} of {setCount}
+                  </div>
                 )}
                 {reps.map((rep) => {
                   const r = results.find((x) => x.rep_number === rep && (x.set_number ?? 1) === setN);
@@ -528,14 +768,41 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
         <span>Rep {rep}</span>
       </div>
       <div className="grid grid-cols-12 gap-2 items-end text-sm">
-        <div className="col-span-4 sm:col-span-3"><Label className="text-xs">Time</Label><Input placeholder="mm:ss" value={time} onChange={(e) => setTime(e.target.value)} onBlur={commit} /></div>
-        <div className="col-span-4 sm:col-span-3"><Label className="text-xs">Dist (m)</Label><Input type="number" value={dist} onChange={(e) => setDist(e.target.value)} onBlur={commit} /></div>
-        {!isRecovery && <div className="col-span-4 sm:col-span-2"><Label className="text-xs">HR avg</Label><Input type="number" value={hrAvg} onChange={(e) => setHrAvg(e.target.value)} onBlur={commit} /></div>}
-        <div className="col-span-4 sm:col-span-2"><Label className="text-xs">{isRecovery ? "HR rec" : "HR end"}</Label><Input type="number" value={isRecovery ? hrRec : hrEnd} onChange={(e) => isRecovery ? setHrRec(e.target.value) : setHrEnd(e.target.value)} onBlur={commit} /></div>
-        {!isRecovery && <>
-          <div className="col-span-4 sm:col-span-2"><Label className="text-xs">Cadence</Label><Input type="number" value={cadence} onChange={(e) => setCadence(e.target.value)} onBlur={commit} /></div>
-          <div className="col-span-4 sm:col-span-2"><Label className="text-xs">Stride (cm)</Label><Input type="number" value={stride} onChange={(e) => setStride(e.target.value)} onBlur={commit} /></div>
-        </>}
+        <div className="col-span-4 sm:col-span-3">
+          <Label className="text-xs">Time</Label>
+          <Input placeholder="mm:ss" value={time} onChange={(e) => setTime(e.target.value)} onBlur={commit} />
+        </div>
+        <div className="col-span-4 sm:col-span-3">
+          <Label className="text-xs">Dist (m)</Label>
+          <Input type="number" value={dist} onChange={(e) => setDist(e.target.value)} onBlur={commit} />
+        </div>
+        {!isRecovery && (
+          <div className="col-span-4 sm:col-span-2">
+            <Label className="text-xs">HR avg</Label>
+            <Input type="number" value={hrAvg} onChange={(e) => setHrAvg(e.target.value)} onBlur={commit} />
+          </div>
+        )}
+        <div className="col-span-4 sm:col-span-2">
+          <Label className="text-xs">{isRecovery ? "HR rec" : "HR end"}</Label>
+          <Input
+            type="number"
+            value={isRecovery ? hrRec : hrEnd}
+            onChange={(e) => (isRecovery ? setHrRec(e.target.value) : setHrEnd(e.target.value))}
+            onBlur={commit}
+          />
+        </div>
+        {!isRecovery && (
+          <>
+            <div className="col-span-4 sm:col-span-2">
+              <Label className="text-xs">Cadence</Label>
+              <Input type="number" value={cadence} onChange={(e) => setCadence(e.target.value)} onBlur={commit} />
+            </div>
+            <div className="col-span-4 sm:col-span-2">
+              <Label className="text-xs">Stride (cm)</Label>
+              <Input type="number" value={stride} onChange={(e) => setStride(e.target.value)} onBlur={commit} />
+            </div>
+          </>
+        )}
       </div>
       {!isRecovery && (
         <Input
@@ -549,20 +816,40 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
       {isWorkOrStride && (
         <div className="flex flex-wrap items-end gap-2 text-xs pt-1">
           <label className="flex items-center gap-1.5">
-            <Switch checked={lactateTaken} onCheckedChange={(v) => { setLactateTaken(v); setTimeout(commit, 0); }} />
+            <Switch
+              checked={lactateTaken}
+              onCheckedChange={(v) => {
+                setLactateTaken(v);
+                setTimeout(commit, 0);
+              }}
+            />
             <span className="text-muted-foreground">Lactate</span>
           </label>
           {lactateTaken && (
             <>
               <div>
                 <Label className="text-[10px]">mmol/L</Label>
-                <Input className="h-7 w-20" type="number" step="0.1" value={lactateMmol}
-                  onChange={(e) => setLactateMmol(e.target.value)} onBlur={commit} />
+                <Input
+                  className="h-7 w-20"
+                  type="number"
+                  step="0.1"
+                  value={lactateMmol}
+                  onChange={(e) => setLactateMmol(e.target.value)}
+                  onBlur={commit}
+                />
               </div>
               <div className="min-w-[140px]">
                 <Label className="text-[10px]">Timing</Label>
-                <Select value={lactateTiming} onValueChange={(v) => { setLactateTiming(v); setTimeout(commit, 0); }}>
-                  <SelectTrigger className="h-7"><SelectValue /></SelectTrigger>
+                <Select
+                  value={lactateTiming}
+                  onValueChange={(v) => {
+                    setLactateTiming(v);
+                    setTimeout(commit, 0);
+                  }}
+                >
+                  <SelectTrigger className="h-7">
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="end_of_rep">End of rep</SelectItem>
                     <SelectItem value="end_of_recovery">End of recovery</SelectItem>
@@ -580,18 +867,36 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
 function WorkFuelNote({ step, sessionId }: { step: any; sessionId: string }) {
   const qc = useQueryClient();
   const [note, setNote] = useState<string>(step.fuel_note ?? "");
-  useEffect(() => { setNote(step.fuel_note ?? ""); }, [step.id, step.fuel_note]);
+  useEffect(() => {
+    setNote(step.fuel_note ?? "");
+  }, [step.id, step.fuel_note]);
   async function save() {
-    const { error } = await supabase.from("steps").update({ fuel_note: note.trim() || null }).eq("id", step.id);
-    if (error) { toast.error(error.message); return; }
+    const { error } = await supabase
+      .from("steps")
+      .update({ fuel_note: note.trim() || null })
+      .eq("id", step.id);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
     qc.invalidateQueries({ queryKey: ["steps", sessionId] });
     toast.success("Fueling note saved");
   }
   return (
     <div className="mt-3 border-t pt-3 space-y-1.5">
-      <Label className="text-xs flex items-center gap-1"><Apple className="h-3 w-3" /> Fueling note (this work block)</Label>
-      <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. gel before rep 4, sips of water between sets" className="text-sm" rows={2} />
-      <Button size="sm" variant="outline" onClick={save}>Save fueling note</Button>
+      <Label className="text-xs flex items-center gap-1">
+        <Apple className="h-3 w-3" /> Fueling note (this work block)
+      </Label>
+      <Textarea
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="e.g. gel before rep 4, sips of water between sets"
+        className="text-sm"
+        rows={2}
+      />
+      <Button size="sm" variant="outline" onClick={save}>
+        Save fueling note
+      </Button>
     </div>
   );
 }
@@ -619,20 +924,40 @@ function LactateSummary({ results }: { results: any[] }) {
 
 function StepFatiguePanel({ fatigue, isLadder, reps }: { fatigue?: any; isLadder?: boolean; reps: number }) {
   if (isLadder) {
-    return <div className="mt-3 text-xs text-muted-foreground border-t pt-2">Ladder step — fatigue score suppressed. Per-rep target support coming in a follow-up.</div>;
+    return (
+      <div className="mt-3 text-xs text-muted-foreground border-t pt-2">
+        Ladder step — fatigue score suppressed. Per-rep target support coming in a follow-up.
+      </div>
+    );
   }
   if (!fatigue) {
-    if (reps < 3) return <div className="mt-3 text-xs text-muted-foreground border-t pt-2">Fatigue score needs at least 3 completed reps.</div>;
+    if (reps < 3)
+      return (
+        <div className="mt-3 text-xs text-muted-foreground border-t pt-2">
+          Fatigue score needs at least 3 completed reps.
+        </div>
+      );
     return null;
   }
   const score = fatigue.efficiency_score;
   const label = score == null ? "—" : score >= 85 ? "Held form" : score >= 65 ? "Moderate fade" : "Heavy fade";
-  const tone = score == null ? "bg-muted" : score >= 85 ? "bg-emerald-500/15 text-emerald-700" : score >= 65 ? "bg-amber-500/15 text-amber-700" : "bg-red-500/15 text-red-700";
+  const tone =
+    score == null
+      ? "bg-muted"
+      : score >= 85
+        ? "bg-emerald-500/15 text-emerald-700"
+        : score >= 65
+          ? "bg-amber-500/15 text-amber-700"
+          : "bg-red-500/15 text-red-700";
   return (
     <div className="mt-3 border-t pt-3 space-y-2">
       <div className="flex items-center justify-between">
-        <div className="text-xs text-muted-foreground">Within-session fatigue ({fatigue.method.replace("_", " ")}, {fatigue.rep_count} reps)</div>
-        <div className={`px-2 py-0.5 rounded text-sm font-semibold ${tone}`}>{score ?? "—"} · {label}</div>
+        <div className="text-xs text-muted-foreground">
+          Within-session fatigue ({fatigue.method.replace("_", " ")}, {fatigue.rep_count} reps)
+        </div>
+        <div className={`px-2 py-0.5 rounded text-sm font-semibold ${tone}`}>
+          {score ?? "—"} · {label}
+        </div>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
         <DriftChip label="Pace" value={fatigue.pace_drift_pct} suffix="%" worseHigh />
@@ -644,10 +969,26 @@ function StepFatiguePanel({ fatigue, isLadder, reps }: { fatigue?: any; isLadder
   );
 }
 
-function DriftChip({ label, value, suffix, worseHigh }: { label: string; value: number | null; suffix: string; worseHigh?: boolean }) {
+function DriftChip({
+  label,
+  value,
+  suffix,
+  worseHigh,
+}: {
+  label: string;
+  value: number | null;
+  suffix: string;
+  worseHigh?: boolean;
+}) {
   if (value == null) return <div className="border rounded px-2 py-1 text-muted-foreground">{label}: —</div>;
   const bad = worseHigh ? value > 2 : value < -2;
-  return <div className={`border rounded px-2 py-1 ${bad ? "text-red-600 border-red-300" : ""}`}>{label}: {value > 0 ? "+" : ""}{value}{suffix}</div>;
+  return (
+    <div className={`border rounded px-2 py-1 ${bad ? "text-red-600 border-red-300" : ""}`}>
+      {label}: {value > 0 ? "+" : ""}
+      {value}
+      {suffix}
+    </div>
+  );
 }
 
 function SessionAvgFatigue({ rows }: { rows: any[] }) {
@@ -660,10 +1001,16 @@ function SessionAvgFatigue({ rows }: { rows: any[] }) {
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-base">Within-session fatigue · Session avg</CardTitle>
-        <CardDescription>Duration-weighted across {scored.length} scored step{scored.length === 1 ? "" : "s"}. Different from daily readiness.</CardDescription>
+        <CardDescription>
+          Duration-weighted across {scored.length} scored step{scored.length === 1 ? "" : "s"}. Different from daily
+          readiness.
+        </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="text-3xl font-bold tabular-nums">{avg}<span className="text-base font-normal text-muted-foreground"> / 100</span></div>
+        <div className="text-3xl font-bold tabular-nums">
+          {avg}
+          <span className="text-base font-normal text-muted-foreground"> / 100</span>
+        </div>
       </CardContent>
     </Card>
   );
@@ -673,21 +1020,45 @@ function FuelingPanel({ session }: { session: any }) {
   const qc = useQueryClient();
   const [notes, setNotes] = useState(session.fueling_notes ?? "");
   async function save() {
-    const { error } = await supabase.from("sessions").update({ fueling_notes: notes || null }).eq("id", session.id);
-    if (error) toast.error(error.message); else { toast.success("Fueling notes saved"); qc.invalidateQueries({ queryKey: ["session", session.id] }); }
+    const { error } = await supabase
+      .from("sessions")
+      .update({ fueling_notes: notes || null })
+      .eq("id", session.id);
+    if (error) toast.error(error.message);
+    else {
+      toast.success("Fueling notes saved");
+      qc.invalidateQueries({ queryKey: ["session", session.id] });
+    }
   }
   return (
     <Card>
-      <CardHeader><CardTitle className="text-base">Fueling notes (session)</CardTitle><CardDescription>Pre-session, mid-session, post-session — anything food/drink related.</CardDescription></CardHeader>
+      <CardHeader>
+        <CardTitle className="text-base">Fueling notes (session)</CardTitle>
+        <CardDescription>Pre-session, mid-session, post-session — anything food/drink related.</CardDescription>
+      </CardHeader>
       <CardContent className="space-y-2">
-        <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. oats + banana 2h before, gel at rep 4" />
-        <Button variant="outline" size="sm" onClick={save}>Save notes</Button>
+        <Textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="e.g. oats + banana 2h before, gel at rep 4"
+        />
+        <Button variant="outline" size="sm" onClick={save}>
+          Save notes
+        </Button>
       </CardContent>
     </Card>
   );
 }
 
-function SessionSummary({ session, onSaved, onCompleted }: { session: any; onSaved: () => void; onCompleted?: () => void }) {
+function SessionSummary({
+  session,
+  onSaved,
+  onCompleted,
+}: {
+  session: any;
+  onSaved: () => void;
+  onCompleted?: () => void;
+}) {
   const [totalDist, setTotalDist] = useState<string | number>("");
   const [totalTime, setTotalTime] = useState("");
   const [avgHr, setAvgHr] = useState<string | number>("");
@@ -698,17 +1069,27 @@ function SessionSummary({ session, onSaved, onCompleted }: { session: any; onSav
     setTotalTime(session.total_time_seconds ? secToClock(session.total_time_seconds) : "");
     setAvgHr(session.avg_hr ?? "");
     setRpe(session.rpe ?? 5);
-  }, [session.id, session.updated_at, session.total_distance_m, session.total_time_seconds, session.avg_hr, session.rpe]);
+  }, [
+    session.id,
+    session.updated_at,
+    session.total_distance_m,
+    session.total_time_seconds,
+    session.avg_hr,
+    session.rpe,
+  ]);
 
   async function complete() {
     const wasAlreadyComplete = !!session.completed_at;
-    const { error } = await supabase.from("sessions").update({
-      total_distance_m: totalDist === "" ? null : Number(totalDist),
-      total_time_seconds: clockToSec(totalTime as any),
-      avg_hr: avgHr === "" ? null : Number(avgHr),
-      rpe,
-      ...(wasAlreadyComplete ? {} : { completed_at: new Date().toISOString() }),
-    }).eq("id", session.id);
+    const { error } = await supabase
+      .from("sessions")
+      .update({
+        total_distance_m: totalDist === "" ? null : Number(totalDist),
+        total_time_seconds: clockToSec(totalTime as any),
+        avg_hr: avgHr === "" ? null : Number(avgHr),
+        rpe,
+        ...(wasAlreadyComplete ? {} : { completed_at: new Date().toISOString() }),
+      })
+      .eq("id", session.id);
     if (error) toast.error(error.message);
     else {
       toast.success(wasAlreadyComplete ? "Session updated" : "Session marked complete");
@@ -719,15 +1100,28 @@ function SessionSummary({ session, onSaved, onCompleted }: { session: any; onSav
 
   return (
     <Card>
-      <CardHeader><CardTitle>Session totals & RPE</CardTitle></CardHeader>
+      <CardHeader>
+        <CardTitle>Session totals & RPE</CardTitle>
+      </CardHeader>
       <CardContent className="space-y-3">
         <div className="grid sm:grid-cols-3 gap-3">
-          <div><Label>Total distance (m)</Label><Input type="number" value={totalDist} onChange={(e) => setTotalDist(e.target.value)} /></div>
-          <div><Label>Total time (mm:ss)</Label><Input value={totalTime} onChange={(e) => setTotalTime(e.target.value)} /></div>
-          <div><Label>Avg HR</Label><Input type="number" value={avgHr} onChange={(e) => setAvgHr(e.target.value)} /></div>
+          <div>
+            <Label>Total distance (m)</Label>
+            <Input type="number" value={totalDist} onChange={(e) => setTotalDist(e.target.value)} />
+          </div>
+          <div>
+            <Label>Total time (mm:ss)</Label>
+            <Input value={totalTime} onChange={(e) => setTotalTime(e.target.value)} />
+          </div>
+          <div>
+            <Label>Avg HR</Label>
+            <Input type="number" value={avgHr} onChange={(e) => setAvgHr(e.target.value)} />
+          </div>
         </div>
         <div>
-          <Label>RPE (1–10): <span className="tabular-nums">{rpe}</span></Label>
+          <Label>
+            RPE (1–10): <span className="tabular-nums">{rpe}</span>
+          </Label>
           <Slider min={1} max={10} step={1} value={[rpe]} onValueChange={(v) => setRpe(v[0])} className="mt-2" />
         </div>
         <Button onClick={complete} className="w-full">
