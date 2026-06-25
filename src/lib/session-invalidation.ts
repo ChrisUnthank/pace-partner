@@ -18,6 +18,8 @@ export function invalidateSession(
   qc.invalidateQueries({ queryKey: ["fatigue", sessionId] });
   qc.invalidateQueries({ queryKey: ["fuel-events", sessionId] });
   qc.invalidateQueries({ queryKey: ["session_insights", sessionId] });
+  qc.invalidateQueries({ queryKey: ["raw-points", sessionId] });
+  qc.invalidateQueries({ queryKey: ["session-files", sessionId] });
 
   // Lists / dashboards / analytics that aggregate sessions
   qc.invalidateQueries({ queryKey: ["sessions-list"] });
