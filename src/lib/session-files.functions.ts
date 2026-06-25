@@ -8,9 +8,15 @@ function mapFitSport(sport?: string): string {
   if (s.includes("cycling") || s.includes("bike") || s.includes("ride")) return "ride";
   if (s.includes("swim")) return "swim";
   if (s.includes("training") || s.includes("gym") || s.includes("strength")) return "gym";
-  if ( steps  if (s.includes("track")) return "track";
-  if (cad < 120) return cad * 2;
+  if (s.includes("track")) return "track";
+  return "run";
+}
 
+function normalizeCadence(cad?: number): number | null {
+  if (!cad || cad <= 0) return null;
+  // filter obvious garbage
+  if (cad > 260) return null;
+  if (cad < 120) return cad * 2;
   return cad;
 }
 
