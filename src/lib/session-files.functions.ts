@@ -296,7 +296,7 @@ function classifyLaps(laps: ParsedLap[], plannedSteps: any[] = []): ParsedLap[] 
   // If planned structure exists, and especially if ladder is enabled,
   // keep all meaningful non-rest laps as work and preserve order.
   if (hasPlannedWork) {
-    let classified = laps.map((lap) => {
+    let classified: ParsedLap[] = laps.map((lap) => {
       if (lap.intensity === "rest") return { ...lap, kind: "recovery" as const };
 
       const isWork = lap.total_distance >= 20 && lap.total_elapsed_time >= 6;
@@ -350,7 +350,7 @@ function classifyLaps(laps: ParsedLap[], plannedSteps: any[] = []): ParsedLap[] 
 
   const tolerance = Math.max(15, dominantDistance * 0.25);
 
-  let classified = laps.map((lap) => {
+  let classified: ParsedLap[] = laps.map((lap) => {
     if (lap.intensity === "rest") {
       return { ...lap, kind: "recovery" as const };
     }
