@@ -29,6 +29,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { getLatestAthleteNote, generateSessionNote, getAiAccessStatus } from "@/lib/ai.functions";
 import ReactMarkdown from "react-markdown";
 import { markAttendance } from "@/lib/messages.functions";
+import { uploadAndParseSessionFile } from "@/lib/session-files.functions";
 import { Switch } from "@/components/ui/switch";
 import { UserAvatar } from "@/components/user-avatar";
 import { ActivityIcon } from "@/lib/activity-icon";
@@ -153,7 +154,7 @@ function SessionDetail() {
       try {
         const res: any = await uploadFile({
           data: {
-            athleteId: session.athlete_id,
+            athleteId: session!.athlete_id,
             sessionId: sessionId, // ✅ THIS LINKS TO EXISTING SESSION
             filename: file.name,
             kind: file.name.toLowerCase().endsWith(".gpx") ? "gpx" : "fit",
