@@ -673,13 +673,3 @@ export const sendReminder = createServerFn({ method: "POST" })
     if (error) throw error;
     return row;
   });
-  return "run";
-}
-
-function normalizeCadence(cad?: number): number | null {
-  if (!cad || cad <= 0) return null;
-
-  // filter obvious garbage
-  if (cad > 260) return null;
-
-
