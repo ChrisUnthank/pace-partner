@@ -68,26 +68,26 @@ type MetricKey = (typeof METRICS)[number]["key"];
 function SessionAnalysis() {
   const { sessionId } = Route.useParams();
   const [enabled, setEnabled] = useState<Record<MetricKey, boolean>>({
-    hr: true, pace: true, cadence: false, elev: false,
+    hr: true,
+    pace: true,
+    cadence: false,
+    elev: false,
   });
   const [xMode, setXMode] = useState<"time" | "distance">("time");
 
-  const { data: session, error: sessionError, isLoading: sessionLoading } = useQuery({
+  const { data: session } = useQuery({
     queryKey: ["session", sessionId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("sessions").select("*, athletes(name)").eq("id", sessionId).single();
+      const { data, error } = await supabase.from("sessions").select("*, athletes(name)").eq("id", sessionId).single();
       if (error) throw error;
       return data;
     },
-    retry: false,
   });
 
   const { data: steps } = useQuery({
     queryKey: ["steps", sessionId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("steps").select("*").eq("session_id", sessionId).order("step_order");
+      const { data, error } = await supabase.from("steps").select("*").eq("session_id", sessionId).order("step_order");
       if (error) throw error;
       return data ?? [];
     },
@@ -99,8 +99,11 @@ function SessionAnalysis() {
     enabled: stepIds.length > 0,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("interval_results").select("*").in("step_id", stepIds)
-        .order("set_number").order("rep_number");
+        .from("interval_results")
+        .select("*")
+        .in("step_id", stepIds)
+        .order("set_number")
+        .order("rep_number");
       if (error) throw error;
       return data ?? [];
     },
@@ -110,7 +113,9 @@ function SessionAnalysis() {
     queryKey: ["zone-time", sessionId],
     queryFn: async () => {
       const { data } = await supabase
-        .from("session_zone_time").select("zone, seconds, source").eq("session_id", sessionId);
+        .from("session_zone_time")
+        .select("zone, seconds, source")
+        .eq("session_id", sessionId);
       return data ?? [];
     },
   });
@@ -126,57 +131,35 @@ function SessionAnalysis() {
   const { data: rawPoints } = useQuery({
     queryKey: ["raw-points", sessionId],
     queryFn: async () => {
-      const { data } = await supabase.from("raw_session_points")
+      const { data } = await supabase
+        .from("raw_session_points")
         .select("elapsed_s, hr, pace_sec_per_km, cadence, elevation_m, lat, lng, segment_type")
-        .eq("session_id", sessionId).order("elapsed_s").limit(5000);
+        .eq("session_id", sessionId)
+        .order("elapsed_s")
+        .limit(5000);
       return data ?? [];
     },
   });
 
-  const computeFatigue = useServerFn(computeContinuousFatigue);
-
-  const safeRawPoints = Array.isArray(rawPoints) ? rawPoints : [];
+  // ✅ Safe arrays so analysis never crashes on undefined/null
   const safeSteps = Array.isArray(steps) ? steps : [];
   const safeResults = Array.isArray(results) ? results : [];
   const safeZoneTime = Array.isArray(zoneTime) ? zoneTime : [];
   const safeFatigue = Array.isArray(fatigue) ? fatigue : [];
+  const safeRawPoints = Array.isArray(rawPoints) ? rawPoints : [];
 
-  const hasRaw = safeRawPoints.length > 10;
-  const hasResults = safeResults.length > 0;
-  const graphMode: "trace" | "rep" | "empty" = hasRaw ? "trace" : hasResults ? "rep" : "empty";
+  const computeFatigue = useServerFn(computeContinuousFatigue);
 
-  const repBuild = useMemo(
-    () => buildSamples(safeSteps, safeResults),
-    [safeSteps, safeResults],
+  const { samples, bands, mode, hasMetric, gpsPoints } = useMemo(
+    () => buildSamples(safeSteps, safeResults, safeRawPoints),
+    [safeSteps, safeResults, safeRawPoints],
   );
 
-  const traceBuild = useMemo(
-    () => buildTraceFromRaw(safeRawPoints, safeSteps, safeResults),
-    [safeRawPoints, safeSteps, safeResults],
-  );
-
-  const repSeries = useMemo(
-    () => buildRepSeries(safeSteps, safeResults),
-    [safeSteps, safeResults],
-  );
-
-  const samples: Sample[] = graphMode === "trace" ? traceBuild.samples : repBuild.samples;
-  const bands: { kind: string; t1: number; t2: number; d1: number; d2: number }[] =
-    graphMode === "trace" ? traceBuild.bands : graphMode === "rep" ? repSeries.bands : [];
-  const hasMetric: Record<MetricKey, boolean> =
-    graphMode === "trace"
-      ? traceBuild.hasMetric
-      : graphMode === "rep"
-        ? repSeries.hasMetric
-        : { hr: false, pace: false, cadence: false, elev: false };
-  const gpsPoints = traceBuild.gpsPoints.length > 0 ? traceBuild.gpsPoints : repBuild.gpsPoints;
-
-  const xCanUseDistance = graphMode === "trace" && samples.length > 0 && samples.every((s) => s.d != null);
+  const xCanUseDistance = samples.length > 0 && samples.every((s) => s.d != null);
   const xKey: keyof Sample = xMode === "distance" && xCanUseDistance ? "d" : "t";
 
   // Build per-metric series so React doesn't have to skip nulls
   const seriesData = useMemo(() => {
-    if (graphMode === "rep") return repSeries.data;
     return samples.map((s) => ({
       x: (s[xKey] as number) ?? 0,
       stepKind: s.stepKind,
@@ -185,34 +168,35 @@ function SessionAnalysis() {
       cadence: s.cadence,
       elev: s.elev,
     }));
-  }, [graphMode, repSeries, samples, xKey]);
+  }, [samples, xKey]);
 
-  if (sessionLoading) return <AppShell><p>Loading…</p></AppShell>;
-  if (sessionError || !session) {
+  if (!session)
     return (
       <AppShell>
-        <div className="space-y-3 max-w-lg">
-          <h1 className="text-lg font-semibold">Session not found</h1>
-          <p className="text-sm text-muted-foreground">
-            This session may have been deleted, or you may not have access to it.
-          </p>
-          <Button asChild variant="outline" size="sm">
-            <Link to="/app/sessions">← Back to sessions</Link>
-          </Button>
-        </div>
+        <p>Loading…</p>
       </AppShell>
     );
-  }
 
+  const noResults = safeResults.length === 0;
+  const hasRaw = safeRawPoints.length > 0;
   const continuousFatigue = safeFatigue.find((f: any) => f.method === "continuous_drift");
   const repFatigue = safeFatigue.filter((f: any) => f.method !== "continuous_drift");
+
+  // ✅ Whether the graph can actually render something
+  const hasGraphData =
+    Array.isArray(samples) && samples.length > 0 && METRICS.some((m) => enabled[m.key] && hasMetric[m.key]);
 
   return (
     <AppShell>
       <div className="space-y-6 max-w-5xl">
         <div>
-          <Link to="/app/sessions/$sessionId" params={{ sessionId }}
-            className="text-sm text-muted-foreground underline">← Back to details</Link>
+          <Link
+            to="/app/sessions/$sessionId"
+            params={{ sessionId }}
+            className="text-sm text-muted-foreground underline"
+          >
+            ← Back to details
+          </Link>
           <h1 className="text-2xl font-bold mt-2">{session.title}</h1>
           <p className="text-sm text-muted-foreground">
             {session.session_date} · {session.athletes?.name} · {sessionClassificationLabel(session as any)}
@@ -220,23 +204,14 @@ function SessionAnalysis() {
           </p>
         </div>
 
-        {graphMode === "empty" ? (
+        {noResults && !hasRaw ? (
           <Card>
-            <CardHeader>
-              <CardTitle>Session graph</CardTitle>
-              <CardDescription>No detailed trace available</CardDescription>
-            </CardHeader>
-            <CardContent className="pt-2 text-sm text-muted-foreground space-y-2">
-              <p>
-                This session was entered manually without file-based or rep-level data, so there is nothing to plot.
-              </p>
-              <p>
-                Upload a FIT or GPX file, or add per-rep results from{" "}
-                <Link to="/app/sessions/$sessionId" params={{ sessionId }} className="underline">
-                  the session detail
-                </Link>{" "}
-                to unlock the graph.
-              </p>
+            <CardContent className="pt-6 text-sm text-muted-foreground">
+              Detailed analysis available after device sync (coming in the next phase). For now, see{" "}
+              <Link to="/app/sessions/$sessionId" params={{ sessionId }} className="underline">
+                the session detail
+              </Link>{" "}
+              for logged totals and per-rep entries.
             </CardContent>
           </Card>
         ) : (
@@ -246,32 +221,36 @@ function SessionAnalysis() {
                 <div>
                   <CardTitle>Session graph</CardTitle>
                   <CardDescription>
-                    {graphMode === "trace"
-                      ? "High-resolution trace from uploaded file"
-                      : "Rep-by-rep summary — upload a FIT/GPX file for a high-resolution trace"}
+                    {mode === "trace" ? "High-resolution trace" : "Summary view — no high-res trace recorded"}
                   </CardDescription>
                 </div>
-                {graphMode === "trace" && (
-                  <div className="flex gap-1">
-                    <Button size="sm" variant={xKey === "t" ? "default" : "outline"}
-                      onClick={() => setXMode("time")}>Time</Button>
-                    <Button size="sm" variant={xKey === "d" ? "default" : "outline"}
-                      disabled={!xCanUseDistance}
-                      onClick={() => setXMode("distance")}>Distance</Button>
-                  </div>
-                )}
+                <div className="flex gap-1">
+                  <Button size="sm" variant={xKey === "t" ? "default" : "outline"} onClick={() => setXMode("time")}>
+                    Time
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={xKey === "d" ? "default" : "outline"}
+                    disabled={!xCanUseDistance}
+                    onClick={() => setXMode("distance")}
+                  >
+                    Distance
+                  </Button>
+                </div>
               </div>
               <div className="flex flex-wrap gap-1 mt-2">
                 {METRICS.map((m) => {
                   const avail = hasMetric[m.key];
                   return (
-                    <Button key={m.key} size="sm"
+                    <Button
+                      key={m.key}
+                      size="sm"
                       variant={enabled[m.key] && avail ? "default" : "outline"}
                       disabled={!avail}
                       title={!avail ? "no data" : ""}
-                      onClick={() => setEnabled((p) => ({ ...p, [m.key]: !p[m.key] }))}>
-                      <span className="h-2 w-2 rounded-full mr-1.5 inline-block"
-                        style={{ background: m.color }} />
+                      onClick={() => setEnabled((p) => ({ ...p, [m.key]: !p[m.key] }))}
+                    >
+                      <span className="h-2 w-2 rounded-full mr-1.5 inline-block" style={{ background: m.color }} />
                       {m.label}
                     </Button>
                   );
@@ -279,78 +258,139 @@ function SessionAnalysis() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="h-[360px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={seriesData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                    <XAxis
-                      dataKey="x"
-                      type="number"
-                      domain={["dataMin", "dataMax"]}
-                      tickFormatter={(v) =>
-                        graphMode === "rep"
-                          ? `R${v}`
-                          : xKey === "t"
-                            ? secToClock(v)
-                            : metersFmt(v)
-                      }
-                    />
-                    <YAxis yAxisId="hr" orientation="left" hide={!enabled.hr || !hasMetric.hr}
-                      tick={{ fontSize: 11 }} width={36} />
-                    <YAxis yAxisId="pace" orientation="right" hide={!enabled.pace || !hasMetric.pace}
-                      reversed tick={{ fontSize: 11 }} width={48}
-                      tickFormatter={(v) => secToClock(v)} />
-                    <YAxis yAxisId="cadence" orientation="left" hide={!enabled.cadence || !hasMetric.cadence}
-                      tick={{ fontSize: 11 }} width={32} />
-                    <YAxis yAxisId="elev" orientation="right" hide={!enabled.elev || !hasMetric.elev}
-                      tick={{ fontSize: 11 }} width={32} />
-                    <Tooltip
-                      labelFormatter={(v) =>
-                        graphMode === "rep"
-                          ? `Rep ${v}`
-                          : xKey === "t"
-                            ? secToClock(Number(v))
-                            : metersFmt(Number(v))
-                      }
-                      formatter={(v: any, n: any) => {
-                        if (n === "pace") return [paceFmt(Number(v)), "Pace"];
-                        if (n === "hr") return [`${Math.round(Number(v))} bpm`, "HR"];
-                        if (n === "cadence") return [`${Math.round(Number(v))} spm`, "Cadence"];
-                        if (n === "elev") return [`${Math.round(Number(v))} m`, "Elevation"];
-                        return [v, n];
-                      }}
-                    />
-                    <Legend />
-                    {bands.map((b, i) => (
-                      <ReferenceArea key={i}
-                        x1={b[xKey === "t" ? "t1" : "d1"]} x2={b[xKey === "t" ? "t2" : "d2"]}
+              {hasGraphData ? (
+                <div className="] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={seriesData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                      <XAxis
+                        dataKey="x"
+                        type="number"
+                        domain={["dataMin", "dataMax"]}
+                        tickFormatter={(v) => (xKey === "t" ? secToClock(Number(v)) : metersFmt(Number(v)))}
+                      />
+                      <YAxis
                         yAxisId="hr"
-                        fill={STEP_COLORS[b.kind] ?? "transparent"}
-                        stroke={STEP_STROKE[b.kind]} strokeOpacity={0.35} strokeDasharray="2 2" />
-                    ))}
-                    {enabled.hr && hasMetric.hr && (
-                      <Line yAxisId="hr" dataKey="hr" stroke="#ef4444" dot={false}
-                        type="monotone" connectNulls strokeWidth={2} isAnimationActive={false} />
-                    )}
-                    {enabled.pace && hasMetric.pace && (
-                      <Line yAxisId="pace" dataKey="pace" stroke="#3b82f6" dot={false}
-                        type="monotone" connectNulls strokeWidth={2} isAnimationActive={false} />
-                    )}
-                    {enabled.cadence && hasMetric.cadence && (
-                      <Line yAxisId="cadence" dataKey="cadence" stroke="#8b5cf6" dot={false}
-                        type="monotone" connectNulls strokeWidth={1.5} isAnimationActive={false} />
-                    )}
-                    {enabled.elev && hasMetric.elev && (
-                      <Line yAxisId="elev" dataKey="elev" stroke="#10b981" dot={false}
-                        type="monotone" connectNulls strokeWidth={1.5} isAnimationActive={false} />
-                    )}
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
+                        orientation="left"
+                        hide={!enabled.hr || !hasMetric.hr}
+                        tick={{ fontSize: 11 }}
+                        width={36}
+                      />
+                      <YAxis
+                        yAxisId="pace"
+                        orientation="right"
+                        hide={!enabled.pace || !hasMetric.pace}
+                        reversed
+                        tick={{ fontSize: 11 }}
+                        width={48}
+                        tickFormatter={(v) => secToClock(Number(v))}
+                      />
+                      <YAxis
+                        yAxisId="cadence"
+                        orientation="left"
+                        hide={!enabled.cadence || !hasMetric.cadence}
+                        tick={{ fontSize: 11 }}
+                        width={32}
+                      />
+                      <YAxis
+                        yAxisId="elev"
+                        orientation="right"
+                        hide={!enabled.elev || !hasMetric.elev}
+                        tick={{ fontSize: 11 }}
+                        width={32}
+                      />
+                      <Tooltip
+                        labelFormatter={(v) => (xKey === "t" ? secToClock(Number(v)) : metersFmt(Number(v)))}
+                        formatter={(v: any, n: any) => {
+                          if (v == null || Number.isNaN(Number(v))) return ["—", n];
+                          if (n === "pace") return [paceFmt(Number(v)), "Pace"];
+                          if (n === "hr") return [`${Math.round(Number(v))} bpm`, "HR"];
+                          if (n === "cadence") return [`${Math.round(Number(v))} spm`, "Cadence"];
+                          if (n === "elev") return [`${Math.round(Number(v))} m`, "Elevation"];
+                          return [v, n];
+                        }}
+                      />
+                      <Legend />
+
+                      {bands.map((b, i) => (
+                        <ReferenceArea
+                          key={i}
+                          x1={b[xKey === "t" ? "t1" : "d1"]}
+                          x2={b[xKey === "t" ? "t2" : "d2"]}
+                          yAxisId="hr"
+                          fill={STEP_COLORS[b.kind] ?? "transparent"}
+                          stroke={STEP_STROKE[b.kind]}
+                          strokeOpacity={0.35}
+                          strokeDasharray="2 2"
+                        />
+                      ))}
+
+                      {enabled.hr && hasMetric.hr && (
+                        <Line
+                          yAxisId="hr"
+                          dataKey="hr"
+                          stroke="#ef4444"
+                          dot={false}
+                          type="monotone"
+                          connectNulls
+                          strokeWidth={2}
+                          isAnimationActive={false}
+                        />
+                      )}
+
+                      {enabled.pace && hasMetric.pace && (
+                        <Line
+                          yAxisId="pace"
+                          dataKey="pace"
+                          stroke="#3b82f6"
+                          dot={false}
+                          type="monotone"
+                          connectNulls
+                          strokeWidth={2}
+                          isAnimationActive={false}
+                        />
+                      )}
+
+                      {enabled.cadence && hasMetric.cadence && (
+                        <Line
+                          yAxisId="cadence"
+                          dataKey="cadence"
+                          stroke="#8b5cf6"
+                          dot={false}
+                          type="monotone"
+                          connectNulls
+                          strokeWidth={1.5}
+                          isAnimationActive={false}
+                        />
+                      )}
+
+                      {enabled.elev && hasMetric.elev && (
+                        <Line
+                          yAxisId="elev"
+                          dataKey="elev"
+                          stroke="#10b981"
+                          dot={false}
+                          type="monotone"
+                          connectNulls
+                          strokeWidth={1.5}
+                          isAnimationActive={false}
+                        />
+                      )}
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="h-[220px] w-full rounded border border-dashed flex items-center justify-center text-sm text-muted-foreground">
+                  No detailed trace available for this session
+                </div>
+              )}
               <div className="flex flex-wrap gap-2 mt-3 text-xs">
                 {Object.entries(STEP_STROKE).map(([k, c]) => (
                   <span key={k} className="flex items-center gap-1.5">
-                    <span className="h-2 w-3 rounded-sm" style={{ background: STEP_COLORS[k], border: `1px dashed ${c}` }} />
+                    <span
+                      className="h-2 w-3 rounded-sm"
+                      style={{ background: STEP_COLORS[k], border: `1px dashed ${c}` }}
+                    />
                     <span className="capitalize text-muted-foreground">{k}</span>
                   </span>
                 ))}
@@ -359,10 +399,12 @@ function SessionAnalysis() {
           </Card>
         )}
 
-        {Array.isArray(gpsPoints) && gpsPoints.length >= 2 && <MapPanel points={gpsPoints} />}
+        {gpsPoints.length >= 2 && <MapPanel points={gpsPoints} />}
 
         <Card>
-          <CardHeader><CardTitle>Totals</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle>Totals</CardTitle>
+          </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
               <Stat label="Distance" value={metersFmt(session.total_distance_m)} />
@@ -374,16 +416,20 @@ function SessionAnalysis() {
           </CardContent>
         </Card>
 
-        <WorkSegmentPanel steps={safeSteps} results={safeResults} />
+        <WorkSegmentPanel steps={steps ?? []} results={results ?? []} />
 
         {hasRaw && (
           <Card>
             <CardHeader>
-              <CardTitle>Raw trace ({safeRawPoints.length} samples)</CardTitle>
+              <CardTitle>Raw trace ({(rawPoints ?? []).length} samples)</CardTitle>
               <CardDescription>Loaded from uploaded device file. See chart and route above.</CardDescription>
             </CardHeader>
             <CardContent>
-              <Button size="sm" variant="outline" onClick={() => computeFatigue({ data: { sessionId } }).then(() => window.location.reload())}>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => computeFatigue({ data: { sessionId } }).then(() => window.location.reload())}
+              >
                 Compute overall run fatigue
               </Button>
             </CardContent>
@@ -392,7 +438,10 @@ function SessionAnalysis() {
 
         {continuousFatigue && (
           <Card>
-            <CardHeader><CardTitle>Overall run fatigue</CardTitle><CardDescription>Continuous drift method</CardDescription></CardHeader>
+            <CardHeader>
+              <CardTitle>Overall run fatigue</CardTitle>
+              <CardDescription>Continuous drift method</CardDescription>
+            </CardHeader>
             <CardContent className="text-sm space-y-1">
               <div className="flex justify-between border rounded px-3 py-2">
                 <span className="font-medium">Efficiency score</span>
@@ -400,11 +449,19 @@ function SessionAnalysis() {
               </div>
               <div className="flex justify-between border rounded px-3 py-2 text-muted-foreground">
                 <span>HR drift</span>
-                <span>{continuousFatigue.hr_drift_bpm != null ? `${Number(continuousFatigue.hr_drift_bpm).toFixed(1)} bpm` : "—"}</span>
+                <span>
+                  {continuousFatigue.hr_drift_bpm != null
+                    ? `${Number(continuousFatigue.hr_drift_bpm).toFixed(1)} bpm`
+                    : "—"}
+                </span>
               </div>
               <div className="flex justify-between border rounded px-3 py-2 text-muted-foreground">
                 <span>Pace drift</span>
-                <span>{continuousFatigue.pace_drift_pct != null ? `${Number(continuousFatigue.pace_drift_pct).toFixed(1)}%` : "—"}</span>
+                <span>
+                  {continuousFatigue.pace_drift_pct != null
+                    ? `${Number(continuousFatigue.pace_drift_pct).toFixed(1)}%`
+                    : "—"}
+                </span>
               </div>
             </CardContent>
           </Card>
@@ -412,15 +469,19 @@ function SessionAnalysis() {
 
         {repFatigue.length > 0 && (
           <Card>
-            <CardHeader><CardTitle>Per-step fatigue</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle>Per-step fatigue</CardTitle>
+            </CardHeader>
             <CardContent className="space-y-2 text-sm">
               {repFatigue.map((f: any) => {
-                const step = safeSteps.find((s: any) => s.id === f.step_id);
+                const step = (steps ?? []).find((s: any) => s.id === f.step_id);
                 return (
                   <div key={f.step_id} className="flex flex-wrap justify-between gap-2 border rounded px-3 py-2">
                     <span className="font-medium capitalize">{step?.kind ?? "step"}</span>
                     <span className="text-muted-foreground">
-                      eff {f.efficiency_score ?? "—"} · pace drift {f.pace_drift_pct != null ? `${Number(f.pace_drift_pct).toFixed(1)}%` : "—"} · HR drift {f.hr_drift_bpm != null ? `${Number(f.hr_drift_bpm).toFixed(0)} bpm` : "—"}
+                      eff {f.efficiency_score ?? "—"} · pace drift{" "}
+                      {f.pace_drift_pct != null ? `${Number(f.pace_drift_pct).toFixed(1)}%` : "—"} · HR drift{" "}
+                      {f.hr_drift_bpm != null ? `${Number(f.hr_drift_bpm).toFixed(0)} bpm` : "—"}
                     </span>
                   </div>
                 );
@@ -429,8 +490,8 @@ function SessionAnalysis() {
           </Card>
         )}
 
-        <ZonePanel rows={safeZoneTime.filter((r: any) => r.source === "pace")} title="Pace zones" />
-        <ZonePanel rows={safeZoneTime.filter((r: any) => r.source === "hr")} title="HR zones" />
+        <ZonePanel rows={(zoneTime ?? []).filter((r: any) => r.source === "pace")} title="Pace zones" />
+        <ZonePanel rows={(zoneTime ?? []).filter((r: any) => r.source === "hr")} title="HR zones" />
       </div>
     </AppShell>
   );
@@ -447,12 +508,17 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 function WorkSegmentPanel({ steps, results }: { steps: any[]; results: any[] }) {
   const workStepIds = new Set(steps.filter((s) => s.kind === "work").map((s) => s.id));
-  const workResults = results.filter((r) => workStepIds.has(r.step_id) && (r.actual_time_seconds || r.actual_distance_m));
+  const workResults = results.filter(
+    (r) => workStepIds.has(r.step_id) && (r.actual_time_seconds || r.actual_distance_m),
+  );
   if (workResults.length === 0) return null;
   const totalTime = workResults.reduce((a, r) => a + Number(r.actual_time_seconds ?? 0), 0);
   const totalDist = workResults.reduce((a, r) => a + Number(r.actual_distance_m ?? 0), 0);
   const hrSec = workResults.reduce((a, r) => a + (r.hr_avg ? Number(r.actual_time_seconds ?? 0) : 0), 0);
-  const hrWeighted = workResults.reduce((a, r) => a + (r.hr_avg ? Number(r.hr_avg) * Number(r.actual_time_seconds ?? 0) : 0), 0);
+  const hrWeighted = workResults.reduce(
+    (a, r) => a + (r.hr_avg ? Number(r.hr_avg) * Number(r.actual_time_seconds ?? 0) : 0),
+    0,
+  );
   const avgHr = hrSec > 0 ? Math.round(hrWeighted / hrSec) : null;
   const maxHr = workResults.reduce((m, r) => Math.max(m, Number(r.hr_max ?? r.hr_end ?? 0)), 0) || null;
   const cads = workResults.map((r) => r.cadence).filter((x: any) => x);
@@ -490,16 +556,28 @@ function WorkSegmentPanel({ steps, results }: { steps: any[]; results: any[] }) 
               </thead>
               <tbody>
                 {workResults.map((r) => {
-                  const p = r.actual_pace_sec_per_km ?? (r.actual_time_seconds && r.actual_distance_m ? (r.actual_time_seconds / r.actual_distance_m) * 1000 : null);
+                  const p =
+                    r.actual_pace_sec_per_km ??
+                    (r.actual_time_seconds && r.actual_distance_m
+                      ? (r.actual_time_seconds / r.actual_distance_m) * 1000
+                      : null);
                   return (
                     <tr key={r.id} className="border-b last:border-b-0">
-                      <td className="py-1 pr-2">{(r.set_number ?? 1) > 1 ? `S${r.set_number} ` : ""}R{r.rep_number}</td>
-                      <td className="py-1 pr-2 text-right tabular-nums">{r.actual_time_seconds ? secToClock(r.actual_time_seconds) : "—"}</td>
-                      <td className="py-1 pr-2 text-right tabular-nums">{r.actual_distance_m ? metersFmt(r.actual_distance_m) : "—"}</td>
+                      <td className="py-1 pr-2">
+                        {(r.set_number ?? 1) > 1 ? `S${r.set_number} ` : ""}R{r.rep_number}
+                      </td>
+                      <td className="py-1 pr-2 text-right tabular-nums">
+                        {r.actual_time_seconds ? secToClock(r.actual_time_seconds) : "—"}
+                      </td>
+                      <td className="py-1 pr-2 text-right tabular-nums">
+                        {r.actual_distance_m ? metersFmt(r.actual_distance_m) : "—"}
+                      </td>
                       <td className="py-1 pr-2 text-right tabular-nums">{p ? paceFmt(p) : "—"}</td>
                       <td className="py-1 pr-2 text-right tabular-nums">{r.hr_avg ?? "—"}</td>
                       <td className="py-1 pr-2 text-right tabular-nums">{r.cadence ?? "—"}</td>
-                      <td className="py-1 text-right tabular-nums">{r.lactate_taken && r.lactate_mmol != null ? Number(r.lactate_mmol).toFixed(1) : "—"}</td>
+                      <td className="py-1 text-right tabular-nums">
+                        {r.lactate_taken && r.lactate_mmol != null ? Number(r.lactate_mmol).toFixed(1) : "—"}
+                      </td>
                     </tr>
                   );
                 })}
@@ -514,30 +592,42 @@ function WorkSegmentPanel({ steps, results }: { steps: any[]; results: any[] }) 
 
 const ZONE_ORDER = ["z1", "z2", "z3", "z4", "z5"];
 const ZONE_LABEL: Record<string, string> = {
-  z1: "Z1 Easy", z2: "Z2 Aerobic", z3: "Z3 Tempo", z4: "Z4 VO2/5K", z5: "Z5 Rep",
+  z1: "Z1 Easy",
+  z2: "Z2 Aerobic",
+  z3: "Z3 Tempo",
+  z4: "Z4 VO2/5K",
+  z5: "Z5 Rep",
 };
 function ZonePanel({ rows, title }: { rows: any[]; title: string }) {
   if (rows.length === 0) return null;
   const total = rows.reduce((a, r) => a + Number(r.seconds || 0), 0) || 1;
   const sorted = [...rows].sort((a, b) => ZONE_ORDER.indexOf(a.zone) - ZONE_ORDER.indexOf(b.zone));
   const colors: Record<string, string> = {
-    z1: "bg-emerald-400", z2: "bg-sky-400", z3: "bg-amber-400",
-    z4: "bg-orange-500", z5: "bg-red-500",
+    z1: "bg-emerald-400",
+    z2: "bg-sky-400",
+    z3: "bg-amber-400",
+    z4: "bg-orange-500",
+    z5: "bg-red-500",
   };
   return (
     <Card>
-      <CardHeader><CardTitle>{title}</CardTitle></CardHeader>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
       <CardContent className="space-y-2">
         <div className="flex h-3 w-full overflow-hidden rounded bg-muted">
           {sorted.map((r) => (
-            <div key={r.zone} className={colors[r.zone] ?? "bg-muted"}
-              style={{ width: `${(Number(r.seconds) / total) * 100}%` }} />
+            <div
+              key={r.zone}
+              className={colors[r.zone] ?? "bg-muted"}
+              style={{ width: `${(Number(r.seconds) / total) * 100}%` }}
+            />
           ))}
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
           {sorted.map((r) => (
             <div key={r.zone} className="flex justify-between border rounded px-2 py-1">
-            <span>{ZONE_LABEL[r.zone] ?? r.zone}</span>
+              <span>{ZONE_LABEL[r.zone] ?? r.zone}</span>
               <span className="tabular-nums">{secToClock(Number(r.seconds))}</span>
             </div>
           ))}
@@ -575,19 +665,25 @@ function MapPanel({ points }: { points: { lat: number; lng: number }[] }) {
         data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: coords as any } },
       });
       map.addLayer({
-        id: "route", type: "line", source: "route",
+        id: "route",
+        type: "line",
+        source: "route",
         layout: { "line-join": "round", "line-cap": "round" },
         paint: { "line-color": "#ef4444", "line-width": 4 },
       });
-      const bounds = coords.reduce((b, c) => b.extend(c as [number, number]),
-        new maplibregl.LngLatBounds(coords[0] as any, coords[0] as any));
+      const bounds = coords.reduce(
+        (b, c) => b.extend(c as [number, number]),
+        new maplibregl.LngLatBounds(coords[0] as any, coords[0] as any),
+      );
       map.fitBounds(bounds, { padding: 30, duration: 0 });
     });
     return () => map.remove();
   }, [points]);
   return (
     <Card>
-      <CardHeader><CardTitle>Route</CardTitle></CardHeader>
+      <CardHeader>
+        <CardTitle>Route</CardTitle>
+      </CardHeader>
       <CardContent>
         <div ref={ref} className="h-[320px] w-full rounded overflow-hidden" />
       </CardContent>
@@ -596,211 +692,96 @@ function MapPanel({ points }: { points: { lat: number; lng: number }[] }) {
 }
 
 // --- Sample assembly ---
-function buildSamples(steps: any[], results: any[]): {
+function buildSamples(
+  steps: any[],
+  results: any[],
+  rawPoints: any[],
+): {
   samples: Sample[];
   bands: { kind: string; t1: number; t2: number; d1: number; d2: number }[];
   mode: "trace" | "summary";
   hasMetric: Record<MetricKey, boolean>;
   gpsPoints: { lat: number; lng: number }[];
 } {
-  // sort results by step_order then set, rep
-  const stepOrder = new Map<string, number>();
-  steps.forEach((s) => stepOrder.set(s.id, s.step_order ?? 0));
-  const stepKind = new Map<string, string>();
-  steps.forEach((s) => stepKind.set(s.id, s.kind ?? "work"));
-  const sorted = [...results].sort((a, b) => {
-    const so = (stepOrder.get(a.step_id) ?? 0) - (stepOrder.get(b.step_id) ?? 0);
-    if (so !== 0) return so;
-    const ss = (a.set_number ?? 1) - (b.set_number ?? 1);
-    if (ss !== 0) return ss;
-    return (a.rep_number ?? 0) - (b.rep_number ?? 0);
-  });
+  const has: Record<MetricKey, boolean> = {
+    hr: false,
+    pace: false,
+    cadence: false,
+    elev: false,
+  };
 
-  const samples: Sample[] = [];
-  const bands: { kind: string; t1: number; t2: number; d1: number; d2: number }[] = [];
-  const gpsPoints: { lat: number; lng: number }[] = [];
-  let cursorT = 0;
-  let cursorD = 0;
-  let anyTrace = false;
-  const has: Record<MetricKey, boolean> = { hr: false, pace: false, cadence: false, elev: false };
+  // ✅ Use FIT/GPX raw points when available
+  if (Array.isArray(rawPoints) && rawPoints.length > 10) {
+    const samples: Sample[] = rawPoints.map((p: any, idx: number) => {
+      const s: Sample = {
+        t: Number(p.elapsed_s ?? idx),
+        d: undefined, // no cumulative distance available yet
+        hr: p.hr != null ? Number(p.hr) : undefined,
+        pace: p.pace_sec_per_km != null ? Number(p.pace_sec_per_km) : undefined,
+        cadence: p.cadence != null ? Number(p.cadence) : undefined,
+        elev: p.elevation_m != null ? Number(p.elevation_m) : undefined,
+        lat: p.lat != null ? Number(p.lat) : undefined,
+        lng: p.lng != null ? Number(p.lng) : undefined,
+        stepId: "trace",
+        stepKind: p.segment_type ?? "work",
+        repNumber: 1,
+      };
 
-  const byStep = new Map<string, any[]>();
-  for (const r of sorted) {
-    if (!byStep.has(r.step_id)) byStep.set(r.step_id, []);
-    byStep.get(r.step_id)!.push(r);
-  }
+      if (s.hr != null) has.hr = true;
+      if (s.pace != null) has.pace = true;
+      if (s.cadence != null) has.cadence = true;
+      if (s.elev != null) has.elev = true;
 
-  for (const step of steps) {
-    const stepResults = byStep.get(step.id) ?? [];
-    if (stepResults.length === 0) continue;
-    const t1 = cursorT, d1 = cursorD;
-    for (const r of stepResults) {
-      const trace = Array.isArray(r.rep_trace) ? r.rep_trace : null;
-      const dur = Number(r.actual_time_seconds ?? 0);
-      const dist = Number(r.actual_distance_m ?? 0);
-      if (trace && trace.length > 0) {
-        anyTrace = true;
-        for (const p of trace) {
-          const t = cursorT + Number(p.t ?? 0);
-          const d = p.d != null ? cursorD + Number(p.d) : (dist > 0 ? cursorD + Number(p.t ?? 0) / Math.max(dur, 1) * dist : undefined);
-          const s: Sample = {
-            t, d,
-            hr: p.hr != null ? Number(p.hr) : undefined,
-            pace: p.pace != null ? Number(p.pace) : undefined,
-            cadence: p.cadence != null ? Number(p.cadence) : undefined,
-            elev: p.elev != null ? Number(p.elev) : undefined,
-            lat: p.lat != null ? Number(p.lat) : undefined,
-            lng: p.lng != null ? Number(p.lng) : undefined,
-            stepId: step.id, stepKind: step.kind ?? "work", repNumber: r.rep_number,
-          };
-          if (s.hr != null) has.hr = true;
-          if (s.pace != null) has.pace = true;
-          if (s.cadence != null) has.cadence = true;
-          if (s.elev != null) has.elev = true;
-          if (s.lat != null && s.lng != null) gpsPoints.push({ lat: s.lat, lng: s.lng });
-          samples.push(s);
+      return s;
+    });
+
+    const gpsPoints = samples
+      .filter((s) => s.lat != null && s.lng != null)
+      .map((s) => ({ lat: s.lat as number, lng: s.lng as number }));
+
+    // build simple contiguous segment bands from segment_type
+    const bands: { kind: string; t1: number; t2: number; d1: number; d2: number }[] = [];
+    if (samples.length > 0) {
+      let currentKind = samples[0].stepKind || "work";
+      let startT = samples[0].t;
+
+      for (let i = 1; i < samples.length; i++) {
+        const kind = samples[i].stepKind || "work";
+        if (kind !== currentKind) {
+          bands.push({
+            kind: currentKind,
+            t1: startT,
+            t2: samples[i - 1].t,
+            d1: 0,
+            d2: 0,
+          });
+          currentKind = kind;
+          startT = samples[i].t;
         }
-      } else {
-        // synthesize one point at the midpoint of the rep
-        const tMid = cursorT + dur / 2;
-        const dMid = cursorD + dist / 2;
-        const s: Sample = {
-          t: tMid,
-          d: dist > 0 ? dMid : undefined,
-          hr: r.hr_avg ?? undefined,
-          pace: r.actual_pace_sec_per_km ?? undefined,
-          cadence: r.cadence ?? undefined,
-          stepId: step.id, stepKind: step.kind ?? "work", repNumber: r.rep_number,
-        };
-        if (s.hr != null) has.hr = true;
-        if (s.pace != null) has.pace = true;
-        if (s.cadence != null) has.cadence = true;
-        samples.push(s);
       }
-      cursorT += dur;
-      cursorD += dist;
-    }
-    bands.push({ kind: step.kind ?? "work", t1, t2: cursorT, d1, d2: cursorD });
-  }
 
-  return { samples, bands, mode: anyTrace ? "trace" : "summary", hasMetric: has, gpsPoints };
-}
-
-// Build a high-res trace from raw_session_points (FIT/GPX upload).
-function buildTraceFromRaw(
-  raw: any[],
-  steps: any[],
-  results: any[],
-): {
-  samples: Sample[];
-  bands: { kind: string; t1: number; t2: number; d1: number; d2: number }[];
-  hasMetric: Record<MetricKey, boolean>;
-  gpsPoints: { lat: number; lng: number }[];
-} {
-  const has: Record<MetricKey, boolean> = { hr: false, pace: false, cadence: false, elev: false };
-  const gpsPoints: { lat: number; lng: number }[] = [];
-
-  // Compute cumulative distance from lat/lng when available (haversine).
-  const R = 6371000;
-  let cumDist = 0;
-  let prev: { lat: number; lng: number } | null = null;
-  const samples: Sample[] = raw.map((p) => {
-    let d: number | undefined;
-    if (p.lat != null && p.lng != null) {
-      if (prev) {
-        const dLat = ((p.lat - prev.lat) * Math.PI) / 180;
-        const dLng = ((p.lng - prev.lng) * Math.PI) / 180;
-        const a =
-          Math.sin(dLat / 2) ** 2 +
-          Math.cos((prev.lat * Math.PI) / 180) *
-            Math.cos((p.lat * Math.PI) / 180) *
-            Math.sin(dLng / 2) ** 2;
-        cumDist += 2 * R * Math.asin(Math.sqrt(a));
-      }
-      prev = { lat: p.lat, lng: p.lng };
-      d = cumDist;
-      gpsPoints.push({ lat: p.lat, lng: p.lng });
-    }
-    const hr = p.hr != null ? Number(p.hr) : undefined;
-    const pace = p.pace_sec_per_km != null ? Number(p.pace_sec_per_km) : undefined;
-    const cadence = p.cadence != null ? Number(p.cadence) : undefined;
-    const elev = p.elevation_m != null ? Number(p.elevation_m) : undefined;
-    if (hr != null) has.hr = true;
-    if (pace != null && pace > 0) has.pace = true;
-    if (cadence != null) has.cadence = true;
-    if (elev != null) has.elev = true;
-    return {
-      t: Number(p.elapsed_s ?? 0),
-      d,
-      hr,
-      pace: pace && pace > 0 ? pace : undefined,
-      cadence,
-      elev,
-      lat: p.lat ?? undefined,
-      lng: p.lng ?? undefined,
-      stepId: "",
-      stepKind: p.segment_type ?? "work",
-      repNumber: 0,
-    };
-  });
-
-  // Bands derived from interval_results if available, scaled along total elapsed/distance.
-  const bands: { kind: string; t1: number; t2: number; d1: number; d2: number }[] = [];
-  const totalT = samples.length ? samples[samples.length - 1].t : 0;
-  const totalD = samples.length ? (samples[samples.length - 1].d ?? 0) : 0;
-  if (results.length && totalT > 0) {
-    const byStep = new Map<string, any[]>();
-    for (const r of results) {
-      if (!byStep.has(r.step_id)) byStep.set(r.step_id, []);
-      byStep.get(r.step_id)!.push(r);
-    }
-    const ordered = [...steps].sort((a, b) => (a.step_order ?? 0) - (b.step_order ?? 0));
-    let cursorT = 0;
-    let cursorD = 0;
-    const sumT = ordered.reduce(
-      (a, s) => a + (byStep.get(s.id) ?? []).reduce((x, r) => x + Number(r.actual_time_seconds ?? 0), 0),
-      0,
-    );
-    const scale = sumT > 0 ? totalT / sumT : 1;
-    const sumD = ordered.reduce(
-      (a, s) => a + (byStep.get(s.id) ?? []).reduce((x, r) => x + Number(r.actual_distance_m ?? 0), 0),
-      0,
-    );
-    const dScale = sumD > 0 && totalD > 0 ? totalD / sumD : 1;
-    for (const step of ordered) {
-      const rs = byStep.get(step.id) ?? [];
-      const dur = rs.reduce((a, r) => a + Number(r.actual_time_seconds ?? 0), 0) * scale;
-      const dist = rs.reduce((a, r) => a + Number(r.actual_distance_m ?? 0), 0) * dScale;
-      if (dur <= 0) continue;
       bands.push({
-        kind: step.kind ?? "work",
-        t1: cursorT,
-        t2: cursorT + dur,
-        d1: cursorD,
-        d2: cursorD + dist,
+        kind: currentKind,
+        t1: startT,
+        t2: samples[samples.length - 1].t,
+        d1: 0,
+        d2: 0,
       });
-      cursorT += dur;
-      cursorD += dist;
     }
+
+    return {
+      samples,
+      bands,
+      mode: "trace",
+      hasMetric: has,
+      gpsPoints,
+    };
   }
 
-  return { samples, bands, hasMetric: has, gpsPoints };
-}
-
-// Build a rep-summary series for manually entered interval sessions.
-function buildRepSeries(
-  steps: any[],
-  results: any[],
-): {
-  data: { x: number; stepKind: string; hr?: number; pace?: number; cadence?: number; elev?: number }[];
-  bands: { kind: string; t1: number; t2: number; d1: number; d2: number }[];
-  hasMetric: Record<MetricKey, boolean>;
-} {
-  const has: Record<MetricKey, boolean> = { hr: false, pace: false, cadence: false, elev: false };
+  // ✅ Fallback to manual / rep-summary mode
   const stepOrder = new Map<string, number>();
   steps.forEach((s) => stepOrder.set(s.id, s.step_order ?? 0));
-  const stepKindOf = new Map<string, string>();
-  steps.forEach((s) => stepKindOf.set(s.id, s.kind ?? "work"));
+
   const sorted = [...results].sort((a, b) => {
     const so = (stepOrder.get(a.step_id) ?? 0) - (stepOrder.get(b.step_id) ?? 0);
     if (so !== 0) return so;
@@ -809,37 +790,41 @@ function buildRepSeries(
     return (a.rep_number ?? 0) - (b.rep_number ?? 0);
   });
 
-  const data = sorted.map((r, i) => {
-    const hr = r.hr_avg ?? r.hr_end ?? undefined;
-    const pace =
-      r.actual_pace_sec_per_km ??
-      (r.actual_time_seconds && r.actual_distance_m
-        ? (Number(r.actual_time_seconds) / Number(r.actual_distance_m)) * 1000
-        : undefined);
-    const cadence = r.cadence ?? undefined;
-    if (hr != null) has.hr = true;
-    if (pace != null && pace > 0) has.pace = true;
-    if (cadence != null) has.cadence = true;
-    return {
-      x: i + 1,
-      stepKind: stepKindOf.get(r.step_id) ?? "work",
-      hr: hr != null ? Number(hr) : undefined,
-      pace: pace != null && pace > 0 ? Number(pace) : undefined,
-      cadence: cadence != null ? Number(cadence) : undefined,
+  const samples: Sample[] = sorted.map((r, idx) => {
+    const s: Sample = {
+      t: idx + 1, // rep order
+      d: undefined,
+      hr: r.hr_avg ?? r.hr_end ?? undefined,
+      pace: r.actual_pace_sec_per_km ?? undefined,
+      cadence: r.cadence ?? undefined,
+      elev: undefined,
+      lat: undefined,
+      lng: undefined,
+      stepId: r.step_id,
+      stepKind: steps.find((st) => st.id === r.step_id)?.kind ?? "work",
+      repNumber: r.rep_number ?? idx + 1,
     };
+
+    if (s.hr != null) has.hr = true;
+    if (s.pace != null) has.pace = true;
+    if (s.cadence != null) has.cadence = true;
+
+    return s;
   });
 
-  // Bands per step, x-range = rep indices belonging to that step.
-  const bands: { kind: string; t1: number; t2: number; d1: number; d2: number }[] = [];
-  let idx = 0;
-  for (const step of [...steps].sort((a, b) => (a.step_order ?? 0) - (b.step_order ?? 0))) {
-    const count = sorted.filter((r) => r.step_id === step.id).length;
-    if (count === 0) continue;
-    const t1 = idx + 0.5;
-    const t2 = idx + count + 0.5;
-    bands.push({ kind: step.kind ?? "work", t1, t2, d1: t1, d2: t2 });
-    idx += count;
-  }
+  const bands = samples.map((s, idx) => ({
+    kind: s.stepKind ?? "work",
+    t1: idx + 1,
+    t2: idx + 1,
+    d1: 0,
+    d2: 0,
+  }));
 
-  return { data, bands, hasMetric: has };
+  return {
+    samples,
+    bands,
+    mode: "summary",
+    hasMetric: has,
+    gpsPoints: [],
+  };
 }
