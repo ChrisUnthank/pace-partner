@@ -20,9 +20,14 @@ export const Route = createFileRoute("/_authenticated/app/races")({
 });
 
 const COMMON_DISTANCES = [
-  { m: 800, label: "800m" }, { m: 1500, label: "1500m" }, { m: 1609, label: "Mile" },
-  { m: 3000, label: "3000m" }, { m: 5000, label: "5000m" }, { m: 10000, label: "10K" },
-  { m: 21097, label: "Half marathon" }, { m: 42195, label: "Marathon" },
+  { m: 800, label: "800m" },
+  { m: 1500, label: "1500m" },
+  { m: 1609, label: "Mile" },
+  { m: 3000, label: "3000m" },
+  { m: 5000, label: "5000m" },
+  { m: 10000, label: "10K" },
+  { m: 21097, label: "Half marathon" },
+  { m: 42195, label: "Marathon" },
 ];
 
 function RacesPage() {
@@ -35,10 +40,7 @@ function RacesPage() {
     queryKey: ["races-roster", user?.id, isCoach],
     enabled: !!user && isCoach,
     queryFn: async () => {
-      const { data } = await supabase
-        .from("coach_athletes")
-        .select("athletes(id, name)")
-        .eq("coach_user_id", user!.id);
+      const { data } = await supabase.from("coach_athletes").select("athletes(id, name)").eq("coach_user_id", user!.id);
       return (data ?? []).map((r: any) => r.athletes).filter(Boolean);
     },
   });
@@ -60,11 +62,15 @@ function RacesPage() {
             </CardHeader>
             <CardContent>
               <Select value={activeAthleteId} onValueChange={setAthleteId}>
-                <SelectTrigger><SelectValue placeholder="Pick athlete" /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue placeholder="Pick athlete" />
+                </SelectTrigger>
                 <SelectContent>
                   {myAthlete && <SelectItem value={myAthlete.id}>{myAthlete.name} (me)</SelectItem>}
                   {(roster ?? []).map((a: any) => (
-                    <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
+                    <SelectItem key={a.id} value={a.id}>
+                      {a.name}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -104,26 +110,38 @@ function RaceList({ athleteId }: { athleteId: string }) {
 
   async function add() {
     const sec = clockToSec(time);
-    if (!sec) { toast.error("Time required (mm:ss or h:mm:ss)"); return; }
+    if (!sec) {
+      toast.error("Time required (mm:ss or h:mm:ss)");
+      return;
+    }
     const { error } = await supabase.from("performances").insert({
       athlete_id: athleteId,
       performance_date: date,
       distance_m: distance,
       time_seconds: sec,
       event_name: event || null,
-      placing: placing ? Number(placing) : null,
+      overall_place: placing ? Number(placing) : null,
       notes: notes || null,
       is_pb: false,
-    } as any);
-    if (error) { toast.error(error.message); return; }
+    });
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
     toast.success("Race added");
-    setTime(""); setEvent(""); setPlacing(""); setNotes("");
+    setTime("");
+    setEvent("");
+    setPlacing("");
+    setNotes("");
     qc.invalidateQueries({ queryKey: ["races", athleteId] });
     qc.invalidateQueries({ queryKey: ["my-pbs", athleteId] });
   }
   async function remove(id: string) {
     const { error } = await supabase.from("performances").delete().eq("id", id);
-    if (error) { toast.error(error.message); return; }
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
     qc.invalidateQueries({ queryKey: ["races", athleteId] });
   }
 
@@ -142,28 +160,51 @@ function RaceList({ athleteId }: { athleteId: string }) {
           <CardDescription>Recorded races feed PBs and the physiological profile.</CardDescription>
         </CardHeader>
         <CardContent className="grid sm:grid-cols-6 gap-3">
-          <div className="sm:col-span-2"><Label className="text-xs">Date</Label><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
+          <div className="sm:col-span-2">
+            <Label className="text-xs">Date</Label>
+            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </div>
           <div className="sm:col-span-2">
             <Label className="text-xs">Distance</Label>
             <Select value={String(distance)} onValueChange={(v) => setDistance(Number(v))}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 {COMMON_DISTANCES.map((d) => (
-                  <SelectItem key={d.m} value={String(d.m)}>{d.label}</SelectItem>
+                  <SelectItem key={d.m} value={String(d.m)}>
+                    {d.label}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
-          <div className="sm:col-span-2"><Label className="text-xs">Time</Label><Input placeholder="16:32" value={time} onChange={(e) => setTime(e.target.value)} /></div>
-          <div className="sm:col-span-3"><Label className="text-xs">Event name</Label><Input value={event} onChange={(e) => setEvent(e.target.value)} placeholder="London Champs 5000m" /></div>
-          <div className="sm:col-span-1"><Label className="text-xs">Placing</Label><Input type="number" value={placing} onChange={(e) => setPlacing(e.target.value)} /></div>
-          <div className="sm:col-span-6"><Label className="text-xs">Notes</Label><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} /></div>
-          <div className="sm:col-span-6"><Button onClick={add}>Add race</Button></div>
+          <div className="sm:col-span-2">
+            <Label className="text-xs">Time</Label>
+            <Input placeholder="16:32" value={time} onChange={(e) => setTime(e.target.value)} />
+          </div>
+          <div className="sm:col-span-3">
+            <Label className="text-xs">Event name</Label>
+            <Input value={event} onChange={(e) => setEvent(e.target.value)} placeholder="London Champs 5000m" />
+          </div>
+          <div className="sm:col-span-1">
+            <Label className="text-xs">Placing</Label>
+            <Input type="number" value={placing} onChange={(e) => setPlacing(e.target.value)} />
+          </div>
+          <div className="sm:col-span-6">
+            <Label className="text-xs">Notes</Label>
+            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </div>
+          <div className="sm:col-span-6">
+            <Button onClick={add}>Add race</Button>
+          </div>
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Results</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>Results</CardTitle>
+        </CardHeader>
         <CardContent className="p-0">
           {!races?.length ? (
             <p className="p-6 text-sm text-muted-foreground">No races yet.</p>
@@ -176,13 +217,21 @@ function RaceList({ athleteId }: { athleteId: string }) {
                     <div className="min-w-0">
                       <div className="font-medium truncate">
                         {metersFmt(r.distance_m)} · <span className="tabular-nums">{secToClock(r.time_seconds)}</span>
-                        {isPb && <Badge variant="default" className="ml-2">PB</Badge>}
+                        {isPb && (
+                          <Badge variant="default" className="ml-2">
+                            PB
+                          </Badge>
+                        )}
                       </div>
                       <div className="text-xs text-muted-foreground truncate">
-                        {r.performance_date}{r.event_name ? ` · ${r.event_name}` : ""}{r.placing ? ` · Placed ${r.placing}` : ""}
+                        {r.performance_date}
+                        {r.event_name ? ` · ${r.event_name}` : ""}
+                        {r.overall_place ? ` · Placed ${r.overall_place}` : ""}
                       </div>
                     </div>
-                    <Button variant="ghost" size="sm" onClick={() => remove(r.id)}><Trash2 className="h-4 w-4" /></Button>
+                    <Button variant="ghost" size="sm" onClick={() => remove(r.id)}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                 );
               })}
