@@ -286,7 +286,7 @@ function classifyLaps(laps: ParsedLap[]): ParsedLap[] {
     const firstWork = workIdxs[0];
     const lastWork = workIdxs[workIdxs.length - 1];
 
-    classified = classified.map((lap, idx) => {
+    classified = classified.map((lap, idx): ParsedLap => {
       if (lap.kind === "work") return lap;
       if (idx < firstWork) return { ...lap, kind: "warmup" as const };
       if (idx > lastWork) return { ...lap, kind: "cooldown" as const };
@@ -385,7 +385,7 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
       .select("id")
       .eq("session_id", sess.id)
       .eq("original_filename", data.filename)
-      .eq("started_at", parsed.startedAt)
+      .eq("started_at", parsed.startedAt ?? "")
       .eq("total_distance_m", parsed.totalDistanceM)
       .maybeSingle();
 
@@ -446,7 +446,7 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
       }));
 
       for (let i = 0; i < rows.length; i += 500) {
-        await sb.from("raw_session_points").insert(rows.slice(i, i + 500));
+        await sb.from("raw_session_points").insert(rows.slice(i, i + 500) as any);
       }
 
       const { avgHr, maxHr, avgPace, avgCad } = summarizeImportedPoints(parsed.points);
