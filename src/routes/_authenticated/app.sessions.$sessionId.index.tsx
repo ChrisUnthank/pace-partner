@@ -33,9 +33,8 @@ import { Switch } from "@/components/ui/switch";
 import { UserAvatar } from "@/components/user-avatar";
 import { ActivityIcon } from "@/lib/activity-icon";
 import { invalidateSession } from "@/lib/session-invalidation";
-import { deleteSession } from "@/lib/session-files.functions";
+import { deleteSession, uploadAndParseSessionFile } from "@/lib/session-files.functions";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { deleteSession } from "@/lib/session-files.functions";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/")({
   component: SessionDetail,
@@ -48,14 +47,13 @@ function SessionDetail() {
   const { user } = useAuthUser();
   const { data: roles = [] } = useMyRoles();
   const isCoach = roles.includes("coach");
-  const [saveTplOpen, setSaveTplOpen] = useState(falFse);
+  const [saveTplOpen, setSaveTplOpen] = useState(false);
   const [tplName, setTplName] = useState("");
   const [insightOpen, setInsightOpen] = useState(false);
 
   // ✅ FIT upload setup
   const uploadFile = useServerFn(uploadAndParseSessionFile);
   const [uploading, setUploading] = useState(false);
-  const removeSession = useServerFn(deleteSession);
 
   const {
     data: session,
@@ -157,7 +155,7 @@ function SessionDetail() {
       try {
         const res: any = await uploadFile({
           data: {
-            athleteId: session.athlete_id,
+            athleteId: session!.athlete_id,
             sessionId: sessionId, // ✅ THIS LINKS TO EXISTING SESSION
             filename: file.name,
             kind: file.name.toLowerCase().endsWith(".gpx") ? "gpx" : "fit",
