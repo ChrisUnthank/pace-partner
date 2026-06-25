@@ -34,7 +34,7 @@ import { UserAvatar } from "@/components/user-avatar";
 import { ActivityIcon } from "@/lib/activity-icon";
 import { invalidateSession } from "@/lib/session-invalidation";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { deleteSession } from "@/lib/session-files.functions";
+import { deleteSession, uploadAndParseSessionFile } from "@/lib/session-files.functions";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/")({
   component: SessionDetail,
@@ -153,6 +153,7 @@ function SessionDetail() {
       const base64 = String(reader.result || "").split(",")[1];
 
       try {
+        if (!session) throw new Error("Session not loaded");
         const res: any = await uploadFile({
           data: {
             athleteId: session.athlete_id,
