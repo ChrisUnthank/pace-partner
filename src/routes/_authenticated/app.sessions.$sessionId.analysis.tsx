@@ -153,9 +153,15 @@ function SessionAnalysis() {
     [steps, results],
   );
 
-  const samples = graphMode === "trace" ? traceBuild.samples : repBuild.samples;
-  const bands = graphMode === "trace" ? traceBuild.bands : repBuild.bands;
-  const hasMetric = graphMode === "trace" ? traceBuild.hasMetric : graphMode === "rep" ? repSeries.hasMetric : { hr: false, pace: false, cadence: false, elev: false };
+  const samples: Sample[] = graphMode === "trace" ? traceBuild.samples : repBuild.samples;
+  const bands: { kind: string; t1: number; t2: number; d1: number; d2: number }[] =
+    graphMode === "trace" ? traceBuild.bands : graphMode === "rep" ? repSeries.bands : [];
+  const hasMetric: Record<MetricKey, boolean> =
+    graphMode === "trace"
+      ? traceBuild.hasMetric
+      : graphMode === "rep"
+        ? repSeries.hasMetric
+        : { hr: false, pace: false, cadence: false, elev: false };
   const gpsPoints = traceBuild.gpsPoints.length > 0 ? traceBuild.gpsPoints : repBuild.gpsPoints;
 
   const xCanUseDistance = graphMode === "trace" && samples.length > 0 && samples.every((s) => s.d != null);
