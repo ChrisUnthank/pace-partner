@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -18,13 +18,10 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { secToClock, metersFmt, paceFmt } from "@/lib/format";
 import { sessionClassificationLabel } from "@/lib/session-categories";
 import { useServerFn } from "@tanstack/react-start";
 import { computeContinuousFatigue } from "@/lib/ai.functions";
-import { reprocessSessionFiles } from "@/lib/session-files.functions";
-import { invalidateSession } from "@/lib/session-invalidation";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/analysis")({
   component: SessionAnalysis,
@@ -75,7 +72,6 @@ type MetricKey = (typeof METRICS)[number]["key"];
 
 function SessionAnalysis() {
   const { sessionId } = Route.useParams();
-  const qc = useQueryClient();
 
   const [enabled, setEnabled] = useState<Record<MetricKey, boolean>>({
     hr: true,
@@ -87,8 +83,6 @@ function SessionAnalysis() {
   });
 
   const [xMode, setXMode] = useState<"time" | "distance">("time");
-  const [graphScope, setGraphScope] = useState<"full" | "workout">("full");
-  const [computingFatigue, setComputingFatigue] = useState(false);
 
   const { data: session } = useQuery({
     queryKey: ["session", sessionId],
@@ -149,27 +143,13 @@ function SessionAnalysis() {
     },
   });
 
-  const { data: sessionFiles } = useQuery({
-    queryKey: ["session-files", sessionId],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("session_files")
-        .select(
-          "id, original_filename, block_type, is_primary_workout, lap_count, work_lap_count, recovery_lap_count, lap_intensity_present, interval_auto_detected, zone_time_rebuilt_at, started_at, parse_summary",
-        )
-        .eq("session_id", sessionId)
-        .order("started_at");
-      return data ?? [];
-    },
-  });
-
   const { data: rawPoints } = useQuery({
     queryKey: ["raw-points", sessionId],
     queryFn: async () => {
       const { data } = await supabase
         .from("raw_session_points")
         .select(
-          "file_id, elapsed_s, hr, pace_sec_per_km, cadence, elevation_m, lat, lng, segment_type, vertical_oscillation_cm, ground_contact_time_ms",
+          "elapsed_s, distance_m, hr, pace_sec_per_km, cadence, elevation_m, lat, lng, segment_type, vertical_oscillation_cm, ground_contact_time_ms",
         )
         .eq("session_id", sessionId)
         .order("elapsed_s")
@@ -179,26 +159,18 @@ function SessionAnalysis() {
     },
   });
 
-  // ✅ Safe arrays so page never crashes on undefined/null
+  // Safe arrays
   const safeSteps = Array.isArray(steps) ? steps : [];
   const safeResults = Array.isArray(results) ? results : [];
   const safeZoneTime = Array.isArray(zoneTime) ? zoneTime : [];
   const safeFatigue = Array.isArray(fatigue) ? fatigue : [];
   const safeRawPoints = Array.isArray(rawPoints) ? rawPoints : [];
-  const safeFiles = Array.isArray(sessionFiles) ? sessionFiles : [];
 
   const computeFatigue = useServerFn(computeContinuousFatigue);
-  const reprocessFiles = useServerFn(reprocessSessionFiles);
-
-  const primaryFile = safeFiles.find((f: any) => f.is_primary_workout) ?? safeFiles.find((f: any) => f.block_type === "work");
-  const scopedRawPoints =
-    graphScope === "workout" && primaryFile
-      ? safeRawPoints.filter((p: any) => p.file_id === primaryFile.id)
-      : safeRawPoints;
 
   const { samples, bands, mode, hasMetric, gpsPoints } = useMemo(
-    () => buildSamples(safeSteps, safeResults, scopedRawPoints),
-    [safeSteps, safeResults, scopedRawPoints],
+    () => buildSamples(safeSteps, safeResults, safeRawPoints),
+    [safeSteps, safeResults, safeRawPoints],
   );
 
   const xCanUseDistance = Array.isArray(samples) && samples.length > 0 && samples.every((s) => s.d != null);
@@ -218,35 +190,26 @@ function SessionAnalysis() {
     }));
   }, [samples, xKey]);
 
-  const noResults = safeResults.length === 0;
   const hasRaw = safeRawPoints.length > 0;
-  const hasHighRes = safeRawPoints.length > 10;
   const hasRepData = safeResults.length > 0;
-  const isContinuous = session?.structure === "continuous";
-  const isIntervalSession = session?.structure === "intervals" || session?.structure === "reps_intervals";
 
   const continuousFatigue = safeFatigue.find((f: any) => f.method === "continuous_drift");
   const repFatigue = safeFatigue.filter((f: any) => f.method !== "continuous_drift");
 
+  const isIntervals = session?.structure === "intervals";
+  const showContinuousFatigueCard = hasRaw && !isIntervals;
+
+  useEffect(() => {
+    if (!session) return;
+    if (session.structure !== "continuous") return;
+    if (!hasRaw) return;
+    if (continuousFatigue) return;
+
+    computeFatigue({ data: { sessionId } }).catch(() => {});
+  }, [session, hasRaw, continuousFatigue, computeFatigue, sessionId]);
+
   const hasGraphData =
     Array.isArray(samples) && samples.length > 0 && METRICS.some((m) => enabled[m.key] && hasMetric[m.key]);
-
-  useEffect(() => {
-    if (!session || !isContinuous || !hasHighRes || continuousFatigue || computingFatigue) return;
-    setComputingFatigue(true);
-    computeFatigue({ data: { sessionId } })
-      .then(() => qc.invalidateQueries({ queryKey: ["fatigue", sessionId] }))
-      .finally(() => setComputingFatigue(false));
-  }, [computeFatigue, computingFatigue, continuousFatigue, hasHighRes, isContinuous, qc, session, sessionId]);
-
-  useEffect(() => {
-    if (!session || safeFiles.length === 0) return;
-    const needsReprocess = safeFiles.some(
-      (file: any) => file.original_filename?.toLowerCase().endsWith(".fit") && file.parse_summary?.parser_version !== 2,
-    );
-    if (!needsReprocess) return;
-    reprocessFiles({ data: { sessionId } }).then(() => invalidateSession(qc, sessionId, session.athlete_id));
-  }, [qc, reprocessFiles, safeFiles, session, sessionId]);
 
   if (!session) {
     return (
@@ -291,27 +254,6 @@ function SessionAnalysis() {
               </div>
 
               <div className="flex gap-1">
-                {safeFiles.length > 1 && (
-                  <>
-                    <Button
-                      size="sm"
-                      variant={graphScope === "full" ? "default" : "outline"}
-                      onClick={() => setGraphScope("full")}
-                    >
-                      Full session
-                    </Button>
-
-                    <Button
-                      size="sm"
-                      variant={graphScope === "workout" ? "default" : "outline"}
-                      disabled={!primaryFile}
-                      onClick={() => setGraphScope("workout")}
-                    >
-                      Workout only
-                    </Button>
-                  </>
-                )}
-
                 <Button size="sm" variant={xKey === "t" ? "default" : "outline"} onClick={() => setXMode("time")}>
                   Time
                 </Button>
@@ -399,6 +341,7 @@ function SessionAnalysis() {
                       tick={{ fontSize: 11 }}
                       width={32}
                     />
+
                     <YAxis
                       yAxisId="vo"
                       orientation="left"
@@ -415,6 +358,7 @@ function SessionAnalysis() {
                       tick={{ fontSize: 11 }}
                       width={36}
                     />
+
                     <Tooltip
                       labelFormatter={(v) => (xKey === "t" ? secToClock(Number(v)) : metersFmt(Number(v)))}
                       formatter={(v: any, n: any) => {
@@ -496,6 +440,7 @@ function SessionAnalysis() {
                         isAnimationActive={false}
                       />
                     )}
+
                     {enabled.vo && hasMetric.vo && (
                       <Line
                         yAxisId="vo"
@@ -571,41 +516,53 @@ function SessionAnalysis() {
 
         <WorkSegmentPanel steps={safeSteps} results={safeResults} />
 
-        {isContinuous && hasRaw && (
+        {showContinuousFatigueCard && (
           <Card>
             <CardHeader>
               <CardTitle>Run fatigue analysis</CardTitle>
+              <CardDescription>Continuous-run drift analysis from uploaded trace data.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => computeFatigue({ data: { sessionId } }).then(() => window.location.reload())}
+              >
+                Recompute run fatigue
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {continuousFatigue && !isIntervals && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Overall run fatigue</CardTitle>
               <CardDescription>Continuous drift method</CardDescription>
             </CardHeader>
             <CardContent className="text-sm space-y-1">
-              {continuousFatigue ? (
-                <>
-                  <div className="flex justify-between border rounded px-3 py-2">
-                    <span className="font-medium">Efficiency score</span>
-                    <span className="tabular-nums">{continuousFatigue.efficiency_score ?? "—"}/100</span>
-                  </div>
+              <div className="flex justify-between border rounded px-3 py-2">
+                <span className="font-medium">Efficiency score</span>
+                <span className="tabular-nums">{continuousFatigue.efficiency_score ?? "—"}/100</span>
+              </div>
 
-                  <div className="flex justify-between border rounded px-3 py-2 text-muted-foreground">
-                    <span>HR drift</span>
-                    <span>
-                      {continuousFatigue.hr_drift_bpm != null
-                        ? `${Number(continuousFatigue.hr_drift_bpm).toFixed(1)} bpm`
-                        : "—"}
-                    </span>
-                  </div>
+              <div className="flex justify-between border rounded px-3 py-2 text-muted-foreground">
+                <span>HR drift</span>
+                <span>
+                  {continuousFatigue.hr_drift_bpm != null
+                    ? `${Number(continuousFatigue.hr_drift_bpm).toFixed(1)} bpm`
+                    : "—"}
+                </span>
+              </div>
 
-                  <div className="flex justify-between border rounded px-3 py-2 text-muted-foreground">
-                    <span>Pace drift</span>
-                    <span>
-                      {continuousFatigue.pace_drift_pct != null
-                        ? `${Number(continuousFatigue.pace_drift_pct).toFixed(1)}%`
-                        : "—"}
-                    </span>
-                  </div>
-                </>
-              ) : (
-                <div className="text-muted-foreground">{computingFatigue ? "Computing fatigue…" : "Fatigue will appear when enough continuous trace data is available."}</div>
-              )}
+              <div className="flex justify-between border rounded px-3 py-2 text-muted-foreground">
+                <span>Pace drift</span>
+                <span>
+                  {continuousFatigue.pace_drift_pct != null
+                    ? `${Number(continuousFatigue.pace_drift_pct).toFixed(1)}%`
+                    : "—"}
+                </span>
+              </div>
             </CardContent>
           </Card>
         )}
@@ -635,65 +592,8 @@ function SessionAnalysis() {
 
         <ZonePanel rows={safeZoneTime.filter((r: any) => r.source === "pace")} title="Pace zones" />
         <ZonePanel rows={safeZoneTime.filter((r: any) => r.source === "hr")} title="HR zones" />
-        <FitDebugPanel
-          sessionId={sessionId}
-          session={session}
-          files={safeFiles}
-          fatigueSuppressed={isIntervalSession}
-        />
       </div>
     </AppShell>
-  );
-}
-
-function FitDebugPanel({ sessionId, session, files, fatigueSuppressed }: { sessionId: string; session: any; files: any[]; fatigueSuppressed: boolean }) {
-  if (!files.length) return null;
-  const primary = files.find((f) => f.is_primary_workout);
-  const autoDetected = files.some((f) => f.interval_auto_detected);
-  const zoneRebuilt = files.some((f) => f.zone_time_rebuilt_at);
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>FIT inspection summary</CardTitle>
-        <CardDescription>Parser and analysis source set</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3 text-xs">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <Stat label="Session ID" value={sessionId} />
-          <Stat label="Primary workout source" value={primary?.original_filename ?? "—"} />
-          <Stat label="Structure" value={session.structure ?? "—"} />
-          <Stat label="Interval auto-detected" value={autoDetected ? "yes" : "no"} />
-          <Stat label="Zone time rebuilt" value={zoneRebuilt ? "yes" : "no"} />
-          <Stat label="Fatigue suppressed" value={fatigueSuppressed ? "yes" : "no"} />
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead className="text-muted-foreground">
-              <tr className="border-b">
-                <th className="py-1 pr-2 text-left">File</th>
-                <th className="py-1 pr-2 text-left">Block</th>
-                <th className="py-1 pr-2 text-right">Laps</th>
-                <th className="py-1 pr-2 text-right">Work</th>
-                <th className="py-1 pr-2 text-right">Recovery</th>
-                <th className="py-1 text-right">Intensity</th>
-              </tr>
-            </thead>
-            <tbody>
-              {files.map((file) => (
-                <tr key={file.id} className="border-b last:border-b-0">
-                  <td className="py-1 pr-2">{file.original_filename}</td>
-                  <td className="py-1 pr-2 capitalize">{file.block_type ?? "unknown"}</td>
-                  <td className="py-1 pr-2 text-right tabular-nums">{file.lap_count ?? 0}</td>
-                  <td className="py-1 pr-2 text-right tabular-nums">{file.work_lap_count ?? 0}</td>
-                  <td className="py-1 pr-2 text-right tabular-nums">{file.recovery_lap_count ?? 0}</td>
-                  <td className="py-1 text-right">{file.lap_intensity_present ? "yes" : "no"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -858,43 +758,29 @@ function ZonePanel({ rows, title }: { rows: any[]; title: string }) {
 
 function MapPanel({ points }: { points: { lat: number; lng: number }[] }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [mapError, setMapError] = useState(false);
 
   useEffect(() => {
     if (!ref.current || !points.length) return;
-    let map: maplibregl.Map | null = null;
-    try {
-      map = new maplibregl.Map({
-        container: ref.current,
-        style: {
-          version: 8,
-          sources: {
-            osm: {
-              type: "raster",
-              tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-              tileSize: 256,
-              attribution: "© OpenStreetMap contributors",
-            },
-          },
-          layers: [{ id: "osm", type: "raster", source: "osm" }],
-        },
-        center: [points[0].lng, points[0].lat],
-        zoom: 13,
-      });
-    } catch (err) {
-      console.warn("MapLibre init failed:", err);
-      setMapError(true);
-      return;
-    }
 
-    map.on("error", (e) => {
-      console.warn("MapLibre error:", e?.error ?? e);
-      setMapError(true);
+    const map = new maplibregl.Map({
+      container: ref.current,
+      style: {
+        version: 8,
+        sources: {
+          osm: {
+            type: "raster",
+            tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+            tileSize: 256,
+            attribution: "© OpenStreetMap contributors",
+          },
+        },
+        layers: [{ id: "osm", type: "raster", source: "osm" }],
+      },
+      center: [points[0].lng, points[0].lat],
+      zoom: 13,
     });
 
     map.on("load", () => {
-      if (!map) return;
-      try {
       const coords = points.map((p) => [p.lng, p.lat]);
 
       map.addSource("route", {
@@ -920,17 +806,9 @@ function MapPanel({ points }: { points: { lat: number; lng: number }[] }) {
       );
 
       map.fitBounds(bounds, { padding: 30, duration: 0 });
-      } catch (err) {
-        console.warn("MapLibre layer setup failed:", err);
-        setMapError(true);
-      }
     });
 
-    return () => {
-      try {
-        map?.remove();
-      } catch {}
-    };
+    return () => map.remove();
   }, [points]);
 
   return (
@@ -939,13 +817,7 @@ function MapPanel({ points }: { points: { lat: number; lng: number }[] }) {
         <CardTitle>Route</CardTitle>
       </CardHeader>
       <CardContent>
-        {mapError ? (
-          <div className="h-[120px] w-full rounded border border-dashed flex items-center justify-center text-sm text-muted-foreground">
-            Map unavailable in this browser (WebGL disabled).
-          </div>
-        ) : (
-          <div ref={ref} className="h-[320px] w-full rounded overflow-hidden" />
-        )}
+        <div ref={ref} className="h-[320px] w-full rounded overflow-hidden" />
       </CardContent>
     </Card>
   );
@@ -971,24 +843,22 @@ function buildSamples(
     gct: false,
   };
 
-  // ✅ High-resolution FIT/GPX trace mode
+  // High-resolution FIT/GPX trace mode
   if (Array.isArray(rawPoints) && rawPoints.length > 10) {
     const samples: Sample[] = rawPoints.map((p: any, idx: number) => {
       const rawPace = p.pace_sec_per_km != null ? Number(p.pace_sec_per_km) : undefined;
+
       const s: Sample = {
         t: Number(p.elapsed_s ?? idx),
-        d: undefined,
+        d: p.distance_m != null ? Number(p.distance_m) : undefined,
         hr: p.hr != null ? Number(p.hr) : undefined,
-        // Filter out GPS noise: pace > 600 sec/km (10:00/km) treated as null
         pace: rawPace != null && rawPace <= 600 ? rawPace : undefined,
         cadence: p.cadence != null ? Number(p.cadence) : undefined,
         elev: p.elevation_m != null ? Number(p.elevation_m) : undefined,
-        // Divide by 10 to convert mm → cm (Garmin stores in mm)
         vo:
           p.vertical_oscillation_cm != null && Number(p.vertical_oscillation_cm) > 0
             ? Number(p.vertical_oscillation_cm) / 10
             : undefined,
-        // Ground contact time already in ms — store as-is, null if zero/missing
         gct:
           p.ground_contact_time_ms != null && Number(p.ground_contact_time_ms) > 0
             ? Number(p.ground_contact_time_ms)
@@ -1006,6 +876,7 @@ function buildSamples(
       if (s.elev != null) has.elev = true;
       if (s.vo != null) has.vo = true;
       if (s.gct != null) has.gct = true;
+
       return s;
     });
 
@@ -1018,6 +889,7 @@ function buildSamples(
     if (samples.length > 0) {
       let currentKind = samples[0].stepKind || "work";
       let startT = samples[0].t;
+      let startD = samples[0].d ?? 0;
 
       for (let i = 1; i < samples.length; i++) {
         const kind = samples[i].stepKind || "work";
@@ -1026,11 +898,12 @@ function buildSamples(
             kind: currentKind,
             t1: startT,
             t2: samples[i - 1].t,
-            d1: 0,
-            d2: 0,
+            d1: startD,
+            d2: samples[i - 1].d ?? startD,
           });
           currentKind = kind;
           startT = samples[i].t;
+          startD = samples[i].d ?? startD;
         }
       }
 
@@ -1038,8 +911,8 @@ function buildSamples(
         kind: currentKind,
         t1: startT,
         t2: samples[samples.length - 1].t,
-        d1: 0,
-        d2: 0,
+        d1: startD,
+        d2: samples[samples.length - 1].d ?? startD,
       });
     }
 
@@ -1052,7 +925,7 @@ function buildSamples(
     };
   }
 
-  // ✅ Rep-summary mode for manual interval sessions
+  // Rep-summary mode for manual interval sessions
   if (Array.isArray(results) && results.length > 0) {
     const stepOrder = new Map<string, number>();
     steps.forEach((s) => stepOrder.set(s.id, s.step_order ?? 0));
@@ -1074,7 +947,7 @@ function buildSamples(
       }
 
       const s: Sample = {
-        t: idx + 1, // rep order
+        t: idx + 1,
         d: dist != null ? cumulativeDistance : undefined,
         hr: r.hr_avg ?? r.hr_end ?? undefined,
         pace: r.actual_pace_sec_per_km ?? undefined,
@@ -1103,7 +976,6 @@ function buildSamples(
     };
   }
 
-  // ✅ Empty mode
   return {
     samples: [],
     bands: [],
