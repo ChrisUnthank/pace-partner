@@ -5,29 +5,67 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 function mapFitSport(sport?: string): string {
   if (!sport) return "run";
   const s = sport.toLowerCase();
+
   if (s.includes("cycling") || s.includes("bike") || s.includes("ride")) return "ride";
   if (s.includes("swim")) return "swim";
   if (s.includes("training") || s.includes("gym") || s.includes("strength")) return "gym";
   if (s.includes("track")) return "track";
+
   return "run";
 }
 
 function normalizeCadence(cad?: number): number | null {
   if (!cad || cad <= 0) return null;
+
   // filter obvious garbage
   if (cad > 260) return null;
+
+  // convert strides/min to steps/min if needed
   if (cad < 120) return cad * 2;
+
   return cad;
+}
+
+function safeParseJson(value: any) {
+  if (!value) return null;
+  if (typeof value === "object") return value;
+  if (typeof value !== "string") return null;
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function stepIsLadder(step: any): boolean {
+  const meta = safeParseJson(step?.metadata);
+
+  return Boolean(
+    step?.is_ladder ?? step?.ladder ?? step?.variable_reps ?? meta?.is_ladder ?? meta?.ladder ?? meta?.variable_reps,
+  );
+}
+
+function getPlannedWorkSteps(plannedSteps: any[]) {
+  return [...plannedSteps]
+    .filter((s) => s.kind === "work")
+    .sort((a, b) => Number(a.step_order ?? 0) - Number(b.step_order ?? 0));
+}
+
+function getPlannedBlockRecoverySteps(plannedSteps: any[]) {
+  return [...plannedSteps]
+    .filter((s) => s.kind === "recovery")
+    .sort((a, b) => Number(a.step_order ?? 0) - Number(b.step_order ?? 0));
 }
 
 type ParsedPoint = {
   timestamp: string | null;
   elapsed_s: number;
   distance_m?: number | null;
-  lat?: number;
-  lng?: number;
-  elevation_m?: number;
-  hr?: number;
+  lat?: number | null;
+  lng?: number | null;
+  elevation_m?: number | null;
+  hr?: number | null;
   cadence?: number | null;
   pace_sec_per_km?: number | null;
   stride_length_m?: number | null;
@@ -76,6 +114,7 @@ function parseGPX(xml: string): ParsedFile {
     const time = /<time>([^<]+)<\/time>/.exec(inner);
     const hr = /<(?:gpxtpx:)?hr>([^<]+)<\/(?:gpxtpx:)?hr>/.exec(inner);
     const cad = /<(?:gpxtpx:)?cad>([^<]+)<\/(?:gpxtpx:)?cad>/.exec(inner);
+
     trkpts.push({
       lat: parseFloat(m[1]),
       lng: parseFloat(m[2]),
@@ -127,10 +166,10 @@ function parseGPX(xml: string): ParsedFile {
       distance_m: totalDist,
       lat: p.lat,
       lng: p.lng,
-      elevation_m: p.ele,
-      hr: p.hr,
+      elevation_m: p.ele ?? null,
+      hr: p.hr ?? null,
       cadence: normalizeCadence(p.cad),
-      pace_sec_per_km: pace,
+      pace_sec_per_km: pace ?? null,
       vertical_oscillation_cm: null,
       ground_contact_time_ms: null,
     };
@@ -180,21 +219,25 @@ async function parseFIT(buffer: ArrayBuffer): Promise<ParsedFile> {
 
       const t0 = records[0].timestamp ? new Date(records[0].timestamp).getTime() : 0;
 
-      const points: ParsedPoint[] = records.map((r: any) => ({
-        timestamp: r.timestamp ?? null,
-        elapsed_s: r.elapsed_time ?? (r.timestamp ? (new Date(r.timestamp).getTime() - t0) / 1000 : 0),
-        distance_m: r.distance ?? null,
-        lat: r.position_lat,
-        lng: r.position_long,
-        elevation_m: r.altitude,
-        hr: r.heart_rate,
-        cadence: normalizeCadence(r.cadence),
-        pace_sec_per_km: r.speed && r.speed > 0.1 ? 1000 / r.speed : null,
-        stride_length_m:
-          r.speed && normalizeCadence(r.cadence) ? r.speed / ((normalizeCadence(r.cadence) as number) / 60) : null,
-        vertical_oscillation_cm: r.vertical_oscillation ?? null,
-        ground_contact_time_ms: r.stance_time ?? null,
-      }));
+      const points: ParsedPoint[] = records.map((r: any) => {
+        const speed = r.enhanced_speed ?? r.speed ?? null;
+        const cadence = normalizeCadence(r.cadence);
+
+        return {
+          timestamp: r.timestamp ?? null,
+          elapsed_s: r.elapsed_time ?? (r.timestamp ? (new Date(r.timestamp).getTime() - t0) / 1000 : 0),
+          distance_m: r.distance ?? null,
+          lat: r.position_lat ?? null,
+          lng: r.position_long ?? null,
+          elevation_m: r.enhanced_altitude ?? r.altitude ?? null,
+          hr: r.heart_rate ?? null,
+          cadence,
+          pace_sec_per_km: speed && speed > 0.1 ? 1000 / speed : null,
+          stride_length_m: speed && cadence ? speed / (cadence / 60) : null,
+          vertical_oscillation_cm: r.vertical_oscillation ?? r.vertical_oscillation_mm ?? null,
+          ground_contact_time_ms: r.stance_time ?? r.ground_contact_time ?? null,
+        };
+      });
 
       const normalizedLaps: ParsedLap[] = laps.map((lap: any, i: number, arr: any[]) => {
         const start = lap.start_time ? new Date(lap.start_time).getTime() : null;
@@ -234,21 +277,62 @@ async function parseFIT(buffer: ArrayBuffer): Promise<ParsedFile> {
   });
 }
 
-function classifyLaps(laps: ParsedLap[]): ParsedLap[] {
+/**
+ * Plan-aware and ladder-aware lap classification.
+ * - If a ladder work step exists, do not force one dominant distance.
+ * - If a planned structure exists, trust that non-rest moving laps are work.
+ * - Otherwise fall back to dominant repeating distance clustering.
+ */
+function classifyLaps(laps: ParsedLap[], plannedSteps: any[] = []): ParsedLap[] {
   if (!Array.isArray(laps) || laps.length === 0) return [];
 
   const valid = laps.filter((l) => l.total_distance > 0 && l.total_elapsed_time > 0);
-  if (valid.length === 0) return laps.map((l) => ({ ...l, kind: "work" }));
+  if (valid.length === 0) return laps.map((l) => ({ ...l, kind: "work" as const }));
 
-  // If only a couple of laps exist, treat them all as work
-  if (laps.length < 4) {
-    return laps.map((l) => ({ ...l, kind: "work" }));
+  const workSteps = getPlannedWorkSteps(plannedSteps);
+  const hasPlannedWork = workSteps.length > 0;
+  const hasLadderPlan = workSteps.some(stepIsLadder);
+
+  // If planned structure exists, and especially if ladder is enabled,
+  // keep all meaningful non-rest laps as work and preserve order.
+  if (hasPlannedWork) {
+    let classified = laps.map((lap) => {
+      if (lap.intensity === "rest") return { ...lap, kind: "recovery" as const };
+
+      const isWork = lap.total_distance >= 20 && lap.total_elapsed_time >= 6;
+      return { ...lap, kind: isWork ? ("work" as const) : ("recovery" as const) };
+    });
+
+    const workIdxs = classified.map((l, i) => (l.kind === "work" ? i : -1)).filter((i) => i >= 0);
+
+    if (workIdxs.length > 0) {
+      const firstWork = workIdxs[0];
+      const lastWork = workIdxs[workIdxs.length - 1];
+
+      classified = classified.map((lap, idx) => {
+        if (lap.kind === "work") return lap;
+        if (idx < firstWork) return { ...lap, kind: "warmup" as const };
+        if (idx > lastWork) return { ...lap, kind: "cooldown" as const };
+        return lap;
+      });
+    }
+
+    // For ladders, stop here — do not attempt dominant distance clustering.
+    if (hasLadderPlan) return classified;
+
+    // For non-ladder planned sessions, still preserve this simple plan-aware mapping.
+    return classified;
   }
 
-  // Trust explicit rest intensity when present
-  const nonRestCandidates = laps.filter((l) => l.intensity !== "rest" && l.total_distance > 20 && l.total_elapsed_time > 8);
+  // Fallback: no planned structure, use dominant repeating work-distance cluster
+  if (laps.length < 4) {
+    return laps.map((l) => ({ ...l, kind: "work" as const }));
+  }
 
-  // Determine dominant repeating "work" distance cluster
+  const nonRestCandidates = laps.filter(
+    (l) => l.intensity !== "rest" && l.total_distance > 20 && l.total_elapsed_time > 8,
+  );
+
   const buckets = new Map<number, number>();
   for (const lap of nonRestCandidates) {
     const bucket = Math.round(lap.total_distance / 10) * 10;
@@ -266,7 +350,7 @@ function classifyLaps(laps: ParsedLap[]): ParsedLap[] {
 
   const tolerance = Math.max(15, dominantDistance * 0.25);
 
-  let classified: ParsedLap[] = laps.map((lap): ParsedLap => {
+  let classified = laps.map((lap) => {
     if (lap.intensity === "rest") {
       return { ...lap, kind: "recovery" as const };
     }
@@ -279,22 +363,122 @@ function classifyLaps(laps: ParsedLap[]): ParsedLap[] {
     return { ...lap, kind: "work" as const };
   });
 
-  // Reclassify non-work laps before/after the main work block as warmup/cooldown
   const workIdxs = classified.map((l, i) => (l.kind === "work" ? i : -1)).filter((i) => i >= 0);
 
   if (workIdxs.length > 0) {
     const firstWork = workIdxs[0];
     const lastWork = workIdxs[workIdxs.length - 1];
 
-    classified = classified.map((lap, idx): ParsedLap => {
+    classified = classified.map((lap, idx) => {
       if (lap.kind === "work") return lap;
       if (idx < firstWork) return { ...lap, kind: "warmup" as const };
       if (idx > lastWork) return { ...lap, kind: "cooldown" as const };
-      return lap; // keep recovery between work reps
+      return lap;
     });
   }
 
   return classified;
+}
+
+function splitWorkLapsIntoBlocks(classifiedLaps: ParsedLap[], plannedSteps: any[]) {
+  const recoverySteps = getPlannedBlockRecoverySteps(plannedSteps);
+
+  // No explicit between-block recovery step -> one work block
+  if (recoverySteps.length === 0) {
+    return [classifiedLaps.filter((l) => l.kind === "work")];
+  }
+
+  const plannedBlockRecoverySeconds = Number(
+    recoverySteps.find((s) => s.target_time_seconds)?.target_time_seconds ?? 0,
+  );
+
+  const recoveryDurations = classifiedLaps
+    .filter((l) => l.kind === "recovery")
+    .map((l) => Number(l.total_elapsed_time ?? 0))
+    .filter((x) => x > 0)
+    .sort((a, b) => a - b);
+
+  const medianRecovery = recoveryDurations.length > 0 ? recoveryDurations[Math.floor(recoveryDurations.length / 2)] : 0;
+
+  const longRecoveryThreshold =
+    plannedBlockRecoverySeconds > 0
+      ? plannedBlockRecoverySeconds * 0.7
+      : medianRecovery > 0
+        ? medianRecovery * 1.75
+        : Infinity;
+
+  const blocks: ParsedLap[][] = [];
+  let currentBlock: ParsedLap[] = [];
+
+  for (const lap of classifiedLaps) {
+    if (lap.kind === "work") {
+      currentBlock.push(lap);
+      continue;
+    }
+
+    if (lap.kind === "recovery") {
+      const isLongRecovery = Number(lap.total_elapsed_time ?? 0) >= longRecoveryThreshold;
+
+      if (isLongRecovery && currentBlock.length > 0) {
+        blocks.push(currentBlock);
+        currentBlock = [];
+      }
+    }
+  }
+
+  if (currentBlock.length > 0) blocks.push(currentBlock);
+
+  return blocks.length > 0 ? blocks : [classifiedLaps.filter((l) => l.kind === "work")];
+}
+
+function buildIntervalRowsFromPlan(workBlocks: ParsedLap[][], plannedSteps: any[]) {
+  const workSteps = getPlannedWorkSteps(plannedSteps);
+  const rows: any[] = [];
+
+  for (let blockIdx = 0; blockIdx < workBlocks.length; blockIdx++) {
+    const laps = workBlocks[blockIdx] ?? [];
+    const workStep = workSteps[blockIdx] ?? workSteps[workSteps.length - 1];
+
+    if (!workStep || laps.length === 0) continue;
+
+    const repsPerSet = Math.max(1, Number(workStep.reps ?? laps.length));
+    const setCount = Math.max(1, Number(workStep.set_count ?? 1));
+    const ladder = stepIsLadder(workStep);
+
+    let setNumber = 1;
+    let repNumber = 0;
+
+    for (let i = 0; i < laps.length; i++) {
+      repNumber += 1;
+
+      // Ladders preserve sequence; non-ladders wrap by repsPerSet
+      if (!ladder && repNumber > repsPerSet) {
+        setNumber += 1;
+        repNumber = 1;
+      }
+
+      if (setNumber > setCount) setNumber = setCount;
+
+      const lap = laps[i];
+
+      rows.push({
+        step_id: workStep.id,
+        set_number: setNumber,
+        rep_number: ladder ? i + 1 : repNumber,
+        actual_time_seconds: lap.total_elapsed_time || null,
+        actual_distance_m: lap.total_distance || null,
+        actual_pace_sec_per_km:
+          lap.total_distance > 0 && lap.total_elapsed_time > 0
+            ? (lap.total_elapsed_time / lap.total_distance) * 1000
+            : null,
+        hr_avg: lap.avg_heart_rate ?? null,
+        hr_max: lap.max_heart_rate ?? null,
+        cadence: lap.avg_cadence ?? null,
+      });
+    }
+  }
+
+  return rows;
 }
 
 function findLapKindForPoint(timestamp: string | null, laps: ParsedLap[]): "warmup" | "work" | "recovery" | "cooldown" {
@@ -347,7 +531,12 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
 
     let sess: any;
     if (data.sessionId) {
-      const { data: existing, error: fetchErr } = await sb.from("sessions").select("*").eq("id", data.sessionId).single();
+      const { data: existing, error: fetchErr } = await sb
+        .from("sessions")
+        .select("*")
+        .eq("id", data.sessionId)
+        .single();
+
       if (fetchErr || !existing) {
         throw fetchErr ?? new Error("Session not found");
       }
@@ -379,13 +568,18 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
       sess = inserted;
     }
 
-    // Duplicate guard using existing columns (no schema change required)
+    // Pull any existing planned/manual step structure up-front
+    const { data: plannedSteps } = await sb.from("steps").select("*").eq("session_id", sess.id).order("step_order");
+
+    const safePlannedSteps = plannedSteps ?? [];
+
+    // Duplicate guard using existing columns
     const { data: duplicate } = await sb
       .from("session_files")
       .select("id")
       .eq("session_id", sess.id)
       .eq("original_filename", data.filename)
-      .eq("started_at", parsed.startedAt ?? "")
+      .eq("started_at", parsed.startedAt)
       .eq("total_distance_m", parsed.totalDistanceM)
       .maybeSingle();
 
@@ -422,7 +616,7 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
       return { file: fileRow, points: 0, error: parseError };
     }
 
-    const classifiedLaps = classifyLaps(parsed.laps ?? []);
+    const classifiedLaps = classifyLaps(parsed.laps ?? [], safePlannedSteps);
     const workLaps = classifiedLaps.filter((l) => l.kind === "work");
     const warmupLaps = classifiedLaps.filter((l) => l.kind === "warmup");
     const cooldownLaps = classifiedLaps.filter((l) => l.kind === "cooldown");
@@ -435,18 +629,18 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
         segment_type: findLapKindForPoint(p.timestamp ?? null, classifiedLaps),
         elapsed_s: p.elapsed_s,
         distance_m: p.distance_m ?? null,
-        lat: p.lat,
-        lng: p.lng,
-        hr: p.hr,
-        pace_sec_per_km: p.pace_sec_per_km,
-        cadence: p.cadence,
-        elevation_m: p.elevation_m,
+        lat: p.lat ?? null,
+        lng: p.lng ?? null,
+        hr: p.hr ?? null,
+        pace_sec_per_km: p.pace_sec_per_km ?? null,
+        cadence: p.cadence ?? null,
+        elevation_m: p.elevation_m ?? null,
         vertical_oscillation_cm: p.vertical_oscillation_cm ?? null,
         ground_contact_time_ms: p.ground_contact_time_ms ?? null,
       }));
 
       for (let i = 0; i < rows.length; i += 500) {
-        await sb.from("raw_session_points").insert(rows.slice(i, i + 500) as any);
+        await sb.from("raw_session_points").insert(rows.slice(i, i + 500));
       }
 
       const { avgHr, maxHr, avgPace, avgCad } = summarizeImportedPoints(parsed.points);
@@ -454,17 +648,19 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
       const workDistance = isIntervals
         ? workLaps.reduce((sum, lap) => sum + Number(lap.total_distance ?? 0), 0)
         : parsed.totalDistanceM;
+
       const workTime = isIntervals
         ? workLaps.reduce((sum, lap) => sum + Number(lap.total_elapsed_time ?? 0), 0)
         : parsed.totalTimeS;
 
-      // Recompute session totals from all attached files on this session
+      // Recompute session totals from all attached files
       const { data: allFiles } = await sb
         .from("session_files")
         .select("total_distance_m, total_time_s")
         .eq("session_id", sess.id);
 
       const sessionTotalDistance = (allFiles ?? []).reduce((sum, f: any) => sum + Number(f.total_distance_m ?? 0), 0);
+
       const sessionTotalTime = (allFiles ?? []).reduce((sum, f: any) => sum + Number(f.total_time_s ?? 0), 0);
 
       await sb
@@ -486,10 +682,51 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
         } as any)
         .eq("id", sess.id);
 
-      // Only synthesize structure when there are no existing planned steps
-      const { data: existingSteps } = await sb.from("steps").select("id").eq("session_id", sess.id).limit(1);
+      // If a manual plan already exists, use it as the source of truth.
+      const hasManualPlan = Boolean(sess.is_planned) && safePlannedSteps.length > 0;
+      const hasLadderPlan = getPlannedWorkSteps(safePlannedSteps).some(stepIsLadder);
 
-      if (!existingSteps || existingSteps.length === 0) {
+      if (hasManualPlan) {
+        const stepIds = safePlannedSteps.map((s: any) => s.id);
+        if (stepIds.length > 0) {
+          await sb.from("interval_results").delete().in("step_id", stepIds);
+        }
+
+        const workBlocks = splitWorkLapsIntoBlocks(classifiedLaps, safePlannedSteps);
+        const intervalRows = buildIntervalRowsFromPlan(workBlocks, safePlannedSteps);
+
+        if (intervalRows.length > 0) {
+          await sb.from("interval_results").insert(intervalRows as any);
+        }
+
+        // Ladder sessions should suppress fatigue until per-rep targets ship
+        if (hasLadderPlan) {
+          await sb
+            .from("sessions")
+            .update({
+              needs_review: true,
+            } as any)
+            .eq("id", sess.id);
+
+          await sb.from("session_fatigue").delete().eq("session_id", sess.id);
+        }
+      }
+
+      // If there is no manual plan, synthesize upload-only structure.
+      if (!hasManualPlan) {
+        // Clear previously auto-generated imported steps/results so re-parsing replaces stale mappings.
+        const { data: existingSteps } = await sb
+          .from("steps")
+          .select("id")
+          .eq("session_id", sess.id)
+          .order("step_order");
+
+        const existingStepIds = (existingSteps ?? []).map((s: any) => s.id);
+        if (existingStepIds.length > 0) {
+          await sb.from("interval_results").delete().in("step_id", existingStepIds);
+          await sb.from("steps").delete().eq("session_id", sess.id);
+        }
+
         const stepsToInsert: any[] = [];
         let stepOrder = 1;
 
@@ -519,21 +756,14 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
           reps: isIntervals ? workLaps.length : 1,
           set_count: 1,
           target_kind:
-            isIntervals && workLaps.length > 0
-              ? "distance"
-              : parsed.totalDistanceM > 0
-                ? "distance"
-                : "time",
+            isIntervals && workLaps.length > 0 ? "distance" : parsed.totalDistanceM > 0 ? "distance" : "time",
           target_distance_m:
             isIntervals && workLaps.length > 0
               ? Math.round(workLaps.reduce((sum, l) => sum + Number(l.total_distance ?? 0), 0) / workLaps.length)
               : parsed.totalDistanceM > 0
                 ? parsed.totalDistanceM
                 : null,
-          target_time_seconds:
-            !isIntervals && parsed.totalTimeS > 0
-              ? parsed.totalTimeS
-              : null,
+          target_time_seconds: !isIntervals && parsed.totalTimeS > 0 ? parsed.totalTimeS : null,
           counts_toward_distance: true,
         });
 
@@ -551,7 +781,10 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
           });
         }
 
-        const { data: insertedSteps, error: stepsErr } = await sb.from("steps").insert(stepsToInsert as any).select();
+        const { data: insertedSteps, error: stepsErr } = await sb
+          .from("steps")
+          .insert(stepsToInsert as any)
+          .select();
 
         if (!stepsErr && insertedSteps && insertedSteps.length > 0) {
           const workStep = insertedSteps.find((s: any) => s.kind === "work");
@@ -604,6 +837,93 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
       workLaps: classifiedLaps.filter((l) => l.kind === "work").length,
       recoveryLaps: classifiedLaps.filter((l) => l.kind === "recovery").length,
       structure: isIntervals ? "intervals" : "continuous",
+    };
+  });
+
+export const deleteSessionFileBlock = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { sessionFileId: string }) => d)
+  .handler(async ({ data, context }) => {
+    const sb = context.supabase;
+
+    const { data: fileRow, error: fileErr } = await sb
+      .from("session_files")
+      .select("*")
+      .eq("id", data.sessionFileId)
+      .single();
+
+    if (fileErr || !fileRow) {
+      throw fileErr ?? new Error("Session file not found");
+    }
+
+    const sessionId = fileRow.session_id;
+
+    await sb.from("raw_session_points").delete().eq("file_id", fileRow.id);
+
+    if (fileRow.storage_path) {
+      await sb.storage.from("session-files").remove([fileRow.storage_path]);
+    }
+
+    const { error: delErr } = await sb.from("session_files").delete().eq("id", fileRow.id);
+    if (delErr) throw delErr;
+
+    const { data: remainingFiles } = await sb
+      .from("session_files")
+      .select("id, total_distance_m, total_time_s")
+      .eq("session_id", sessionId);
+
+    const totalDistance = (remainingFiles ?? []).reduce((sum, f: any) => sum + Number(f.total_distance_m ?? 0), 0);
+
+    const totalTime = (remainingFiles ?? []).reduce((sum, f: any) => sum + Number(f.total_time_s ?? 0), 0);
+
+    await sb.from("session_zone_time").delete().eq("session_id", sessionId);
+    await sb.from("session_fatigue").delete().eq("session_id", sessionId);
+
+    if (!remainingFiles || remainingFiles.length === 0) {
+      const { data: oldSteps } = await sb.from("steps").select("id").eq("session_id", sessionId);
+
+      const oldStepIds = (oldSteps ?? []).map((s: any) => s.id);
+      if (oldStepIds.length > 0) {
+        await sb.from("interval_results").delete().in("step_id", oldStepIds);
+      }
+
+      await sb.from("steps").delete().eq("session_id", sessionId);
+
+      await sb
+        .from("sessions")
+        .update({
+          total_distance_m: null,
+          total_time_seconds: null,
+          work_distance_m: null,
+          work_time_s: null,
+          avg_hr: null,
+          max_hr: null,
+          work_avg_hr: null,
+          work_avg_pace_sec_per_km: null,
+          work_avg_cadence: null,
+          structure: "continuous",
+          needs_review: true,
+        } as any)
+        .eq("id", sessionId);
+
+      return { ok: true, sessionId, remainingFiles: 0 };
+    }
+
+    await sb
+      .from("sessions")
+      .update({
+        total_distance_m: totalDistance || null,
+        total_time_seconds: totalTime || null,
+        needs_review: true,
+      } as any)
+      .eq("id", sessionId);
+
+    return {
+      ok: true,
+      sessionId,
+      remainingFiles: remainingFiles.length,
+      totalDistance,
+      totalTime,
     };
   });
 
@@ -670,6 +990,7 @@ export const sendReminder = createServerFn({ method: "POST" })
       })
       .select()
       .single();
+
     if (error) throw error;
     return row;
   });
