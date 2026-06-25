@@ -134,16 +134,42 @@ function SessionAnalysis() {
 
   const computeFatigue = useServerFn(computeContinuousFatigue);
 
-  const { samples, bands, mode, hasMetric, gpsPoints } = useMemo(
+  const hasRaw = (rawPoints ?? []).length > 10;
+  const hasResults = (results ?? []).length > 0;
+  const graphMode: "trace" | "rep" | "empty" = hasRaw ? "trace" : hasResults ? "rep" : "empty";
+
+  const repBuild = useMemo(
     () => buildSamples(steps ?? [], results ?? []),
     [steps, results],
   );
 
-  const xCanUseDistance = samples.length > 0 && samples.every((s) => s.d != null);
+  const traceBuild = useMemo(
+    () => buildTraceFromRaw(rawPoints ?? [], steps ?? [], results ?? []),
+    [rawPoints, steps, results],
+  );
+
+  const repSeries = useMemo(
+    () => buildRepSeries(steps ?? [], results ?? []),
+    [steps, results],
+  );
+
+  const samples: Sample[] = graphMode === "trace" ? traceBuild.samples : repBuild.samples;
+  const bands: { kind: string; t1: number; t2: number; d1: number; d2: number }[] =
+    graphMode === "trace" ? traceBuild.bands : graphMode === "rep" ? repSeries.bands : [];
+  const hasMetric: Record<MetricKey, boolean> =
+    graphMode === "trace"
+      ? traceBuild.hasMetric
+      : graphMode === "rep"
+        ? repSeries.hasMetric
+        : { hr: false, pace: false, cadence: false, elev: false };
+  const gpsPoints = traceBuild.gpsPoints.length > 0 ? traceBuild.gpsPoints : repBuild.gpsPoints;
+
+  const xCanUseDistance = graphMode === "trace" && samples.length > 0 && samples.every((s) => s.d != null);
   const xKey: keyof Sample = xMode === "distance" && xCanUseDistance ? "d" : "t";
 
   // Build per-metric series so React doesn't have to skip nulls
   const seriesData = useMemo(() => {
+    if (graphMode === "rep") return repSeries.data;
     return samples.map((s) => ({
       x: (s[xKey] as number) ?? 0,
       stepKind: s.stepKind,
@@ -152,12 +178,10 @@ function SessionAnalysis() {
       cadence: s.cadence,
       elev: s.elev,
     }));
-  }, [samples, xKey]);
+  }, [graphMode, repSeries, samples, xKey]);
 
   if (!session) return <AppShell><p>Loading…</p></AppShell>;
 
-  const noResults = (results ?? []).length === 0;
-  const hasRaw = (rawPoints ?? []).length > 0;
   const continuousFatigue = (fatigue ?? []).find((f: any) => f.method === "continuous_drift");
   const repFatigue = (fatigue ?? []).filter((f: any) => f.method !== "continuous_drift");
 
@@ -174,15 +198,23 @@ function SessionAnalysis() {
           </p>
         </div>
 
-        {noResults && !hasRaw ? (
+        {graphMode === "empty" ? (
           <Card>
-            <CardContent className="pt-6 text-sm text-muted-foreground">
-              Detailed analysis available after device sync (coming in the next phase).{" "}
-              For now, see{" "}
-              <Link to="/app/sessions/$sessionId" params={{ sessionId }} className="underline">
-                the session detail
-              </Link>{" "}
-              for logged totals and per-rep entries.
+            <CardHeader>
+              <CardTitle>Session graph</CardTitle>
+              <CardDescription>No detailed trace available</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-2 text-sm text-muted-foreground space-y-2">
+              <p>
+                This session was entered manually without file-based or rep-level data, so there is nothing to plot.
+              </p>
+              <p>
+                Upload a FIT or GPX file, or add per-rep results from{" "}
+                <Link to="/app/sessions/$sessionId" params={{ sessionId }} className="underline">
+                  the session detail
+                </Link>{" "}
+                to unlock the graph.
+              </p>
             </CardContent>
           </Card>
         ) : (
@@ -192,16 +224,20 @@ function SessionAnalysis() {
                 <div>
                   <CardTitle>Session graph</CardTitle>
                   <CardDescription>
-                    {mode === "trace" ? "High-resolution trace" : "Summary view — no high-res trace recorded"}
+                    {graphMode === "trace"
+                      ? "High-resolution trace from uploaded file"
+                      : "Rep-by-rep summary — upload a FIT/GPX file for a high-resolution trace"}
                   </CardDescription>
                 </div>
-                <div className="flex gap-1">
-                  <Button size="sm" variant={xKey === "t" ? "default" : "outline"}
-                    onClick={() => setXMode("time")}>Time</Button>
-                  <Button size="sm" variant={xKey === "d" ? "default" : "outline"}
-                    disabled={!xCanUseDistance}
-                    onClick={() => setXMode("distance")}>Distance</Button>
-                </div>
+                {graphMode === "trace" && (
+                  <div className="flex gap-1">
+                    <Button size="sm" variant={xKey === "t" ? "default" : "outline"}
+                      onClick={() => setXMode("time")}>Time</Button>
+                    <Button size="sm" variant={xKey === "d" ? "default" : "outline"}
+                      disabled={!xCanUseDistance}
+                      onClick={() => setXMode("distance")}>Distance</Button>
+                  </div>
+                )}
               </div>
               <div className="flex flex-wrap gap-1 mt-2">
                 {METRICS.map((m) => {
@@ -229,7 +265,13 @@ function SessionAnalysis() {
                       dataKey="x"
                       type="number"
                       domain={["dataMin", "dataMax"]}
-                      tickFormatter={(v) => xKey === "t" ? secToClock(v) : metersFmt(v)}
+                      tickFormatter={(v) =>
+                        graphMode === "rep"
+                          ? `R${v}`
+                          : xKey === "t"
+                            ? secToClock(v)
+                            : metersFmt(v)
+                      }
                     />
                     <YAxis yAxisId="hr" orientation="left" hide={!enabled.hr || !hasMetric.hr}
                       tick={{ fontSize: 11 }} width={36} />
@@ -241,7 +283,13 @@ function SessionAnalysis() {
                     <YAxis yAxisId="elev" orientation="right" hide={!enabled.elev || !hasMetric.elev}
                       tick={{ fontSize: 11 }} width={32} />
                     <Tooltip
-                      labelFormatter={(v) => xKey === "t" ? secToClock(Number(v)) : metersFmt(Number(v))}
+                      labelFormatter={(v) =>
+                        graphMode === "rep"
+                          ? `Rep ${v}`
+                          : xKey === "t"
+                            ? secToClock(Number(v))
+                            : metersFmt(Number(v))
+                      }
                       formatter={(v: any, n: any) => {
                         if (n === "pace") return [paceFmt(Number(v)), "Pace"];
                         if (n === "hr") return [`${Math.round(Number(v))} bpm`, "HR"];
@@ -614,4 +662,162 @@ function buildSamples(steps: any[], results: any[]): {
   }
 
   return { samples, bands, mode: anyTrace ? "trace" : "summary", hasMetric: has, gpsPoints };
+}
+
+// Build a high-res trace from raw_session_points (FIT/GPX upload).
+function buildTraceFromRaw(
+  raw: any[],
+  steps: any[],
+  results: any[],
+): {
+  samples: Sample[];
+  bands: { kind: string; t1: number; t2: number; d1: number; d2: number }[];
+  hasMetric: Record<MetricKey, boolean>;
+  gpsPoints: { lat: number; lng: number }[];
+} {
+  const has: Record<MetricKey, boolean> = { hr: false, pace: false, cadence: false, elev: false };
+  const gpsPoints: { lat: number; lng: number }[] = [];
+
+  // Compute cumulative distance from lat/lng when available (haversine).
+  const R = 6371000;
+  let cumDist = 0;
+  let prev: { lat: number; lng: number } | null = null;
+  const samples: Sample[] = raw.map((p) => {
+    let d: number | undefined;
+    if (p.lat != null && p.lng != null) {
+      if (prev) {
+        const dLat = ((p.lat - prev.lat) * Math.PI) / 180;
+        const dLng = ((p.lng - prev.lng) * Math.PI) / 180;
+        const a =
+          Math.sin(dLat / 2) ** 2 +
+          Math.cos((prev.lat * Math.PI) / 180) *
+            Math.cos((p.lat * Math.PI) / 180) *
+            Math.sin(dLng / 2) ** 2;
+        cumDist += 2 * R * Math.asin(Math.sqrt(a));
+      }
+      prev = { lat: p.lat, lng: p.lng };
+      d = cumDist;
+      gpsPoints.push({ lat: p.lat, lng: p.lng });
+    }
+    const hr = p.hr != null ? Number(p.hr) : undefined;
+    const pace = p.pace_sec_per_km != null ? Number(p.pace_sec_per_km) : undefined;
+    const cadence = p.cadence != null ? Number(p.cadence) : undefined;
+    const elev = p.elevation_m != null ? Number(p.elevation_m) : undefined;
+    if (hr != null) has.hr = true;
+    if (pace != null && pace > 0) has.pace = true;
+    if (cadence != null) has.cadence = true;
+    if (elev != null) has.elev = true;
+    return {
+      t: Number(p.elapsed_s ?? 0),
+      d,
+      hr,
+      pace: pace && pace > 0 ? pace : undefined,
+      cadence,
+      elev,
+      lat: p.lat ?? undefined,
+      lng: p.lng ?? undefined,
+      stepId: "",
+      stepKind: p.segment_type ?? "work",
+      repNumber: 0,
+    };
+  });
+
+  // Bands derived from interval_results if available, scaled along total elapsed/distance.
+  const bands: { kind: string; t1: number; t2: number; d1: number; d2: number }[] = [];
+  const totalT = samples.length ? samples[samples.length - 1].t : 0;
+  const totalD = samples.length ? (samples[samples.length - 1].d ?? 0) : 0;
+  if (results.length && totalT > 0) {
+    const byStep = new Map<string, any[]>();
+    for (const r of results) {
+      if (!byStep.has(r.step_id)) byStep.set(r.step_id, []);
+      byStep.get(r.step_id)!.push(r);
+    }
+    const ordered = [...steps].sort((a, b) => (a.step_order ?? 0) - (b.step_order ?? 0));
+    let cursorT = 0;
+    let cursorD = 0;
+    const sumT = ordered.reduce(
+      (a, s) => a + (byStep.get(s.id) ?? []).reduce((x, r) => x + Number(r.actual_time_seconds ?? 0), 0),
+      0,
+    );
+    const scale = sumT > 0 ? totalT / sumT : 1;
+    const sumD = ordered.reduce(
+      (a, s) => a + (byStep.get(s.id) ?? []).reduce((x, r) => x + Number(r.actual_distance_m ?? 0), 0),
+      0,
+    );
+    const dScale = sumD > 0 && totalD > 0 ? totalD / sumD : 1;
+    for (const step of ordered) {
+      const rs = byStep.get(step.id) ?? [];
+      const dur = rs.reduce((a, r) => a + Number(r.actual_time_seconds ?? 0), 0) * scale;
+      const dist = rs.reduce((a, r) => a + Number(r.actual_distance_m ?? 0), 0) * dScale;
+      if (dur <= 0) continue;
+      bands.push({
+        kind: step.kind ?? "work",
+        t1: cursorT,
+        t2: cursorT + dur,
+        d1: cursorD,
+        d2: cursorD + dist,
+      });
+      cursorT += dur;
+      cursorD += dist;
+    }
+  }
+
+  return { samples, bands, hasMetric: has, gpsPoints };
+}
+
+// Build a rep-summary series for manually entered interval sessions.
+function buildRepSeries(
+  steps: any[],
+  results: any[],
+): {
+  data: { x: number; stepKind: string; hr?: number; pace?: number; cadence?: number; elev?: number }[];
+  bands: { kind: string; t1: number; t2: number; d1: number; d2: number }[];
+  hasMetric: Record<MetricKey, boolean>;
+} {
+  const has: Record<MetricKey, boolean> = { hr: false, pace: false, cadence: false, elev: false };
+  const stepOrder = new Map<string, number>();
+  steps.forEach((s) => stepOrder.set(s.id, s.step_order ?? 0));
+  const stepKindOf = new Map<string, string>();
+  steps.forEach((s) => stepKindOf.set(s.id, s.kind ?? "work"));
+  const sorted = [...results].sort((a, b) => {
+    const so = (stepOrder.get(a.step_id) ?? 0) - (stepOrder.get(b.step_id) ?? 0);
+    if (so !== 0) return so;
+    const ss = (a.set_number ?? 1) - (b.set_number ?? 1);
+    if (ss !== 0) return ss;
+    return (a.rep_number ?? 0) - (b.rep_number ?? 0);
+  });
+
+  const data = sorted.map((r, i) => {
+    const hr = r.hr_avg ?? r.hr_end ?? undefined;
+    const pace =
+      r.actual_pace_sec_per_km ??
+      (r.actual_time_seconds && r.actual_distance_m
+        ? (Number(r.actual_time_seconds) / Number(r.actual_distance_m)) * 1000
+        : undefined);
+    const cadence = r.cadence ?? undefined;
+    if (hr != null) has.hr = true;
+    if (pace != null && pace > 0) has.pace = true;
+    if (cadence != null) has.cadence = true;
+    return {
+      x: i + 1,
+      stepKind: stepKindOf.get(r.step_id) ?? "work",
+      hr: hr != null ? Number(hr) : undefined,
+      pace: pace != null && pace > 0 ? Number(pace) : undefined,
+      cadence: cadence != null ? Number(cadence) : undefined,
+    };
+  });
+
+  // Bands per step, x-range = rep indices belonging to that step.
+  const bands: { kind: string; t1: number; t2: number; d1: number; d2: number }[] = [];
+  let idx = 0;
+  for (const step of [...steps].sort((a, b) => (a.step_order ?? 0) - (b.step_order ?? 0))) {
+    const count = sorted.filter((r) => r.step_id === step.id).length;
+    if (count === 0) continue;
+    const t1 = idx + 0.5;
+    const t2 = idx + count + 0.5;
+    bands.push({ kind: step.kind ?? "work", t1, t2, d1: t1, d2: t2 });
+    idx += count;
+  }
+
+  return { data, bands, hasMetric: has };
 }
