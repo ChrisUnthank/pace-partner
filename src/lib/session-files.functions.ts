@@ -929,7 +929,7 @@ export const deleteSessionFileBlock = createServerFn({ method: "POST" })
 
 export const deleteSession = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  . }) => d)
+  .inputValidator((d: { sessionId: string }) => d)
   .handler(async ({ data, context }) => {
     const sb = context.supabase;
     const { sessionId } = data;
