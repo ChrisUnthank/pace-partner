@@ -29,12 +29,12 @@ import { useServerFn } from "@tanstack/react-start";
 import { getLatestAthleteNote, generateSessionNote, getAiAccessStatus } from "@/lib/ai.functions";
 import ReactMarkdown from "react-markdown";
 import { markAttendance } from "@/lib/messages.functions";
-import { uploadAndParseSessionFile } from "@/lib/session-files.functions";
 import { Switch } from "@/components/ui/switch";
 import { UserAvatar } from "@/components/user-avatar";
 import { ActivityIcon } from "@/lib/activity-icon";
 import { invalidateSession } from "@/lib/session-invalidation";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { deleteSession } from "@/lib/session-files.functions";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/")({
   component: SessionDetail,
@@ -53,6 +53,7 @@ function SessionDetail() {
   // ✅ FIT upload setup
   const uploadFile = useServerFn(uploadAndParseSessionFile);
   const [uploading, setUploading] = useState(false);
+  const removeSession = useServerFn(deleteSession);
 
   const {
     data: session,
@@ -154,7 +155,7 @@ function SessionDetail() {
       try {
         const res: any = await uploadFile({
           data: {
-            athleteId: session!.athlete_id,
+            athleteId: session.athlete_id,
             sessionId: sessionId, // ✅ THIS LINKS TO EXISTING SESSION
             filename: file.name,
             kind: file.name.toLowerCase().endsWith(".gpx") ? "gpx" : "fit",
@@ -169,8 +170,10 @@ function SessionDetail() {
 
         toast.success("File uploaded and session updated");
 
-        // refresh UI (covers raw points, files, steps, results, totals, fatigue, zones)
-        invalidateSession(qc, sessionId, session?.athlete_id);
+        // refresh UI
+        qc.invalidateQueries({ queryKey: ["session", sessionId] });
+        qc.invalidateQueries({ queryKey: ["steps", sessionId] });
+        qc.invalidateQueries({ queryKey: ["results", sessionId] });
       } catch (err: any) {
         console.error("FIT upload error:", err);
         toast.error(err.message);
