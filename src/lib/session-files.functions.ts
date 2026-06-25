@@ -296,7 +296,7 @@ function classifyLaps(laps: ParsedLap[], plannedSteps: any[] = []): ParsedLap[] 
   // If planned structure exists, and especially if ladder is enabled,
   // keep all meaningful non-rest laps as work and preserve order.
   if (hasPlannedWork) {
-    let classified: ParsedLap[] = laps.map((lap) => {
+    let classified = laps.map((lap) => {
       if (lap.intensity === "rest") return { ...lap, kind: "recovery" as const };
 
       const isWork = lap.total_distance >= 20 && lap.total_elapsed_time >= 6;
@@ -350,7 +350,7 @@ function classifyLaps(laps: ParsedLap[], plannedSteps: any[] = []): ParsedLap[] 
 
   const tolerance = Math.max(15, dominantDistance * 0.25);
 
-  let classified: ParsedLap[] = laps.map((lap) => {
+  let classified = laps.map((lap) => {
     if (lap.intensity === "rest") {
       return { ...lap, kind: "recovery" as const };
     }
@@ -579,7 +579,7 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
       .select("id")
       .eq("session_id", sess.id)
       .eq("original_filename", data.filename)
-      .eq("started_at", parsed.startedAt ?? "")
+      .eq("started_at", parsed.startedAt)
       .eq("total_distance_m", parsed.totalDistanceM)
       .maybeSingle();
 
@@ -640,7 +640,7 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
       }));
 
       for (let i = 0; i < rows.length; i += 500) {
-        await sb.from("raw_session_points").insert(rows.slice(i, i + 500) as any);
+        await sb.from("raw_session_points").insert(rows.slice(i, i + 500));
       }
 
       const { avgHr, maxHr, avgPace, avgCad } = summarizeImportedPoints(parsed.points);
@@ -857,7 +857,6 @@ export const deleteSessionFileBlock = createServerFn({ method: "POST" })
     }
 
     const sessionId = fileRow.session_id;
-    if (!sessionId) throw new Error("Session file is not linked to a session");
 
     await sb.from("raw_session_points").delete().eq("file_id", fileRow.id);
 
@@ -926,6 +925,68 @@ export const deleteSessionFileBlock = createServerFn({ method: "POST" })
       totalDistance,
       totalTime,
     };
+  });
+
+export const deleteSession = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  . }) => d)
+  .handler(async ({ data, context }) => {
+    const sb = context.supabase;
+    const { sessionId } = data;
+
+    // 1) Load steps for this session
+    const { data: steps } = await sb
+      .from("steps")
+      .select("id")
+      .eq("session_id", sessionId);
+
+    const stepIds = (steps ?? []).map((s: any) => s.id);
+
+    // 2) Delete interval results linked to those steps
+    if (stepIds.length > 0) {
+      await sb.from("interval_results").delete().in("step_id", stepIds);
+    }
+
+    // 3) Delete steps
+    await sb.from("steps").delete().eq("session_id", sessionId);
+
+    // 4) Delete raw points
+    await sb.from("raw_session_points").delete().eq("session_id", sessionId);
+
+    // 5) Delete analytics
+    await sb.from("session_fatigue").delete().eq("session_id", sessionId);
+    await sb.from("session_zone_time").delete().eq("session_id", sessionId);
+
+    // 6) Find uploaded files
+    const { data: files } = await sb
+      .from("session_files")
+      .select("storage_path")
+      .eq("session_id", sessionId);
+
+    const paths = (files ?? [])
+      .map((f: any) => f.storage_path)
+      .filter(Boolean);
+
+    // 7) Delete storage files
+    if (paths.length > 0) {
+      await sb.storage.from("session-files").remove(paths);
+    }
+
+    // 8) Delete session_files rows
+    await sb.from("session_files").delete().eq("session_id", sessionId);
+
+    // 9) Delete insights/comments linked to the session
+    await sb.from("session_insights").delete().eq("session_id", sessionId);
+
+    // 10) Delete the session row itself
+    const { error } = await sb
+      .from("sessions")
+      .delete()
+      .eq("id", sessionId);
+
+    if (error) throw error;
+
+    return { ok: true };
   });
 
 export const submitCheckout = createServerFn({ method: "POST" })
