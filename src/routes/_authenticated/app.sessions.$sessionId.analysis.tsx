@@ -746,29 +746,43 @@ function ZonePanel({ rows, title }: { rows: any[]; title: string }) {
 
 function MapPanel({ points }: { points: { lat: number; lng: number }[] }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [mapError, setMapError] = useState(false);
 
   useEffect(() => {
     if (!ref.current || !points.length) return;
-
-    const map = new maplibregl.Map({
-      container: ref.current,
-      style: {
-        version: 8,
-        sources: {
-          osm: {
-            type: "raster",
-            tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-            tileSize: 256,
-            attribution: "© OpenStreetMap contributors",
+    let map: maplibregl.Map | null = null;
+    try {
+      map = new maplibregl.Map({
+        container: ref.current,
+        style: {
+          version: 8,
+          sources: {
+            osm: {
+              type: "raster",
+              tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+              tileSize: 256,
+              attribution: "© OpenStreetMap contributors",
+            },
           },
+          layers: [{ id: "osm", type: "raster", source: "osm" }],
         },
-        layers: [{ id: "osm", type: "raster", source: "osm" }],
-      },
-      center: [points[0].lng, points[0].lat],
-      zoom: 13,
+        center: [points[0].lng, points[0].lat],
+        zoom: 13,
+      });
+    } catch (err) {
+      console.warn("MapLibre init failed:", err);
+      setMapError(true);
+      return;
+    }
+
+    map.on("error", (e) => {
+      console.warn("MapLibre error:", e?.error ?? e);
+      setMapError(true);
     });
 
     map.on("load", () => {
+      if (!map) return;
+      try {
       const coords = points.map((p) => [p.lng, p.lat]);
 
       map.addSource("route", {
@@ -794,9 +808,17 @@ function MapPanel({ points }: { points: { lat: number; lng: number }[] }) {
       );
 
       map.fitBounds(bounds, { padding: 30, duration: 0 });
+      } catch (err) {
+        console.warn("MapLibre layer setup failed:", err);
+        setMapError(true);
+      }
     });
 
-    return () => map.remove();
+    return () => {
+      try {
+        map?.remove();
+      } catch {}
+    };
   }, [points]);
 
   return (
@@ -805,7 +827,13 @@ function MapPanel({ points }: { points: { lat: number; lng: number }[] }) {
         <CardTitle>Route</CardTitle>
       </CardHeader>
       <CardContent>
-        <div ref={ref} className="h-[320px] w-full rounded overflow-hidden" />
+        {mapError ? (
+          <div className="h-[120px] w-full rounded border border-dashed flex items-center justify-center text-sm text-muted-foreground">
+            Map unavailable in this browser (WebGL disabled).
+          </div>
+        ) : (
+          <div ref={ref} className="h-[320px] w-full rounded overflow-hidden" />
+        )}
       </CardContent>
     </Card>
   );

@@ -1,29 +1,100 @@
-## Plan
+## Required evidence gathered
 
-1. **Normalize all analysis inputs before use**
-   - Convert `rawPoints`, `steps`, `results`, `zoneTime`, and `fatigue` into safe arrays with `Array.isArray(...) ? ... : []`.
-   - Replace every graph-related `.length`, `.map`, `.filter`, and helper call with these safe arrays so undefined/null data cannot crash the page.
+1. **Actual browser console error when the page crashes**
 
-2. **Make graph mode detection explicit and safe**
-   - `trace`: raw points array has enough samples.
-   - `rep`: no trace, but interval results array has at least one result.
-   - `empty`: neither data source is graphable.
-   - Ensure the chart only renders when its computed series has rows and at least one enabled/available metric.
+```text
+Error: {"requestedAttributes":{"antialias":false,"preserveDrawingBuffer":false,"powerPreference":"high-performance","failIfMajorPerformanceCaveat":false,"desynchronized":false,"alpha":true,"depth":true,"stencil":true,"premultipliedAlpha":true},"statusMessage":"Could not create a WebGL context, VENDOR = 0xffff, DEVICE = 0xffff, GL_VENDOR = Disabled, GL_RENDERER = Disabled, Sandboxed = yes, Optimus = no, AMD switchable = no, Reset notification strategy = 0x0000, ErrorMessage = BindToCurrentSequence failed: .","type":"webglcontextcreationerror","message":"Failed to initialize WebGL"}
+```
 
-3. **Harden chart rendering**
-   - Add a safe graph card component/guard around the Recharts block so it always returns either a valid graph or a clean empty state.
-   - Prevent `ReferenceArea` from using distance keys in rep mode incorrectly.
-   - Use rep X-axis ranges only in rep mode and time/distance ranges only in trace mode.
-   - Handle null metric values without formatting crashes in tooltips.
+React reports this occurred in `<MapPanel>`:
 
-4. **Keep the three user-facing modes clear**
-   - FIT/GPX: show high-resolution trace with HR, pace, cadence, elevation when available.
-   - Manual intervals: show rep-based graph using `hr_avg`/`hr_end`, `actual_pace_sec_per_km`, and cadence.
-   - Totals-only: show `No detailed trace available for this session` with a short context-specific explanation.
+```text
+The above error occurred in the <MapPanel> component.
+```
 
-5. **Fix FIT/GPX upload refresh**
-   - Replace the manual three-query invalidation after upload with the shared `invalidateSession(...)` helper so `raw-points`, files, session, steps, results, fatigue, zones, and aggregate views refetch immediately.
+The stack points to MapLibre construction in the analysis route:
 
-6. **Verify the result**
-   - Run a strict TypeScript check or targeted validation after edits.
-   - Use the analysis route to confirm it no longer crashes when graph data is absent and that the graph code has no unsafe data access.
+```text
+at ds._setupPainter (.../maplibre-gl.js:33277:33)
+at new ds (.../maplibre-gl.js:32660:1433)
+at .../src/routes/_authenticated/app.sessions.$sessionId.analysis.tsx?tsr-split=component:1291:15
+```
+
+2. **Current `computeContinuousFatigue` export in `@/lib/ai.functions`**
+
+It exists and is exported at `src/lib/ai.functions.ts:228`:
+
+```ts
+export const computeContinuousFatigue = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { sessionId: string }) => d)
+  .handler(async ({ data, context }) => {
+    const sb = context.supabase;
+    const { data: sess } = await sb.from("sessions").select("athlete_id, structure").eq("id", data.sessionId).single();
+    if (!sess) return null;
+    const { data: pts } = await sb.from("raw_session_points").select("elapsed_s, hr, pace_sec_per_km").eq("session_id", data.sessionId).order("elapsed_s");
+    if (!pts || pts.length < 60) return null;
+    const mid = pts[pts.length - 1].elapsed_s / 2;
+    const first = pts.filter((p) => p.elapsed_s <= mid);
+    const second = pts.filter((p) => p.elapsed_s > mid);
+    const mean = (arr: any[], k: string) => {
+      const xs = arr.map((a) => a[k]).filter((x) => x != null) as number[];
+      return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+    };
+    const hr1 = mean(first, "hr"); const hr2 = mean(second, "hr");
+    const p1 = mean(first, "pace_sec_per_km"); const p2 = mean(second, "pace_sec_per_km");
+    if (hr1 == null || hr2 == null || p1 == null || p2 == null) return null;
+    const hrDriftBpm = hr2 - hr1;
+    const paceDriftPct = ((p2 - p1) / p1) * 100;
+    const score = Math.max(0, Math.min(100, Math.round(100 - hrDriftBpm - paceDriftPct * 3)));
+    await sb.from("session_fatigue").delete().eq("session_id", data.sessionId).eq("method", "continuous_drift");
+    const { data: row, error } = await sb.from("session_fatigue").insert({
+      session_id: data.sessionId, athlete_id: sess.athlete_id, method: "continuous_drift",
+      hr_drift_bpm: hrDriftBpm, pace_drift_pct: paceDriftPct, efficiency_score: score, rep_count: pts.length,
+    } as any).select().maybeSingle();
+    if (error) console.error(error);
+    return row;
+  });
+```
+
+Signature check: it matches `useServerFn` usage because it is a `createServerFn({ method: "POST" })` export with `.inputValidator((d: { sessionId: string }) => d)`, so the client should call it as `computeFatigue({ data: { sessionId } })`.
+
+3. **Exact analysis-file references and import resolution**
+
+Import at `src/routes/_authenticated/app.sessions.$sessionId.analysis.tsx:25`:
+
+```ts
+import { computeContinuousFatigue } from "@/lib/ai.functions";
+```
+
+Usage at `src/routes/_authenticated/app.sessions.$sessionId.analysis.tsx:170`:
+
+```ts
+const computeFatigue = useServerFn(computeContinuousFatigue);
+```
+
+Invocation at `src/routes/_authenticated/app.sessions.$sessionId.analysis.tsx:517`:
+
+```tsx
+onClick={() => computeFatigue({ data: { sessionId } }).then(() => window.location.reload())}
+```
+
+Import path resolution is valid: `tsconfig.json` defines `"@/*": ["./src/*"]`, so `@/lib/ai.functions` resolves to `src/lib/ai.functions.ts`.
+
+## Plan to fix
+
+1. **Fix the actual crash source: `MapPanel` WebGL failure**
+   - Wrap MapLibre map creation in a safe `try/catch` inside `MapPanel`.
+   - Listen for MapLibre `error` events.
+   - If WebGL/map creation fails, set a local error state and render a non-crashing route fallback instead of throwing into the route boundary.
+   - Ensure cleanup only calls `map.remove()` when a map was successfully created.
+
+2. **Keep graph modes intact**
+   - Do not change the existing trace/rep/empty chart logic unless a compile/runtime issue appears during validation.
+   - Leave `computeContinuousFatigue` exported and called through `useServerFn` with `{ data: { sessionId } }`.
+
+3. **Validate before calling it fixed**
+   - Run a TypeScript check after the edit.
+   - Navigate to `/app/sessions/2c70323f-b02c-4980-95bb-146600a17107/analysis` in the preview with Playwright.
+   - Report the observed loaded page state, specifically whether the Session Analysis page renders, whether the graph/empty state appears, and whether the Map panel falls back cleanly instead of crashing.
+   - Only then state that it is fixed.
