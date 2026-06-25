@@ -23,6 +23,8 @@ import { secToClock, metersFmt, paceFmt } from "@/lib/format";
 import { sessionClassificationLabel } from "@/lib/session-categories";
 import { useServerFn } from "@tanstack/react-start";
 import { computeContinuousFatigue } from "@/lib/ai.functions";
+import { reprocessSessionFiles } from "@/lib/session-files.functions";
+import { invalidateSession } from "@/lib/session-invalidation";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/analysis")({
   component: SessionAnalysis,
@@ -153,7 +155,7 @@ function SessionAnalysis() {
       const { data } = await supabase
         .from("session_files")
         .select(
-          "id, original_filename, block_type, is_primary_workout, lap_count, work_lap_count, recovery_lap_count, lap_intensity_present, interval_auto_detected, zone_time_rebuilt_at, started_at",
+          "id, original_filename, block_type, is_primary_workout, lap_count, work_lap_count, recovery_lap_count, lap_intensity_present, interval_auto_detected, zone_time_rebuilt_at, started_at, parse_summary",
         )
         .eq("session_id", sessionId)
         .order("started_at");
@@ -186,6 +188,7 @@ function SessionAnalysis() {
   const safeFiles = Array.isArray(sessionFiles) ? sessionFiles : [];
 
   const computeFatigue = useServerFn(computeContinuousFatigue);
+  const reprocessFiles = useServerFn(reprocessSessionFiles);
 
   const primaryFile = safeFiles.find((f: any) => f.is_primary_workout) ?? safeFiles.find((f: any) => f.block_type === "work");
   const scopedRawPoints =
@@ -235,6 +238,15 @@ function SessionAnalysis() {
       .then(() => qc.invalidateQueries({ queryKey: ["fatigue", sessionId] }))
       .finally(() => setComputingFatigue(false));
   }, [computeFatigue, computingFatigue, continuousFatigue, hasHighRes, isContinuous, qc, session, sessionId]);
+
+  useEffect(() => {
+    if (!session || safeFiles.length === 0) return;
+    const needsReprocess = safeFiles.some(
+      (file: any) => file.original_filename?.toLowerCase().endsWith(".fit") && file.parse_summary?.parser_version !== 2,
+    );
+    if (!needsReprocess) return;
+    reprocessFiles({ data: { sessionId } }).then(() => invalidateSession(qc, sessionId, session.athlete_id));
+  }, [qc, reprocessFiles, safeFiles, session, sessionId]);
 
   if (!session) {
     return (

@@ -154,6 +154,7 @@ function fileSummary(parsed: ParsedActivity) {
     lap_intensity_present: parsed.lapIntensityPresent,
     interval_auto_detected: parsed.laps.length > 2,
     parse_summary: {
+      parser_version: 2,
       lap_count: parsed.laps.length,
       work_lap_count: workLapCount,
       recovery_lap_count: recoveryLapCount,
@@ -306,11 +307,15 @@ async function rebuildSessionFromFiles(sb: any, sessionId: string) {
     allPaces.push(...parsed.points.map((p) => p.pace_sec_per_km));
     const fileStart = file.started_at ? new Date(file.started_at).getTime() : null;
     const offset = sessionStarted != null && fileStart != null ? Math.max(0, (fileStart - sessionStarted) / 1000) : 0;
-    const fallbackSegment = (file as any).block_type === "warmup" || (file as any).block_type === "cooldown" ? ((file as any).block_type as SegmentType) : "work";
+    const fallbackSegment =
+      (file as any).block_type === "warmup" || (file as any).block_type === "cooldown"
+        ? ((file as any).block_type as SegmentType)
+        : "work";
+    const lapsForSegmentation = file.id === primary?.id ? parsed.laps : [];
     const rows = parsed.points.map((p) => ({
       session_id: sessionId,
       file_id: file.id,
-      segment_type: segmentForPoint(p, parsed.laps, fallbackSegment),
+      segment_type: segmentForPoint(p, lapsForSegmentation, fallbackSegment),
       elapsed_s: offset + Number(p.elapsed_s ?? 0),
       lat: p.lat,
       lng: p.lng,
@@ -771,6 +776,14 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
       primaryFileId: rebuild.primaryFileId,
       zoneTimeRebuilt: rebuild.zoneTimeRebuilt,
     };
+  });
+
+export const reprocessSessionFiles = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { sessionId: string }) => d)
+  .handler(async ({ data, context }) => {
+    const rebuild = await rebuildSessionFromFiles(context.supabase, data.sessionId);
+    return { ok: true, ...rebuild };
   });
 
 export const submitCheckout = createServerFn({ method: "POST" })
