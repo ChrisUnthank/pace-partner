@@ -72,7 +72,7 @@ function SessionAnalysis() {
   });
   const [xMode, setXMode] = useState<"time" | "distance">("time");
 
-  const { data: session } = useQuery({
+  const { data: session, error: sessionError, isLoading: sessionLoading } = useQuery({
     queryKey: ["session", sessionId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -80,6 +80,7 @@ function SessionAnalysis() {
       if (error) throw error;
       return data;
     },
+    retry: false,
   });
 
   const { data: steps } = useQuery({
@@ -134,23 +135,29 @@ function SessionAnalysis() {
 
   const computeFatigue = useServerFn(computeContinuousFatigue);
 
-  const hasRaw = (rawPoints ?? []).length > 10;
-  const hasResults = (results ?? []).length > 0;
+  const safeRawPoints = Array.isArray(rawPoints) ? rawPoints : [];
+  const safeSteps = Array.isArray(steps) ? steps : [];
+  const safeResults = Array.isArray(results) ? results : [];
+  const safeZoneTime = Array.isArray(zoneTime) ? zoneTime : [];
+  const safeFatigue = Array.isArray(fatigue) ? fatigue : [];
+
+  const hasRaw = safeRawPoints.length > 10;
+  const hasResults = safeResults.length > 0;
   const graphMode: "trace" | "rep" | "empty" = hasRaw ? "trace" : hasResults ? "rep" : "empty";
 
   const repBuild = useMemo(
-    () => buildSamples(steps ?? [], results ?? []),
-    [steps, results],
+    () => buildSamples(safeSteps, safeResults),
+    [safeSteps, safeResults],
   );
 
   const traceBuild = useMemo(
-    () => buildTraceFromRaw(rawPoints ?? [], steps ?? [], results ?? []),
-    [rawPoints, steps, results],
+    () => buildTraceFromRaw(safeRawPoints, safeSteps, safeResults),
+    [safeRawPoints, safeSteps, safeResults],
   );
 
   const repSeries = useMemo(
-    () => buildRepSeries(steps ?? [], results ?? []),
-    [steps, results],
+    () => buildRepSeries(safeSteps, safeResults),
+    [safeSteps, safeResults],
   );
 
   const samples: Sample[] = graphMode === "trace" ? traceBuild.samples : repBuild.samples;
@@ -180,10 +187,25 @@ function SessionAnalysis() {
     }));
   }, [graphMode, repSeries, samples, xKey]);
 
-  if (!session) return <AppShell><p>Loading…</p></AppShell>;
+  if (sessionLoading) return <AppShell><p>Loading…</p></AppShell>;
+  if (sessionError || !session) {
+    return (
+      <AppShell>
+        <div className="space-y-3 max-w-lg">
+          <h1 className="text-lg font-semibold">Session not found</h1>
+          <p className="text-sm text-muted-foreground">
+            This session may have been deleted, or you may not have access to it.
+          </p>
+          <Button asChild variant="outline" size="sm">
+            <Link to="/app/sessions">← Back to sessions</Link>
+          </Button>
+        </div>
+      </AppShell>
+    );
+  }
 
-  const continuousFatigue = (fatigue ?? []).find((f: any) => f.method === "continuous_drift");
-  const repFatigue = (fatigue ?? []).filter((f: any) => f.method !== "continuous_drift");
+  const continuousFatigue = safeFatigue.find((f: any) => f.method === "continuous_drift");
+  const repFatigue = safeFatigue.filter((f: any) => f.method !== "continuous_drift");
 
   return (
     <AppShell>
@@ -337,7 +359,7 @@ function SessionAnalysis() {
           </Card>
         )}
 
-        {gpsPoints.length >= 2 && <MapPanel points={gpsPoints} />}
+        {Array.isArray(gpsPoints) && gpsPoints.length >= 2 && <MapPanel points={gpsPoints} />}
 
         <Card>
           <CardHeader><CardTitle>Totals</CardTitle></CardHeader>
@@ -352,12 +374,12 @@ function SessionAnalysis() {
           </CardContent>
         </Card>
 
-        <WorkSegmentPanel steps={steps ?? []} results={results ?? []} />
+        <WorkSegmentPanel steps={safeSteps} results={safeResults} />
 
         {hasRaw && (
           <Card>
             <CardHeader>
-              <CardTitle>Raw trace ({(rawPoints ?? []).length} samples)</CardTitle>
+              <CardTitle>Raw trace ({safeRawPoints.length} samples)</CardTitle>
               <CardDescription>Loaded from uploaded device file. See chart and route above.</CardDescription>
             </CardHeader>
             <CardContent>
@@ -393,7 +415,7 @@ function SessionAnalysis() {
             <CardHeader><CardTitle>Per-step fatigue</CardTitle></CardHeader>
             <CardContent className="space-y-2 text-sm">
               {repFatigue.map((f: any) => {
-                const step = (steps ?? []).find((s: any) => s.id === f.step_id);
+                const step = safeSteps.find((s: any) => s.id === f.step_id);
                 return (
                   <div key={f.step_id} className="flex flex-wrap justify-between gap-2 border rounded px-3 py-2">
                     <span className="font-medium capitalize">{step?.kind ?? "step"}</span>
@@ -407,8 +429,8 @@ function SessionAnalysis() {
           </Card>
         )}
 
-        <ZonePanel rows={(zoneTime ?? []).filter((r: any) => r.source === "pace")} title="Pace zones" />
-        <ZonePanel rows={(zoneTime ?? []).filter((r: any) => r.source === "hr")} title="HR zones" />
+        <ZonePanel rows={safeZoneTime.filter((r: any) => r.source === "pace")} title="Pace zones" />
+        <ZonePanel rows={safeZoneTime.filter((r: any) => r.source === "hr")} title="HR zones" />
       </div>
     </AppShell>
   );

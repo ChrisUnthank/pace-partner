@@ -169,10 +169,8 @@ function SessionDetail() {
 
         toast.success("File uploaded and session updated");
 
-        // refresh UI
-        qc.invalidateQueries({ queryKey: ["session", sessionId] });
-        qc.invalidateQueries({ queryKey: ["steps", sessionId] });
-        qc.invalidateQueries({ queryKey: ["results", sessionId] });
+        // refresh UI (covers raw points, files, steps, results, totals, fatigue, zones)
+        invalidateSession(qc, sessionId, session?.athlete_id);
       } catch (err: any) {
         console.error("FIT upload error:", err);
         toast.error(err.message);

@@ -1,39 +1,29 @@
-## Implementation — Option (a) for imported FIT/GPX sessions
+## Plan
 
-Single file change: `src/lib/session-files.functions.ts` → `uploadAndParseSessionFile.handler`.
+1. **Normalize all analysis inputs before use**
+   - Convert `rawPoints`, `steps`, `results`, `zoneTime`, and `fatigue` into safe arrays with `Array.isArray(...) ? ... : []`.
+   - Replace every graph-related `.length`, `.map`, `.filter`, and helper call with these safe arrays so undefined/null data cannot crash the page.
 
-No SQL migration. All target columns already exist (`sessions.total_distance_m`, `total_time_seconds`, `avg_hr`, `max_hr`, `completion_pct`; `steps.*`; `interval_results.*`).
+2. **Make graph mode detection explicit and safe**
+   - `trace`: raw points array has enough samples.
+   - `rep`: no trace, but interval results array has at least one result.
+   - `empty`: neither data source is graphable.
+   - Ensure the chart only renders when its computed series has rows and at least one enabled/available metric.
 
-### Changes inside the handler
+3. **Harden chart rendering**
+   - Add a safe graph card component/guard around the Recharts block so it always returns either a valid graph or a clean empty state.
+   - Prevent `ReferenceArea` from using distance keys in rep mode incorrectly.
+   - Use rep X-axis ranges only in rep mode and time/distance ranges only in trace mode.
+   - Handle null metric values without formatting crashes in tooltips.
 
-1. **Reuse session when `data.sessionId` is supplied.**
-   - Replace the unconditional `insert` with: if `data.sessionId` → `select * from sessions where id = sessionId` and use that row; else keep current insert path. Throws if the supplied id is not found.
+4. **Keep the three user-facing modes clear**
+   - FIT/GPX: show high-resolution trace with HR, pace, cadence, elevation when available.
+   - Manual intervals: show rep-based graph using `hr_avg`/`hr_end`, `actual_pace_sec_per_km`, and cadence.
+   - Totals-only: show `No detailed trace available for this session` with a short context-specific explanation.
 
-2. **Write totals to the columns the UI actually reads.**
-   - In the post-points update, add `total_distance_m`, `total_time_seconds`, `avg_hr`, `max_hr`, `completion_pct: 100`.
-   - Keep all existing `work_*` writes (legacy panels).
-   - `avg_hr` = mean of point HRs; `max_hr` = max of point HRs.
+5. **Fix FIT/GPX upload refresh**
+   - Replace the manual three-query invalidation after upload with the shared `invalidateSession(...)` helper so `raw-points`, files, session, steps, results, fatigue, zones, and aggregate views refetch immediately.
 
-3. **Synthesise one `steps` + one `interval_results` row** (only when the session has no existing steps — protects planned sessions).
-   - `steps`: `step_order=1, kind='work', reps=1, set_count=1, target_kind = totalDistanceM>0 ? 'distance' : 'time', target_distance_m`, `target_time_seconds`, `counts_toward_distance=true`.
-   - `interval_results`: `set_number=1, rep_number=1, actual_time_seconds, actual_distance_m, actual_pace_sec_per_km, hr_avg, hr_max, cadence`.
-   - This lights up: detail rep grid, Work segment breakdown, Time-in-zone, Per-step fatigue, Completion %, Analytics "Volume by Session Component".
-   - The existing triggers `trg_recompute_totals_from_rep`, `trg_recompute_completion_from_rep`, `trg_recompute_zones_from_rep` then fire automatically — values they recompute will match what we just wrote.
-
-4. **`raw_session_points` left untouched** (per spec).
-
-### Out of scope this pass
-
-- 1W / custom `to` analytics range, VO/GCT manual inputs, Time Trial wiring through builder+importer, "Step Kind" → "Session Component" relabel. Tracked but not changed here.
-
-### Files touched
-
-- `src/lib/session-files.functions.ts` only.
-
-### Acceptance checks I will run after the edit
-
-1. Bulk-upload a FIT → new session row has non-null `total_*`, `avg_hr`, `max_hr`, `completion_pct=100`.
-2. Session detail page shows Duration, Distance, Avg HR populated, completion badge 100%.
-3. Analysis page Totals card + Work segment breakdown render with the imported values.
-4. Analytics → Volume by Session Component shows a "Work" entry for the imported session.
-5. Upload via daily-log with an explicit `sessionId` → no duplicate `sessions` row created; existing planned session is enriched.
+6. **Verify the result**
+   - Run a strict TypeScript check or targeted validation after edits.
+   - Use the analysis route to confirm it no longer crashes when graph data is absent and that the graph code has no unsafe data access.
