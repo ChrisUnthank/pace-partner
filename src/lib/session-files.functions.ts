@@ -8,9 +8,15 @@ function mapFitSport(sport?: string): string {
   if (s.includes("cycling") || s.includes("bike") || s.includes("ride")) return "ride";
   if (s.includes("swim")) return "swim";
   if (s.includes("training") || s.includes("gym") || s.includes("strength")) return "gym";
-  if ( steps  if (s.includes("track")) return "track";
-  if (cad < 120) return cad * 2;
+  if (s.includes("track")) return "track";
+  return "run";
+}
 
+function normalizeCadence(cad?: number): number | null {
+  if (!cad || cad <= 0) return null;
+  // filter obvious garbage
+  if (cad > 260) return null;
+  if (cad < 120) return cad * 2;
   return cad;
 }
 
@@ -260,7 +266,7 @@ function classifyLaps(laps: ParsedLap[]): ParsedLap[] {
 
   const tolerance = Math.max(15, dominantDistance * 0.25);
 
-  let classified = laps.map((lap) => {
+  let classified: ParsedLap[] = laps.map((lap): ParsedLap => {
     if (lap.intensity === "rest") {
       return { ...lap, kind: "recovery" as const };
     }
@@ -280,7 +286,7 @@ function classifyLaps(laps: ParsedLap[]): ParsedLap[] {
     const firstWork = workIdxs[0];
     const lastWork = workIdxs[workIdxs.length - 1];
 
-    classified = classified.map((lap, idx) => {
+    classified = classified.map((lap, idx): ParsedLap => {
       if (lap.kind === "work") return lap;
       if (idx < firstWork) return { ...lap, kind: "warmup" as const };
       if (idx > lastWork) return { ...lap, kind: "cooldown" as const };
@@ -379,7 +385,7 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
       .select("id")
       .eq("session_id", sess.id)
       .eq("original_filename", data.filename)
-      .eq("started_at", parsed.startedAt)
+      .eq("started_at", parsed.startedAt ?? "")
       .eq("total_distance_m", parsed.totalDistanceM)
       .maybeSingle();
 
@@ -440,7 +446,7 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
       }));
 
       for (let i = 0; i < rows.length; i += 500) {
-        await sb.from("raw_session_points").insert(rows.slice(i, i + 500));
+        await sb.from("raw_session_points").insert(rows.slice(i, i + 500) as any);
       }
 
       const { avgHr, maxHr, avgPace, avgCad } = summarizeImportedPoints(parsed.points);
@@ -667,13 +673,3 @@ export const sendReminder = createServerFn({ method: "POST" })
     if (error) throw error;
     return row;
   });
-  return "run";
-}
-
-function normalizeCadence(cad?: number): number | null {
-  if (!cad || cad <= 0) return null;
-
-  // filter obvious garbage
-  if (cad > 260) return null;
-
-
