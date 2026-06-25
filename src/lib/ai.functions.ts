@@ -232,6 +232,18 @@ export const computeContinuousFatigue = createServerFn({ method: "POST" })
     const sb = context.supabase;
     const { data: sess } = await sb.from("sessions").select("athlete_id, structure").eq("id", data.sessionId).single();
     if (!sess) return null;
+    if (sess.structure !== "continuous") {
+      await sb.from("session_fatigue").delete().eq("session_id", data.sessionId).eq("method", "continuous_drift");
+      return null;
+    }
+    const { data: step } = await sb
+      .from("steps")
+      .select("id")
+      .eq("session_id", data.sessionId)
+      .order("step_order")
+      .limit(1)
+      .maybeSingle();
+    if (!step?.id) return null;
     const { data: pts } = await sb.from("raw_session_points").select("elapsed_s, hr, pace_sec_per_km").eq("session_id", data.sessionId).order("elapsed_s");
     if (!pts || pts.length < 60) return null;
     const mid = pts[pts.length - 1].elapsed_s / 2;
@@ -250,7 +262,7 @@ export const computeContinuousFatigue = createServerFn({ method: "POST" })
     const score = Math.max(0, Math.min(100, Math.round(100 - hrDriftBpm - paceDriftPct * 3)));
     await sb.from("session_fatigue").delete().eq("session_id", data.sessionId).eq("method", "continuous_drift");
     const { data: row, error } = await sb.from("session_fatigue").insert({
-      session_id: data.sessionId, athlete_id: sess.athlete_id, method: "continuous_drift",
+      session_id: data.sessionId, step_id: step.id, athlete_id: sess.athlete_id, method: "continuous_drift",
       hr_drift_bpm: hrDriftBpm, pace_drift_pct: paceDriftPct, efficiency_score: score, rep_count: pts.length,
     } as any).select().maybeSingle();
     if (error) console.error(error);
