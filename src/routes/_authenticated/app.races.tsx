@@ -1,4 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";import { create useState } from "react";
+import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyAthlete, useMyRoles, useAuthUser } from "@/lib/use-auth";
