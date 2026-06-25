@@ -1516,53 +1516,80 @@ export type Database = {
         Row: {
           activity_type: string | null
           athlete_id: string
+          block_type: string
           created_at: string
           file_kind: string
           id: string
+          interval_auto_detected: boolean
+          is_primary_workout: boolean
+          lap_count: number
+          lap_intensity_present: boolean
           mapped_step_id: string | null
           original_filename: string | null
           parse_error: string | null
+          parse_summary: Json
           parsed_at: string | null
+          recovery_lap_count: number
           session_id: string | null
           started_at: string | null
           storage_path: string
           total_distance_m: number | null
           total_time_s: number | null
           updated_at: string
+          work_lap_count: number
+          zone_time_rebuilt_at: string | null
         }
         Insert: {
           activity_type?: string | null
           athlete_id: string
+          block_type?: string
           created_at?: string
           file_kind: string
           id?: string
+          interval_auto_detected?: boolean
+          is_primary_workout?: boolean
+          lap_count?: number
+          lap_intensity_present?: boolean
           mapped_step_id?: string | null
           original_filename?: string | null
           parse_error?: string | null
+          parse_summary?: Json
           parsed_at?: string | null
+          recovery_lap_count?: number
           session_id?: string | null
           started_at?: string | null
           storage_path: string
           total_distance_m?: number | null
           total_time_s?: number | null
           updated_at?: string
+          work_lap_count?: number
+          zone_time_rebuilt_at?: string | null
         }
         Update: {
           activity_type?: string | null
           athlete_id?: string
+          block_type?: string
           created_at?: string
           file_kind?: string
           id?: string
+          interval_auto_detected?: boolean
+          is_primary_workout?: boolean
+          lap_count?: number
+          lap_intensity_present?: boolean
           mapped_step_id?: string | null
           original_filename?: string | null
           parse_error?: string | null
+          parse_summary?: Json
           parsed_at?: string | null
+          recovery_lap_count?: number
           session_id?: string | null
           started_at?: string | null
           storage_path?: string
           total_distance_m?: number | null
           total_time_s?: number | null
           updated_at?: string
+          work_lap_count?: number
+          zone_time_rebuilt_at?: string | null
         }
         Relationships: [
           {
@@ -2352,7 +2379,7 @@ export type Database = {
         | "speed"
         | "time_trial"
       session_source: "manual" | "synced" | "fit_import"
-      session_structure: "continuous" | "reps_intervals"
+      session_structure: "continuous" | "reps_intervals" | "intervals"
       step_kind: "warmup" | "work" | "recovery" | "cooldown" | "strides"
       target_kind: "time" | "distance"
       zone_band: "z1" | "z2" | "z3" | "z4" | "z5"
@@ -2523,7 +2550,7 @@ export const Constants = {
         "time_trial",
       ],
       session_source: ["manual", "synced", "fit_import"],
-      session_structure: ["continuous", "reps_intervals"],
+      session_structure: ["continuous", "reps_intervals", "intervals"],
       step_kind: ["warmup", "work", "recovery", "cooldown", "strides"],
       target_kind: ["time", "distance"],
       zone_band: ["z1", "z2", "z3", "z4", "z5"],

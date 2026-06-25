@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -23,6 +23,8 @@ import { secToClock, metersFmt, paceFmt } from "@/lib/format";
 import { sessionClassificationLabel } from "@/lib/session-categories";
 import { useServerFn } from "@tanstack/react-start";
 import { computeContinuousFatigue } from "@/lib/ai.functions";
+import { reprocessSessionFiles } from "@/lib/session-files.functions";
+import { invalidateSession } from "@/lib/session-invalidation";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/analysis")({
   component: SessionAnalysis,
@@ -73,6 +75,7 @@ type MetricKey = (typeof METRICS)[number]["key"];
 
 function SessionAnalysis() {
   const { sessionId } = Route.useParams();
+  const qc = useQueryClient();
 
   const [enabled, setEnabled] = useState<Record<MetricKey, boolean>>({
     hr: true,
@@ -84,6 +87,8 @@ function SessionAnalysis() {
   });
 
   const [xMode, setXMode] = useState<"time" | "distance">("time");
+  const [graphScope, setGraphScope] = useState<"full" | "workout">("full");
+  const [computingFatigue, setComputingFatigue] = useState(false);
 
   const { data: session } = useQuery({
     queryKey: ["session", sessionId],
@@ -144,13 +149,27 @@ function SessionAnalysis() {
     },
   });
 
+  const { data: sessionFiles } = useQuery({
+    queryKey: ["session-files", sessionId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("session_files")
+        .select(
+          "id, original_filename, block_type, is_primary_workout, lap_count, work_lap_count, recovery_lap_count, lap_intensity_present, interval_auto_detected, zone_time_rebuilt_at, started_at, parse_summary",
+        )
+        .eq("session_id", sessionId)
+        .order("started_at");
+      return data ?? [];
+    },
+  });
+
   const { data: rawPoints } = useQuery({
     queryKey: ["raw-points", sessionId],
     queryFn: async () => {
       const { data } = await supabase
         .from("raw_session_points")
         .select(
-          "elapsed_s, hr, pace_sec_per_km, cadence, elevation_m, lat, lng, segment_type, vertical_oscillation_cm, ground_contact_time_ms",
+          "file_id, elapsed_s, hr, pace_sec_per_km, cadence, elevation_m, lat, lng, segment_type, vertical_oscillation_cm, ground_contact_time_ms",
         )
         .eq("session_id", sessionId)
         .order("elapsed_s")
@@ -166,12 +185,20 @@ function SessionAnalysis() {
   const safeZoneTime = Array.isArray(zoneTime) ? zoneTime : [];
   const safeFatigue = Array.isArray(fatigue) ? fatigue : [];
   const safeRawPoints = Array.isArray(rawPoints) ? rawPoints : [];
+  const safeFiles = Array.isArray(sessionFiles) ? sessionFiles : [];
 
   const computeFatigue = useServerFn(computeContinuousFatigue);
+  const reprocessFiles = useServerFn(reprocessSessionFiles);
+
+  const primaryFile = safeFiles.find((f: any) => f.is_primary_workout) ?? safeFiles.find((f: any) => f.block_type === "work");
+  const scopedRawPoints =
+    graphScope === "workout" && primaryFile
+      ? safeRawPoints.filter((p: any) => p.file_id === primaryFile.id)
+      : safeRawPoints;
 
   const { samples, bands, mode, hasMetric, gpsPoints } = useMemo(
-    () => buildSamples(safeSteps, safeResults, safeRawPoints),
-    [safeSteps, safeResults, safeRawPoints],
+    () => buildSamples(safeSteps, safeResults, scopedRawPoints),
+    [safeSteps, safeResults, scopedRawPoints],
   );
 
   const xCanUseDistance = Array.isArray(samples) && samples.length > 0 && samples.every((s) => s.d != null);
@@ -191,6 +218,36 @@ function SessionAnalysis() {
     }));
   }, [samples, xKey]);
 
+  const noResults = safeResults.length === 0;
+  const hasRaw = safeRawPoints.length > 0;
+  const hasHighRes = safeRawPoints.length > 10;
+  const hasRepData = safeResults.length > 0;
+  const isContinuous = session?.structure === "continuous";
+  const isIntervalSession = session?.structure === "intervals" || session?.structure === "reps_intervals";
+
+  const continuousFatigue = safeFatigue.find((f: any) => f.method === "continuous_drift");
+  const repFatigue = safeFatigue.filter((f: any) => f.method !== "continuous_drift");
+
+  const hasGraphData =
+    Array.isArray(samples) && samples.length > 0 && METRICS.some((m) => enabled[m.key] && hasMetric[m.key]);
+
+  useEffect(() => {
+    if (!session || !isContinuous || !hasHighRes || continuousFatigue || computingFatigue) return;
+    setComputingFatigue(true);
+    computeFatigue({ data: { sessionId } })
+      .then(() => qc.invalidateQueries({ queryKey: ["fatigue", sessionId] }))
+      .finally(() => setComputingFatigue(false));
+  }, [computeFatigue, computingFatigue, continuousFatigue, hasHighRes, isContinuous, qc, session, sessionId]);
+
+  useEffect(() => {
+    if (!session || safeFiles.length === 0) return;
+    const needsReprocess = safeFiles.some(
+      (file: any) => file.original_filename?.toLowerCase().endsWith(".fit") && file.parse_summary?.parser_version !== 2,
+    );
+    if (!needsReprocess) return;
+    reprocessFiles({ data: { sessionId } }).then(() => invalidateSession(qc, sessionId, session.athlete_id));
+  }, [qc, reprocessFiles, safeFiles, session, sessionId]);
+
   if (!session) {
     return (
       <AppShell>
@@ -198,17 +255,6 @@ function SessionAnalysis() {
       </AppShell>
     );
   }
-
-  const noResults = safeResults.length === 0;
-  const hasRaw = safeRawPoints.length > 0;
-  const hasHighRes = safeRawPoints.length > 10;
-  const hasRepData = safeResults.length > 0;
-
-  const continuousFatigue = safeFatigue.find((f: any) => f.method === "continuous_drift");
-  const repFatigue = safeFatigue.filter((f: any) => f.method !== "continuous_drift");
-
-  const hasGraphData =
-    Array.isArray(samples) && samples.length > 0 && METRICS.some((m) => enabled[m.key] && hasMetric[m.key]);
 
   return (
     <AppShell>
@@ -245,6 +291,27 @@ function SessionAnalysis() {
               </div>
 
               <div className="flex gap-1">
+                {safeFiles.length > 1 && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant={graphScope === "full" ? "default" : "outline"}
+                      onClick={() => setGraphScope("full")}
+                    >
+                      Full session
+                    </Button>
+
+                    <Button
+                      size="sm"
+                      variant={graphScope === "workout" ? "default" : "outline"}
+                      disabled={!primaryFile}
+                      onClick={() => setGraphScope("workout")}
+                    >
+                      Workout only
+                    </Button>
+                  </>
+                )}
+
                 <Button size="sm" variant={xKey === "t" ? "default" : "outline"} onClick={() => setXMode("time")}>
                   Time
                 </Button>
@@ -504,53 +571,41 @@ function SessionAnalysis() {
 
         <WorkSegmentPanel steps={safeSteps} results={safeResults} />
 
-        {hasRaw && (
+        {isContinuous && hasRaw && (
           <Card>
             <CardHeader>
-              <CardTitle>Raw trace ({safeRawPoints.length} samples)</CardTitle>
-              <CardDescription>Loaded from uploaded device file. See chart and route above.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => computeFatigue({ data: { sessionId } }).then(() => window.location.reload())}
-              >
-                Compute overall run fatigue
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-
-        {continuousFatigue && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Overall run fatigue</CardTitle>
+              <CardTitle>Run fatigue analysis</CardTitle>
               <CardDescription>Continuous drift method</CardDescription>
             </CardHeader>
             <CardContent className="text-sm space-y-1">
-              <div className="flex justify-between border rounded px-3 py-2">
-                <span className="font-medium">Efficiency score</span>
-                <span className="tabular-nums">{continuousFatigue.efficiency_score ?? "—"}/100</span>
-              </div>
+              {continuousFatigue ? (
+                <>
+                  <div className="flex justify-between border rounded px-3 py-2">
+                    <span className="font-medium">Efficiency score</span>
+                    <span className="tabular-nums">{continuousFatigue.efficiency_score ?? "—"}/100</span>
+                  </div>
 
-              <div className="flex justify-between border rounded px-3 py-2 text-muted-foreground">
-                <span>HR drift</span>
-                <span>
-                  {continuousFatigue.hr_drift_bpm != null
-                    ? `${Number(continuousFatigue.hr_drift_bpm).toFixed(1)} bpm`
-                    : "—"}
-                </span>
-              </div>
+                  <div className="flex justify-between border rounded px-3 py-2 text-muted-foreground">
+                    <span>HR drift</span>
+                    <span>
+                      {continuousFatigue.hr_drift_bpm != null
+                        ? `${Number(continuousFatigue.hr_drift_bpm).toFixed(1)} bpm`
+                        : "—"}
+                    </span>
+                  </div>
 
-              <div className="flex justify-between border rounded px-3 py-2 text-muted-foreground">
-                <span>Pace drift</span>
-                <span>
-                  {continuousFatigue.pace_drift_pct != null
-                    ? `${Number(continuousFatigue.pace_drift_pct).toFixed(1)}%`
-                    : "—"}
-                </span>
-              </div>
+                  <div className="flex justify-between border rounded px-3 py-2 text-muted-foreground">
+                    <span>Pace drift</span>
+                    <span>
+                      {continuousFatigue.pace_drift_pct != null
+                        ? `${Number(continuousFatigue.pace_drift_pct).toFixed(1)}%`
+                        : "—"}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <div className="text-muted-foreground">{computingFatigue ? "Computing fatigue…" : "Fatigue will appear when enough continuous trace data is available."}</div>
+              )}
             </CardContent>
           </Card>
         )}
@@ -580,8 +635,65 @@ function SessionAnalysis() {
 
         <ZonePanel rows={safeZoneTime.filter((r: any) => r.source === "pace")} title="Pace zones" />
         <ZonePanel rows={safeZoneTime.filter((r: any) => r.source === "hr")} title="HR zones" />
+        <FitDebugPanel
+          sessionId={sessionId}
+          session={session}
+          files={safeFiles}
+          fatigueSuppressed={isIntervalSession}
+        />
       </div>
     </AppShell>
+  );
+}
+
+function FitDebugPanel({ sessionId, session, files, fatigueSuppressed }: { sessionId: string; session: any; files: any[]; fatigueSuppressed: boolean }) {
+  if (!files.length) return null;
+  const primary = files.find((f) => f.is_primary_workout);
+  const autoDetected = files.some((f) => f.interval_auto_detected);
+  const zoneRebuilt = files.some((f) => f.zone_time_rebuilt_at);
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>FIT inspection summary</CardTitle>
+        <CardDescription>Parser and analysis source set</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <Stat label="Session ID" value={sessionId} />
+          <Stat label="Primary workout source" value={primary?.original_filename ?? "—"} />
+          <Stat label="Structure" value={session.structure ?? "—"} />
+          <Stat label="Interval auto-detected" value={autoDetected ? "yes" : "no"} />
+          <Stat label="Zone time rebuilt" value={zoneRebuilt ? "yes" : "no"} />
+          <Stat label="Fatigue suppressed" value={fatigueSuppressed ? "yes" : "no"} />
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="text-muted-foreground">
+              <tr className="border-b">
+                <th className="py-1 pr-2 text-left">File</th>
+                <th className="py-1 pr-2 text-left">Block</th>
+                <th className="py-1 pr-2 text-right">Laps</th>
+                <th className="py-1 pr-2 text-right">Work</th>
+                <th className="py-1 pr-2 text-right">Recovery</th>
+                <th className="py-1 text-right">Intensity</th>
+              </tr>
+            </thead>
+            <tbody>
+              {files.map((file) => (
+                <tr key={file.id} className="border-b last:border-b-0">
+                  <td className="py-1 pr-2">{file.original_filename}</td>
+                  <td className="py-1 pr-2 capitalize">{file.block_type ?? "unknown"}</td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{file.lap_count ?? 0}</td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{file.work_lap_count ?? 0}</td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{file.recovery_lap_count ?? 0}</td>
+                  <td className="py-1 text-right">{file.lap_intensity_present ? "yes" : "no"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

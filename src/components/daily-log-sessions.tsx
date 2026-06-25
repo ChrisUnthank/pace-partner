@@ -60,6 +60,11 @@ export function DailyLogSessions({ athleteId }: { athleteId: string }) {
 
   async function ensureSession(b: Block, title: string): Promise<string> {
     if (b.sessionId) return b.sessionId;
+    const existingSession = existing.find((s: any) => s.completed_at && (s.activity_type === b.activity || b.activity === "run" || b.activity === "track"));
+    if (existingSession?.id) {
+      updateBlock(b.uid, { sessionId: existingSession.id });
+      return existingSession.id;
+    }
     const isTraining = b.activity === "run" || b.activity === "track";
     const insert: any = {
       athlete_id: athleteId,
