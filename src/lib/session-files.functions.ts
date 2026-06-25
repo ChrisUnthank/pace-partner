@@ -857,6 +857,7 @@ export const deleteSessionFileBlock = createServerFn({ method: "POST" })
     }
 
     const sessionId = fileRow.session_id;
+    if (!sessionId) throw new Error("File is not linked to a session");
 
     await sb.from("raw_session_points").delete().eq("file_id", fileRow.id);
 
