@@ -110,9 +110,11 @@ function RaceList({ athleteId }: { athleteId: string }) {
 
   async function add() {
     const sec = clockToSec(time);
-    if (!sec) {
-      toast.error("Time required (mm:ss or h:mm:ss)");
-      return;
+    if (sec === null || sec === undefined || isNaN(sec)) {
+    toast.error("Time required (mm:ss or h:mm:ss)");
+    return;
+}
+
     }
     const { error } = await supabase.from("performances").insert({
       athlete_id: athleteId,
