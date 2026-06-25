@@ -266,7 +266,7 @@ function classifyLaps(laps: ParsedLap[]): ParsedLap[] {
 
   const tolerance = Math.max(15, dominantDistance * 0.25);
 
-  let classified = laps.map((lap) => {
+  let classified: ParsedLap[] = laps.map((lap): ParsedLap => {
     if (lap.intensity === "rest") {
       return { ...lap, kind: "recovery" as const };
     }
