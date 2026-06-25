@@ -33,8 +33,9 @@ import { Switch } from "@/components/ui/switch";
 import { UserAvatar } from "@/components/user-avatar";
 import { ActivityIcon } from "@/lib/activity-icon";
 import { invalidateSession } from "@/lib/session-invalidation";
+import { deleteSession } from "@/lib/session-files.functions";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { deleteSession, uploadAndParseSessionFile } from "@/lib/session-files.functions";
+import { deleteSession } from "@/lib/session-files.functions";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/")({
   component: SessionDetail,
@@ -43,10 +44,11 @@ export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/")
 function SessionDetail() {
   const { sessionId } = Route.useParams();
   const qc = useQueryClient();
+  const removeSession = useServerFn(deleteSession);
   const { user } = useAuthUser();
   const { data: roles = [] } = useMyRoles();
   const isCoach = roles.includes("coach");
-  const [saveTplOpen, setSaveTplOpen] = useState(false);
+  const [saveTplOpen, setSaveTplOpen] = useState(falFse);
   const [tplName, setTplName] = useState("");
   const [insightOpen, setInsightOpen] = useState(false);
 
@@ -153,7 +155,6 @@ function SessionDetail() {
       const base64 = String(reader.result || "").split(",")[1];
 
       try {
-        if (!session) throw new Error("Session not loaded");
         const res: any = await uploadFile({
           data: {
             athleteId: session.athlete_id,
@@ -268,6 +269,20 @@ function SessionDetail() {
                 </Link>
               </Button>
             )}
+
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => {
+                if (!confirm("Delete this session? This cannot be undone.")) return;
+
+                removeSession({ data: { sessionId } }).then(() => {
+                  window.location.href = "/app/sessions";
+                });
+              }}
+            >
+              Delete
+            </Button>
           </div>
         </div>
         {session.notes && (
