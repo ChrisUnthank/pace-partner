@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-("@tanstack/react-query");
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
