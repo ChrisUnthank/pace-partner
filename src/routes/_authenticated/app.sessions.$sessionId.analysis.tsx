@@ -1,22 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
+import { useEffect, CardDescription } from "@/components/ui/card";
 import { useEffect, useMemo, useRef, useState } from "react";
-import maplibregl from "maplibre-gl";
-import "maplibre-gl/dist/maplibre-gl.css";
-import {
-  ComposedChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  ReferenceArea,
-  CartesianGrid,
-  Legend,
-} from "recharts";
-import { supabase } from "@/integrations/supabase/client";
-import { AppShell } from "@/components/app-shell";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { secToClock, metersFmt, paceFmt } from "@/lib/format";
 import { sessionClassificationLabel } from "@/lib/session-categories";
@@ -31,17 +16,22 @@ type Sample = {
   t: number;
   d?: number;
   hr?: number;
+  hrEnd?: number;
+  hrRec?: number;
+  hrDrop?: number;
   pace?: number;
   cadence?: number;
   elev?: number;
-  vo?: number; // vertical oscillation cm
-  gct?: number; // ground contact time ms
+  vo?: number;
+  gct?: number;
   lat?: number;
   lng?: number;
   stepId: string;
   stepKind: string;
   repNumber: number;
 };
+
+type ScopeKey = "full" | "warmup" | "work" | "recovery" | "cooldown" | "strides";
 
 const STEP_COLORS: Record<string, string> = {
   warmup: "rgba(125, 211, 252, 0.18)",
@@ -68,6 +58,17 @@ const METRICS = [
   { key: "gct", label: "Gnd Contact", color: "#a855f7", unit: "ms", axis: "rightInner" as const },
 ] as const;
 
+const SCOPE_OPTIONS: ScopeKey[] = ["full", "warmup", "work", "recovery", "cooldown", "strides"];
+
+const SCOPE_LABELS: Record<ScopeKey, string> = {
+  full: "Full session",
+  warmup: "Warmup",
+  work: "Work",
+  recovery: "Recovery",
+  cooldown: "Cooldown",
+  strides: "Strides",
+};
+
 type MetricKey = (typeof METRICS)[number]["key"];
 
 function SessionAnalysis() {
@@ -83,12 +84,12 @@ function SessionAnalysis() {
   });
 
   const [xMode, setXMode] = useState<"time" | "distance">("time");
+  const [scope, setScope] = useState<ScopeKey>("full");
 
   const { data: session } = useQuery({
     queryKey: ["session", sessionId],
     queryFn: async () => {
       const { data, error } = await supabase.from("sessions").select("*, athletes(name)").eq("id", sessionId).single();
-
       if (error) throw error;
       return data;
     },
@@ -98,7 +99,6 @@ function SessionAnalysis() {
     queryKey: ["steps", sessionId],
     queryFn: async () => {
       const { data, error } = await supabase.from("steps").select("*").eq("session_id", sessionId).order("step_order");
-
       if (error) throw error;
       return data ?? [];
     },
@@ -116,7 +116,6 @@ function SessionAnalysis() {
         .in("step_id", stepIds)
         .order("set_number")
         .order("rep_number");
-
       if (error) throw error;
       return data ?? [];
     },
@@ -129,7 +128,6 @@ function SessionAnalysis() {
         .from("session_zone_time")
         .select("zone, seconds, source")
         .eq("session_id", sessionId);
-
       return data ?? [];
     },
   });
@@ -138,7 +136,6 @@ function SessionAnalysis() {
     queryKey: ["fatigue", sessionId],
     queryFn: async () => {
       const { data } = await supabase.from("session_fatigue").select("*").eq("session_id", sessionId);
-
       return data ?? [];
     },
   });
@@ -154,12 +151,10 @@ function SessionAnalysis() {
         .eq("session_id", sessionId)
         .order("elapsed_s")
         .limit(5000);
-
       return data ?? [];
     },
   });
 
-  // Safe arrays
   const safeSteps = Array.isArray(steps) ? steps : [];
   const safeResults = Array.isArray(results) ? results : [];
   const safeZoneTime = Array.isArray(zoneTime) ? zoneTime : [];
@@ -173,22 +168,41 @@ function SessionAnalysis() {
     [safeSteps, safeResults, safeRawPoints],
   );
 
-  const xCanUseDistance = Array.isArray(samples) && samples.length > 0 && samples.every((s) => s.d != null);
+  const availableScopes = useMemo(() => {
+    const kinds = new Set(samples.map((s) => s.stepKind).filter(Boolean));
+    return SCOPE_OPTIONS.filter((k) => k === "full" || kinds.has(k));
+  }, [samples]);
+
+  const visibleSamples = useMemo(() => {
+    if (scope === "full") return samples;
+    return samples.filter((s) => s.stepKind === scope);
+  }, [samples, scope]);
+
+  const visibleBands = useMemo(() => {
+    if (scope === "full") return bands;
+    return bands.filter((b) => b.kind === scope);
+  }, [bands, scope]);
+
+  const xCanUseDistance =
+    Array.isArray(visibleSamples) && visibleSamples.length > 0 && visibleSamples.every((s) => s.d != null);
 
   const xKey: keyof Sample = xMode === "distance" && xCanUseDistance ? "d" : "t";
 
   const seriesData = useMemo(() => {
-    return (samples ?? []).map((s) => ({
+    return (visibleSamples ?? []).map((s) => ({
       x: (s[xKey] as number) ?? 0,
       stepKind: s.stepKind,
       hr: s.hr ?? null,
+      hrEnd: s.hrEnd ?? null,
+      hrRec: s.hrRec ?? null,
+      hrDrop: s.hrDrop ?? null,
       pace: s.pace ?? null,
       cadence: s.cadence ?? null,
       elev: s.elev ?? null,
       vo: s.vo ?? null,
       gct: s.gct ?? null,
     }));
-  }, [samples, xKey]);
+  }, [visibleSamples, xKey]);
 
   const hasRaw = safeRawPoints.length > 0;
   const hasRepData = safeResults.length > 0;
@@ -204,12 +218,25 @@ function SessionAnalysis() {
     if (session.structure !== "continuous") return;
     if (!hasRaw) return;
     if (continuousFatigue) return;
-
     computeFatigue({ data: { sessionId } }).catch(() => {});
   }, [session, hasRaw, continuousFatigue, computeFatigue, sessionId]);
 
   const hasGraphData =
-    Array.isArray(samples) && samples.length > 0 && METRICS.some((m) => enabled[m.key] && hasMetric[m.key]);
+    Array.isArray(visibleSamples) &&
+    visibleSamples.length > 0 &&
+    METRICS.some((m) => enabled[m.key] && hasMetric[m.key]);
+
+  const recoveryRows = useMemo(() => {
+    return safeResults
+      .filter((r: any) => r.hr_end != null && r.hr_end_recovery != null)
+      .map((r: any, idx: number) => ({
+        x: idx + 1,
+        label: `${(r.set_number ?? 1) > 1 ? `S${r.set_number} ` : ""}R${r.rep_number}`,
+        hrEnd: Number(r.hr_end),
+        hrRec: Number(r.hr_end_recovery),
+        hrDrop: Number(r.hr_end) - Number(r.hr_end_recovery),
+      }));
+  }, [safeResults]);
 
   if (!session) {
     return (
@@ -267,6 +294,14 @@ function SessionAnalysis() {
                   Distance
                 </Button>
               </div>
+            </div>
+
+            <div className="flex flex-wrap gap-1 mt-2">
+              {availableScopes.map((k) => (
+                <Button key={k} size="sm" variant={scope === k ? "default" : "outline"} onClick={() => setScope(k)}>
+                  {SCOPE_LABELS[k]}
+                </Button>
+              ))}
             </div>
 
             <div className="flex flex-wrap gap-1 mt-2">
@@ -376,7 +411,7 @@ function SessionAnalysis() {
                     <Legend />
 
                     {mode === "trace" &&
-                      bands.map((b, i) => (
+                      visibleBands.map((b, i) => (
                         <ReferenceArea
                           key={i}
                           x1={b[xKey === "t" ? "t1" : "d1"]}
@@ -497,6 +532,8 @@ function SessionAnalysis() {
           </CardContent>
         </Card>
 
+        {recoveryRows.length >= 2 && <RecoveryPanel rows={recoveryRows} />}
+
         {gpsPoints.length >= 2 && <MapPanel points={gpsPoints} />}
 
         <Card>
@@ -606,6 +643,83 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
+function RecoveryPanel({
+  rows,
+}: {
+  rows: { x: number; label: string; hrEnd: number; hrRec: number; hrDrop: number }[];
+}) {
+  const best = Math.max(...rows.map((r) => r.hrDrop));
+  const worst = Math.min(...rows.map((r) => r.hrDrop));
+  const avg = Math.round(rows.reduce((a, r) => a + r.hrDrop, 0) / rows.length);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Recovery between reps</CardTitle>
+        <CardDescription>HR end, HR recovery, and HR drop per rep.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-3 gap-3 text-sm">
+          <Stat label="Best drop" value={`${best} bpm`} />
+          <Stat label="Worst drop" value={`${worst} bpm`} />
+          <Stat label="Avg drop" value={`${avg} bpm`} />
+        </div>
+
+        <div className="h-[260px] w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={rows} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+              <XAxis dataKey="x" type="number" domain={["dataMin", "dataMax"]} />
+              <YAxis yAxisId="hr" orientation="left" tick={{ fontSize: 11 }} width={36} />
+              <YAxis yAxisId="drop" orientation="right" tick={{ fontSize: 11 }} width={42} />
+              <Tooltip
+                formatter={(v: any, n: any) => {
+                  if (n === "hrEnd") return [`${Math.round(Number(v))} bpm`, "HR end"];
+                  if (n === "hrRec") return [`${Math.round(Number(v))} bpm`, "HR rec"];
+                  if (n === "hrDrop") return [`${Math.round(Number(v))} bpm`, "HR drop"];
+                  return [v, n];
+                }}
+                labelFormatter={(v) => `Rep ${v}`}
+              />
+              <Legend />
+              <Line
+                yAxisId="hr"
+                dataKey="hrEnd"
+                stroke="#ef4444"
+                dot={false}
+                type="monotone"
+                strokeWidth={2}
+                isAnimationActive={false}
+                name="HR end"
+              />
+              <Line
+                yAxisId="hr"
+                dataKey="hrRec"
+                stroke="#64748b"
+                dot={false}
+                type="monotone"
+                strokeWidth={2}
+                isAnimationActive={false}
+                name="HR rec"
+              />
+              <Line
+                yAxisId="drop"
+                dataKey="hrDrop"
+                stroke="#10b981"
+                dot={false}
+                type="monotone"
+                strokeWidth={2}
+                isAnimationActive={false}
+                name="HR drop"
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function WorkSegmentPanel({ steps, results }: { steps: any[]; results: any[] }) {
   const workStepIds = new Set(steps.filter((s) => s.kind === "work").map((s) => s.id));
 
@@ -660,6 +774,9 @@ function WorkSegmentPanel({ steps, results }: { steps: any[]; results: any[] }) 
                   <th className="text-right py-1 pr-2">Dist</th>
                   <th className="text-right py-1 pr-2">Pace</th>
                   <th className="text-right py-1 pr-2">HR avg</th>
+                  <th className="text-right py-1 pr-2">HR end</th>
+                  <th className="text-right py-1 pr-2">HR rec</th>
+                  <th className="text-right py-1 pr-2">Drop</th>
                   <th className="text-right py-1 pr-2">Cad</th>
                   <th className="text-right py-1">La</th>
                 </tr>
@@ -672,6 +789,9 @@ function WorkSegmentPanel({ steps, results }: { steps: any[]; results: any[] }) 
                     (r.actual_time_seconds && r.actual_distance_m
                       ? (r.actual_time_seconds / r.actual_distance_m) * 1000
                       : null);
+
+                  const drop =
+                    r.hr_end != null && r.hr_end_recovery != null ? Number(r.hr_end) - Number(r.hr_end_recovery) : null;
 
                   return (
                     <tr key={r.id} className="border-b last:border-b-0">
@@ -686,6 +806,9 @@ function WorkSegmentPanel({ steps, results }: { steps: any[]; results: any[] }) 
                       </td>
                       <td className="py-1 pr-2 text-right tabular-nums">{p ? paceFmt(p) : "—"}</td>
                       <td className="py-1 pr-2 text-right tabular-nums">{r.hr_avg ?? "—"}</td>
+                      <td className="py-1 pr-2 text-right tabular-nums">{r.hr_end ?? "—"}</td>
+                      <td className="py-1 pr-2 text-right tabular-nums">{r.hr_end_recovery ?? "—"}</td>
+                      <td className="py-1 pr-2 text-right tabular-nums">{drop ?? "—"}</td>
                       <td className="py-1 pr-2 text-right tabular-nums">{r.cadence ?? "—"}</td>
                       <td className="py-1 text-right tabular-nums">
                         {r.lactate_taken && r.lactate_mmol != null ? Number(r.lactate_mmol).toFixed(1) : "—"}
@@ -843,7 +966,6 @@ function buildSamples(
     gct: false,
   };
 
-  // High-resolution FIT/GPX trace mode
   if (Array.isArray(rawPoints) && rawPoints.length > 10) {
     const samples: Sample[] = rawPoints.map((p: any, idx: number) => {
       const rawPace = p.pace_sec_per_km != null ? Number(p.pace_sec_per_km) : undefined;
@@ -857,7 +979,7 @@ function buildSamples(
         elev: p.elevation_m != null ? Number(p.elevation_m) : undefined,
         vo:
           p.vertical_oscillation_cm != null && Number(p.vertical_oscillation_cm) > 0
-            ? Number(p.vertical_oscillation_cm) / 10
+            ? Number(p.vertical_oscillation_cm)
             : undefined,
         gct:
           p.ground_contact_time_ms != null && Number(p.ground_contact_time_ms) > 0
@@ -925,7 +1047,6 @@ function buildSamples(
     };
   }
 
-  // Rep-summary mode for manual interval sessions
   if (Array.isArray(results) && results.length > 0) {
     const stepOrder = new Map<string, number>();
     steps.forEach((s) => stepOrder.set(s.id, s.step_order ?? 0));
@@ -950,6 +1071,10 @@ function buildSamples(
         t: idx + 1,
         d: dist != null ? cumulativeDistance : undefined,
         hr: r.hr_avg ?? r.hr_end ?? undefined,
+        hrEnd: r.hr_end ?? undefined,
+        hrRec: r.hr_end_recovery ?? undefined,
+        hrDrop:
+          r.hr_end != null && r.hr_end_recovery != null ? Number(r.hr_end) - Number(r.hr_end_recovery) : undefined,
         pace: r.actual_pace_sec_per_km ?? undefined,
         cadence: r.cadence ?? undefined,
         elev: undefined,
@@ -984,3 +1109,18 @@ function buildSamples(
     gpsPoints: [],
   };
 }
+import maplibregl from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
+import {
+  ComposedChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  ReferenceArea,
+  CartesianGrid,
+  Legend,
+} from "recharts";
+import { supabase } from "@/integrations/supabase/client";
+import { AppShell } from "@/components/app-shell";
