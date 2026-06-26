@@ -748,13 +748,6 @@ function RecoveryPanel({
 }
 
 function WorkSegmentPanel({ steps, results }: { steps: any[]; results: any[] }) {
-  void steps;
-  void results;
-  // (existing implementation continues below)
-  return _WorkSegmentPanelImpl({ steps, results });
-}
-
-function _WorkSegmentPanelImpl({ steps, results }: { steps: any[]; results: any[] }) {
   const workStepIds = new Set(steps.filter((s) => s.kind === "work").map((s) => s.id));
 
   const workResults = results.filter(
