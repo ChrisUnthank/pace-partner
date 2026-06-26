@@ -538,6 +538,401 @@ function summarizeImportedPoints(points: ParsedPoint[]) {
   return { avgHr, maxHr, avgPace, avgCad };
 }
 
+async function parseStoredFile(
+  sb: any,
+  file: { storage_path: string; file_kind: string },
+): Promise<ParsedFile | null> {
+  const { data: blob, error } = await sb.storage.from("session-files").download(file.storage_path);
+  if (error || !blob) return null;
+  const buf = await blob.arrayBuffer();
+  try {
+    if (file.file_kind === "gpx") {
+      return parseGPX(new TextDecoder().decode(new Uint8Array(buf)));
+    }
+    return await parseFIT(buf);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Single source of truth for FIT/GPX-derived session shape.
+ *
+ * Re-parses every session_file for the session, merges them chronologically,
+ * and rewrites raw_session_points, steps (when no manual plan), and
+ * interval_results from the merged data. Upload order does not affect the
+ * final structure — only timestamps do.
+ */
+async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<void> {
+  const { data: sess, error: sessErr } = await sb
+    .from("sessions")
+    .select("*")
+    .eq("id", sessionId)
+    .single();
+  if (sessErr || !sess) throw sessErr ?? new Error("Session not found for rebuild");
+
+  const { data: files } = await sb
+    .from("session_files")
+    .select("id, storage_path, file_kind, started_at, total_distance_m, total_time_s")
+    .eq("session_id", sessionId);
+
+  const safeFiles = files ?? [];
+
+  // Always wipe derived rows first so a successful no-op leaves a clean state.
+  await sb.from("session_zone_time").delete().eq("session_id", sessionId);
+  await sb.from("session_fatigue").delete().eq("session_id", sessionId);
+  await sb.from("raw_session_points").delete().eq("session_id", sessionId);
+
+  const { data: existingSteps } = await sb
+    .from("steps")
+    .select("id")
+    .eq("session_id", sessionId);
+  const existingStepIds = (existingSteps ?? []).map((s: any) => s.id);
+
+  const { data: plannedStepsAll } = await sb
+    .from("steps")
+    .select("*")
+    .eq("session_id", sessionId)
+    .order("step_order");
+  const safePlannedSteps = plannedStepsAll ?? [];
+  const hasManualPlan = Boolean(sess.is_planned) && safePlannedSteps.length > 0;
+
+  if (existingStepIds.length > 0) {
+    await sb.from("interval_results").delete().in("step_id", existingStepIds);
+  }
+  if (!hasManualPlan && existingStepIds.length > 0) {
+    await sb.from("steps").delete().eq("session_id", sessionId);
+  }
+
+  if (safeFiles.length === 0) {
+    // No attached files left: reset totals.
+    await sb
+      .from("sessions")
+      .update({
+        total_distance_m: null,
+        total_time_seconds: null,
+        work_distance_m: null,
+        work_time_s: null,
+        avg_hr: null,
+        max_hr: null,
+        work_avg_hr: null,
+        work_avg_pace_sec_per_km: null,
+        work_avg_cadence: null,
+        completion_pct: null,
+        structure: hasManualPlan ? sess.structure : "continuous",
+        needs_review: true,
+      } as any)
+      .eq("id", sessionId);
+    return;
+  }
+
+  // Parse every attached file.
+  const parsedFiles: { file: any; parsed: ParsedFile }[] = [];
+  for (const f of safeFiles) {
+    const parsed = await parseStoredFile(sb, f);
+    if (parsed) parsedFiles.push({ file: f, parsed });
+  }
+
+  if (parsedFiles.length === 0) {
+    throw new Error("Rebuild failed: no attached file could be parsed");
+  }
+
+  // Anchor = earliest startedAt across files (fallback 0 if none have timestamps).
+  const startMsList = parsedFiles
+    .map((p) => (p.parsed.startedAt ? new Date(p.parsed.startedAt).getTime() : null))
+    .filter((x): x is number => x !== null);
+  const anchorMs = startMsList.length > 0 ? Math.min(...startMsList) : 0;
+
+  // Merge points with global elapsed offset.
+  const mergedPoints: (ParsedPoint & { file_id: string })[] = [];
+  for (const { file, parsed } of parsedFiles) {
+    const fileStart = parsed.startedAt ? new Date(parsed.startedAt).getTime() : anchorMs;
+    const offsetS = anchorMs > 0 ? (fileStart - anchorMs) / 1000 : 0;
+    for (const p of parsed.points) {
+      mergedPoints.push({ ...p, elapsed_s: Number(p.elapsed_s ?? 0) + offsetS, file_id: file.id });
+    }
+  }
+  mergedPoints.sort((a, b) => a.elapsed_s - b.elapsed_s);
+
+  // Merge laps with absolute startMs/endMs, then re-index.
+  const mergedLaps: ParsedLap[] = [];
+  for (const { parsed } of parsedFiles) {
+    for (const lap of parsed.laps) mergedLaps.push({ ...lap });
+  }
+  mergedLaps.sort((a, b) => (a.startMs ?? 0) - (b.startMs ?? 0));
+  mergedLaps.forEach((l, i) => (l.index = i));
+
+  const classifiedLaps = classifyLaps(mergedLaps, hasManualPlan ? safePlannedSteps : []);
+  const pairs = buildWorkRecoveryPairs(classifiedLaps);
+  const workLaps = classifiedLaps.filter((l) => l.kind === "work");
+  const warmupLaps = classifiedLaps.filter((l) => l.kind === "warmup");
+  const cooldownLaps = classifiedLaps.filter((l) => l.kind === "cooldown");
+  const isIntervals = pairs.length > 1;
+
+  const totalDistanceM = parsedFiles.reduce((s, p) => s + Number(p.parsed.totalDistanceM ?? 0), 0);
+  const totalTimeS = parsedFiles.reduce((s, p) => s + Number(p.parsed.totalTimeS ?? 0), 0);
+  const { avgHr, maxHr, avgPace, avgCad } = summarizeImportedPoints(mergedPoints);
+
+  // Re-insert merged raw_session_points.
+  if (mergedPoints.length > 0) {
+    const rows = mergedPoints.map((p) => ({
+      session_id: sessionId,
+      file_id: p.file_id,
+      segment_type: findLapKindForPoint(p.timestamp ?? null, classifiedLaps),
+      elapsed_s: p.elapsed_s,
+      distance_m: p.distance_m ?? null,
+      lat: p.lat ?? null,
+      lng: p.lng ?? null,
+      hr: p.hr ?? null,
+      pace_sec_per_km: p.pace_sec_per_km ?? null,
+      cadence: p.cadence ?? null,
+      elevation_m: p.elevation_m ?? null,
+      vertical_oscillation_cm: p.vertical_oscillation_cm ?? null,
+      ground_contact_time_ms: p.ground_contact_time_ms ?? null,
+    }));
+    for (let i = 0; i < rows.length; i += 500) {
+      const { error } = await sb.from("raw_session_points").insert(rows.slice(i, i + 500) as any);
+      if (error) throw error;
+    }
+  }
+
+  // Build steps + interval results.
+  if (hasManualPlan) {
+    const workBlocks = splitWorkPairsIntoBlocks(pairs, safePlannedSteps);
+    const intervalRows = buildIntervalRowsFromPlan(workBlocks, safePlannedSteps);
+    if (intervalRows.length > 0) {
+      const { error } = await sb.from("interval_results").insert(intervalRows as any);
+      if (error) throw error;
+    }
+  } else {
+    const stepsToInsert: any[] = [];
+    let stepOrder = 1;
+
+    const warmupDistance = warmupLaps.reduce((s, l) => s + Number(l.total_distance ?? 0), 0);
+    const warmupTime = warmupLaps.reduce((s, l) => s + Number(l.total_elapsed_time ?? 0), 0);
+    const cooldownDistance = cooldownLaps.reduce((s, l) => s + Number(l.total_distance ?? 0), 0);
+    const cooldownTime = cooldownLaps.reduce((s, l) => s + Number(l.total_elapsed_time ?? 0), 0);
+
+    if (warmupTime > 0 || warmupDistance > 0) {
+      stepsToInsert.push({
+        session_id: sessionId,
+        step_order: stepOrder++,
+        kind: "warmup",
+        reps: 1,
+        set_count: 1,
+        target_kind: warmupDistance > 0 ? "distance" : "time",
+        target_distance_m: warmupDistance > 0 ? warmupDistance : null,
+        target_time_seconds: warmupTime > 0 ? warmupTime : null,
+        counts_toward_distance: true,
+      });
+    }
+
+    const recoveryDurations = pairs
+      .map((p) => Number(p.recovery?.total_elapsed_time ?? 0))
+      .filter((x) => x > 0);
+    const avgRecovery =
+      recoveryDurations.length > 0
+        ? Math.round(recoveryDurations.reduce((a, b) => a + b, 0) / recoveryDurations.length)
+        : null;
+    const recoveryMode = inferRecoveryMode(pairs[0]?.recovery ?? null);
+
+    // Detect between-set recoveries to emit separate recovery steps.
+    const sortedRec = [...recoveryDurations].sort((a, b) => a - b);
+    const medianRec = sortedRec.length > 0 ? sortedRec[Math.floor(sortedRec.length / 2)] : 0;
+    const betweenSetThreshold = medianRec > 0 ? medianRec * 1.75 : Infinity;
+    const workBlocks: WorkRecoveryPair[][] = [];
+    let currentBlock: WorkRecoveryPair[] = [];
+    for (const pair of pairs) {
+      currentBlock.push(pair);
+      const recDur = Number(pair.recovery?.total_elapsed_time ?? 0);
+      if (recDur >= betweenSetThreshold) {
+        workBlocks.push(currentBlock);
+        currentBlock = [];
+      }
+    }
+    if (currentBlock.length > 0) workBlocks.push(currentBlock);
+
+    const haveBetweenSet = workBlocks.length > 1;
+
+    const pushWorkStep = (blockPairs: WorkRecoveryPair[]) => {
+      const blockWorkLaps = blockPairs.map((p) => p.work);
+      const blockDist = blockWorkLaps.reduce((s, l) => s + Number(l.total_distance ?? 0), 0);
+      stepsToInsert.push({
+        session_id: sessionId,
+        step_order: stepOrder++,
+        kind: "work",
+        reps: blockPairs.length,
+        set_count: 1,
+        target_kind: blockDist > 0 ? "distance" : "time",
+        target_distance_m:
+          blockDist > 0 ? Math.round(blockDist / Math.max(1, blockPairs.length)) : null,
+        target_time_seconds:
+          blockDist > 0
+            ? null
+            : Math.round(
+                blockWorkLaps.reduce((s, l) => s + Number(l.total_elapsed_time ?? 0), 0) /
+                  Math.max(1, blockPairs.length),
+              ),
+        counts_toward_distance: true,
+        recovery_between_reps_seconds: avgRecovery,
+        recovery_between_reps_target_kind: "time",
+        recovery_between_reps_mode: recoveryMode,
+      });
+    };
+
+    if (pairs.length > 0) {
+      if (haveBetweenSet) {
+        for (let bi = 0; bi < workBlocks.length; bi++) {
+          pushWorkStep(workBlocks[bi]);
+          if (bi < workBlocks.length - 1) {
+            // last pair of this block holds the between-set recovery
+            const blk = workBlocks[bi];
+            const recLap = blk[blk.length - 1]?.recovery;
+            const recDur = Number(recLap?.total_elapsed_time ?? 0);
+            const recDist = Number(recLap?.total_distance ?? 0);
+            stepsToInsert.push({
+              session_id: sessionId,
+              step_order: stepOrder++,
+              kind: "recovery",
+              reps: 1,
+              set_count: 1,
+              target_kind: recDist > 0 ? "distance" : "time",
+              target_distance_m: recDist > 0 ? recDist : null,
+              target_time_seconds: recDur > 0 ? recDur : null,
+              counts_toward_distance: false,
+            });
+          }
+        }
+      } else {
+        pushWorkStep(pairs);
+      }
+    } else if (workLaps.length > 0 || totalDistanceM > 0 || totalTimeS > 0) {
+      // Continuous session — single work step covering the whole activity.
+      stepsToInsert.push({
+        session_id: sessionId,
+        step_order: stepOrder++,
+        kind: "work",
+        reps: 1,
+        set_count: 1,
+        target_kind: totalDistanceM > 0 ? "distance" : "time",
+        target_distance_m: totalDistanceM > 0 ? totalDistanceM : null,
+        target_time_seconds: totalDistanceM > 0 ? null : totalTimeS > 0 ? totalTimeS : null,
+        counts_toward_distance: true,
+      });
+    }
+
+    if (cooldownTime > 0 || cooldownDistance > 0) {
+      stepsToInsert.push({
+        session_id: sessionId,
+        step_order: stepOrder++,
+        kind: "cooldown",
+        reps: 1,
+        set_count: 1,
+        target_kind: cooldownDistance > 0 ? "distance" : "time",
+        target_distance_m: cooldownDistance > 0 ? cooldownDistance : null,
+        target_time_seconds: cooldownTime > 0 ? cooldownTime : null,
+        counts_toward_distance: true,
+      });
+    }
+
+    if (stepsToInsert.length === 0) {
+      throw new Error("Rebuild produced no steps from attached files");
+    }
+
+    const { data: insertedSteps, error: stepsErr } = await sb
+      .from("steps")
+      .insert(stepsToInsert as any)
+      .select();
+    if (stepsErr) throw stepsErr;
+    if (!insertedSteps?.length) {
+      throw new Error("No steps were inserted for uploaded session");
+    }
+
+    const workSteps = insertedSteps
+      .filter((s: any) => s.kind === "work")
+      .sort((a: any, b: any) => Number(a.step_order) - Number(b.step_order));
+
+    if (pairs.length > 0) {
+      if (workSteps.length === 0) {
+        throw new Error("Uploaded session did not create a work step");
+      }
+      const blocksForReps = haveBetweenSet ? workBlocks : [pairs];
+      const intervalRows: any[] = [];
+      for (let bi = 0; bi < blocksForReps.length; bi++) {
+        const ws = workSteps[bi] ?? workSteps[workSteps.length - 1];
+        const blk = blocksForReps[bi];
+        blk.forEach((pair, idx) => {
+          const lap = pair.work;
+          const recovery = pair.recovery;
+          intervalRows.push({
+            step_id: ws.id,
+            set_number: 1,
+            rep_number: idx + 1,
+            actual_time_seconds: lap.total_elapsed_time || null,
+            actual_distance_m: lap.total_distance || null,
+            actual_pace_sec_per_km:
+              lap.total_distance > 0 && lap.total_elapsed_time > 0
+                ? (lap.total_elapsed_time / lap.total_distance) * 1000
+                : null,
+            hr_avg: lap.avg_heart_rate ?? null,
+            hr_max: lap.max_heart_rate ?? null,
+            hr_end: lap.max_heart_rate ?? lap.avg_heart_rate ?? null,
+            hr_end_recovery: recovery?.avg_heart_rate ?? null,
+            cadence: lap.avg_cadence ?? null,
+          });
+        });
+      }
+      if (intervalRows.length > 0) {
+        const { error } = await sb.from("interval_results").insert(intervalRows as any);
+        if (error) throw error;
+      }
+    } else if (workSteps.length > 0 && (totalDistanceM > 0 || totalTimeS > 0)) {
+      const actualPace =
+        totalDistanceM > 0 && totalTimeS > 0 ? (totalTimeS / totalDistanceM) * 1000 : null;
+      const { error } = await sb.from("interval_results").insert({
+        step_id: workSteps[0].id,
+        set_number: 1,
+        rep_number: 1,
+        actual_time_seconds: totalTimeS || null,
+        actual_distance_m: totalDistanceM || null,
+        actual_pace_sec_per_km: actualPace,
+        hr_avg: avgHr,
+        hr_max: maxHr,
+        hr_end: maxHr ?? avgHr,
+        hr_end_recovery: null,
+        cadence: avgCad,
+      } as any);
+      if (error) throw error;
+    }
+  }
+
+  const workDistance = isIntervals
+    ? workLaps.reduce((s, l) => s + Number(l.total_distance ?? 0), 0)
+    : totalDistanceM;
+  const workTime = isIntervals
+    ? workLaps.reduce((s, l) => s + Number(l.total_elapsed_time ?? 0), 0)
+    : totalTimeS;
+
+  const { error: updErr } = await sb
+    .from("sessions")
+    .update({
+      total_distance_m: totalDistanceM || null,
+      total_time_seconds: totalTimeS || null,
+      avg_hr: avgHr,
+      max_hr: maxHr,
+      completion_pct: 100,
+      work_distance_m: workDistance || null,
+      work_time_s: workTime || null,
+      work_avg_hr: avgHr,
+      work_avg_pace_sec_per_km: avgPace,
+      work_avg_cadence: avgCad,
+      structure: isIntervals ? "intervals" : "continuous",
+      needs_review: isIntervals,
+    } as any)
+    .eq("id", sessionId);
+  if (updErr) throw updErr;
+}
+
 export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator(
