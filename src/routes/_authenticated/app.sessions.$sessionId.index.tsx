@@ -807,6 +807,19 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
             onBlur={commit}
           />
         </div>
+   
+  {/* ✅ NEW BLOCK */}
+  {!isRecovery && result?.hr_end && result?.hr_end_recovery && (
+    <div className="col-span-4 sm:col-span-2">
+      <Label className="text-xs">HR drop</Label>
+      <Input
+        disabled
+        value={result.hr_end - result.hr_end_recovery}
+      />
+    </div>
+  )}
+</div>
+     
         {!isRecovery && (
           <>
             <div className="col-span-4 sm:col-span-2">
