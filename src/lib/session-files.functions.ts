@@ -288,11 +288,28 @@ async function parseFIT(buffer: ArrayBuffer): Promise<ParsedFile> {
 
 function classifyLaps(laps: ParsedLap[], plannedSteps: any[] = []): ParsedLap[] {
   if (!Array.isArray(laps) || laps.length === 0) return [];
+  // placeholder
 
   const valid = laps.filter((l) => l.total_distance > 0 && l.total_elapsed_time > 0);
   if (valid.length === 0) {
     return laps.map((l) => ({ ...l, kind: "work" as const }));
   }
+
+function findLapKindForPoint(
+  timestamp: Date | string | null,
+  laps: ParsedLap[],
+): string {
+  if (!timestamp) return "work";
+  const t = typeof timestamp === "string" ? new Date(timestamp).getTime() : timestamp.getTime();
+  for (const lap of laps) {
+    const start = lap.startMs ?? null;
+    const end = getLapEndMs(lap);
+    if (start != null && end != null && t >= start && t <= end) {
+      return lap.kind ?? "work";
+    }
+  }
+  return "work";
+}
 
   const workSteps = getPlannedWorkSteps(plannedSteps);
   const hasPlannedWork = workSteps.length > 0;
