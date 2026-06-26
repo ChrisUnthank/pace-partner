@@ -864,10 +864,19 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
           throw stepsErr;
         }
 
-        if (insertedSteps && insertedSteps.length > 0) {
-          const workStep = insertedSteps.find((s: any) => s.kind === "work");
+       
+if (!insertedSteps || insertedSteps.length === 0) {
+  throw new Error("No steps were inserted for uploaded session");
+}
 
-          if (workStep) {
+const workStep = insertedSteps.find((s: any) => s.kind === "work");
+
+if (!workStep) {
+  throw new Error("Uploaded session did not create a work step");
+}
+
+{
+
             if (isIntervals && workLaps.length > 0) {
               const intervalRows = pairs.map((pair, idx) => {
                 const lap = pair.work;
