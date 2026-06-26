@@ -578,6 +578,8 @@ function SessionAnalysis() {
 
         <WorkSegmentPanel steps={safeSteps} results={safeResults} />
 
+        <SplitsTable points={Array.isArray(rawPoints) ? rawPoints : []} />
+
         {showContinuousFatigueCard && (
           <Card>
             <CardHeader>
@@ -1133,4 +1135,139 @@ function buildSamples(
     hasMetric: has,
     gpsPoints: [],
   };
+}
+
+type SplitRow = {
+  index: number;
+  type: "warmup" | "work" | "recovery" | "cooldown" | "strides";
+  durationS: number;
+  distanceM: number;
+  avgPace: number | null;
+  maxPace: number | null;
+  avgHr: number | null;
+  maxHr: number | null;
+  avgCad: number | null;
+  maxCad: number | null;
+  elevGain: number | null;
+  elevLoss: number | null;
+};
+
+const SPLIT_ROW_CLASS: Record<SplitRow["type"], string> = {
+  warmup: "bg-sky-50",
+  work: "bg-red-50",
+  recovery: "bg-slate-50",
+  cooldown: "bg-emerald-50",
+  strides: "bg-amber-50",
+};
+
+function buildSplits(points: any[]): SplitRow[] {
+  if (!Array.isArray(points) || points.length === 0) return [];
+  const groups: any[][] = [];
+  let current: any[] = [];
+  let currentType: string | null = null;
+  for (const p of points) {
+    const t = (p.segment_type ?? "work") as string;
+    if (t !== currentType) {
+      if (current.length > 0) groups.push(current);
+      current = [];
+      currentType = t;
+    }
+    current.push(p);
+  }
+  if (current.length > 0) groups.push(current);
+
+  return groups.map((grp, idx) => {
+    const type = ((grp[0].segment_type ?? "work") as SplitRow["type"]) || "work";
+    const first = grp[0];
+    const last = grp[grp.length - 1];
+    const durationS = Math.max(0, Number(last.elapsed_s ?? 0) - Number(first.elapsed_s ?? 0));
+    const distanceM = Math.max(0, Number(last.distance_m ?? 0) - Number(first.distance_m ?? 0));
+    const hrs = grp.map((p) => p.hr).filter((x: any): x is number => typeof x === "number" && x > 0);
+    const paces = grp
+      .map((p) => p.pace_sec_per_km)
+      .filter((x: any): x is number => typeof x === "number" && x > 0 && x <= 900);
+    const cads = grp.map((p) => p.cadence).filter((x: any): x is number => typeof x === "number" && x > 0);
+    let gain = 0;
+    let loss = 0;
+    let haveElev = false;
+    for (let i = 1; i < grp.length; i++) {
+      const a = grp[i - 1].elevation_m;
+      const b = grp[i].elevation_m;
+      if (typeof a === "number" && typeof b === "number") {
+        haveElev = true;
+        const d = b - a;
+        if (d > 0) gain += d;
+        else loss += -d;
+      }
+    }
+    const avgPace =
+      distanceM > 0 && durationS > 0 ? (durationS / distanceM) * 1000 : paces.length ? paces.reduce((a, b) => a + b, 0) / paces.length : null;
+    return {
+      index: idx + 1,
+      type,
+      durationS,
+      distanceM,
+      avgPace,
+      maxPace: paces.length ? Math.min(...paces) : null, // fastest = smallest sec/km
+      avgHr: hrs.length ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null,
+      maxHr: hrs.length ? Math.max(...hrs) : null,
+      avgCad: cads.length ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length) : null,
+      maxCad: cads.length ? Math.max(...cads) : null,
+      elevGain: haveElev ? Math.round(gain) : null,
+      elevLoss: haveElev ? Math.round(loss) : null,
+    };
+  });
+}
+
+function SplitsTable({ points }: { points: any[] }) {
+  const rows = useMemo(() => buildSplits(points), [points]);
+  if (rows.length === 0) return null;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Workout splits</CardTitle>
+        <CardDescription>Chronological warmup / work / recovery / cooldown derived from the recorded trace.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="text-muted-foreground">
+              <tr className="border-b">
+                <th className="text-left py-1 pr-2">#</th>
+                <th className="text-left py-1 pr-2">Type</th>
+                <th className="text-right py-1 pr-2">Dist</th>
+                <th className="text-right py-1 pr-2">Time</th>
+                <th className="text-right py-1 pr-2">Avg pace</th>
+                <th className="text-right py-1 pr-2">Max pace</th>
+                <th className="text-right py-1 pr-2">Avg HR</th>
+                <th className="text-right py-1 pr-2">Max HR</th>
+                <th className="text-right py-1 pr-2">Avg cad</th>
+                <th className="text-right py-1 pr-2">Max cad</th>
+                <th className="text-right py-1 pr-2">↑</th>
+                <th className="text-right py-1">↓</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.index} className={`border-b last:border-b-0 ${SPLIT_ROW_CLASS[r.type] ?? ""}`}>
+                  <td className="py-1 pr-2 tabular-nums">{r.index}</td>
+                  <td className="py-1 pr-2 capitalize">{r.type}</td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{r.distanceM > 0 ? metersFmt(r.distanceM) : "—"}</td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{r.durationS > 0 ? secToClock(r.durationS) : "—"}</td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{r.avgPace ? paceFmt(r.avgPace) : "—"}</td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{r.maxPace ? paceFmt(r.maxPace) : "—"}</td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{r.avgHr ?? "—"}</td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{r.maxHr ?? "—"}</td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{r.avgCad ?? "—"}</td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{r.maxCad ?? "—"}</td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{r.elevGain != null ? `${r.elevGain}m` : "—"}</td>
+                  <td className="py-1 text-right tabular-nums">{r.elevLoss != null ? `${r.elevLoss}m` : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  );
 }

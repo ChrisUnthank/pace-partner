@@ -1,100 +1,82 @@
-## Required evidence gathered
+## Goal
 
-1. **Actual browser console error when the page crashes**
+Make uploaded sessions behave like manual sessions, regardless of how many files were attached or in what order. Add a full chronological splits table on the analysis page (warmup → work → recovery → cooldown), while preserving the existing rep table, zone panels, trace graph, map, and HR-recovery features.
 
-```text
-Error: {"requestedAttributes":{"antialias":false,"preserveDrawingBuffer":false,"powerPreference":"high-performance","failIfMajorPerformanceCaveat":false,"desynchronized":false,"alpha":true,"depth":true,"stencil":true,"premultipliedAlpha":true},"statusMessage":"Could not create a WebGL context, VENDOR = 0xffff, DEVICE = 0xffff, GL_VENDOR = Disabled, GL_RENDERER = Disabled, Sandboxed = yes, Optimus = no, AMD switchable = no, Reset notification strategy = 0x0000, ErrorMessage = BindToCurrentSequence failed: .","type":"webglcontextcreationerror","message":"Failed to initialize WebGL"}
-```
+## What's wrong today
 
-React reports this occurred in `<MapPanel>`:
+`uploadAndParseSessionFile` only ever looks at the file *just uploaded*. Steps and `interval_results` are rebuilt from that one file's laps, so:
+- A 2nd or 3rd file replaces the structure created by the 1st.
+- Upload order changes the final shape (warmup-first vs workout-first vs cooldown-first).
+- `raw_session_points` from earlier files keep their own `elapsed_s` origin, so the combined trace is out of order on the analysis page.
+- The session-detail UI sometimes goes blank because `steps` get wiped and re-inserted with the wrong totals.
 
-```text
-The above error occurred in the <MapPanel> component.
-```
+The existing rep breakdown also pulls from `interval_results` only, so recovery segments never appear in a splits table.
 
-The stack points to MapLibre construction in the analysis route:
+## Plan
 
-```text
-at ds._setupPainter (.../maplibre-gl.js:33277:33)
-at new ds (.../maplibre-gl.js:32660:1433)
-at .../src/routes/_authenticated/app.sessions.$sessionId.analysis.tsx?tsr-split=component:1291:15
-```
+### 1. Single source of truth: `rebuildSessionFromAllFiles(sessionId)`
 
-2. **Current `computeContinuousFatigue` export in `@/lib/ai.functions`**
+Extract a new internal helper in `src/lib/session-files.functions.ts`. After every upload (and after `deleteSessionFileBlock`), call it. It:
 
-It exists and is exported at `src/lib/ai.functions.ts:228`:
+1. Loads all rows from `session_files` for the session, ordered by `started_at` (nulls last → fall back to `created_at`).
+2. Re-downloads each file from storage and re-parses it (`parseFIT` / `parseGPX`) — we already have these parsers; nothing else changes about them.
+3. Computes a global anchor = earliest `startedAt` across files.
+4. Builds a single merged `points[]` with `elapsed_s = (point.timestamp - anchor) / 1000`, tagged with `file_id`. Sorts ascending.
+5. Builds a single merged `laps[]` with absolute `startMs`/`endMs`, sorted ascending.
+6. Runs the existing `classifyLaps` + `buildWorkRecoveryPairs` on the merged laps so warmup/work/recovery/cooldown comes from the actual chronology, not the file boundary.
+7. Wipes and rewrites derived rows for the session in one transaction-shaped sequence:
+   - `DELETE raw_session_points WHERE session_id = $1`
+   - `DELETE interval_results WHERE step_id IN (SELECT id FROM steps WHERE session_id = $1)`
+   - `DELETE steps WHERE session_id = $1` (only when `is_planned = false`, i.e. no manual plan).
+   - Re-insert merged `raw_session_points` (with `segment_type` from the merged classification).
+   - Re-insert `steps` (warmup / work / cooldown) and `interval_results` for the work step from the merged pairs.
+   - For manually planned sessions: keep `steps` untouched, only wipe + rewrite `interval_results` using the existing `buildIntervalRowsFromPlan` against the merged pairs.
+8. Updates `sessions` totals (`total_distance_m`, `total_time_seconds`, `avg_hr`, `max_hr`, `work_*`, `structure`, `completion_pct = 100`) from the merged data — not from a single file row.
+9. Detects between-set recovery: any recovery lap whose duration ≥ `1.75 × median(recovery)` ends a set; emit a `kind = 'recovery'` step between work blocks (this matches the existing `splitWorkPairsIntoBlocks` logic, just reused on merged data). Between-rep recoveries stay on the work step's `recovery_between_reps_*` fields.
 
-```ts
-export const computeContinuousFatigue = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((d: { sessionId: string }) => d)
-  .handler(async ({ data, context }) => {
-    const sb = context.supabase;
-    const { data: sess } = await sb.from("sessions").select("athlete_id, structure").eq("id", data.sessionId).single();
-    if (!sess) return null;
-    const { data: pts } = await sb.from("raw_session_points").select("elapsed_s, hr, pace_sec_per_km").eq("session_id", data.sessionId).order("elapsed_s");
-    if (!pts || pts.length < 60) return null;
-    const mid = pts[pts.length - 1].elapsed_s / 2;
-    const first = pts.filter((p) => p.elapsed_s <= mid);
-    const second = pts.filter((p) => p.elapsed_s > mid);
-    const mean = (arr: any[], k: string) => {
-      const xs = arr.map((a) => a[k]).filter((x) => x != null) as number[];
-      return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
-    };
-    const hr1 = mean(first, "hr"); const hr2 = mean(second, "hr");
-    const p1 = mean(first, "pace_sec_per_km"); const p2 = mean(second, "pace_sec_per_km");
-    if (hr1 == null || hr2 == null || p1 == null || p2 == null) return null;
-    const hrDriftBpm = hr2 - hr1;
-    const paceDriftPct = ((p2 - p1) / p1) * 100;
-    const score = Math.max(0, Math.min(100, Math.round(100 - hrDriftBpm - paceDriftPct * 3)));
-    await sb.from("session_fatigue").delete().eq("session_id", data.sessionId).eq("method", "continuous_drift");
-    const { data: row, error } = await sb.from("session_fatigue").insert({
-      session_id: data.sessionId, athlete_id: sess.athlete_id, method: "continuous_drift",
-      hr_drift_bpm: hrDriftBpm, pace_drift_pct: paceDriftPct, efficiency_score: score, rep_count: pts.length,
-    } as any).select().maybeSingle();
-    if (error) console.error(error);
-    return row;
-  });
-```
+`uploadAndParseSessionFile` becomes: validate → upload file to storage → insert `session_files` row → call `rebuildSessionFromAllFiles(sess.id)` → return. `deleteSessionFileBlock` already exists; after delete it calls the same helper (or clears the session if zero files remain).
 
-Signature check: it matches `useServerFn` usage because it is a `createServerFn({ method: "POST" })` export with `.inputValidator((d: { sessionId: string }) => d)`, so the client should call it as `computeFatigue({ data: { sessionId } })`.
+Error handling: every `insert` / `update` keeps `throw` on error. If after rebuild there are 0 steps when ≥1 file is attached and parsed successfully, throw.
 
-3. **Exact analysis-file references and import resolution**
+### 2. Chronological splits table on the analysis page
 
-Import at `src/routes/_authenticated/app.sessions.$sessionId.analysis.tsx:25`:
+New component in `src/routes/_authenticated/app.sessions.$sessionId.analysis.tsx` (or a small sibling file), rendered above the existing rep breakdown.
 
-```ts
-import { computeContinuousFatigue } from "@/lib/ai.functions";
-```
+- Source: `raw_session_points` for the session, sorted by `elapsed_s`.
+- Group rows by `segment_type`, starting a new group every time `segment_type` changes.
+- For each group compute: split #, type, duration, distance (last `distance_m` − first), avg pace, max pace (min `pace_sec_per_km` over the group), avg HR, max HR, avg cadence, max cadence, elevation gain/loss (sum of positive/negative deltas).
+- Display blank/em-dash for missing metrics.
+- Row tint by `segment_type`:
+  - work → `bg-red-50`
+  - recovery → `bg-slate-50`
+  - warmup → `bg-blue-50`
+  - cooldown → `bg-emerald-50`
+  - strides → `bg-amber-50`
 
-Usage at `src/routes/_authenticated/app.sessions.$sessionId.analysis.tsx:170`:
+Colors match the existing graph shading utility so the table reads the same way as the chart.
 
-```ts
-const computeFatigue = useServerFn(computeContinuousFatigue);
-```
+The existing rep table (HR end / HR rec / HR drop) stays exactly as is, below the new splits table.
 
-Invocation at `src/routes/_authenticated/app.sessions.$sessionId.analysis.tsx:517`:
+### 3. Preserve existing analysis features
 
-```tsx
-onClick={() => computeFatigue({ data: { sessionId } }).then(() => window.location.reload())}
-```
+No changes to:
+- Trace mode rendering, MapPanel WebGL fallback, zone panels, `session_zone_time` queries, `compute_session_fatigue`, HR recovery panel.
+- `interval_results` columns (rep table still uses them).
+- Manual session builder.
 
-Import path resolution is valid: `tsconfig.json` defines `"@/*": ["./src/*"]`, so `@/lib/ai.functions` resolves to `src/lib/ai.functions.ts`.
+Trace vs rep vs empty selection already follows the order in the existing analysis page; with merged `raw_session_points` it will now show the combined chart automatically.
 
-## Plan to fix
+### 4. Acceptance checks (run with Playwright after build)
 
-1. **Fix the actual crash source: `MapPanel` WebGL failure**
-   - Wrap MapLibre map creation in a safe `try/catch` inside `MapPanel`.
-   - Listen for MapLibre `error` events.
-   - If WebGL/map creation fails, set a local error state and render a non-crashing route fallback instead of throwing into the route boundary.
-   - Ensure cleanup only calls `map.remove()` when a map was successfully created.
+1. Upload one FIT → session detail populated, steps present, analysis trace + zone + rep table all render.
+2. Upload warmup FIT, then workout FIT, then cooldown FIT → final structure is warmup → work → cooldown regardless of order.
+3. Upload in reverse order (cooldown → workout → warmup) → identical final structure.
+4. New chronological splits table renders with the expected row colors and includes recovery rows.
+5. Delete the workout file → session reconstructs from remaining files; deleting the last file clears the session derived data.
 
-2. **Keep graph modes intact**
-   - Do not change the existing trace/rep/empty chart logic unless a compile/runtime issue appears during validation.
-   - Leave `computeContinuousFatigue` exported and called through `useServerFn` with `{ data: { sessionId } }`.
+## Technical notes (skim if not technical)
 
-3. **Validate before calling it fixed**
-   - Run a TypeScript check after the edit.
-   - Navigate to `/app/sessions/2c70323f-b02c-4980-95bb-146600a17107/analysis` in the preview with Playwright.
-   - Report the observed loaded page state, specifically whether the Session Analysis page renders, whether the graph/empty state appears, and whether the Map panel falls back cleanly instead of crashing.
-   - Only then state that it is fixed.
+- New helper lives in `src/lib/session-files.functions.ts` and is invoked from the existing server function — no new server fn surface, no new types regeneration needed.
+- `raw_session_points.segment_type` already constrains to `warmup|work|recovery|cooldown`; "strides" rows can be tagged `work` in the DB and styled separately in the UI only if/when strides detection is added (out of scope for this pass — splits table will simply show `work`).
+- All deletes/inserts use the authenticated supabase client from middleware so RLS applies.
+- No schema migration required.
