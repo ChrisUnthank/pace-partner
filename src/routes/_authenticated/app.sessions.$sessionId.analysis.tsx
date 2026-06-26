@@ -231,6 +231,10 @@ function SessionAnalysis() {
   const hasRaw = safeRawPoints.length > 0;
   const hasRepData = safeResults.length > 0;
 
+  // ✅ NEW: detect manual sessions
+  const isManualOnly = !hasRaw && hasRepData;
+  const modeType = hasRaw ? "trace" : isManualOnly ? "interval" : "empty";
+
   const continuousFatigue = safeFatigue.find((f: any) => f.method === "continuous_drift");
   const repFatigue = safeFatigue.filter((f: any) => f.method !== "continuous_drift");
 
