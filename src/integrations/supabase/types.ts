@@ -1243,6 +1243,7 @@ export type Database = {
         Row: {
           cadence: number | null
           created_at: string
+          distance_m: number | null
           elapsed_s: number
           elevation_m: number | null
           file_id: string | null
@@ -1260,6 +1261,7 @@ export type Database = {
         Insert: {
           cadence?: number | null
           created_at?: string
+          distance_m?: number | null
           elapsed_s: number
           elevation_m?: number | null
           file_id?: string | null
@@ -1277,6 +1279,7 @@ export type Database = {
         Update: {
           cadence?: number | null
           created_at?: string
+          distance_m?: number | null
           elapsed_s?: number
           elevation_m?: number | null
           file_id?: string | null
