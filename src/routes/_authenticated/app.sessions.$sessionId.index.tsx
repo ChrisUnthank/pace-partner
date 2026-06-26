@@ -719,9 +719,62 @@ function StepBlock({
         {(step.kind === "warmup" || step.kind === "cooldown") && (
           <RepRow step={step} rep={1} result={results[0]} onSave={(p) => saveRep(1, 1, p)} />
         )}
-        {isWork && <WorkFuelNote step={step} sessionId={session.id} />}
-        {isWork && <LactateSummary results={results} />}
-        {isWork && <StepFatiguePanel fatigue={fatigue} isLadder={step.is_ladder} reps={results.length} />}
+        {isWorkNote step={step} sessionId={session.id} />}
+{isWork && <LactateSummary results={results} />}
+{isWork && <StepFatiguePanel fatigue={fatigue} isLadder={step.is_ladder} reps={results.length} />}
+
+/* ✅ Recovery trend */
+{isWork && results && results.length >= 3 && (() => {
+  const drops = results
+    .filter((r) => r.hr_end != null && r.hr_end_recovery != null)
+    .map((r) => r.hr_end - r.hr_end_recovery);
+
+  if (drops.length < 3) return null;
+
+  const first = drops[0];
+  const last = drops[drops.length - 1];
+  const change = last - first;
+
+  let label = "Stable";
+  let color = "text-muted-foreground";
+
+  if (change <= -5) {
+    label = "Recovery worsening";
+    color = "text-red-600";
+  } else if (change >= 5) {
+    label = "Recovery improving";
+    color = "text-emerald-600";
+  }
+
+  return (
+    <div className="mt-3 border-t pt-2 text-xs flex items-center justify-between">
+      <span className="text-muted-foreground">Recovery trend</span>
+      <span className={`font-medium ${color}`}>
+        {label} ({change > 0 ? "+" : ""}{change})
+      </span>
+    </div>
+  );
+})()}
+
+/* ✅ Best / worst recovery */
+{isWork && results && (() => {
+  const drops = results
+    .filter((r) => r.hr_end != null && r.hr_end_recovery != null)
+    .map((r) => r.hr_end - r.hr_end_recovery);
+
+  if (drops.length < 2) return null;
+
+  const best = Math.max(...drops);
+  const worst = Math.min(...drops);
+
+  return (
+    <div className="text-xs text-muted-foreground flex justify-between">
+      <span>Best: {best}</span>
+      <span>Worst: {worst}</span>
+    </div>
+  );
+})()}
+        
   {isWork && results && results.length >= 3 && (() => {
   const drops = results
    .filter((r) => r.hr_end != null && r.hr_end_recovery != null)
@@ -862,6 +915,7 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
 </div>
     </div>
   )}
+</div>
      
         {!isRecovery && (
           <>
