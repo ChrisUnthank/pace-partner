@@ -666,10 +666,14 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
     }
 
     const classifiedLaps = classifyLaps(parsed.laps ?? [], safePlannedSteps);
+    const pairs = buildWorkRecoveryPairs(classifiedLaps);
+
     const workLaps = classifiedLaps.filter((l) => l.kind === "work");
     const warmupLaps = classifiedLaps.filter((l) => l.kind === "warmup");
     const cooldownLaps = classifiedLaps.filter((l) => l.kind === "cooldown");
-    const isIntervals = classifiedLaps.length > 2 && workLaps.length > 1;
+
+    // ✅ intervals should be based on paired work reps, not raw lap count
+    const isIntervals = pairs.length > 1;
 
     if (parsed.points.length) {
       const rows = parsed.points.map((p) => ({
@@ -689,7 +693,8 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
       }));
 
       for (let i = 0; i < rows.length; i += 500) {
-        await sb.from("raw_session_points").insert(rows.slice(i, i + 500) as any);
+        const { error: rawErr } = await sb.from("raw_session_points").insert(rows.slice(i, i + 500) as any);
+        if (rawErr) throw rawErr;
       }
 
       const { avgHr, maxHr, avgPace, avgCad } = summarizeImportedPoints(parsed.points);
@@ -711,7 +716,7 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
 
       const sessionTotalTime = (allFiles ?? []).reduce((sum, f: any) => sum + Number(f.total_time_s ?? 0), 0);
 
-      await sb
+      const { error: sessionUpdateErr } = await sb
         .from("sessions")
         .update({
           total_distance_m: sessionTotalDistance || parsed.totalDistanceM || null,
@@ -730,6 +735,8 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
         } as any)
         .eq("id", sess.id);
 
+      if (sessionUpdateErr) throw sessionUpdateErr;
+
       const hasManualPlan = Boolean(sess.is_planned) && safePlannedSteps.length > 0;
       const hasLadderPlan = getPlannedWorkSteps(safePlannedSteps).some(stepIsLadder);
 
@@ -739,12 +746,12 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
           await sb.from("interval_results").delete().in("step_id", stepIds);
         }
 
-        const pairs = buildWorkRecoveryPairs(classifiedLaps);
         const workBlocks = splitWorkPairsIntoBlocks(pairs, safePlannedSteps);
         const intervalRows = buildIntervalRowsFromPlan(workBlocks, safePlannedSteps);
 
         if (intervalRows.length > 0) {
-          await sb.from("interval_results").insert(intervalRows as any);
+          const { error: intervalErr } = await sb.from("interval_results").insert(intervalRows as any);
+          if (intervalErr) throw intervalErr;
         }
 
         if (hasLadderPlan) {
@@ -793,8 +800,6 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
             counts_toward_distance: true,
           });
         }
-
-        const pairs = buildWorkRecoveryPairs(classifiedLaps);
 
         // ✅ get recovery durations
         const recoveryDurations = pairs.map((p) => Number(p.recovery?.total_elapsed_time ?? 0)).filter((x) => x > 0);
@@ -855,13 +860,15 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
           .insert(stepsToInsert as any)
           .select();
 
-        if (!stepsErr && insertedSteps && insertedSteps.length > 0) {
+        if (stepsErr) {
+          throw stepsErr;
+        }
+
+        if (insertedSteps && insertedSteps.length > 0) {
           const workStep = insertedSteps.find((s: any) => s.kind === "work");
 
           if (workStep) {
             if (isIntervals && workLaps.length > 0) {
-              const pairs = buildWorkRecoveryPairs(classifiedLaps);
-
               const intervalRows = pairs.map((pair, idx) => {
                 const lap = pair.work;
                 const recovery = pair.recovery;
@@ -884,14 +891,15 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
                 };
               });
 
-              await sb.from("interval_results").insert(intervalRows as any);
+              const { error: intervalErr } = await sb.from("interval_results").insert(intervalRows as any);
+              if (intervalErr) throw intervalErr;
             } else {
               const actualPace =
                 parsed.totalDistanceM > 0 && parsed.totalTimeS > 0
                   ? (parsed.totalTimeS / parsed.totalDistanceM) * 1000
                   : null;
 
-              await sb.from("interval_results").insert({
+              const { error: intervalErr } = await sb.from("interval_results").insert({
                 step_id: workStep.id,
                 set_number: 1,
                 rep_number: 1,
@@ -904,6 +912,7 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
                 hr_end_recovery: null,
                 cadence: avgCad,
               } as any);
+              if (intervalErr) throw intervalErr;
             }
           }
         }
