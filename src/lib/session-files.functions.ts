@@ -281,7 +281,7 @@ async function parseFIT(buffer: ArrayBuffer): Promise<ParsedFile> {
   });
 }
 
-function classifyLaps(laps: ParsedLap[], plannedSteps: any[] = []): ParsedLap[]
+function classifyLaps(laps: ParsedLap[], plannedSteps: any[] = []): ParsedLap[] {
   if (!Array.isArray(laps) || laps.length === 0) return [];
 
   const valid = laps.filter((l) => l.total_distance > 0 && l.total_elapsed_time > 0);
