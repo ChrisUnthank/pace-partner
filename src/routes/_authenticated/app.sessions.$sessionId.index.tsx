@@ -724,7 +724,7 @@ function StepBlock({
         {isWork && <StepFatiguePanel fatigue={fatigue} isLadder={step.is_ladder} reps={results.length} />}
   {isWork && results && results.length >= 3 && (() => {
   const drops = results
-    .filter((r) => r.hr_end && r.hr_end_recovery)
+   .filter((r) => r.hr_end != null && r.hr_end_recovery != null)
     .map((r) => r.hr_end - r.hr_end_recovery);
 
   if (drops.length < 3) return null;
