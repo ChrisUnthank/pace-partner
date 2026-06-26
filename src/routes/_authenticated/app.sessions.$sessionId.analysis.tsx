@@ -578,6 +578,8 @@ function SessionAnalysis() {
 
         <WorkSegmentPanel steps={safeSteps} results={safeResults} />
 
+        <SplitsTable points={Array.isArray(rawPoints) ? rawPoints : []} />
+
         {showContinuousFatigueCard && (
           <Card>
             <CardHeader>
