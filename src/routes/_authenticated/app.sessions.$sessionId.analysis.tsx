@@ -1,7 +1,23 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+("@tanstack/react-query");
 import { useEffect, useMemo, useRef, useState } from "react";
+import maplibregl from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
+import {
+  ComposedChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  ReferenceArea,
+  CartesianGrid,
+  Legend,
+} from "recharts";
+
+import { supabase } from "@/integrations/supabase/client";
+import { AppShell } from "@/components/app-shell";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { secToClock, metersFmt, paceFmt } from "@/lib/format";
 import { sessionClassificationLabel } from "@/lib/session-categories";
@@ -90,6 +106,7 @@ function SessionAnalysis() {
     queryKey: ["session", sessionId],
     queryFn: async () => {
       const { data, error } = await supabase.from("sessions").select("*, athletes(name)").eq("id", sessionId).single();
+
       if (error) throw error;
       return data;
     },
@@ -99,6 +116,7 @@ function SessionAnalysis() {
     queryKey: ["steps", sessionId],
     queryFn: async () => {
       const { data, error } = await supabase.from("steps").select("*").eq("session_id", sessionId).order("step_order");
+
       if (error) throw error;
       return data ?? [];
     },
@@ -116,6 +134,7 @@ function SessionAnalysis() {
         .in("step_id", stepIds)
         .order("set_number")
         .order("rep_number");
+
       if (error) throw error;
       return data ?? [];
     },
@@ -124,10 +143,12 @@ function SessionAnalysis() {
   const { data: zoneTime } = useQuery({
     queryKey: ["zone-time", sessionId],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("session_zone_time")
         .select("zone, seconds, source")
         .eq("session_id", sessionId);
+
+      if (error) throw error;
       return data ?? [];
     },
   });
@@ -135,7 +156,9 @@ function SessionAnalysis() {
   const { data: fatigue } = useQuery({
     queryKey: ["fatigue", sessionId],
     queryFn: async () => {
-      const { data } = await supabase.from("session_fatigue").select("*").eq("session_id", sessionId);
+      const { data, error } = await supabase.from("session_fatigue").select("*").eq("session_id", sessionId);
+
+      if (error) throw error;
       return data ?? [];
     },
   });
@@ -143,14 +166,15 @@ function SessionAnalysis() {
   const { data: rawPoints } = useQuery({
     queryKey: ["raw-points", sessionId],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("raw_session_points")
         .select(
           "elapsed_s, distance_m, hr, pace_sec_per_km, cadence, elevation_m, lat, lng, segment_type, vertical_oscillation_cm, ground_contact_time_ms",
         )
         .eq("session_id", sessionId)
-        .order("elapsed_s")
-        .limit(5000);
+        .order("elapsed_s", { ascending: true });
+
+      if (error) throw error;
       return data ?? [];
     },
   });
@@ -218,6 +242,7 @@ function SessionAnalysis() {
     if (session.structure !== "continuous") return;
     if (!hasRaw) return;
     if (continuousFatigue) return;
+
     computeFatigue({ data: { sessionId } }).catch(() => {});
   }, [session, hasRaw, continuousFatigue, computeFatigue, sessionId]);
 
@@ -826,6 +851,7 @@ function WorkSegmentPanel({ steps, results }: { steps: any[]; results: any[] }) 
 }
 
 const ZONE_ORDER = ["z1", "z2", "z3", "z4", "z5"];
+
 const ZONE_LABEL: Record<string, string> = {
   z1: "Z1 Easy",
   z2: "Z2 Aerobic",
@@ -838,7 +864,6 @@ function ZonePanel({ rows, title }: { rows: any[]; title: string }) {
   if (rows.length === 0) return null;
 
   const total = rows.reduce((a, r) => a + Number(r.seconds || 0), 0) || 1;
-
   const sorted = [...rows].sort((a, b) => ZONE_ORDER.indexOf(a.zone) - ZONE_ORDER.indexOf(b.zone));
 
   const colors: Record<string, string> = {
@@ -1109,18 +1134,3 @@ function buildSamples(
     gpsPoints: [],
   };
 }
-import maplibregl from "maplibre-gl";
-import "maplibre-gl/dist/maplibre-gl.css";
-import {
-  ComposedChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  ReferenceArea,
-  CartesianGrid,
-  Legend,
-} from "recharts";
-import { supabase } from "@/integrations/supabase/client";
-import { AppShell } from "@/components/app-shell";
