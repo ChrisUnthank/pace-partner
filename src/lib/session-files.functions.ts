@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import/auth-middleware";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 function mapFitSport(sport: string | null | undefined): string {
   const s = (sport ?? "").toLowerCase();
