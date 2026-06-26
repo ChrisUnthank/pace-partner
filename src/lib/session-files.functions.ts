@@ -1100,9 +1100,3 @@ export const sendReminder = createServerFn({ method: "POST" })
     if (error) throw error;
     return row;
   });
-
-/** Map FIT sport field to app activity_type enum */
-function mapFitSport(sport?: string): string {
-  if (!sport) return "run";
-  const s = sport.toLowerCase();
-
