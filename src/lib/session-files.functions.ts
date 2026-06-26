@@ -1100,63 +1100,14 @@ export const deleteSessionFileBlock = createServerFn({ method: "POST" })
     const { error: delErr } = await sb.from("session_files").delete().eq("id", fileRow.id);
     if (delErr) throw delErr;
 
-    const { data: remainingFiles } = await sb
+    await rebuildSessionFromAllFiles(sb, sessionId);
+
+    const { count } = await sb
       .from("session_files")
-      .select("id, total_distance_m, total_time_s")
+      .select("id", { count: "exact", head: true })
       .eq("session_id", sessionId);
 
-    const totalDistance = (remainingFiles ?? []).reduce((sum, f: any) => sum + Number(f.total_distance_m ?? 0), 0);
-    const totalTime = (remainingFiles ?? []).reduce((sum, f: any) => sum + Number(f.total_time_s ?? 0), 0);
-
-    await sb.from("session_zone_time").delete().eq("session_id", sessionId);
-    await sb.from("session_fatigue").delete().eq("session_id", sessionId);
-
-    if (!remainingFiles || remainingFiles.length === 0) {
-      const { data: oldSteps } = await sb.from("steps").select("id").eq("session_id", sessionId);
-
-      const oldStepIds = (oldSteps ?? []).map((s: any) => s.id);
-      if (oldStepIds.length > 0) {
-        await sb.from("interval_results").delete().in("step_id", oldStepIds);
-      }
-
-      await sb.from("steps").delete().eq("session_id", sessionId);
-
-      await sb
-        .from("sessions")
-        .update({
-          total_distance_m: null,
-          total_time_seconds: null,
-          work_distance_m: null,
-          work_time_s: null,
-          avg_hr: null,
-          max_hr: null,
-          work_avg_hr: null,
-          work_avg_pace_sec_per_km: null,
-          work_avg_cadence: null,
-          structure: "continuous",
-          needs_review: true,
-        } as any)
-        .eq("id", sessionId);
-
-      return { ok: true, sessionId, remainingFiles: 0 };
-    }
-
-    await sb
-      .from("sessions")
-      .update({
-        total_distance_m: totalDistance || null,
-        total_time_seconds: totalTime || null,
-        needs_review: true,
-      } as any)
-      .eq("id", sessionId);
-
-    return {
-      ok: true,
-      sessionId,
-      remainingFiles: remainingFiles.length,
-      totalDistance,
-      totalTime,
-    };
+    return { ok: true, sessionId, remainingFiles: count ?? 0 };
   });
 
 export const deleteSession = createServerFn({ method: "POST" })
