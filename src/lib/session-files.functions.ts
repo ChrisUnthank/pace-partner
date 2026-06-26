@@ -281,11 +281,13 @@ async function parseFIT(buffer: ArrayBuffer): Promise<ParsedFile> {
   });
 }
 
-function classifyLaps(laps: ParsedLap[], plannedSteps: any[] = []): ParsedLap[] {
+function classifyLaps(laps: ParsedLap[], plannedSteps: any[] = []): ParsedLap[]
   if (!Array.isArray(laps) || laps.length === 0) return [];
 
   const valid = laps.filter((l) => l.total_distance > 0 && l.total_elapsed_time > 0);
-  if (valid.length === 0) return laps.map((l) => ({ ...l, kind: "work" as const }));
+  if (valid.length === 0) {
+    return laps.map((l) => ({ ...l, kind: "work" as const }));
+  }
 
   const workSteps = getPlannedWorkSteps(plannedSteps);
   const hasPlannedWork = workSteps.length > 0;
@@ -293,13 +295,21 @@ function classifyLaps(laps: ParsedLap[], plannedSteps: any[] = []): ParsedLap[] 
 
   if (hasPlannedWork) {
     let classified: ParsedLap[] = laps.map((lap) => {
-      if (lap.intensity === "rest") return { ...lap, kind: "recovery" as const };
+      if (lap.intensity === "rest") {
+        return { ...lap, kind: "recovery" as const };
+      }
 
-      const isWork = lap.total_distance >= 20 && lap.total_elapsed_time >= 6;
+      // ✅ FIXED WORK DETECTION
+      const isWork =
+        lap.total_distance >= 150 ||     // distance-based reps (e.g. 400m)
+        lap.total_elapsed_time >= 60;    // time-based reps (e.g. 60s+)
+
       return { ...lap, kind: isWork ? ("work" as const) : ("recovery" as const) };
     });
 
-    const workIdxs = classified.map((l, i) => (l.kind === "work" ? i : -1)).filter((i) => i >= 0);
+    const workIdxs = classified
+      .map((l, i) => (l.kind === "work" ? i : -1))
+      .filter((i) => i >= 0);
 
     if (workIdxs.length > 0) {
       const firstWork = workIdxs[0];
@@ -317,12 +327,16 @@ function classifyLaps(laps: ParsedLap[], plannedSteps: any[] = []): ParsedLap[] 
     return classified;
   }
 
+  // ✅ AUTO-DETECTION MODE (no plan)
   if (laps.length < 4) {
     return laps.map((l) => ({ ...l, kind: "work" as const }));
   }
 
   const nonRestCandidates = laps.filter(
-    (l) => l.intensity !== "rest" && l.total_distance > 20 && l.total_elapsed_time > 8,
+    (l) =>
+      l.intensity !== "rest" &&
+      l.total_distance > 50 &&
+      l.total_elapsed_time > 10
   );
 
   const buckets = new Map<number, number>();
@@ -340,7 +354,7 @@ function classifyLaps(laps: ParsedLap[], plannedSteps: any[] = []): ParsedLap[] 
     }
   }
 
-  const tolerance = Math.max(15, dominantDistance * 0.25);
+  const tolerance = Math.max(20, dominantDistance * 0.25);
 
   let classified: ParsedLap[] = laps.map((lap) => {
     if (lap.intensity === "rest") {
@@ -350,14 +364,17 @@ function classifyLaps(laps: ParsedLap[], plannedSteps: any[] = []): ParsedLap[] 
     if (dominantDistance > 0) {
       const isWork =
         Math.abs(lap.total_distance - dominantDistance) <= tolerance &&
-        lap.total_elapsed_time >= 8;
+        lap.total_elapsed_time >= 20;
+
       return { ...lap, kind: isWork ? ("work" as const) : ("recovery" as const) };
     }
 
     return { ...lap, kind: "work" as const };
   });
 
-  const workIdxs = classified.map((l, i) => (l.kind === "work" ? i : -1)).filter((i) => i >= 0);
+  const workIdxs = classified
+    .map((l, i) => (l.kind === "work" ? i : -1))
+    .filter((i) => i >= 0);
 
   if (workIdxs.length > 0) {
     const firstWork = workIdxs[0];
@@ -379,22 +396,25 @@ function buildWorkRecoveryPairs(classifiedLaps: ParsedLap[]): WorkRecoveryPair[]
 
   for (let i = 0; i < classifiedLaps.length; i++) {
     const lap = classifiedLaps[i];
+
+    // ✅ ONLY start from work laps
     if (lap.kind !== "work") continue;
 
     let recovery: ParsedLap | null = null;
 
-    for (let j = i + 1; j < classifiedLaps.length; j++) {
-      const next = classifiedLaps[j];
+    // ✅ ONLY look at the very next lap
+    if (i + 1 < classifiedLaps.length) {
+      const next = classifiedLaps[i + 1];
 
-      if (next.kind === "work") break;
       if (next.kind === "recovery") {
         recovery = next;
-        break;
       }
-      if (next.kind === "cooldown") break;
     }
 
-    pairs.push({ work: lap, recovery });
+    pairs.push({
+      work: lap,
+      recovery,
+    });
   }
 
   return pairs;
