@@ -719,7 +719,7 @@ function StepBlock({
         {(step.kind === "warmup" || step.kind === "cooldown") && (
           <RepRow step={step} rep={1} result={results[0]} onSave={(p) => saveRep(1, 1, p)} />
         )}
-        {isWorkNote step={step} sessionId={session.id} />}
+        {isWork && <WorkFuelNote step={step} sessionId={session.id} />}
 {isWork && <LactateSummary results={results} />}
 {isWork && <StepFatiguePanel fatigue={fatigue} isLadder={step.is_ladder} reps={results.length} />}
 
@@ -915,8 +915,6 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
 </div>
     </div>
   )}
-</div>
-     
         {!isRecovery && (
           <>
             <div className="col-span-4 sm:col-span-2">
