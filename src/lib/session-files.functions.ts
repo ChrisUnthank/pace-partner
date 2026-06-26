@@ -1,5 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
-import { require";import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+
+function mapFitSport(sport: string | null | undefined): string {
+  const s = (sport ?? "").toLowerCase();
   if (s.includes("swim")) return "swim";
   if (s.includes("training") || s.includes("gym") || s.includes("strength")) return "gym";
   if (s.includes("track")) return "track";
