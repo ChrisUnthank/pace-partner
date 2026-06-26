@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import/auth-middleware";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 function mapFitSport(sport: string | null | undefined): string {
   const s = (sport ?? "").toLowerCase();
@@ -389,6 +389,22 @@ function classifyLaps(laps: ParsedLap[], plannedSteps: any[] = []): ParsedLap[] 
   }
 
   return classified;
+}
+
+function findLapKindForPoint(
+  timestamp: Date | string | null,
+  laps: ParsedLap[],
+): string {
+  if (!timestamp) return "work";
+  const t = typeof timestamp === "string" ? new Date(timestamp).getTime() : timestamp.getTime();
+  for (const lap of laps) {
+    const start = lap.startMs ?? null;
+    const end = getLapEndMs(lap);
+    if (start != null && end != null && t >= start && t <= end) {
+      return lap.kind ?? "work";
+    }
+  }
+  return "work";
 }
 
 function buildWorkRecoveryPairs(classifiedLaps: ParsedLap[]): WorkRecoveryPair[] {
