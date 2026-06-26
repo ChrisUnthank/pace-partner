@@ -929,6 +929,7 @@ export const deleteSessionFileBlock = createServerFn({ method: "POST" })
     }
 
     const sessionId = fileRow.session_id;
+    if (!sessionId) throw new Error("Session file has no session_id");
 
     await sb.from("raw_session_points").delete().eq("file_id", fileRow.id);
 
