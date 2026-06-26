@@ -1,5 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
-import { require";import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+
+function mapFitSport(sport: string | null | undefined): string {
+  const s = (sport ?? "").toLowerCase();
   if (s.includes("swim")) return "swim";
   if (s.includes("training") || s.includes("gym") || s.includes("strength")) return "gym";
   if (s.includes("track")) return "track";
@@ -631,7 +634,7 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
       .select("id")
       .eq("session_id", sess.id)
       .eq("original_filename", data.filename)
-      .eq("started_at", parsed.startedAt)
+      .eq("started_at", parsed.startedAt ?? "")
       .eq("total_distance_m", parsed.totalDistanceM)
       .maybeSingle();
 
@@ -926,6 +929,7 @@ export const deleteSessionFileBlock = createServerFn({ method: "POST" })
     }
 
     const sessionId = fileRow.session_id;
+    if (!sessionId) throw new Error("Session file has no session_id");
 
     await sb.from("raw_session_points").delete().eq("file_id", fileRow.id);
 
@@ -1097,9 +1101,3 @@ export const sendReminder = createServerFn({ method: "POST" })
     if (error) throw error;
     return row;
   });
-
-/** Map FIT sport field to app activity_type enum */
-function mapFitSport(sport?: string): string {
-  if (!sport) return "run";
-  const s = sport.toLowerCase();
-
