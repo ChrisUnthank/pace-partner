@@ -812,12 +812,25 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
   {!isRecovery && result?.hr_end && result?.hr_end_recovery && (
     <div className="col-span-4 sm:col-span-2">
       <Label className="text-xs">HR drop</Label>
-      <Input
-        disabled
-        value={result.hr_end - result.hr_end_recovery}
-      />
+      
+<div
+  className={
+    "h-9 flex items-center justify-center rounded border text-sm font-medium " +
+    (
+      (result.hr_end - result.hr_end_recovery) >= 20
+        ? "bg-emerald-500/15 text-emerald-700 border-emerald-300"
+        : (result.hr_end - result.hr_end_recovery) >= 10
+        ? "bg-amber-500/15 text-amber-700 border-amber-300"
+        : "bg-red-500/15 text-red-700 border-red-300"
+    )
+  }
+>
+  {result.hr_end - result.hr_end_recovery}
+</div>
     </div>
   )}
+</div>
+     
         {!isRecovery && (
           <>
             <div className="col-span-4 sm:col-span-2">
