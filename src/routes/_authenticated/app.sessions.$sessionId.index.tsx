@@ -174,6 +174,9 @@ function SessionDetail() {
         qc.invalidateQueries({ queryKey: ["session", sessionId] });
         qc.invalidateQueries({ queryKey: ["steps", sessionId] });
         qc.invalidateQueries({ queryKey: ["results", sessionId] });
+        qc.invalidateQueries({ queryKey: ["raw-points", sessionId] });
+        qc.invalidateQueries({ queryKey: ["zone-time", sessionId] });
+        qc.invalidateQueries({ queryKey: ["fatigue", sessionId] });
       } catch (err: any) {
         console.error("FIT upload error:", err);
         toast.error(err.message);
@@ -720,94 +723,99 @@ function StepBlock({
           <RepRow step={step} rep={1} result={results[0]} onSave={(p) => saveRep(1, 1, p)} />
         )}
         {isWork && <WorkFuelNote step={step} sessionId={session.id} />}
-{isWork && <LactateSummary results={results} />}
-{isWork && <StepFatiguePanel fatigue={fatigue} isLadder={step.is_ladder} reps={results.length} />}
+        {isWork && <LactateSummary results={results} />}
+        {isWork && <StepFatiguePanel fatigue={fatigue} isLadder={step.is_ladder} reps={results.length} />}
+        /* ✅ Recovery trend */
+        {isWork &&
+          results &&
+          results.length >= 3 &&
+          (() => {
+            const drops = results
+              .filter((r) => r.hr_end != null && r.hr_end_recovery != null)
+              .map((r) => r.hr_end - r.hr_end_recovery);
 
-/* ✅ Recovery trend */
-{isWork && results && results.length >= 3 && (() => {
-  const drops = results
-    .filter((r) => r.hr_end != null && r.hr_end_recovery != null)
-    .map((r) => r.hr_end - r.hr_end_recovery);
+            if (drops.length < 3) return null;
 
-  if (drops.length < 3) return null;
+            const first = drops[0];
+            const last = drops[drops.length - 1];
+            const change = last - first;
 
-  const first = drops[0];
-  const last = drops[drops.length - 1];
-  const change = last - first;
+            let label = "Stable";
+            let color = "text-muted-foreground";
 
-  let label = "Stable";
-  let color = "text-muted-foreground";
+            if (change <= -5) {
+              label = "Recovery worsening";
+              color = "text-red-600";
+            } else if (change >= 5) {
+              label = "Recovery improving";
+              color = "text-emerald-600";
+            }
 
-  if (change <= -5) {
-    label = "Recovery worsening";
-    color = "text-red-600";
-  } else if (change >= 5) {
-    label = "Recovery improving";
-    color = "text-emerald-600";
-  }
+            return (
+              <div className="mt-3 border-t pt-2 text-xs flex items-center justify-between">
+                <span className="text-muted-foreground">Recovery trend</span>
+                <span className={`font-medium ${color}`}>
+                  {label} ({change > 0 ? "+" : ""}
+                  {change})
+                </span>
+              </div>
+            );
+          })()}
+        /* ✅ Best / worst recovery */
+        {isWork &&
+          results &&
+          (() => {
+            const drops = results
+              .filter((r) => r.hr_end != null && r.hr_end_recovery != null)
+              .map((r) => r.hr_end - r.hr_end_recovery);
 
-  return (
-    <div className="mt-3 border-t pt-2 text-xs flex items-center justify-between">
-      <span className="text-muted-foreground">Recovery trend</span>
-      <span className={`font-medium ${color}`}>
-        {label} ({change > 0 ? "+" : ""}{change})
-      </span>
-    </div>
-  );
-})()}
+            if (drops.length < 2) return null;
 
-/* ✅ Best / worst recovery */
-{isWork && results && (() => {
-  const drops = results
-    .filter((r) => r.hr_end != null && r.hr_end_recovery != null)
-    .map((r) => r.hr_end - r.hr_end_recovery);
+            const best = Math.max(...drops);
+            const worst = Math.min(...drops);
 
-  if (drops.length < 2) return null;
+            return (
+              <div className="text-xs text-muted-foreground flex justify-between">
+                <span>Best: {best}</span>
+                <span>Worst: {worst}</span>
+              </div>
+            );
+          })()}
+        {isWork &&
+          results &&
+          results.length >= 3 &&
+          (() => {
+            const drops = results
+              .filter((r) => r.hr_end != null && r.hr_end_recovery != null)
+              .map((r) => r.hr_end - r.hr_end_recovery);
 
-  const best = Math.max(...drops);
-  const worst = Math.min(...drops);
+            if (drops.length < 3) return null;
 
-  return (
-    <div className="text-xs text-muted-foreground flex justify-between">
-      <span>Best: {best}</span>
-      <span>Worst: {worst}</span>
-    </div>
-  );
-})()}
-        
-  {isWork && results && results.length >= 3 && (() => {
-  const drops = results
-   .filter((r) => r.hr_end != null && r.hr_end_recovery != null)
-    .map((r) => r.hr_end - r.hr_end_recovery);
+            const first = drops[0];
+            const last = drops[drops.length - 1];
+            const change = last - first;
 
-  if (drops.length < 3) return null;
+            let label = "Stable";
+            let color = "text-muted-foreground";
 
-  const first = drops[0];
-  const last = drops[drops.length - 1];
-  const change = last - first;
+            if (change <= -5) {
+              label = "Recovery worsening";
+              color = "text-red-600";
+            } else if (change >= 5) {
+              label = "Recovery improving";
+              color = "text-emerald-600";
+            }
 
-  let label = "Stable";
-  let color = "text-muted-foreground";
-
-  if (change <= -5) {
-    label = "Recovery worsening";
-    color = "text-red-600";
-  } else if (change >= 5) {
-    label = "Recovery improving";
-    color = "text-emerald-600";
-  }
-
-  return (
-    <div className="mt-3 border-t pt-2 text-xs flex items-center justify-between">
-      <span className="text-muted-foreground">
-        Recovery trend
-      </span>
-      <span className={`font-medium ${color}`}>
-        {label} ({change > 0 ? "+" : ""}{change})
-      </span>
-    </div>
-  );
-})()}      
+            return (
+              <div className="mt-3 border-t pt-2 text-xs flex items-center justify-between">
+                <span className="text-muted-foreground">Recovery trend</span>
+                <span className={`font-medium ${color}`}>
+                  {label} ({change > 0 ? "+" : ""}
+                  {change})
+                </span>
+              </div>
+            );
+          })()}
       </CardContent>
     </Card>
   );
@@ -893,28 +901,26 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
             onBlur={commit}
           />
         </div>
-   
-  {/* ✅ NEW BLOCK */}
-  {!isRecovery && result?.hr_end && result?.hr_end_recovery && (
-    <div className="col-span-4 sm:col-span-2">
-      <Label className="text-xs">HR drop</Label>
-      
-<div
-  className={
-    "h-9 flex items-center justify-center rounded border text-sm font-medium " +
-    (
-      (result.hr_end - result.hr_end_recovery) >= 20
-        ? "bg-emerald-500/15 text-emerald-700 border-emerald-300"
-        : (result.hr_end - result.hr_end_recovery) >= 10
-        ? "bg-amber-500/15 text-amber-700 border-amber-300"
-        : "bg-red-500/15 text-red-700 border-red-300"
-    )
-  }
->
-  {result.hr_end - result.hr_end_recovery}
-</div>
-    </div>
-  )}
+
+        {/* ✅ NEW BLOCK */}
+        {!isRecovery && result?.hr_end && result?.hr_end_recovery && (
+          <div className="col-span-4 sm:col-span-2">
+            <Label className="text-xs">HR drop</Label>
+
+            <div
+              className={
+                "h-9 flex items-center justify-center rounded border text-sm font-medium " +
+                (result.hr_end - result.hr_end_recovery >= 20
+                  ? "bg-emerald-500/15 text-emerald-700 border-emerald-300"
+                  : result.hr_end - result.hr_end_recovery >= 10
+                    ? "bg-amber-500/15 text-amber-700 border-amber-300"
+                    : "bg-red-500/15 text-red-700 border-red-300")
+              }
+            >
+              {result.hr_end - result.hr_end_recovery}
+            </div>
+          </div>
+        )}
         {!isRecovery && (
           <>
             <div className="col-span-4 sm:col-span-2">
