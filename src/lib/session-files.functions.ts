@@ -926,7 +926,6 @@ if (!workStep) {
           }
         }
       }
-    }
 
     return {
       file: fileRow,
