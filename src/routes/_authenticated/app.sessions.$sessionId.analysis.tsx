@@ -1201,7 +1201,11 @@ function buildSplits(points: any[]): SplitRow[] {
       }
     }
     const avgPace =
-      distanceM > 0 && durationS > 0 ? (durationS / distanceM) * 1000 : paces.length ? paces.reduce((a, b) => a + b, 0) / paces.length : null;
+      distanceM > 0 && durationS > 0
+        ? (durationS / distanceM) * 1000
+        : paces.length
+          ? paces.reduce((a, b) => a + b, 0) / paces.length
+          : null;
     return {
       index: idx + 1,
       type,
@@ -1226,7 +1230,9 @@ function SplitsTable({ points }: { points: any[] }) {
     <Card>
       <CardHeader>
         <CardTitle>Workout splits</CardTitle>
-        <CardDescription>Chronological warmup / work / recovery / cooldown derived from the recorded trace.</CardDescription>
+        <CardDescription>
+          Chronological warmup / work / recovery / cooldown derived from the recorded trace.
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">
@@ -1252,8 +1258,12 @@ function SplitsTable({ points }: { points: any[] }) {
                 <tr key={r.index} className={`border-b last:border-b-0 ${SPLIT_ROW_CLASS[r.type] ?? ""}`}>
                   <td className="py-1 pr-2 tabular-nums">{r.index}</td>
                   <td className="py-1 pr-2 capitalize">{r.type}</td>
-                  <td className="py-1 pr-2 text-right tabular-nums">{r.distanceM > 0 ? metersFmt(r.distanceM) : "—"}</td>
-                  <td className="py-1 pr-2 text-right tabular-nums">{r.durationS > 0 ? secToClock(r.durationS) : "—"}</td>
+                  <td className="py-1 pr-2 text-right tabular-nums">
+                    {r.distanceM > 0 ? metersFmt(r.distanceM) : "—"}
+                  </td>
+                  <td className="py-1 pr-2 text-right tabular-nums">
+                    {r.durationS > 0 ? secToClock(r.durationS) : "—"}
+                  </td>
                   <td className="py-1 pr-2 text-right tabular-nums">{r.avgPace ? paceFmt(r.avgPace) : "—"}</td>
                   <td className="py-1 pr-2 text-right tabular-nums">{r.maxPace ? paceFmt(r.maxPace) : "—"}</td>
                   <td className="py-1 pr-2 text-right tabular-nums">{r.avgHr ?? "—"}</td>
