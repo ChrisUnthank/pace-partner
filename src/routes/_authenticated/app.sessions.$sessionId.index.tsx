@@ -818,8 +818,6 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
       />
     </div>
   )}
-</div>
-     
         {!isRecovery && (
           <>
             <div className="col-span-4 sm:col-span-2">
