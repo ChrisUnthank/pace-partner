@@ -1979,11 +1979,11 @@ export type Database = {
           recovery_between_reps_distance_m: number | null
           recovery_between_reps_mode: string | null
           recovery_between_reps_seconds: number | null
-          recovery_between_reps_target_kind: string
+          recovery_between_reps_target_kind: string | null
           recovery_between_sets_distance_m: number | null
           recovery_between_sets_mode: string | null
           recovery_between_sets_seconds: number | null
-          recovery_between_sets_target_kind: string
+          recovery_between_sets_target_kind: string | null
           recovery_mode: Database["public"]["Enums"]["recovery_mode"] | null
           recovery_target_distance_m: number | null
           recovery_target_kind:
@@ -2010,11 +2010,11 @@ export type Database = {
           recovery_between_reps_distance_m?: number | null
           recovery_between_reps_mode?: string | null
           recovery_between_reps_seconds?: number | null
-          recovery_between_reps_target_kind?: string
+          recovery_between_reps_target_kind?: string | null
           recovery_between_sets_distance_m?: number | null
           recovery_between_sets_mode?: string | null
           recovery_between_sets_seconds?: number | null
-          recovery_between_sets_target_kind?: string
+          recovery_between_sets_target_kind?: string | null
           recovery_mode?: Database["public"]["Enums"]["recovery_mode"] | null
           recovery_target_distance_m?: number | null
           recovery_target_kind?:
@@ -2041,11 +2041,11 @@ export type Database = {
           recovery_between_reps_distance_m?: number | null
           recovery_between_reps_mode?: string | null
           recovery_between_reps_seconds?: number | null
-          recovery_between_reps_target_kind?: string
+          recovery_between_reps_target_kind?: string | null
           recovery_between_sets_distance_m?: number | null
           recovery_between_sets_mode?: string | null
           recovery_between_sets_seconds?: number | null
-          recovery_between_sets_target_kind?: string
+          recovery_between_sets_target_kind?: string | null
           recovery_mode?: Database["public"]["Enums"]["recovery_mode"] | null
           recovery_target_distance_m?: number | null
           recovery_target_kind?:
