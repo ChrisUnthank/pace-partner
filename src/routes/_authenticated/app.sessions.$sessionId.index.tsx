@@ -67,34 +67,51 @@ function SessionDetail() {
         .select("*, athletes(name, profile_image_url)")
         .eq("id", sessionId)
         .single();
-      if (error) throw error;
+
+      if (error) {
+        console.error("session error:", error);
+        return null;
+      }
+
       return data;
     },
     retry: false,
   });
 
-  const { data: steps } = useQuery({
+  const { data: steps = [] } = useQuery({
     queryKey: ["steps", sessionId],
     queryFn: async () => {
       const { data, error } = await supabase.from("steps").select("*").eq("session_id", sessionId).order("step_order");
-      if (error) throw error;
-      return data;
+
+      if (error) {
+        console.error("steps error:", error);
+        return [];
+      }
+
+      return data ?? [];
     },
   });
 
   const stepIds = steps?.map((s) => s.id) ?? [];
-  const { data: results, isFetching: resultsLoading } = useQuery({
+  const { data: results = [], isFetching: resultsLoading } = useQuery({
     queryKey: ["results", sessionId, stepIds.join(",")],
     enabled: stepIds.length > 0,
     queryFn: async () => {
+      if (!stepIds.length) return [];
+
       const { data, error } = await supabase
         .from("interval_results")
         .select("*")
         .in("step_id", stepIds)
         .order("set_number")
         .order("rep_number");
-      if (error) throw error;
-      return data;
+
+      if (error) {
+        console.error("results error:", error);
+        return [];
+      }
+
+      return data ?? [];
     },
   });
 
