@@ -1,12 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-
-/** Map FIT sport field to app activity_type enum */
-function mapFitSport(sport?: string): string {
-  if (!sport) return "run";
-  const s = sport.toLowerCase();
-
-  if (s.includes("cycling") || s.includes("bike") || s.includes("ride")) return "ride";
+import { require";import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
   if (s.includes("swim")) return "swim";
   if (s.includes("training") || s.includes("gym") || s.includes("strength")) return "gym";
   if (s.includes("track")) return "track";
@@ -16,13 +9,8 @@ function mapFitSport(sport?: string): string {
 
 function normalizeCadence(cad?: number): number | null {
   if (!cad || cad <= 0) return null;
-
-  // filter obvious garbage
   if (cad > 260) return null;
-
-  // convert strides/min to steps/min if needed
   if (cad < 120) return cad * 2;
-
   return cad;
 }
 
@@ -40,9 +28,13 @@ function safeParseJson(value: any) {
 
 function stepIsLadder(step: any): boolean {
   const meta = safeParseJson(step?.metadata);
-
   return Boolean(
-    step?.is_ladder ?? step?.ladder ?? step?.variable_reps ?? meta?.is_ladder ?? meta?.ladder ?? meta?.variable_reps,
+    step?.is_ladder ??
+      step?.ladder ??
+      step?.variable_reps ??
+      meta?.is_ladder ??
+      meta?.ladder ??
+      meta?.variable_reps,
   );
 }
 
@@ -145,7 +137,9 @@ function parseGPX(xml: string): ParsedFile {
       const dLng = ((p.lng - prev.lng) * Math.PI) / 180;
       const a =
         Math.sin(dLat / 2) ** 2 +
-        Math.cos((prev.lat * Math.PI) / 180) * Math.cos((p.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+        Math.cos((prev.lat * Math.PI) / 180) *
+          Math.cos((p.lat * Math.PI) / 180) *
+          Math.sin(dLng / 2) ** 2;
       totalDist += 2 * R * Math.asin(Math.sqrt(a));
     }
 
@@ -159,7 +153,9 @@ function parseGPX(xml: string): ParsedFile {
       const dLng = ((p.lng - prev.lng) * Math.PI) / 180;
       const a =
         Math.sin(dLat / 2) ** 2 +
-        Math.cos((prev.lat * Math.PI) / 180) * Math.cos((p.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+        Math.cos((prev.lat * Math.PI) / 180) *
+          Math.cos((p.lat * Math.PI) / 180) *
+          Math.sin(dLng / 2) ** 2;
       const d = 2 * R * Math.asin(Math.sqrt(a));
       const dt = (new Date(p.time).getTime() - new Date(prev.time).getTime()) / 1000;
       if (d > 1 && dt > 0) pace = (dt / d) * 1000;
@@ -282,12 +278,6 @@ async function parseFIT(buffer: ArrayBuffer): Promise<ParsedFile> {
   });
 }
 
-/**
- * Plan-aware and ladder-aware lap classification.
- * - If a ladder work step exists, do not force one dominant distance.
- * - If a planned structure exists, trust that non-rest moving laps are work.
- * - Otherwise fall back to dominant repeating distance clustering.
- */
 function classifyLaps(laps: ParsedLap[], plannedSteps: any[] = []): ParsedLap[] {
   if (!Array.isArray(laps) || laps.length === 0) return [];
 
@@ -298,9 +288,8 @@ function classifyLaps(laps: ParsedLap[], plannedSteps: any[] = []): ParsedLap[] 
   const hasPlannedWork = workSteps.length > 0;
   const hasLadderPlan = workSteps.some(stepIsLadder);
 
-  // If planned structure exists, keep meaningful non-rest laps as work and preserve order.
   if (hasPlannedWork) {
-    let classified = laps.map((lap) => {
+    let classified: ParsedLap[] = laps.map((lap) => {
       if (lap.intensity === "rest") return { ...lap, kind: "recovery" as const };
 
       const isWork = lap.total_distance >= 20 && lap.total_elapsed_time >= 6;
@@ -321,13 +310,10 @@ function classifyLaps(laps: ParsedLap[], plannedSteps: any[] = []): ParsedLap[] 
       });
     }
 
-    // ladders preserve sequence, no dominant-distance clustering
     if (hasLadderPlan) return classified;
-
     return classified;
   }
 
-  // Fallback: no planned structure, use dominant repeating work-distance cluster
   if (laps.length < 4) {
     return laps.map((l) => ({ ...l, kind: "work" as const }));
   }
@@ -353,13 +339,15 @@ function classifyLaps(laps: ParsedLap[], plannedSteps: any[] = []): ParsedLap[] 
 
   const tolerance = Math.max(15, dominantDistance * 0.25);
 
-  let classified = laps.map((lap) => {
+  let classified: ParsedLap[] = laps.map((lap) => {
     if (lap.intensity === "rest") {
       return { ...lap, kind: "recovery" as const };
     }
 
     if (dominantDistance > 0) {
-      const isWork = Math.abs(lap.total_distance - dominantDistance) <= tolerance && lap.total_elapsed_time >= 8;
+      const isWork =
+        Math.abs(lap.total_distance - dominantDistance) <= tolerance &&
+        lap.total_elapsed_time >= 8;
       return { ...lap, kind: isWork ? ("work" as const) : ("recovery" as const) };
     }
 
@@ -383,10 +371,6 @@ function classifyLaps(laps: ParsedLap[], plannedSteps: any[] = []): ParsedLap[] 
   return classified;
 }
 
-/**
- * Build work+recovery pairs in order.
- * Each work lap optionally carries the next recovery lap until the next work lap.
- */
 function buildWorkRecoveryPairs(classifiedLaps: ParsedLap[]): WorkRecoveryPair[] {
   const pairs: WorkRecoveryPair[] = [];
 
@@ -416,7 +400,6 @@ function buildWorkRecoveryPairs(classifiedLaps: ParsedLap[]): WorkRecoveryPair[]
 function splitWorkPairsIntoBlocks(pairs: WorkRecoveryPair[], plannedSteps: any[]) {
   const recoverySteps = getPlannedBlockRecoverySteps(plannedSteps);
 
-  // No explicit between-block recovery step -> one block
   if (recoverySteps.length === 0) {
     return [pairs];
   }
@@ -431,7 +414,8 @@ function splitWorkPairsIntoBlocks(pairs: WorkRecoveryPair[], plannedSteps: any[]
     .filter((x) => x > 0)
     .sort((a, b) => a - b);
 
-  const medianRecovery = recoveryDurations.length > 0 ? recoveryDurations[Math.floor(recoveryDurations.length / 2)] : 0;
+  const medianRecovery =
+    recoveryDurations.length > 0 ? recoveryDurations[Math.floor(recoveryDurations.length / 2)] : 0;
 
   const longRecoveryThreshold =
     plannedBlockRecoverySeconds > 0
@@ -475,12 +459,6 @@ function inferRecoveryMode(recoveryLap: ParsedLap | null): string | null {
   return "jog";
 }
 
-/**
- * Build interval rows aligned to planned step structure:
- * - respects set_count and reps
- * - ladders preserve sequence
- * - adds recovery metrics from following recovery lap
- */
 function buildIntervalRowsFromPlan(workBlocks: WorkRecoveryPair[][], plannedSteps: any[]) {
   const workSteps = getPlannedWorkSteps(plannedSteps);
   const rows: any[] = [];
@@ -512,15 +490,6 @@ function buildIntervalRowsFromPlan(workBlocks: WorkRecoveryPair[][], plannedStep
       const lap = pair.work;
       const recovery = pair.recovery;
 
-      const recovery_time = recovery?.total_elapsed_time ?? null;
-      const recovery_distance = recovery?.total_distance ?? null;
-      const recovery_hr_end = recovery?.avg_heart_rate ?? null;
-      const recovery_hr_drop =
-        lap.avg_heart_rate != null && recovery?.avg_heart_rate != null
-          ? Number(lap.avg_heart_rate) - Number(recovery.avg_heart_rate)
-          : null;
-      const recovery_mode = workStep.recovery_between_reps_mode ?? inferRecoveryMode(recovery) ?? null;
-
       rows.push({
         step_id: workStep.id,
         set_number: setNumber,
@@ -533,12 +502,9 @@ function buildIntervalRowsFromPlan(workBlocks: WorkRecoveryPair[][], plannedStep
             : null,
         hr_avg: lap.avg_heart_rate ?? null,
         hr_max: lap.max_heart_rate ?? null,
+        hr_end: lap.max_heart_rate ?? lap.avg_heart_rate ?? null,
+        hr_end_recovery: recovery?.avg_heart_rate ?? null,
         cadence: lap.avg_cadence ?? null,
-        recovery_time_seconds: recovery_time,
-        recovery_distance_m: recovery_distance,
-        recovery_hr_end: recovery_hr_end,
-        recovery_hr_drop: recovery_hr_drop,
-        recovery_mode: recovery_mode,
       });
     }
   }
@@ -546,7 +512,10 @@ function buildIntervalRowsFromPlan(workBlocks: WorkRecoveryPair[][], plannedStep
   return rows;
 }
 
-function findLapKindForPoint(timestamp: string | null, laps: ParsedLap[]): "warmup" | "work" | "recovery" | "cooldown" {
+function findLapKindForPoint(
+  timestamp: string | null,
+  laps: ParsedLap[],
+): "warmup" | "work" | "recovery" | "cooldown" {
   if (!timestamp) return "work";
   const t = new Date(timestamp).getTime();
   const lap = laps.find((l) => l.startMs && l.endMs && t >= l.startMs && t < l.endMs);
@@ -609,7 +578,6 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
 
       sess = existing;
     } else {
-      // NEW: attach to an existing same-day fit_import session if one already exists
       const { data: existingSameDay } = await sb
         .from("sessions")
         .select("*")
@@ -650,12 +618,14 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
       }
     }
 
-    // Pull any existing planned/manual step structure up-front
-    const { data: plannedSteps } = await sb.from("steps").select("*").eq("session_id", sess.id).order("step_order");
+    const { data: plannedSteps } = await sb
+      .from("steps")
+      .select("*")
+      .eq("session_id", sess.id)
+      .order("step_order");
 
     const safePlannedSteps = plannedSteps ?? [];
 
-    // Duplicate guard using existing columns
     const { data: duplicate } = await sb
       .from("session_files")
       .select("id")
@@ -735,15 +705,20 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
         ? workLaps.reduce((sum, lap) => sum + Number(lap.total_elapsed_time ?? 0), 0)
         : parsed.totalTimeS;
 
-      // Recompute session totals from all attached files
       const { data: allFiles } = await sb
         .from("session_files")
         .select("total_distance_m, total_time_s")
         .eq("session_id", sess.id);
 
-      const sessionTotalDistance = (allFiles ?? []).reduce((sum, f: any) => sum + Number(f.total_distance_m ?? 0), 0);
+      const sessionTotalDistance = (allFiles ?? []).reduce(
+        (sum, f: any) => sum + Number(f.total_distance_m ?? 0),
+        0,
+      );
 
-      const sessionTotalTime = (allFiles ?? []).reduce((sum, f: any) => sum + Number(f.total_time_s ?? 0), 0);
+      const sessionTotalTime = (allFiles ?? []).reduce(
+        (sum, f: any) => sum + Number(f.total_time_s ?? 0),
+        0,
+      );
 
       await sb
         .from("sessions")
@@ -764,7 +739,6 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
         } as any)
         .eq("id", sess.id);
 
-      // If a manual plan already exists, use it as the source of truth.
       const hasManualPlan = Boolean(sess.is_planned) && safePlannedSteps.length > 0;
       const hasLadderPlan = getPlannedWorkSteps(safePlannedSteps).some(stepIsLadder);
 
@@ -782,7 +756,6 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
           await sb.from("interval_results").insert(intervalRows as any);
         }
 
-        // Ladder sessions should suppress fatigue until per-rep targets ship
         if (hasLadderPlan) {
           await sb
             .from("sessions")
@@ -795,9 +768,7 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
         }
       }
 
-      // If there is no manual plan, synthesize upload-only structure.
       if (!hasManualPlan) {
-        // Clear previously auto-generated imported steps/results so re-parsing replaces stale mappings.
         const { data: existingSteps } = await sb
           .from("steps")
           .select("id")
@@ -839,7 +810,11 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
           reps: isIntervals ? workLaps.length : 1,
           set_count: 1,
           target_kind:
-            isIntervals && workLaps.length > 0 ? "distance" : parsed.totalDistanceM > 0 ? "distance" : "time",
+            isIntervals && workLaps.length > 0
+              ? "distance"
+              : parsed.totalDistanceM > 0
+                ? "distance"
+                : "time",
           target_distance_m:
             isIntervals && workLaps.length > 0
               ? Math.round(workLaps.reduce((sum, l) => sum + Number(l.total_distance ?? 0), 0) / workLaps.length)
@@ -880,14 +855,6 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
                 const lap = pair.work;
                 const recovery = pair.recovery;
 
-                const recovery_time = recovery?.total_elapsed_time ?? null;
-                const recovery_distance = recovery?.total_distance ?? null;
-                const recovery_hr_end = recovery?.avg_heart_rate ?? null;
-                const recovery_hr_drop =
-                  lap.avg_heart_rate != null && recovery?.avg_heart_rate != null
-                    ? Number(lap.avg_heart_rate) - Number(recovery.avg_heart_rate)
-                    : null;
-
                 return {
                   step_id: workStep.id,
                   set_number: 1,
@@ -900,12 +867,9 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
                       : null,
                   hr_avg: lap.avg_heart_rate ?? null,
                   hr_max: lap.max_heart_rate ?? null,
+                  hr_end: lap.max_heart_rate ?? lap.avg_heart_rate ?? null,
+                  hr_end_recovery: recovery?.avg_heart_rate ?? null,
                   cadence: lap.avg_cadence ?? null,
-                  recovery_time_seconds: recovery_time,
-                  recovery_distance_m: recovery_distance,
-                  recovery_hr_end: recovery_hr_end,
-                  recovery_hr_drop: recovery_hr_drop,
-                  recovery_mode: inferRecoveryMode(recovery),
                 };
               });
 
@@ -925,12 +889,9 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
                 actual_pace_sec_per_km: actualPace,
                 hr_avg: avgHr,
                 hr_max: maxHr,
+                hr_end: maxHr ?? avgHr,
+                hr_end_recovery: null,
                 cadence: avgCad,
-                recovery_time_seconds: null,
-                recovery_distance_m: null,
-                recovery_hr_end: null,
-                recovery_hr_drop: null,
-                recovery_mode: null,
               } as any);
             }
           }
@@ -1042,7 +1003,6 @@ export const deleteSession = createServerFn({ method: "POST" })
     const { sessionId } = data;
 
     const { data: steps } = await sb.from("steps").select("id").eq("session_id", sessionId);
-
     const stepIds = (steps ?? []).map((s: any) => s.id);
 
     if (stepIds.length > 0) {
@@ -1055,7 +1015,6 @@ export const deleteSession = createServerFn({ method: "POST" })
     await sb.from("session_zone_time").delete().eq("session_id", sessionId);
 
     const { data: files } = await sb.from("session_files").select("storage_path").eq("session_id", sessionId);
-
     const paths = (files ?? []).map((f: any) => f.storage_path).filter(Boolean);
 
     if (paths.length > 0) {
@@ -1066,7 +1025,6 @@ export const deleteSession = createServerFn({ method: "POST" })
     await sb.from("session_insights").delete().eq("session_id", sessionId);
 
     const { error } = await sb.from("sessions").delete().eq("id", sessionId);
-
     if (error) throw error;
 
     return { ok: true };
@@ -1139,3 +1097,9 @@ export const sendReminder = createServerFn({ method: "POST" })
     if (error) throw error;
     return row;
   });
+
+/** Map FIT sport field to app activity_type enum */
+function mapFitSport(sport?: string): string {
+  if (!sport) return "run";
+  const s = sport.toLowerCase();
+
