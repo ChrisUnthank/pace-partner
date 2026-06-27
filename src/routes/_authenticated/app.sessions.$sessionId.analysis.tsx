@@ -928,15 +928,9 @@ function WorkSegmentPanel({
   results: any[];
   rawPoints: any[];
 }) {
-  const repSplits = buildSplitsFromResults(results,ads = repSplits.map((r) => r.avgCad).filter((x: any) => x);  const repSplits = buildSplitsFromResults(results, steps, rawPoints)
-
-  const avgCad = cads.length
-    ? Math.round(cads.reduce((a: number, b: number) => a + Number(b), 0) / cads.length)
-    : null;
-
-  return (
-``
-    .filter((r) => r.type === "work" || r.type === "strides");
+  const repSplits = buildSplitsFromResults(results, steps, rawPoints).filter(
+    (r) => r.type === "work" || r.type === "strides",
+  );
 
   if (repSplits.length === 0) return null;
 
@@ -956,6 +950,10 @@ function WorkSegmentPanel({
   const maxHr =
     repSplits.reduce((m, r) => Math.max(m, Number(r.maxHr ?? 0)), 0) || null;
 
+  const cads = repSplits.map((r) => r.avgCad).filter((x: any) => typeof x === "number");
+  const avgCad = cads.length
+    ? Math.round(cads.reduce((a: number, b: number) => a + Number(b), 0) / cads.length)
+    : null;
 
   return (
     <Card>
@@ -986,17 +984,24 @@ function WorkSegmentPanel({
                   <th className="text-right py-1 pr-2">Dist</th>
                   <th className="text-right py-1 pr-2">Pace</th>
                   <th className="text-right py-1 pr-2">HR avg</th>
-                  <th className="text-right py-1 pr-2">HR end</th>
-                  <th className="text-right py-1 pr-2">HR rec</th>
-                  <th className="text-right py-1 pr-2">Drop</th>
+                  <th className="text-right py-1 pr-2">HR max</th>
                   <th className="text-right py-1 pr-2">Cad</th>
-                  <th className="text-right py-1">La</th>
                 </tr>
               </thead>
 
               <tbody>
-                <tbody>
-  const workStepIds = new Set(steps.filter((s) => s.kind === "work").map((s) => s.id));
+                {repSplits.map((r, i) => (
+                  <tr key={i} className="border-b last:border-0">
+                    <td className="py-1 pr-2">{r.repLabel ?? `#${i + 1}`}</td>
+                    <td className="py-1 pr-2 text-right">{secToClock(r.durationS ?? 0)}</td>
+                    <td className="py-1 pr-2 text-right">{metersFmt(r.distanceM ?? 0)}</td>
+                    <td className="py-1 pr-2 text-right">{r.avgPace ? paceFmt(r.avgPace) : "—"}</td>
+                    <td className="py-1 pr-2 text-right">{r.avgHr ?? "—"}</td>
+                    <td className="py-1 pr-2 text-right">{r.maxHr ?? "—"}</td>
+                    <td className="py-1 pr-2 text-right">{r.avgCad ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
             </table>
           </div>
         </div>
