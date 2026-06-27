@@ -932,13 +932,9 @@ function WorkSegmentPanel({ steps, results, rawPoints }: { steps: any[]; results
 
   const maxHr = repSplits.reduce((m, r) => Math.max(m, Number(r.maxHr ?? 0)), 0) || null;
 
-  const cads = repSplits
-    .map((r) => r.avgCad)
-    .filter((x): x is number => typeof x === "number");
+  const cads = repSplits.map((r) => r.avgCad).filter((x: any) => x);
 
-  const avgCad = cads.length
-    ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length)
-    : null;
+  const avgCad = cads.length ? Math.round(cads.reduce((a: number, b: number) => a + Number(b), 0) / cads.length) : null;
 
   return (
     <Card>
@@ -1465,98 +1461,7 @@ function UnifiedSessionTable({
     filteredRows.reduce((m, r) => Math.max(m, Number(r.maxHr ?? 0)), 0) || null;
 
   const cads = filteredRows
-    .map((r) => r.avgCad)
-    .filter((x: any): x is number => typeof x === "number");
-
-  const avgCad = cads.length
-    ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length)
-    : null;
-
-  const vos = filteredRows
-    .map((r) => r.vo)
-    .filter((x: any): x is number => typeof x === "number");
-
-  const avgVo = vos.length
-    ? Number((vos.reduce((a, b) => a + b, 0) / vos.length).toFixed(1))
-    : null;
-
-  const gcts = filteredRows
-    .map((r) => r.gct)
-    .filter((x: any): x is number => typeof x === "number");
-
-  const avgGct = gcts.length
-    ? Math.round(gcts.reduce((a, b) => a + b, 0) / gcts.length)
-    : null;
-
-  const strides = filteredRows
-    .map((r) => r.strideLength)
-    .filter((x: any): x is number => typeof x === "number");
-
-  const avgStrideLength = strides.length
-    ? Number((strides.reduce((a, b) => a + b, 0) / strides.length).toFixed(2))
-    : null;
-
-  if (rows.length === 0) return null;
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Session segments</CardTitle>
-        <CardDescription>
-          Unified rep-aligned session table with segment filters and dynamic summary.
-        </CardDescription>
-      </CardHeader>
-
-      <CardContent className="space-y-4">
-        {/* Segment filter buttons */}
-        <div className="flex flex-wrap gap-1">
-          {SCOPE_OPTIONS.map((k) => {
-            const hasData = k === "full" || rows.some((r) => r.type === k);
-            return (
-              <Button
-                key={k}
-                size="sm"
-                variant={segmentFilter === k ? "default" : "outline"}
-                disabled={!hasData}
-                onClick={() => hasData && setSegmentFilter(k)}
-                title={!hasData ? "No data for this segment" : ""}
-              >
-                {SCOPE_LABELS[k]}
-              </Button>
-            );
-          })}
-        </div>
-
-        {/* Basic / Advanced toggle */}
-        <div className="flex gap-1">
-          <Button
-            size="sm"
-            variant={detailMode === "basic" ? "default" : "outline"}
-            onClick={() => setDetailMode("basic")}
-          >
-            Basic
-          </Button>
-          <Button
-            size="sm"
-            variant={detailMode === "advanced" ? "default" : "outline"}
-            onClick={() => setDetailMode("advanced")}
-          >
-            Advanced
-          </Button>
-        </div>
-
-        {/* Dynamic summary */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
-          <Stat label="Distance" value={metersFmt(totalDist)} />
-          <Stat label="Duration" value={secToClock(totalTime)} />
-          <Stat label="Avg pace" value={avgPace ? `${paceFmt(avgPace)} /km` : "—"} />
-          <Stat label="Avg HR" value={avgHr ? `${avgHr} bpm` : "—"} />
-          <Stat label="Max HR" value={maxHr ? `${maxHr} bpm` : "—"} />
-          <Stat label="Avg cadence" value={avgCad ? `${avgCad} spm` : "—"} />
-          {detailMode === "advanced" && (
-            <>
-              <Stat label="Avg VO" value={avgVo != null ? `${avgVo} cm` : "—"} />
-              <Stat label="Avg GCT" value={avgGct != null ? `${avgGct} ms` : "—"} />
+   " value={avgGct != null ? `${avgGct} ms` : "—"} />    .map((r) => r.avgCad)
               <Stat
                 label="Stride length"
                 value={avgStrideLength != null ? `${avgStrideLength} m` : "—"}
@@ -1690,6 +1595,98 @@ function UnifiedSessionTable({
     </Card>
   );
 }
+    .filter((x: any): x is number => typeof x === "number");
+
+  const avgCad = cads.length
+    ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length)
+    : null;
+
+  const vos = filteredRows
+    .map((r) => r.vo)
+    .filter((x: any): x is number => typeof x === "number");
+
+  const avgVo = vos.length
+    ? Number((vos.reduce((a, b) => a + b, 0) / vos.length).toFixed(1))
+    : null;
+
+  const gcts = filteredRows
+    .map((r) => r.gct)
+    .filter((x: any): x is number => typeof x === "number");
+
+  const avgGct = gcts.length
+    ? Math.round(gcts.reduce((a, b) => a + b, 0) / gcts.length)
+    : null;
+
+  const strides = filteredRows
+    .map((r) => r.strideLength)
+    .filter((x: any): x is number => typeof x === "number");
+
+  const avgStrideLength = strides.length
+    ? Number((strides.reduce((a, b) => a + b, 0) / strides.length).toFixed(2))
+    : null;
+
+  if (rows.length === 0) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Session segments</CardTitle>
+        <CardDescription>
+          Unified rep-aligned session table with segment filters and dynamic summary.
+        </CardDescription>
+      </CardHeader>
+
+      <CardContent className="space-y-4">
+        {/* Segment filter buttons */}
+        <div className="flex flex-wrap gap-1">
+          {SCOPE_OPTIONS.map((k) => {
+            const hasData = k === "full" || rows.some((r) => r.type === k);
+
+            return (
+              <Button
+                key={k}
+                size="sm"
+                variant={segmentFilter === k ? "default" : "outline"}
+                disabled={!hasData}
+                onClick={() => hasData && setSegmentFilter(k)}
+                title={!hasData ? "No data for this segment" : ""}
+              >
+                {SCOPE_LABELS[k]}
+              </Button>
+            );
+          })}
+        </div>
+
+        {/* Basic / Advanced toggle */}
+        <div className="flex gap-1">
+          <Button
+            size="sm"
+            variant={detailMode === "basic" ? "default" : "outline"}
+            onClick={() => setDetailMode("basic")}
+          >
+            Basic
+          </Button>
+          <Button
+            size="sm"
+            variant={detailMode === "advanced" ? "default" : "outline"}
+            onClick={() => setDetailMode("advanced")}
+          >
+            Advanced
+          </Button>
+        </div>
+
+        {/* Dynamic summary */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+          <Stat label="Distance" value={metersFmt(totalDist)} />
+          <Stat label="Duration" value={secToClock(totalTime)} />
+          <Stat label="Avg pace" value={avgPace ? `${paceFmt(avgPace)} /km` : "—"} />
+          <Stat label="Avg HR" value={avgHr ? `${avgHr} bpm` : "—"} />
+          <Stat label="Max HR" value={maxHr ? `${maxHr} bpm` : "—"} />
+          <Stat label="Avg cadence" value={avgCad ? `${avgCad} spm` : "—"} />
+          {detailMode === "advanced" && (
+            <>
+              <Stat label="Avg VO" value={avgVo != null ? `${avgVo} cm` : "—"} />
+
 
 type TraceGroup = {
   type: "warmup" | "work" | "recovery" | "cooldown" | "strides";
@@ -1824,31 +1821,46 @@ function trimTraceGroupToDistance(group: any[], targetDistanceM: number) {
 
   return computeMetricsFromTraceSlice(slice);
 }
-
 type SplitRow = {
   index: number;
   type: "warmup" | "work" | "recovery" | "cooldown" | "strides";
-  repLabel: string | null;
-  adjusted: boolean;
-  distanceM: number;
+
   durationS: number;
+  distanceM: number;
+
   avgPace: number | null;
   maxPace: number | null;
+
   avgHr: number | null;
   maxHr: number | null;
+
+  avgCad: number | null;
+  maxCad: number | null;
+
+  elevGain: number | null;
+  elevLoss: number | null;
+
+  repLabel?: string | null;
+  adjusted?: boolean;
+
+  // ✅ scoring
+  score?: number | null;
+  scoreLabel?: string | null;
+  scoreTone?: "excellent" | "good" | "warn" | "bad" | null;
+  paceDeltaPct?: number | null;
+
+  // ✅ advanced metrics
   hrEnd?: number | null;
   hrRecovery?: number | null;
   hrDrop?: number | null;
-  avgCad: number | null;
-  maxCad: number | null;
+
   vo?: number | null;
   gct?: number | null;
-  strideLength?: number | null;
-  lactate?: number | null;
-  elevGain: number | null;
-  elevLoss: number | null;
-};
 
+  lactate?: number | null;
+
+  strideLength?: number | null;
+};
 function buildSplitsFromResults(results: any[], steps: any[], rawPoints: any[]): SplitRow[] {
   if (!Array.isArray(results) || results.length === 0) return [];
 
