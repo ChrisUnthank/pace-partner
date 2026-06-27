@@ -1560,7 +1560,7 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
   {r.paceDeltaPct != null && (
     <span className="text-muted-foreground ml-1">
   ({r.paceDeltaPct > 0 ? "+" : ""}
-   {Math.abs(Number(r.paceDeltaPct).toFixed(1))}%)
+   {Math.abs(Number(r.paceDeltaPct)).toFixed(1)}%)
   </span>
   )}
 </td>
