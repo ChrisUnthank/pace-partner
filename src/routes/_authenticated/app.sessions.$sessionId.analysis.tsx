@@ -720,17 +720,15 @@ function SessionAnalysis() {
           </CardContent>
         </Card>
 
-        <WorkSegmentPanel steps={safeSteps} results={safeResults} rawPoints={safeRawPoints} />
-
-        <SplitsTable
-          points={
-            Array.isArray(rawPoints)
-              ? rawPoints.filter((p: any) => p && (p.elapsed_s != null || p.distance_m != null))
-              : []
-          }
-          results={safeResults}
-          steps={safeSteps}
-        />
+        <UnifiedSessionTable
+  points={
+    Array.isArray(rawPoints)
+      ? rawPoints.filter((p: any) => p && (p.elapsed_s != null || p.distance_m != null))
+      : []
+  }
+  results={safeResults}
+  steps={safeSteps}
+/>
 
         {showContinuousFatigueCard && (
           <Card>
@@ -934,11 +932,9 @@ function WorkSegmentPanel({ steps, results, rawPoints }: { steps: any[]; results
 
   const maxHr = repSplits.reduce((m, r) => Math.max(m, Number(r.maxHr ?? 0)), 0) || null;
 
-  const cads = repSplits
-    .map((r) => r.avgCad)
-    .filter((x): x is number => typeof x === "number");
+  const cads = repSplits.map((r) => r.avgCad).filter((x: any) => x);
 
-  const avgCad = cads.length ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length) : null;
+  const avgCad = cads.length ? Math.round(cads.reduce((a: number, b: number) => a + Number(b), 0) / cads.length) : null;
 
   return (
     <Card>
@@ -1429,22 +1425,268 @@ function buildSamples(
   };
 }
 
-type SplitRow = {
-  index: number;
-  type: "warmup" | "work" | "recovery" | "cooldown" | "strides";
-  durationS: number;
-  distanceM: number;
-  avgPace: number | null;
-  maxPace: number | null;
-  avgHr: number | null;
-  maxHr: number | null;
-  avgCad: number | null;
-  maxCad: number | null;
-  elevGain: number | null;
-  elevLoss: number | null;
-  repLabel?: string | null;
-  adjusted?: boolean;
-};
+function UnifiedSessionTable({
+  points,
+  results,
+  steps,
+}: {
+  points: any[];
+  results: any[];
+  steps: any[];
+}) {
+  const [segmentFilter, setSegmentFilter] = useState<ScopeKey>("full");
+  const [detailMode, setDetailMode] = useState<"basic" | "advanced">("basic");
+
+  const rows = useMemo(() => buildSplits(points, results, steps), [points, results, steps]);
+
+  const filteredRows = useMemo(() => {
+    if (segmentFilter === "full") return rows;
+    return rows.filter((r) => r.type === segmentFilter);
+  }, [rows, segmentFilter]);
+
+  const totalTime = filteredRows.reduce((a, r) => a + (r.durationS ?? 0), 0);
+  const totalDist = filteredRows.reduce((a, r) => a + (r.distanceM ?? 0), 0);
+
+  const avgPace = totalDist > 0 ? (totalTime / totalDist) * 1000 : null;
+
+  const hrs = filteredRows
+    .map((r) => r.avgHr)
+    .filter((x: any): x is number => typeof x === "number");
+
+  const avgHr = hrs.length
+    ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length)
+    : null;
+
+  const maxHr =
+    filteredRows.reduce((m, r) => Math.max(m, Number(r.maxHr ?? 0)), 0) || null;
+
+  const cads = filteredRows
+   " value={avgGct != null ? `${avgGct} ms` : "—"} />    .map((r) => r.avgCad)
+              <Stat
+                label="Stride length"
+                value={avgStrideLength != null ? `${avgStrideLength} m` : "—"}
+              />
+            </>
+          )}
+        </div>
+
+        {/* Unified table */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs border-separate border-spacing-0">
+            <thead className="text-muted-foreground">
+              <tr className="border-b">
+                <th className="text-left py-1 pr-2">#</th>
+                <th className="text-left py-1 pr-2">Type</th>
+                <th className="text-left py-1 pr-2">Label</th>
+                <th className="text-right py-1 pr-2">Dist</th>
+                <th className="text-right py-1 pr-2">Time</th>
+                <th className="text-right py-1 pr-2">Avg pace</th>
+                <th className="text-right py-1 pr-2">Max pace</th>
+                <th className="text-right py-1 pr-2">Avg HR</th>
+                <th className="text-right py-1 pr-2">Max HR</th>
+
+                {detailMode === "advanced" && (
+                  <>
+                    <th className="text-right py-1 pr-2">HR end</th>
+                    <th className="text-right py-1 pr-2">HR rec</th>
+                    <th className="text-right py-1 pr-2">Drop</th>
+                  </>
+                )}
+
+                <th className="text-right py-1 pr-2">Avg cad</th>
+                <th className="text-right py-1 pr-2">Max cad</th>
+
+                {detailMode === "advanced" && (
+                  <>
+                    <th className="text-right py-1 pr-2">VO</th>
+                    <th className="text-right py-1 pr-2">GCT</th>
+                    <th className="text-right py-1 pr-2">Stride</th>
+                    <th className="text-right py-1 pr-2">Lactate</th>
+                  </>
+                )}
+
+                <th className="text-right py-1 pr-2">↑</th>
+                <th className="text-right py-1">↓</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {filteredRows.map((r) => (
+                <tr
+                  key={`${r.index}-${r.type}-${r.repLabel ?? ""}`}
+                  className="border-b last:border-b-0"
+                  style={{
+                    backgroundColor: STEP_COLORS[r.type] ?? "transparent",
+                    color: "#e5e7eb",
+                    borderLeft: `3px solid ${STEP_STROKE[r.type] ?? "#444"}`,
+                  }}
+                >
+                  <td className="py-1 pr-2 tabular-nums">{r.index}</td>
+                  <td className="py-1 pr-2 capitalize">{r.type}</td>
+                  <td className="py-1 pr-2">
+                    {r.repLabel ?? "—"}
+                    {r.adjusted ? " *" : ""}
+                  </td>
+
+                  <td className="py-1 pr-2 text-right tabular-nums">
+                    {r.distanceM > 0 ? metersFmt(r.distanceM) : "—"}
+                  </td>
+
+                  <td className="py-1 pr-2 text-right tabular-nums">
+                    {r.durationS > 0 ? secToClock(r.durationS) : "—"}
+                  </td>
+
+                  <td className="py-1 pr-2 text-right tabular-nums">
+                    {r.avgPace ? paceFmt(r.avgPace) : "—"}
+                  </td>
+
+                  <td className="py-1 pr-2 text-right tabular-nums">
+                    {r.maxPace ? paceFmt(r.maxPace) : "—"}
+                  </td>
+
+                  <td className="py-1 pr-2 text-right tabular-nums">{r.avgHr ?? "—"}</td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{r.maxHr ?? "—"}</td>
+
+                  {detailMode === "advanced" && (
+                    <>
+                      <td className="py-1 pr-2 text-right tabular-nums">{r.hrEnd ?? "—"}</td>
+                      <td className="py-1 pr-2 text-right tabular-nums">{r.hrRecovery ?? "—"}</td>
+                      <td className="py-1 pr-2 text-right tabular-nums">{r.hrDrop ?? "—"}</td>
+                    </>
+                  )}
+
+                  <td className="py-1 pr-2 text-right tabular-nums">{r.avgCad ?? "—"}</td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{r.maxCad ?? "—"}</td>
+
+                  {detailMode === "advanced" && (
+                    <>
+                      <td className="py-1 pr-2 text-right tabular-nums">
+                        {r.vo != null ? `${r.vo}` : "—"}
+                      </td>
+                      <td className="py-1 pr-2 text-right tabular-nums">
+                        {r.gct != null ? `${r.gct}` : "—"}
+                      </td>
+                      <td className="py-1 pr-2 text-right tabular-nums">
+                        {r.strideLength != null ? `${r.strideLength}` : "—"}
+                      </td>
+                      <td className="py-1 pr-2 text-right tabular-nums">
+                        {r.lactate != null ? Number(r.lactate).toFixed(1) : "—"}
+                      </td>
+                    </>
+                  )}
+
+                  <td className="py-1 pr-2 text-right tabular-nums">
+                    {r.elevGain != null ? `${r.elevGain}m` : "—"}
+                  </td>
+                  <td className="py-1 text-right tabular-nums">
+                    {r.elevLoss != null ? `${r.elevLoss}m` : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <div className="text-[11px] text-muted-foreground mt-2">
+            * adjusted = recorded rep exceeded target distance, so distance/time/pace were corrected from trace to the
+            planned rep target.
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+    .filter((x: any): x is number => typeof x === "number");
+
+  const avgCad = cads.length
+    ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length)
+    : null;
+
+  const vos = filteredRows
+    .map((r) => r.vo)
+    .filter((x: any): x is number => typeof x === "number");
+
+  const avgVo = vos.length
+    ? Number((vos.reduce((a, b) => a + b, 0) / vos.length).toFixed(1))
+    : null;
+
+  const gcts = filteredRows
+    .map((r) => r.gct)
+    .filter((x: any): x is number => typeof x === "number");
+
+  const avgGct = gcts.length
+    ? Math.round(gcts.reduce((a, b) => a + b, 0) / gcts.length)
+    : null;
+
+  const strides = filteredRows
+    .map((r) => r.strideLength)
+    .filter((x: any): x is number => typeof x === "number");
+
+  const avgStrideLength = strides.length
+    ? Number((strides.reduce((a, b) => a + b, 0) / strides.length).toFixed(2))
+    : null;
+
+  if (rows.length === 0) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Session segments</CardTitle>
+        <CardDescription>
+          Unified rep-aligned session table with segment filters and dynamic summary.
+        </CardDescription>
+      </CardHeader>
+
+      <CardContent className="space-y-4">
+        {/* Segment filter buttons */}
+        <div className="flex flex-wrap gap-1">
+          {SCOPE_OPTIONS.map((k) => {
+            const hasData = k === "full" || rows.some((r) => r.type === k);
+
+            return (
+              <Button
+                key={k}
+                size="sm"
+                variant={segmentFilter === k ? "default" : "outline"}
+                disabled={!hasData}
+                onClick={() => hasData && setSegmentFilter(k)}
+                title={!hasData ? "No data for this segment" : ""}
+              >
+                {SCOPE_LABELS[k]}
+              </Button>
+            );
+          })}
+        </div>
+
+        {/* Basic / Advanced toggle */}
+        <div className="flex gap-1">
+          <Button
+            size="sm"
+            variant={detailMode === "basic" ? "default" : "outline"}
+            onClick={() => setDetailMode("basic")}
+          >
+            Basic
+          </Button>
+          <Button
+            size="sm"
+            variant={detailMode === "advanced" ? "default" : "outline"}
+            onClick={() => setDetailMode("advanced")}
+          >
+            Advanced
+          </Button>
+        </div>
+
+        {/* Dynamic summary */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+          <Stat label="Distance" value={metersFmt(totalDist)} />
+          <Stat label="Duration" value={secToClock(totalTime)} />
+          <Stat label="Avg pace" value={avgPace ? `${paceFmt(avgPace)} /km` : "—"} />
+          <Stat label="Avg HR" value={avgHr ? `${avgHr} bpm` : "—"} />
+          <Stat label="Max HR" value={maxHr ? `${maxHr} bpm` : "—"} />
+          <Stat label="Avg cadence" value={avgCad ? `${avgCad} spm` : "—"} />
+          {detailMode === "advanced" && (
+            <>
+              <Stat label="Avg VO" value={avgVo != null ? `${avgVo} cm` : "—"} />
+
 
 type TraceGroup = {
   type: "warmup" | "work" | "recovery" | "cooldown" | "strides";
