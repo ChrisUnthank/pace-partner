@@ -90,7 +90,14 @@ type MetricKey = (typeof METRICS)[number]["key"];
 function SessionAnalysis() {
   const { sessionId } = Route.useParams();
 
-  const [: false,  const [enabled, setEnabled] = useState<Record<MetricKey, boolean>>({
+  const [enabled, setEnabled] = useState<Record<MetricKey, boolean>>({
+    hr: true,
+    pace: true,
+    cadence: false,
+    elev: false,
+    vo: false,
+    gct: false,
+    strides: false,
   });
 
   const [xMode, setXMode] = useState<"time" | "distance">("time");
@@ -839,12 +846,6 @@ const modeType =
     </AppShell>
   );
 }
-    hr: true,
-    pace: true,
-    cadence: false,
-    elev: false,
-    vo: false,
-
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
