@@ -1462,7 +1462,10 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
             <Stat label="Max HR" value={maxHr ? `${maxHr} bpm` : "—"} />
             <Stat label="Avg cadence" value={avgCad ? `${avgCad} spm` : "—"} />
             {bestReps.length > 0 && (
-              <Stat label="Best reps" value={bestReps.map((r) => r.repLabel ?? `R${r.index}`).join(", ")} />
+              <Stat
+                label="Best reps"
+                value={bestReps.map((r) => `${r.repLabel ?? `R${r.index}`} (${r.score})`).join(", ")}
+              />
             )}
             {detailMode === "advanced" && (
               <>
