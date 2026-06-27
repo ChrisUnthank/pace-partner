@@ -421,7 +421,16 @@ function SessionAnalysis() {
 
             <div className="flex flex-wrap gap-1 mt-2">
               {SCOPE_OPTIONS.map((k) => {
-                const hasData = k === "full" || samples.some((s) => s.stepKind === k);
+                const hasData = (() => {
+                  if (k === "full") return samples.length > 0;
+
+                  const scopeSamples = samples.filter((s) => s.stepKind === k);
+
+                  if (scopeSamples.length === 0) return false;
+
+                  // ✅ must also have at least one enabled + available metric
+                  return METRICS.some((m) => enabled[m.key] && hasMetric[m.key]);
+                })();
 
                 return (
                   <Button
@@ -981,12 +990,7 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
 
   const safePoints = useMemo(() => {
     return Array.isArray(points)
-      ? points.filter(
-          (p) =>
-            p &&
-            Number.isFinite(Number(p.lat)) &&
-            Number.isFinite(Number(p.lng)),
-        )
+      ? points.filter((p) => p && Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)))
       : [];
   }, [points]);
 
@@ -1103,7 +1107,12 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
           </div>
           <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} className="border rounded bg-black">
             <polyline points={path} fill="none" stroke="#ef4444" strokeWidth="2" />
-            <circle cx={project(first.lat!, first.lng!)[0]} cy={project(first.lat!, first.lng!)[1]} r="4" fill="#22c55e" />
+            <circle
+              cx={project(first.lat!, first.lng!)[0]}
+              cy={project(first.lat!, first.lng!)[1]}
+              r="4"
+              fill="#22c55e"
+            />
             <circle cx={project(last.lat!, last.lng!)[0]} cy={project(last.lat!, last.lng!)[1]} r="4" fill="#ef4444" />
           </svg>
         </CardContent>
@@ -1556,14 +1565,14 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
                       <td className="py-1 pr-2 text-right tabular-nums">{r.score != null ? r.score : "—"}</td>
 
                       <td className={`py-1 pr-2 ${STATUS_TONE_TEXT[status.tone]}`}>
-  {status.label}
-  {r.paceDeltaPct != null && (
-    <span className="text-muted-foreground ml-1">
-  ({r.paceDeltaPct > 0 ? "+" : ""}
-   {Math.abs(Number(r.paceDeltaPct)).toFixed(1)}%)
-  </span>
-  )}
-</td>
+                        {status.label}
+                        {r.paceDeltaPct != null && (
+                          <span className="text-muted-foreground ml-1">
+                            ({r.paceDeltaPct > 0 ? "+" : ""}
+                            {Math.abs(Number(r.paceDeltaPct)).toFixed(1)}%)
+                          </span>
+                        )}
+                      </td>
 
                       {detailMode === "advanced" && (
                         <>
@@ -2062,17 +2071,10 @@ function median(nums: number[]): number | null {
 
 function addRepScoring(rows: SplitRow[]): SplitRow[] {
   const workRows = rows.filter(
-    (r) =>
-      (r.type === "work" || r.type === "strides") &&
-      typeof r.avgPace === "number" &&
-      r.avgPace > 0,
+    (r) => (r.type === "work" || r.type === "strides") && typeof r.avgPace === "number" && r.avgPace > 0,
   );
 
-  const medianWorkPace = median(
-    workRows
-      .map((r) => r.avgPace)
-      .filter((x): x is number => typeof x === "number"),
-  );
+  const medianWorkPace = median(workRows.map((r) => r.avgPace).filter((x): x is number => typeof x === "number"));
 
   if (!medianWorkPace) {
     return rows.map((r) => ({
