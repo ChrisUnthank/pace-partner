@@ -1001,13 +1001,7 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
     if (!containerRef.current) return;
     if (safePoints.length < 2) return;
 
-    // ✅ Prevent crash in environments where WebGL is blocked/disabled
-    if (!browserSupportsWebGL()) {
-      console.warn("MapPanel: WebGL unavailable, skipping map render");
-      setMapStatus("unsupported");
-      return;
-    }
-
+    
     let cancelled = false;
     let map: maplibregl.Map | null = null;
 
@@ -1564,7 +1558,7 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
   {r.paceDeltaPct != null && (
     <span className="text-muted-foreground ml-1">
   ({r.paceDeltaPct > 0 ? "+" : ""}
-   {Math.abs(Number(r.paceDeltaPct)).toFixed(1)}%)
+   {Math.abs(Number(r.paceDeltaPct).toFixed(1))}%)
   </span>
   )}
 </td>
@@ -2064,32 +2058,7 @@ function median(nums: number[]): number | null {
   return vals.length % 2 === 0 ? (vals[mid - 1] + vals[mid]) / 2 : vals[mid];
 }
 
-function addRepScoring(rows: SplitRow[]): SplitRow[] {
-  const workRows = rows.filter(
-    (r) =>
-      (r.type === "work" || r.type === "strides") &&
-      typeof r.avgPace === "number" &&
-      r.avgPace > 0,
-  );
-
-  const medianWorkPace = median(
-    workRows
-      .map((r) => r.avgPace)
-      .filter((x): x is number => typeof x === "number"),
-  );
-
-  if (!medianWorkPace) {
-    return rows.map((r) => ({
-      ...r,
-      score: null,
-      scoreLabel: null,
-      scoreTone: null,
-      paceDeltaPct: null,
-    }));
-  }
-
-  return rows.map((r) => {
-    // ✅ non-work rows → no scoring
+function addRepScoring(rows: SplitRow[]): SplitRow[] {function addRepScoring(rows: Split    // ✅ non-work rows → no scoring
     if (r.type !== "work" && r.type !== "strides") {
       return {
         ...r,
@@ -2182,6 +2151,30 @@ function addRepScoring(rows: SplitRow[]): SplitRow[] {
     };
   });
 }
+  const workRows = rows.filter(
+    (r) =>
+      (r.type === "work" || r.type === "strides") &&
+      typeof r.avgPace === "number" &&
+      r.avgPace > 0,
+  );
+
+  const medianWorkPace = median(
+    workRows
+      .map((r) => r.avgPace)
+      .filter((x): x is number => typeof x === "number"),
+  );
+
+  if (!medianWorkPace) {
+    return rows.map((r) => ({
+      ...r,
+      score: null,
+      scoreLabel: null,
+      scoreTone: null,
+      paceDeltaPct: null,
+    }));
+  }
+
+  return rows.map((r) => {
 
 function addFadeFlags(rows: SplitRow[]): SplitRow[] {
   let prevWorkPace: number | null = null;
