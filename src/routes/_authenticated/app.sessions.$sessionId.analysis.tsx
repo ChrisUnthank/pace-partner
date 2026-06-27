@@ -110,16 +110,6 @@ function SessionAnalysis() {
   const [xMode, setXMode] = useState<"time" | "distance">("time");
   const [scope, setScope] = useState<ScopeKey>("full");
 
-  useEffect(() => {
-    if (scope === "full") return;
-
-    const scopeHasSamples = samples.some((s) => s.stepKind === scope);
-
-    if (!scopeHasSamples) {
-      setScope("full");
-    }
-  }, [scope, samples]);
-
   const { data: session, isLoading: sessionLoading } = useQuery({
     queryKey: ["session", sessionId],
     queryFn: async () => {
