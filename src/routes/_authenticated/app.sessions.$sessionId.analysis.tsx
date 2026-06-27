@@ -721,14 +721,14 @@ function SessionAnalysis() {
         </Card>
 
         <UnifiedSessionTable
-  points={
-    Array.isArray(rawPoints)
-      ? rawPoints.filter((p: any) => p && (p.elapsed_s != null || p.distance_m != null))
-      : []
-  }
-  results={safeResults}
-  steps={safeSteps}
-/>
+          points={
+            Array.isArray(rawPoints)
+              ? rawPoints.filter((p: any) => p && (p.elapsed_s != null || p.distance_m != null))
+              : []
+          }
+          results={safeResults}
+          steps={safeSteps}
+        />
 
         {showContinuousFatigueCard && (
           <Card>
@@ -932,13 +932,9 @@ function WorkSegmentPanel({ steps, results, rawPoints }: { steps: any[]; results
 
   const maxHr = repSplits.reduce((m, r) => Math.max(m, Number(r.maxHr ?? 0)), 0) || null;
 
-  const cads = repSplits
-    .map((r) => r.avgCad)
-    .filter((x: any): x is number => typeof x === "number");
+  const cads = repSplits.map((r) => r.avgCad).filter((x: any): x is number => typeof x === "number");
 
-  const avgCad = cads.length
-    ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length)
-    : null;
+  const avgCad = cads.length ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length) : null;
 
   return (
     <Card>
@@ -996,37 +992,39 @@ function WorkSegmentPanel({ steps, results, rawPoints }: { steps: any[]; results
                     <td className="py-1 pr-2 text-right tabular-nums">{r.avgHr ?? "—"}</td>
 
                     <td className="py-1 pr-2 text-right tabular-nums">{r.maxHr ?? "—"}</td>
-<td className="py-1 pr-2 text-right tabular-nums">
-  {r.score != null ? r.score : "—"}
-</td>
+                    <td className="py-1 pr-2 text-right tabular-nums">{r.score != null ? r.score : "—"}</td>
 
-<td className="py-1 pr-2">
-  {r.scoreLabel ? (
-    <span
-      className={
-        r.scoreTone === "excellent"
-          ? "text-emerald-400"
-          : r.scoreTone === "good"
-          ? "text-sky-400"
-          : r.scoreTone === "warn"
-          ? "text-amber-400"
-          : "text-red-400"
-      }
-    >
-      {r.scoreLabel}
-    </span>
-  ) : "—"}
-</td>
+                    <td className="py-1 pr-2">
+                      {r.scoreLabel ? (
+                        <span
+                          className={
+                            r.scoreTone === "excellent"
+                              ? "text-emerald-400"
+                              : r.scoreTone === "good"
+                                ? "text-sky-400"
+                                : r.scoreTone === "warn"
+                                  ? "text-amber-400"
+                                  : "text-red-400"
+                          }
+                        >
+                          {r.scoreLabel}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
 
-<td className="py-1 pr-2">
-  {r.isBest ? (
-    <span className="text-emerald-400">🔥 Best</span>
-  ) : r.fadeFlag === "strong" ? (
-    <span className="text-red-400">🔻 Fade</span>
-  ) : r.fadeFlag === "mild" ? (
-    <span className="text-amber-400">⚠ Slowing</span>
-  ) : "—"}
-</td>
+                    <td className="py-1 pr-2">
+                      {r.isBest ? (
+                        <span className="text-emerald-400">🔥 Best</span>
+                      ) : r.fadeFlag === "strong" ? (
+                        <span className="text-red-400">🔻 Fade</span>
+                      ) : r.fadeFlag === "mild" ? (
+                        <span className="text-amber-400">⚠ Slowing</span>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                     <td className="py-1 pr-2 text-right tabular-nums">—</td>
                     <td className="py-1 pr-2 text-right tabular-nums">—</td>
 
@@ -1459,15 +1457,7 @@ function buildSamples(
   };
 }
 
-function UnifiedSessionTable({
-  points,
-  results,
-  steps,
-}: {
-  points: any[];
-  results: any[];
-  steps: any[];
-}) {
+function UnifiedSessionTable({ points, results, steps }: { points: any[]; results: any[]; steps: any[] }) {
   const [segmentFilter, setSegmentFilter] = useState<ScopeKey>("full");
   const [detailMode, setDetailMode] = useState<"basic" | "advanced">("basic");
 
@@ -1483,44 +1473,25 @@ function UnifiedSessionTable({
 
   const avgPace = totalDist > 0 ? (totalTime / totalDist) * 1000 : null;
 
-  const hrs = filteredRows
-    .map((r) => r.avgHr)
-    .filter((x: any): x is number => typeof x === "number");
+  const hrs = filteredRows.map((r) => r.avgHr).filter((x: any): x is number => typeof x === "number");
 
-  const avgHr = hrs.length
-    ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length)
-    : null;
+  const avgHr = hrs.length ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null;
 
-  const maxHr =
-    filteredRows.reduce((m, r) => Math.max(m, Number(r.maxHr ?? 0)), 0) || null;
+  const maxHr = filteredRows.reduce((m, r) => Math.max(m, Number(r.maxHr ?? 0)), 0) || null;
 
-  const cads = filteredRows
-    .map((r) => r.avgCad)
-    .filter((x: any): x is number => typeof x === "number");
+  const cads = filteredRows.map((r) => r.avgCad).filter((x: any): x is number => typeof x === "number");
 
-  const avgCad = cads.length
-    ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length)
-    : null;
+  const avgCad = cads.length ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length) : null;
 
-  const vos = filteredRows
-    .map((r) => r.vo)
-    .filter((x: any): x is number => typeof x === "number");
+  const vos = filteredRows.map((r) => r.vo).filter((x: any): x is number => typeof x === "number");
 
-  const avgVo = vos.length
-    ? Number((vos.reduce((a, b) => a + b, 0) / vos.length).toFixed(1))
-    : null;
+  const avgVo = vos.length ? Number((vos.reduce((a, b) => a + b, 0) / vos.length).toFixed(1)) : null;
 
-  const gcts = filteredRows
-    .map((r) => r.gct)
-    .filter((x: any): x is number => typeof x === "number");
+  const gcts = filteredRows.map((r) => r.gct).filter((x: any): x is number => typeof x === "number");
 
-  const avgGct = gcts.length
-    ? Math.round(gcts.reduce((a, b) => a + b, 0) / gcts.length)
-    : null;
+  const avgGct = gcts.length ? Math.round(gcts.reduce((a, b) => a + b, 0) / gcts.length) : null;
 
-  const strides = filteredRows
-    .map((r) => r.strideLength)
-    .filter((x: any): x is number => typeof x === "number");
+  const strides = filteredRows.map((r) => r.strideLength).filter((x: any): x is number => typeof x === "number");
 
   const avgStrideLength = strides.length
     ? Number((strides.reduce((a, b) => a + b, 0) / strides.length).toFixed(2))
@@ -1532,9 +1503,7 @@ function UnifiedSessionTable({
     <Card>
       <CardHeader>
         <CardTitle>Session segments</CardTitle>
-        <CardDescription>
-          Unified rep-aligned session table with segment filters and dynamic summary.
-        </CardDescription>
+        <CardDescription>Unified rep-aligned session table with segment filters and dynamic summary.</CardDescription>
       </CardHeader>
 
       <CardContent className="space-y-4">
@@ -1584,10 +1553,7 @@ function UnifiedSessionTable({
             <>
               <Stat label="Avg VO" value={avgVo != null ? `${avgVo} cm` : "—"} />
               <Stat label="Avg GCT" value={avgGct != null ? `${avgGct} ms` : "—"} />
-              <Stat
-                label="Stride length"
-                value={avgStrideLength != null ? `${avgStrideLength} m` : "—"}
-              />
+              <Stat label="Stride length" value={avgStrideLength != null ? `${avgStrideLength} m` : "—"} />
             </>
           )}
         </div>
@@ -1635,17 +1601,17 @@ function UnifiedSessionTable({
                     backgroundColor: r.isBest
                       ? "rgba(34,197,94,0.12)"
                       : r.fadeFlag === "strong"
-                      ? "rgba(239,68,68,0.10)"
-                      : r.fadeFlag === "mild"
-                      ? "rgba(251,191,36,0.10)"
-                      : STEP_COLORS[r.type] ?? "transparent",
+                        ? "rgba(239,68,68,0.10)"
+                        : r.fadeFlag === "mild"
+                          ? "rgba(251,191,36,0.10)"
+                          : (STEP_COLORS[r.type] ?? "transparent"),
                     borderLeft: r.isBest
                       ? "4px solid #22c55e"
                       : r.fadeFlag === "strong"
-                      ? "3px solid #ef4444"
-                      : r.fadeFlag === "mild"
-                      ? "3px solid #f59e0b"
-                      : `3px solid ${STEP_STROKE[r.type] ?? "#444"}`,
+                        ? "3px solid #ef4444"
+                        : r.fadeFlag === "mild"
+                          ? "3px solid #f59e0b"
+                          : `3px solid ${STEP_STROKE[r.type] ?? "#444"}`,
                     color: "#e5e7eb",
                   }}
                 >
@@ -1661,12 +1627,8 @@ function UnifiedSessionTable({
                   <td className="py-1 pr-2 text-right tabular-nums">
                     {r.durationS > 0 ? secToClock(r.durationS) : "—"}
                   </td>
-                  <td className="py-1 pr-2 text-right tabular-nums">
-                    {r.avgPace ? paceFmt(r.avgPace) : "—"}
-                  </td>
-                  <td className="py-1 pr-2 text-right tabular-nums">
-                    {r.maxPace ? paceFmt(r.maxPace) : "—"}
-                  </td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{r.avgPace ? paceFmt(r.avgPace) : "—"}</td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{r.maxPace ? paceFmt(r.maxPace) : "—"}</td>
                   <td className="py-1 pr-2 text-right tabular-nums">{r.avgHr ?? "—"}</td>
                   <td className="py-1 pr-2 text-right tabular-nums">{r.maxHr ?? "—"}</td>
                   {detailMode === "advanced" && (
@@ -1680,12 +1642,8 @@ function UnifiedSessionTable({
                   <td className="py-1 pr-2 text-right tabular-nums">{r.maxCad ?? "—"}</td>
                   {detailMode === "advanced" && (
                     <>
-                      <td className="py-1 pr-2 text-right tabular-nums">
-                        {r.vo != null ? `${r.vo}` : "—"}
-                      </td>
-                      <td className="py-1 pr-2 text-right tabular-nums">
-                        {r.gct != null ? `${r.gct}` : "—"}
-                      </td>
+                      <td className="py-1 pr-2 text-right tabular-nums">{r.vo != null ? `${r.vo}` : "—"}</td>
+                      <td className="py-1 pr-2 text-right tabular-nums">{r.gct != null ? `${r.gct}` : "—"}</td>
                       <td className="py-1 pr-2 text-right tabular-nums">
                         {r.strideLength != null ? `${r.strideLength}` : "—"}
                       </td>
@@ -1694,12 +1652,8 @@ function UnifiedSessionTable({
                       </td>
                     </>
                   )}
-                  <td className="py-1 pr-2 text-right tabular-nums">
-                    {r.elevGain != null ? `${r.elevGain}m` : "—"}
-                  </td>
-                  <td className="py-1 text-right tabular-nums">
-                    {r.elevLoss != null ? `${r.elevLoss}m` : "—"}
-                  </td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{r.elevGain != null ? `${r.elevGain}m` : "—"}</td>
+                  <td className="py-1 text-right tabular-nums">{r.elevLoss != null ? `${r.elevLoss}m` : "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -1851,22 +1805,16 @@ function trimTraceGroupToDistance(group: any[], targetDistanceM: number) {
 type SplitRow = {
   index: number;
   type: "warmup" | "work" | "recovery" | "cooldown" | "strides";
-
   durationS: number;
   distanceM: number;
-
   avgPace: number | null;
   maxPace: number | null;
-
   avgHr: number | null;
   maxHr: number | null;
-
   avgCad: number | null;
   maxCad: number | null;
-
   elevGain: number | null;
   elevLoss: number | null;
-
   repLabel?: string | null;
   adjusted?: boolean;
 
@@ -1874,21 +1822,17 @@ type SplitRow = {
   score?: number | null;
   scoreLabel?: string | null;
   scoreTone?: "excellent" | "good" | "warn" | "bad" | null;
-  paceDeltaPct?: number | null;  
+  paceDeltaPct?: number | null;
   fadeFlag?: "none" | "mild" | "strong";
   isBest?: boolean;
-
 
   // ✅ advanced metrics
   hrEnd?: number | null;
   hrRecovery?: number | null;
   hrDrop?: number | null;
-
   vo?: number | null;
   gct?: number | null;
-
   lactate?: number | null;
-
   strideLength?: number | null;
 };
 function buildSplitsFromResults(results: any[], steps: any[], rawPoints: any[]): SplitRow[] {
@@ -2087,29 +2031,21 @@ function buildSplits(points: any[], results?: any[], steps?: any[]): SplitRow[] 
   if (resultBased.length > 0) return resultBased;
   return buildSplitsFromTrace(points ?? []);
 }
+
 function median(nums: number[]): number | null {
   const vals = nums.filter((n) => Number.isFinite(n)).sort((a, b) => a - b);
   if (!vals.length) return null;
 
   const mid = Math.floor(vals.length / 2);
-  return vals.length % 2 === 0
-    ? (vals[mid - 1] + vals[mid]) / 2
-    : vals[mid];
+  return vals.length % 2 === 0 ? (vals[mid - 1] + vals[mid]) / 2 : vals[mid];
 }
 
 function addRepScoring(rows: SplitRow[]): SplitRow[] {
   const workRows = rows.filter(
-    (r) =>
-      (r.type === "work" || r.type === "strides") &&
-      typeof r.avgPace === "number" &&
-      r.avgPace > 0,
+    (r) => (r.type === "work" || r.type === "strides") && typeof r.avgPace === "number" && r.avgPace > 0,
   );
 
-  const medianWorkPace = median(
-    workRows
-      .map((r) => r.avgPace)
-      .filter((x): x is number => typeof x === "number"),
-  );
+  const medianWorkPace = median(workRows.map((r) => r.avgPace).filter((x): x is number => typeof x === "number"));
 
   if (!medianWorkPace) {
     return rows.map((r) => ({
@@ -2226,24 +2162,21 @@ function addFadeFlags(rows: SplitRow[]): SplitRow[] {
 }
 function SplitsTable({ points, results, steps }: { points: any[]; results: any[]; steps: any[] }) {
   const rows = useMemo(() => {
-  const baseRows = buildSplits(points, results, steps);
-  const scoredRows = addRepScoring(baseRows);
-  const fadedRows = addFadeFlags(scoredRows);
+    const baseRows = buildSplits(points, results, steps);
+    const scoredRows = addRepScoring(baseRows);
+    const fadedRows = addFadeFlags(scoredRows);
 
-  const workRows = fadedRows.filter(
-    (r) => (r.type === "work" || r.type === "strides") && typeof r.score === "number",
-  );
+    const workRows = fadedRows.filter(
+      (r) => (r.type === "work" || r.type === "strides") && typeof r.score === "number",
+    );
 
-  const bestScore =
-    workRows.length > 0
-      ? Math.max(...workRows.map((r) => r.score ?? 0))
-      : null;
+    const bestScore = workRows.length > 0 ? Math.max(...workRows.map((r) => r.score ?? 0)) : null;
 
-  return fadedRows.map((r) => ({
-    ...r,
-    isBest: bestScore != null && r.score === bestScore,
-  }));
-}, [points, results, steps]);
+    return fadedRows.map((r) => ({
+      ...r,
+      isBest: bestScore != null && r.score === bestScore,
+    }));
+  }, [points, results, steps]);
   if (rows.length === 0) return null;
 
   return (
