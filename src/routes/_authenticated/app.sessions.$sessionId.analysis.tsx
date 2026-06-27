@@ -1984,6 +1984,7 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
         </div>
       </CardContent>
     </Card>
+    </>
   );
 }
 
