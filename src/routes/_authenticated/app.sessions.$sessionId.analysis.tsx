@@ -90,13 +90,7 @@ type MetricKey = (typeof METRICS)[number]["key"];
 function SessionAnalysis() {
   const { sessionId } = Route.useParams();
 
-  const [enabled, setEnabled] = useState<Record<MetricKey, boolean>>({
-    hr: true,
-    pace: true,
-    cadence: false,
-    elev: false,
-    vo: false,
-    gct: false,
+  const [: false,  const [enabled, setEnabled] = useState<Record<MetricKey, boolean>>({
   });
 
   const [xMode, setXMode] = useState<"time" | "distance">("time");
@@ -266,10 +260,7 @@ function SessionAnalysis() {
   }
 }, [safeSteps, safeResults, safeRawPoints]);
 
-  const availableScopes = useMemo(() => {
-    const kinds = new Set(samples.map((s) => s.stepKind).filter(Boolean));
-    return SCOPE_OPTIONS.filter((k) => k === "full" || kinds.has(k));
-  }, [samples]);
+  const availableScopes = SCOPE_OPTIONS;
 
   const visibleSamples = useMemo(() => {
     if (scope === "full") return samples;
@@ -845,6 +836,11 @@ const modeType =
     </AppShell>
   );
 }
+    hr: true,
+    pace: true,
+    cadence: false,
+    elev: false,
+    vo: false,
 
 
 function Stat({ label, value }: { label: string; value: string }) {
@@ -1097,8 +1093,7 @@ function MapPanel({
 }: {
   points: { lat?: number; lng?: number }[];
 }) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<maplibregl.Map | null>(null);
+ null);  const containerRef = useRef<HTMLDivElement | null>(null);
   const [mapStatus, setMapStatus] = useState<"ready" | "unsupported" | "failed">("ready");
 
   const safePoints = useMemo(() => {
