@@ -1551,14 +1551,14 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
                       <td className="py-1 pr-2 text-right tabular-nums">{r.score != null ? r.score : "—"}</td>
 
                       <td className={`py-1 pr-2 ${STATUS_TONE_TEXT[status.tone]}`}>
-  {status.label}
-  {r.paceDeltaPct != null && (
-    <span className="text-muted-foreground ml-1">
-  ({r.paceDeltaPct > 0 ? "+" : ""}
-   {Math.abs(Number(r.paceDeltaPct).toFixed(1))}%)
-  </span>
-  )}
-</td>
+                        {status.label}
+                        {r.paceDeltaPct != null && (
+                          <span className="text-muted-foreground ml-1">
+                            ({r.paceDeltaPct > 0 ? "+" : ""}
+                            {Math.abs(Number(r.paceDeltaPct)).toFixed(1)}%)
+                          </span>
+                        )}
+                      </td>
 
                       {detailMode === "advanced" && (
                         <>
