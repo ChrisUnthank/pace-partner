@@ -720,7 +720,11 @@ function SessionAnalysis() {
           </CardContent>
         </Card>
 
-        <WorkSegmentPanel steps={safeSteps} results={safeResults} />
+        <WorkSegmentPanel
+  steps={safeSteps}
+  results={safeResults}
+  rawPoints={safeRawPoints}
+/>
         
 <SplitsTable
   points={
@@ -915,30 +919,43 @@ function RecoveryPanel({
   );
 }
 
-function WorkSegmentPanel({ steps, results }: { steps: any[]; results: any[] }) {
-  const workStepIds = new Set(steps.filter((s) => s.kind === "work").map((s) => s.id));
+function WorkSegmentPanel({
+  steps,
+  results,
+  rawPoints,
+}: {
+  steps: any[];
+  results: any[];
+  rawPoints: any[];
+}) {
+  const repSplits = buildSplitsFromResults(results,ads = repSplits.map((r) => r.avgCad).filter((x: any) => x);  const repSplits = buildSplitsFromResults(results, steps, rawPoints)
 
-  const workResults = results.filter(
-    (r) => workStepIds.has(r.step_id) && (r.actual_time_seconds || r.actual_distance_m),
-  );
+  const avgCad = cads.length
+    ? Math.round(cads.reduce((a: number, b: number) => a + Number(b), 0) / cads.length)
+    : null;
 
-  if (workResults.length === 0) return null;
+  return (
+``
+    .filter((r) => r.type === "work" || r.type === "strides");
 
-  const totalTime = workResults.reduce((a, r) => a + Number(r.actual_time_seconds ?? 0), 0);
-  const totalDist = workResults.reduce((a, r) => a + Number(r.actual_distance_m ?? 0), 0);
-  const hrSec = workResults.reduce((a, r) => a + (r.hr_avg ? Number(r.actual_time_seconds ?? 0) : 0), 0);
-  const hrWeighted = workResults.reduce(
-    (a, r) => a + (r.hr_avg ? Number(r.hr_avg) * Number(r.actual_time_seconds ?? 0) : 0),
-    0,
-  );
+  if (repSplits.length === 0) return null;
 
-  const avgHr = hrSec > 0 ? Math.round(hrWeighted / hrSec) : null;
-  const maxHr = workResults.reduce((m, r) => Math.max(m, Number(r.hr_max ?? r.hr_end ?? 0)), 0) || null;
-
-  const cads = workResults.map((r) => r.cadence).filter((x: any) => x);
-  const avgCad = cads.length ? Math.round(cads.reduce((a: number, b: number) => a + Number(b), 0) / cads.length) : null;
+  const totalTime = repSplits.reduce((a, r) => a + (r.durationS ?? 0), 0);
+  const totalDist = repSplits.reduce((a, r) => a + (r.distanceM ?? 0), 0);
 
   const avgPace = totalDist > 0 ? (totalTime / totalDist) * 1000 : null;
+
+  const hrs = repSplits
+    .map((r) => r.avgHr)
+    .filter((x: any) => typeof x === "number");
+
+  const avgHr = hrs.length
+    ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length)
+    : null;
+
+  const maxHr =
+    repSplits.reduce((m, r) => Math.max(m, Number(r.maxHr ?? 0)), 0) || null;
+
 
   return (
     <Card>
@@ -978,40 +995,8 @@ function WorkSegmentPanel({ steps, results }: { steps: any[]; results: any[] }) 
               </thead>
 
               <tbody>
-                {workResults.map((r) => {
-                  const p =
-                    r.actual_pace_sec_per_km ??
-                    (r.actual_time_seconds && r.actual_distance_m
-                      ? (r.actual_time_seconds / r.actual_distance_m) * 1000
-                      : null);
-
-                  const drop =
-                    r.hr_end != null && r.hr_end_recovery != null ? Number(r.hr_end) - Number(r.hr_end_recovery) : null;
-
-                  return (
-                    <tr key={r.id} className="border-b last:border-b-0">
-                      <td className="py-1 pr-2">
-                        {(r.set_number ?? 1) > 1 ? `S${r.set_number} ` : ""}R{r.rep_number}
-                      </td>
-                      <td className="py-1 pr-2 text-right tabular-nums">
-                        {r.actual_time_seconds ? secToClock(r.actual_time_seconds) : "—"}
-                      </td>
-                      <td className="py-1 pr-2 text-right tabular-nums">
-                        {r.actual_distance_m ? metersFmt(r.actual_distance_m) : "—"}
-                      </td>
-                      <td className="py-1 pr-2 text-right tabular-nums">{p ? paceFmt(p) : "—"}</td>
-                      <td className="py-1 pr-2 text-right tabular-nums">{r.hr_avg ?? "—"}</td>
-                      <td className="py-1 pr-2 text-right tabular-nums">{r.hr_end ?? "—"}</td>
-                      <td className="py-1 pr-2 text-right tabular-nums">{r.hr_end_recovery ?? "—"}</td>
-                      <td className="py-1 pr-2 text-right tabular-nums">{drop ?? "—"}</td>
-                      <td className="py-1 pr-2 text-right tabular-nums">{r.cadence ?? "—"}</td>
-                      <td className="py-1 text-right tabular-nums">
-                        {r.lactate_taken && r.lactate_mmol != null ? Number(r.lactate_mmol).toFixed(1) : "—"}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
+                <tbody>
+  const workStepIds = new Set(steps.filter((s) => s.kind === "work").map((s) => s.id));
             </table>
           </div>
         </div>
