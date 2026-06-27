@@ -90,13 +90,7 @@ type MetricKey = (typeof METRICS)[number]["key"];
 function SessionAnalysis() {
   const { sessionId } = Route.useParams();
 
-  const [enabled, setEnabled] = useState<Record<MetricKey, boolean>>({
-    hr: true,
-    pace: true,
-    cadence: false,
-    elev: false,
-    vo: false,
-    gct: false,
+  const [: false,  const [enabled, setEnabled] = useState<Record<MetricKey, boolean>>({
   });
 
   const [xMode, setXMode] = useState<"time" | "distance">("time");
@@ -439,22 +433,23 @@ const modeType =
             </div>
 
             <div className="flex flex-wrap gap-1 mt-2">
-              {SCOPE_OPTIONS.map((k) => {
-                const hasData = k === "full" || samples.some((s) => s.stepKind === k);
+              {SCOPE_OPTIONS => {
+  const hasData =
+    k === "full" || samples.some((s) => s.stepKind === k);
 
-                return (
-                  <Button
-                    key={k}
-                    size="sm"
-                    variant={scope === k ? "default" : "outline"}
-                    disabled={!hasData}
-                    onClick={() => hasData && setScope(k)}
-                    title={!hasData ? "No data for this segment" : ""}
-                  >
-                    {SCOPE_LABELS[k]}
-                  </Button>
-                );
-              })}
+  return (
+    <Button
+      key={k}
+      size="sm"
+      variant={scope === k ? "default" : "outline"}
+      disabled={!hasData}
+      onClick={() => hasData && setScope(k)}
+      title={!hasData ? "No data for this segment" : ""}
+    >
+      {SCOPE_LABELS[k]}
+    </Button>
+  );
+})}
             </div>
 
             <div className="flex flex-wrap gap-1 mt-2">
@@ -853,6 +848,12 @@ const modeType =
     </AppShell>
   );
 }
+    hr: true,
+    pace: true,
+    cadence: false,
+    elev: false,
+    vo: false,
+
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
@@ -1104,8 +1105,7 @@ function MapPanel({
 }: {
   points: { lat?: number; lng?: number }[];
 }) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<maplibregl.Map | null>(null);
+ null);  const containerRef = useRef<HTMLDivElement | null>(null);
   const [mapStatus, setMapStatus] = useState<"ready" | "unsupported" | "failed">("ready");
 
   const safePoints = useMemo(() => {
@@ -1416,7 +1416,6 @@ const s: Sample = {
       gpsPoints,
     };
   }
-  }
 
   if (Array.isArray(results) && results.length > 0) {
     const stepOrder = new Map<string, number>();
@@ -1510,7 +1509,28 @@ function buildSplits(points: any[]): SplitRow[] {
   let current: any[] = [];
   let currentType: string | null = null;
   for (const p of points) {
-    const t = (p.segment_type ?? "work") as string;
+const currentT = Number(p.elapsed_s ?? 0);
+const currentD = p.distance_m != null ? Number(p.distance_m) : 0;
+
+const prev = current.length > 0 ? current[current.length - 1] : null;
+const prevT = prev?.elapsed_s != null ? Number(prev.elapsed_s) : currentT;
+const prevD = prev?.distance_m != null ? Number(prev.distance_m) : currentD;
+
+const segmentDuration = Math.max(0, currentT - prevT);
+const segmentDistance = Math.max(0, currentD - prevD);
+
+let normalizedType = p.segment_type ?? "work";
+
+// ✅ Ignore tiny fake cooldown tail
+if (
+  normalizedType === "cooldown" &&
+  segmentDuration < 120 &&
+  segmentDistance < 200
+) {
+  normalizedType = "work";
+}
+
+const t = normalizedType as string;
     if (t !== currentType) {
       if (current.length > 0) groups.push(current);
       current = [];
