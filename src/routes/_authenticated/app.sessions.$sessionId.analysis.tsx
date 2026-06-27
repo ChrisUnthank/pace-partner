@@ -1945,20 +1945,6 @@ const safeMaxHr =
     .reduce((m, x) => Math.max(m, x), 0) || null;
 
 
-rows.push({
-  index: rowIndex++,
-  type: kind,
-  durationS: finalMetrics.durationS,
-  distanceM: finalMetrics.distanceM,
-  avgPace: finalMetrics.avgPace,
-  maxPace: finalMetrics.maxPace,
-  avgHr: safeAvgHr,
-  maxHr: safeMaxHr,   // ✅ CHANGE THIS LINE
-  avgCad: finalMetrics.avgCad,
-  maxCad: finalMetrics.maxCad,
-  ...
-});
-
     rows.push({
       index: rowIndex++,
       type: kind,
@@ -1966,8 +1952,8 @@ rows.push({
       distanceM: finalMetrics.distanceM,
       avgPace: finalMetrics.avgPace,
       maxPace: finalMetrics.maxPace,
-      avgHr: finalMetrics.avgHr,
-      maxHr: finalMetrics.maxHr,
+      avgHr: safeAvgHr,
+      maxHr: safeMaxHr,
       avgCad: finalMetrics.avgCad,
       maxCad: finalMetrics.maxCad,
       elevGain: finalMetrics.elevGain,
