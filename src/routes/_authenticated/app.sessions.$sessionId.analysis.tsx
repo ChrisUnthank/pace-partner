@@ -1542,7 +1542,7 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
     ? Number((strides.reduce((a, b) => a + b, 0) / strides.length).toFixed(2))
     : null;
 
-  const insight = getSessionInsight(filteredRows);
+  const insight: { tone: "good" | "warn" | "bad"; title: string; detail: string } | null = null;
 
   const bestRep =
     filteredRows
