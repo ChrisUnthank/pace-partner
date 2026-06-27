@@ -1417,6 +1417,7 @@ const s: Sample = {
       gpsPoints,
     };
   }
+  }
 
   if (Array.isArray(results) && results.length > 0) {
     const stepOrder = new Map<string, number>();
