@@ -90,13 +90,7 @@ type MetricKey = (typeof METRICS)[number]["key"];
 function SessionAnalysis() {
   const { sessionId } = Route.useParams();
 
-  const [enabled, setEnabled] = useState<Record<MetricKey, boolean>>({
-    hr: true,
-    pace: true,
-    cadence: false,
-    elev: false,
-    vo: false,
-    gct: false,
+  const [: false,  const [enabled, setEnabled] = useState<Record<MetricKey, boolean>>({
   });
 
   const [xMode, setXMode] = useState<"time" | "distance">("time");
@@ -439,22 +433,23 @@ const modeType =
             </div>
 
             <div className="flex flex-wrap gap-1 mt-2">
-              {SCOPE_OPTIONS.map((k) => {
-                const hasData = k === "full" || samples.some((s) => s.stepKind === k);
+              {SCOPE_OPTIONS => {
+  const hasData =
+    k === "full" || samples.some((s) => s.stepKind === k);
 
-                return (
-                  <Button
-                    key={k}
-                    size="sm"
-                    variant={scope === k ? "default" : "outline"}
-                    disabled={!hasData}
-                    onClick={() => hasData && setScope(k)}
-                    title={!hasData ? "No data for this segment" : ""}
-                  >
-                    {SCOPE_LABELS[k]}
-                  </Button>
-                );
-              })}
+  return (
+    <Button
+      key={k}
+      size="sm"
+      variant={scope === k ? "default" : "outline"}
+      disabled={!hasData}
+      onClick={() => hasData && setScope(k)}
+      title={!hasData ? "No data for this segment" : ""}
+    >
+      {SCOPE_LABELS[k]}
+    </Button>
+  );
+})}
             </div>
 
             <div className="flex flex-wrap gap-1 mt-2">
@@ -853,6 +848,11 @@ const modeType =
     </AppShell>
   );
 }
+    hr: true,
+    pace: true,
+    cadence: false,
+    elev: false,
+    vo: false,
 
 
 function Stat({ label, value }: { label: string; value: string }) {
@@ -1105,8 +1105,7 @@ function MapPanel({
 }: {
   points: { lat?: number; lng?: number }[];
 }) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<maplibregl.Map | null>(null);
+ null);  const containerRef = useRef<HTMLDivElement | null>(null);
   const [mapStatus, setMapStatus] = useState<"ready" | "unsupported" | "failed">("ready");
 
   const safePoints = useMemo(() => {
@@ -1408,7 +1407,6 @@ const s: Sample = {
         d2: endSample.d ?? startD,
       });
     }
-  }
 
     return {
       samples,
@@ -1543,7 +1541,24 @@ const t = normalizedType as string;
   if (current.length > 0) groups.push(current);
 
   return groups.map((grp, idx) => {
-    const type = ((grp[0].segment_type ?? "work") as SplitRow["type"]) || "work";
+    let rawType = grp[0].segment_type ?? "work";
+
+const first = grp[0];
+const last = grp[grp.length - 1];
+
+const durationS = Math.max(0, Number(last.elapsed_s ?? 0) - Number(first.elapsed_s ?? 0));
+const distanceM = Math.max(0, Number(last.distance_m ?? 0) - Number(first.distance_m ?? 0));
+
+// ✅ Filter fake cooldown groups
+if (
+  rawType === "cooldown" &&
+  durationS < 120 &&
+  distanceM < 200
+) {
+  rawType = "work";
+}
+
+const type = (rawType as SplitRow["type"]) || "work";
     const first = grp[0];
     const last = grp[grp.length - 1];
     const durationS = Math.max(0, Number(last.elapsed_s ?? 0) - Number(first.elapsed_s ?? 0));
