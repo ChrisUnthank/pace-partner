@@ -2056,24 +2056,7 @@ function median(nums: number[]): number | null {
   return vals.length % 2 === 0 ? (vals[mid - 1] + vals[mid]) / 2 : vals[mid];
 }
 
-function addRepScoring(rows: SplitRow[]): SplitRow[] {
-  const workRows = rows.filter(
-    (r) => (r.type === "work" || r.type === "strides") && typeof r.avgPace === "number" && r.avgPace > 0,
-  );
-
-  const medianWorkPace = median(workRows.map((r) => r.avgPace).filter((x): x is number => typeof x === "number"));
-
-  if (!medianWorkPace) {
-    return rows.map((r) => ({
-      ...r,
-      score: null,
-      scoreLabel: null,
-      scoreTone: null,
-      paceDeltaPct: null,
-    }));
-  }
-
-  return rows.map((r) => {
+function addRepScoring(rows: SplitRow[]): SplitRow[] {function addRepScoring(rows: Split    // ✅ non-work rows → no scoring
     if (r.type !== "work" && r.type !== "strides") {
       return {
         ...r,
@@ -2094,38 +2077,52 @@ function addRepScoring(rows: SplitRow[]): SplitRow[] {
       };
     }
 
-    const paceDeltaPct = ((r.avgPace - medianWorkPace) / medianWorkPace) * 100;
+    // ✅ pace vs session median
+    const paceDeltaPct =
+      ((r.avgPace - medianWorkPace) / medianWorkPace) * 100;
+
     const absDelta = Math.abs(paceDeltaPct);
 
     let score = 100;
 
-    if (absDelta <= 0.8)
-      score -= 0; // truly perfect
-    else if (absDelta <= 1.8)
-      score -= 5; // still elite but not perfect
+    // ✅ tighter pacing accuracy bands
+    if (absDelta <= 0.8) score -= 0;
+    else if (absDelta <= 1.8) score -= 5;
     else if (absDelta <= 3) score -= 10;
     else if (absDelta <= 5) score -= 20;
     else if (absDelta <= 8) score -= 35;
     else score -= 50;
 
-    // penalise excessive variation within the rep (fast/slow swings)
-    if (typeof r.maxPace === "number" && typeof r.avgPace === "number") {
-      const spreadPct = ((r.avgPace - r.maxPace) / r.avgPace) * 100;
+    // ✅ intra-rep variability (fast/slow swings)
+    if (
+      typeof r.maxPace === "number" &&
+      typeof r.avgPace === "number"
+    ) {
+      const spreadPct =
+        ((r.avgPace - r.maxPace) / r.avgPace) * 100;
 
       if (spreadPct > 3) score -= 3;
       if (spreadPct > 6) score -= 5;
     }
 
-    if (typeof r.maxHr === "number" && typeof r.avgHr === "number") {
+    // ✅ HR efficiency penalty
+    if (
+      typeof r.maxHr === "number" &&
+      typeof r.avgHr === "number"
+    ) {
       const hrSpread = r.maxHr - r.avgHr;
+
       if (hrSpread > 18) score -= 4;
       if (hrSpread > 24) score -= 4;
     }
 
+    // ✅ adjusted rep penalty (overrun correction)
     if (r.adjusted) score -= 4;
 
+    // ✅ clamp + round
     score = Math.max(0, Math.min(100, Math.round(score)));
 
+    // ✅ labels
     let scoreLabel: string;
     let scoreTone: "excellent" | "good" | "warn" | "bad";
 
@@ -2152,6 +2149,30 @@ function addRepScoring(rows: SplitRow[]): SplitRow[] {
     };
   });
 }
+  const workRows = rows.filter(
+    (r) =>
+      (r.type === "work" || r.type === "strides") &&
+      typeof r.avgPace === "number" &&
+      r.avgPace > 0,
+  );
+
+  const medianWorkPace = median(
+    workRows
+      .map((r) => r.avgPace)
+      .filter((x): x is number => typeof x === "number"),
+  );
+
+  if (!medianWorkPace) {
+    return rows.map((r) => ({
+      ...r,
+      score: null,
+      scoreLabel: null,
+      scoreTone: null,
+      paceDeltaPct: null,
+    }));
+  }
+
+  return rows.map((r) => {
 
 function addFadeFlags(rows: SplitRow[]): SplitRow[] {
   let prevWorkPace: number | null = null;
