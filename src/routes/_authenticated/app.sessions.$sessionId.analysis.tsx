@@ -1821,6 +1821,30 @@ function trimTraceGroupToDistance(group: any[], targetDistanceM: number) {
   return computeMetricsFromTraceSlice(slice);
 }
 
+type SplitRow = {
+  index: number;
+  type: "warmup" | "work" | "recovery" | "cooldown" | "strides";
+  repLabel: string | null;
+  adjusted: boolean;
+  distanceM: number;
+  durationS: number;
+  avgPace: number | null;
+  maxPace: number | null;
+  avgHr: number | null;
+  maxHr: number | null;
+  hrEnd?: number | null;
+  hrRecovery?: number | null;
+  hrDrop?: number | null;
+  avgCad: number | null;
+  maxCad: number | null;
+  vo?: number | null;
+  gct?: number | null;
+  strideLength?: number | null;
+  lactate?: number | null;
+  elevGain: number | null;
+  elevLoss: number | null;
+};
+
 function buildSplitsFromResults(results: any[], steps: any[], rawPoints: any[]): SplitRow[] {
   if (!Array.isArray(results) || results.length === 0) return [];
 
