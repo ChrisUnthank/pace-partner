@@ -1932,8 +1932,32 @@ function buildSplitsFromResults(results: any[], steps: any[], rawPoints: any[]):
         : null;
 
     const hrEnd = r.hr_end != null ? Number(r.hr_end) : null;
-    const hrRecovery = r.hr_end_recovery != null ? Number(r.hr_end_recovery) : null;
-    const hrDrop = hrEnd != null && hrRecovery != null ? hrEnd - hrRecovery : null;
+const hrRecovery = r.hr_end_recovery != null ? Number(r.hr_end_recovery) : null;
+const hrDrop = hrEnd != null && hrRecovery != null ? hrEnd - hrRecovery : null;
+
+
+const safeAvgHr = finalMetrics.avgHr ?? null;
+const safeHrEnd = hrEnd;
+
+const safeMaxHr =
+  [finalMetrics.maxHr, safeAvgHr, safeHrEnd]
+    .filter((x): x is number => typeof x === "number" && Number.isFinite(x))
+    .reduce((m, x) => Math.max(m, x), 0) || null;
+
+
+rows.push({
+  index: rowIndex++,
+  type: kind,
+  durationS: finalMetrics.durationS,
+  distanceM: finalMetrics.distanceM,
+  avgPace: finalMetrics.avgPace,
+  maxPace: finalMetrics.maxPace,
+  avgHr: safeAvgHr,
+  maxHr: safeMaxHr,   // ✅ CHANGE THIS LINE
+  avgCad: finalMetrics.avgCad,
+  maxCad: finalMetrics.maxCad,
+  ...
+});
 
     rows.push({
       index: rowIndex++,
