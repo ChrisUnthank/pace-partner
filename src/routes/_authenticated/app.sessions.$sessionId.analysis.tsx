@@ -90,7 +90,13 @@ type MetricKey = (typeof METRICS)[number]["key"];
 function SessionAnalysis() {
   const { sessionId } = Route.useParams();
 
-  const [: false,  const [enabled, setEnabled] = useState<Record<MetricKey, boolean>>({
+  const [enabled, setEnabled] = useState<Record<MetricKey, boolean>>({
+    hr: true,
+    pace: true,
+    cadence: false,
+    elev: false,
+    vo: false,
+    gct: false,
   });
 
   const [xMode, setXMode] = useState<"time" | "distance">("time");
@@ -782,13 +788,6 @@ function SessionAnalysis() {
     </AppShell>
   );
 }
-    hr: true,
-    pace: true,
-    cadence: false,
-    elev: false,
-    vo: false,
-
-
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="border rounded px-3 py-2">
