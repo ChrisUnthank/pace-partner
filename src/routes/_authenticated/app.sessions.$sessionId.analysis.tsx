@@ -1025,6 +1025,39 @@ function WorkSegmentPanel({ steps, results, rawPoints }: { steps: any[]; results
                         "—"
                       )}
                     </td>
+                    <td className="py-1 pr-2 text-right tabular-nums">{r.score != null ? r.score : "—"}</td>
+
+                    <td className="py-1 pr-2">
+                      {r.scoreLabel ? (
+                        <span
+                          className={
+                            r.scoreTone === "excellent"
+                              ? "text-emerald-400"
+                              : r.scoreTone === "good"
+                                ? "text-sky-400"
+                                : r.scoreTone === "warn"
+                                  ? "text-amber-400"
+                                  : "text-red-400"
+                          }
+                        >
+                          {r.scoreLabel}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+
+                    <td className="py-1 pr-2">
+                      {r.isBest ? (
+                        <span className="text-emerald-400">🔥 Best</span>
+                      ) : r.fadeFlag === "strong" ? (
+                        <span className="text-red-400">🔻 Fade</span>
+                      ) : r.fadeFlag === "mild" ? (
+                        <span className="text-amber-400">⚠ Slowing</span>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                     <td className="py-1 pr-2 text-right tabular-nums">—</td>
                     <td className="py-1 pr-2 text-right tabular-nums">—</td>
 
@@ -1461,7 +1494,22 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
   const [segmentFilter, setSegmentFilter] = useState<ScopeKey>("full");
   const [detailMode, setDetailMode] = useState<"basic" | "advanced">("basic");
 
-  const rows = useMemo(() => buildSplits(points, results, steps), [points, results, steps]);
+  const rows = useMemo(() => {
+    const baseRows = buildSplits(points, results, steps);
+    const scoredRows = addRepScoring(baseRows);
+    const fadedRows = addFadeFlags(scoredRows);
+
+    const workRows = fadedRows.filter(
+      (r) => (r.type === "work" || r.type === "strides") && typeof r.score === "number",
+    );
+
+    const bestScore = workRows.length > 0 ? Math.max(...workRows.map((r) => r.score ?? 0)) : null;
+
+    return fadedRows.map((r) => ({
+      ...r,
+      isBest: bestScore != null && r.score === bestScore,
+    }));
+  }, [points, results, steps]);
 
   const filteredRows = useMemo(() => {
     if (segmentFilter === "full") return rows;
@@ -1571,6 +1619,9 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
                 <th className="text-right py-1 pr-2">Max pace</th>
                 <th className="text-right py-1 pr-2">Avg HR</th>
                 <th className="text-right py-1 pr-2">Max HR</th>
+                <th className="text-right py-1 pr-2">Score</th>
+                <th className="text-left py-1 pr-2">Flag</th>
+                <th className="text-left py-1 pr-2">Trend</th>
                 {detailMode === "advanced" && (
                   <>
                     <th className="text-right py-1 pr-2">HR end</th>
