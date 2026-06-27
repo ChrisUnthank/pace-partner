@@ -2035,6 +2035,9 @@ function buildSplitsFromResults(results: any[], steps: any[], rawPoints: any[]):
       maxCad: r.cadence != null ? Number(r.cadence) : null,
       elevGain: null as number | null,
       elevLoss: null as number | null,
+      avgVo: null as number | null,
+      avgGct: null as number | null,
+      strideLength: null as number | null,
     };
 
     let adjusted = false;
@@ -2068,6 +2071,9 @@ function buildSplitsFromResults(results: any[], steps: any[], rawPoints: any[]):
             maxCad: finalMetrics.maxCad ?? traceMetrics.maxCad,
             elevGain: traceMetrics.elevGain,
             elevLoss: traceMetrics.elevLoss,
+            avgVo: traceMetrics.avgVo,
+            avgGct: traceMetrics.avgGct,
+            strideLength: traceMetrics.strideLength,
           };
         }
       }
@@ -2076,6 +2082,27 @@ function buildSplitsFromResults(results: any[], steps: any[], rawPoints: any[]):
         workTraceIdx += 1;
       }
     }
+
+    // Stride length: prefer explicit cm value on the row, else compute from
+    // duration/distance/cadence, else fall back to trace-derived stride.
+    const repStrideCm = r.stride_length_cm != null ? Number(r.stride_length_cm) : null;
+    const repStrideM =
+      repStrideCm && Number.isFinite(repStrideCm) && repStrideCm > 0 ? Number((repStrideCm / 100).toFixed(2)) : null;
+    const computedStride = computeStrideLengthM(
+      finalMetrics.distanceM,
+      finalMetrics.durationS,
+      finalMetrics.avgCad,
+    );
+    const strideLength = repStrideM ?? computedStride ?? finalMetrics.strideLength ?? null;
+
+    const lactate =
+      r.lactate_taken && r.lactate_mmol != null && Number.isFinite(Number(r.lactate_mmol))
+        ? Number(r.lactate_mmol)
+        : null;
+
+    const hrEnd = r.hr_end != null ? Number(r.hr_end) : null;
+    const hrRecovery = r.hr_end_recovery != null ? Number(r.hr_end_recovery) : null;
+    const hrDrop = hrEnd != null && hrRecovery != null ? hrEnd - hrRecovery : null;
 
     rows.push({
       index: rowIndex++,
@@ -2092,6 +2119,13 @@ function buildSplitsFromResults(results: any[], steps: any[], rawPoints: any[]):
       elevLoss: finalMetrics.elevLoss,
       repLabel,
       adjusted,
+      hrEnd,
+      hrRecovery,
+      hrDrop,
+      vo: finalMetrics.avgVo,
+      gct: finalMetrics.avgGct,
+      lactate,
+      strideLength,
     });
 
     // Recovery row, anchored to structured recovery first, with trace support second
@@ -2128,6 +2162,13 @@ function buildSplitsFromResults(results: any[], steps: any[], rawPoints: any[]):
         elevLoss: recoveryTraceMetrics?.elevLoss ?? null,
         repLabel: repLabel ? `${repLabel} Rec` : null,
         adjusted: false,
+        hrEnd: null,
+        hrRecovery: recoveryHr,
+        hrDrop: hrDrop,
+        vo: recoveryTraceMetrics?.avgVo ?? null,
+        gct: recoveryTraceMetrics?.avgGct ?? null,
+        lactate: null,
+        strideLength: recoveryTraceMetrics?.strideLength ?? null,
       });
 
       if (matchingRecoveryGroup) {
