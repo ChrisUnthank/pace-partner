@@ -1425,8 +1425,7 @@ function buildSamples(
   };
 }
 
-type SplitRow = {
-  index: number;
+type SplitRow = {type SplitRow;
   type: "warmup" | "work" | "recovery" | "cooldown" | "strides";
   durationS: number;
   distanceM: number;
@@ -1438,104 +1437,367 @@ type SplitRow = {
   maxCad: number | null;
   elevGain: number | null;
   elevLoss: number | null;
+  repLabel?: string | null;
+  adjusted?: boolean;
 };
 
-const SPLIT_COLORS: Record<SplitRow["type"], string> = {
-  warmup: "#0ea5e9",
-  work: "#ef4444",
-  recovery: "#64748b",
-  cooldown: "#10b981",
-  strides: "#f59e0b",
+type TraceGroup = {
+  type: "warmup" | "work" | "recovery" | "cooldown" | "strides";
+  points: any[];
 };
 
-function normalizeSplitType(value: unknown): SplitRow["type"] {
-  if (value === "warmup" || value === "work" || value === "recovery" || value === "cooldown" || value === "strides") {
-    return value;
-  }
-
-  return "work";
-}
-
-function buildSplits(points: any[]): SplitRow[] {
+function buildTraceGroups(points: any[]): TraceGroup[] {
   if (!Array.isArray(points) || points.length === 0) return [];
 
-  const groups: any[][] = [];
+  const groups: TraceGroup[] = [];
   let current: any[] = [];
-  let currentType: SplitRow["type"] | null = null;
+  let currentType: TraceGroup["type"] | null = null;
 
-  for (const point of points) {
-    const type = normalizeSplitType(point.__normalized_type ?? point.segment_type);
+  for (const p of points) {
+    let t = ((p.segment_type ?? "work") as TraceGroup["type"]) || "work";
 
-    if (type !== currentType) {
-      if (current.length > 0) groups.push(current);
+    if (t !== currentType) {
+      if (current.length > 0 && currentType) {
+        groups.push({ type: currentType, points: current });
+      }
       current = [];
-      currentType = type;
+      currentType = t;
     }
 
-    current.push(point);
+    current.push(p);
   }
 
-  if (current.length > 0) groups.push(current);
+  if (current.length > 0 && currentType) {
+    groups.push({ type: currentType, points: current });
+  }
 
-  return groups.map((grp, idx) => {
-    const first = grp[0];
-    const last = grp[grp.length - 1];
-    const durationS = Math.max(0, Number(last.elapsed_s ?? 0) - Number(first.elapsed_s ?? 0));
-    const distanceM = Math.max(0, Number(last.distance_m ?? 0) - Number(first.distance_m ?? 0));
-    let type = normalizeSplitType(first.__normalized_type ?? first.segment_type);
+  // remove tiny fake cooldown tails
+  return groups.filter((g, idx) => {
+    if (g.type !== "cooldown") return true;
+    const first = g.points[0];
+    const last = g.points[g.points.length - 1];
+    const durationS = Math.max(0, Number(last?.elapsed_s ?? 0) - Number(first?.elapsed_s ?? 0));
+    const distanceM = Math.max(0, Number(last?.distance_m ?? 0) - Number(first?.distance_m ?? 0));
 
-    if (type === "cooldown" && durationS < 120 && distanceM < 200) {
-      type = "work";
+    if (durationS < 120 && distanceM < 200) {
+      return false;
     }
 
-    const hrs = grp.map((p) => Number(p.hr)).filter((x: number) => Number.isFinite(x) && x > 0);
-    const paces = grp
-      .map((p) => Number(p.pace_sec_per_km))
-      .filter((x: number) => Number.isFinite(x) && x > 0 && x <= 900);
-    const cads = grp.map((p) => Number(p.cadence)).filter((x: number) => Number.isFinite(x) && x > 0);
-
-    let gain = 0;
-    let loss = 0;
-    let haveElev = false;
-
-    for (let i = 1; i < grp.length; i++) {
-      const a = Number(grp[i - 1].elevation_m);
-      const b = Number(grp[i].elevation_m);
-
-      if (Number.isFinite(a) && Number.isFinite(b)) {
-        haveElev = true;
-        const delta = b - a;
-        if (delta > 0) gain += delta;
-        else loss += Math.abs(delta);
-      }
-    }
-
-    const avgPace =
-      distanceM > 0 && durationS > 0
-        ? (durationS / distanceM) * 1000
-        : paces.length
-          ? paces.reduce((a, b) => a + b, 0) / paces.length
-          : null;
-
-    return {
-      index: idx + 1,
-      type,
-      durationS,
-      distanceM,
-      avgPace,
-      maxPace: paces.length ? Math.min(...paces) : null,
-      avgHr: hrs.length ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null,
-      maxHr: hrs.length ? Math.max(...hrs) : null,
-      avgCad: cads.length ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length) : null,
-      maxCad: cads.length ? Math.max(...cads) : null,
-      elevGain: haveElev ? Math.round(gain) : null,
-      elevLoss: haveElev ? Math.round(loss) : null,
-    };
+    return true;
   });
 }
 
-function SplitsTable({ points }: { points: any[] }) {
-  const rows = useMemo(() => buildSplits(points), [points]);
+function computeMetricsFromTraceSlice(slice: any[]) {
+  if (!Array.isArray(slice) || slice.length === 0) {
+    return {
+      durationS: 0,
+      distanceM: 0,
+      avgPace: null,
+      maxPace: null,
+      avgHr: null,
+      maxHr: null,
+      avgCad: null,
+      maxCad: null,
+      elevGain: null,
+      elevLoss: null,
+    };
+  }
+
+  const first = slice[0];
+  const last = slice[slice.length - 1];
+
+  const durationS = Math.max(0, Number(last.elapsed_s ?? 0) - Number(first.elapsed_s ?? 0));
+  const distanceM = Math.max(0, Number(last.distance_m ?? 0) - Number(first.distance_m ?? 0));
+
+  const hrs = slice
+    .map((p) => p.hr)
+    .filter((x: any): x is number => typeof x === "number" && x > 0);
+
+  const paces = slice
+    .map((p) => p.pace_sec_per_km)
+    .filter(
+      (x: any): x is number =>
+        typeof x === "number" && x > 0 && x <= 900,
+    );
+
+  const cads = slice
+    .map((p) => p.cadence)
+    .filter((x: any): x is number => typeof x === "number" && x > 0);
+
+  let gain = 0;
+  let loss = 0;
+  let haveElev = false;
+
+  for (let i = 1; i < slice.length; i++) {
+    const a = slice[i - 1].elevation_m;
+    const b = slice[i].elevation_m;
+
+    if (typeof a === "number" && typeof b === "number") {
+      haveElev = true;
+      const d = b - a;
+      if (d > 0) gain += d;
+      else loss += -d;
+    }
+  }
+
+  const avgPace =
+    distanceM > 0 && durationS > 0
+      ? (durationS / distanceM) * 1000
+      : paces.length
+        ? paces.reduce((a, b) => a + b, 0) / paces.length
+        : null;
+
+  return {
+    durationS,
+    distanceM,
+    avgPace,
+    maxPace: paces.length ? Math.min(...paces) : null,
+    avgHr: hrs.length ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null,
+    maxHr: hrs.length ? Math.max(...hrs) : null,
+    avgCad: cads.length ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length) : null,
+    maxCad: cads.length ? Math.max(...cads) : null,
+    elevGain: haveElev ? Math.round(gain) : null,
+    elevLoss: haveElev ? Math.round(loss) : null,
+  };
+}
+
+function trimTraceGroupToDistance(group: any[], targetDistanceM: number) {
+  if (!Array.isArray(group) || group.length === 0 || !targetDistanceM || targetDistanceM <= 0) {
+    return computeMetricsFromTraceSlice(group);
+  }
+
+  const startDistance = Number(group[0]?.distance_m ?? 0);
+  const targetAbsolute = startDistance + targetDistanceM;
+
+  const slice: any[] = [group[0]];
+
+  for (let i = 1; i < group.length; i++) {
+    const p = group[i];
+    slice.push(p);
+
+    const d = Number(p?.distance_m ?? 0);
+    if (d >= targetAbsolute) break;
+  }
+
+  return computeMetricsFromTraceSlice(slice);
+}
+
+function buildSplitsFromResults(results: any[], steps: any[], rawPoints: any[]): SplitRow[] {
+  if (!Array.isArray(results) || results.length === 0) return [];
+
+  const stepMap = new Map<string, any>();
+  (steps ?? []).forEach((s: any) => stepMap.set(s.id, s));
+
+  const sortedResults = [...results].sort((a, b) => {
+    const aStep = stepMap.get(a.step_id);
+    const bStep = stepMap.get(b.step_id);
+
+    const stepOrderDiff = Number(aStep?.step_order ?? 0) - Number(bStep?.step_order ?? 0);
+    if (stepOrderDiff !== 0) return stepOrderDiff;
+
+    const setDiff = Number(a.set_number ?? 1) - Number(b.set_number ?? 1);
+    if (setDiff !== 0) return setDiff;
+
+    return Number(a.rep_number ?? 0) - Number(b.rep_number ?? 0);
+  });
+
+  const traceGroups = buildTraceGroups(rawPoints);
+  const traceWorkGroups = traceGroups.filter((g) => g.type === "work" || g.type === "strides");
+  const traceRecoveryGroups = traceGroups.filter((g) => g.type === "recovery");
+
+  let workTraceIdx = 0;
+  let recoveryTraceIdx = 0;
+  let rowIndex = 1;
+
+  const rows: SplitRow[] = [];
+
+  for (const r of sortedResults) {
+    const step = stepMap.get(r.step_id);
+    const kind = (step?.kind ?? "work") as SplitRow["type"];
+
+    const repLabel =
+      kind === "work" || kind === "strides"
+        ? `${(r.set_number ?? 1) > 1 ? `S${r.set_number} ` : ""}R${r.rep_number ?? rowIndex}`
+        : null;
+
+    const recordedDuration = Number(r.actual_time_seconds ?? 0);
+    const recordedDistance = Number(r.actual_distance_m ?? 0);
+    const recordedPace =
+      r.actual_pace_sec_per_km != null
+        ? Number(r.actual_pace_sec_per_km)
+        : recordedDuration > 0 && recordedDistance > 0
+          ? (recordedDuration / recordedDistance) * 1000
+          : null;
+
+    let finalMetrics = {
+      durationS: Math.max(0, recordedDuration),
+      distanceM: Math.max(0, recordedDistance),
+      avgPace: recordedPace,
+      maxPace: recordedPace,
+      avgHr: r.hr_avg != null ? Number(r.hr_avg) : null,
+      maxHr: r.hr_end != null ? Number(r.hr_end) : null,
+      avgCad: r.cadence != null ? Number(r.cadence) : null,
+      maxCad: r.cadence != null ? Number(r.cadence) : null,
+      elevGain: null as number | null,
+      elevLoss: null as number | null,
+    };
+
+    let adjusted = false;
+
+    // ✅ Advanced correction:
+    // If this is a work rep with a target distance and the recorded distance overruns materially,
+    // recompute from the matching raw trace work chunk trimmed to target distance.
+    if ((kind === "work" || kind === "strides") && step?.target_kind === "distance" && step?.target_distance_m) {
+      const targetDistance = Number(step.target_distance_m);
+      const recordedOverrun =
+        recordedDistance > 0 && targetDistance > 0
+          ? recordedDistance > targetDistance * 1.05
+          : false;
+
+      const matchingTraceGroup = traceWorkGroups[workTraceIdx];
+
+      if (matchingTraceGroup?.points?.length) {
+        if (recordedOverrun) {
+          finalMetrics = trimTraceGroupToDistance(matchingTraceGroup.points, targetDistance);
+          adjusted = true;
+        } else {
+          const traceMetrics = computeMetricsFromTraceSlice(matchingTraceGroup.points);
+
+          // Prefer trace-derived support metrics if distance is broadly sane
+          finalMetrics = {
+            durationS: finalMetrics.durationS || traceMetrics.durationS,
+            distanceM: finalMetrics.distanceM || traceMetrics.distanceM,
+            avgPace: finalMetrics.avgPace ?? traceMetrics.avgPace,
+            maxPace: traceMetrics.maxPace,
+            avgHr: finalMetrics.avgHr ?? traceMetrics.avgHr,
+            maxHr: finalMetrics.maxHr ?? traceMetrics.maxHr,
+            avgCad: finalMetrics.avgCad ?? traceMetrics.avgCad,
+            maxCad: finalMetrics.maxCad ?? traceMetrics.maxCad,
+            elevGain: traceMetrics.elevGain,
+            elevLoss: traceMetrics.elevLoss,
+          };
+        }
+      }
+
+      if (matchingTraceGroup) {
+        workTraceIdx += 1;
+      }
+    }
+
+    rows.push({
+      index: rowIndex++,
+      type: kind,
+      durationS: finalMetrics.durationS,
+      distanceM: finalMetrics.distanceM,
+      avgPace: finalMetrics.avgPace,
+      maxPace: finalMetrics.maxPace,
+      avgHr: finalMetrics.avgHr,
+      maxHr: finalMetrics.maxHr,
+      avgCad: finalMetrics.avgCad,
+      maxCad: finalMetrics.maxCad,
+      elevGain: finalMetrics.elevGain,
+      elevLoss: finalMetrics.elevLoss,
+      repLabel,
+      adjusted,
+    });
+
+    // Recovery row, anchored to structured recovery first, with trace support second
+    const recoveryDuration = Number(r.recovery_time_seconds ?? 0);
+    const recoveryDistance = Number(r.recovery_distance_m ?? 0);
+    const recoveryHr = r.hr_end_recovery != null ? Number(r.hr_end_recovery) : null;
+
+    const matchingRecoveryGroup = traceRecoveryGroups[recoveryTraceIdx];
+    const recoveryTraceMetrics = matchingRecoveryGroup?.points?.length
+      ? computeMetricsFromTraceSlice(matchingRecoveryGroup.points)
+      : null;
+
+    if (
+      recoveryDuration > 0 ||
+      recoveryDistance > 0 ||
+      recoveryHr != null ||
+      recoveryTraceMetrics
+    ) {
+      const finalRecoveryDuration =
+        recoveryDuration > 0 ? recoveryDuration : recoveryTraceMetrics?.durationS ?? 0;
+      const finalRecoveryDistance =
+        recoveryDistance > 0 ? recoveryDistance : recoveryTraceMetrics?.distanceM ?? 0;
+
+      const recoveryPace =
+        finalRecoveryDuration > 0 && finalRecoveryDistance > 0
+          ? (finalRecoveryDuration / finalRecoveryDistance) * 1000
+          : recoveryTraceMetrics?.avgPace ?? null;
+
+      rows.push({
+        index: rowIndex++,
+        type: "recovery",
+        durationS: finalRecoveryDuration,
+        distanceM: finalRecoveryDistance,
+        avgPace: recoveryPace,
+        maxPace: recoveryTraceMetrics?.maxPace ?? recoveryPace ?? null,
+        avgHr: recoveryHr ?? recoveryTraceMetrics?.avgHr ?? null,
+        maxHr: recoveryHr ?? recoveryTraceMetrics?.maxHr ?? null,
+        avgCad: recoveryTraceMetrics?.avgCad ?? null,
+        maxCad: recoveryTraceMetrics?.maxCad ?? null,
+        elevGain: recoveryTraceMetrics?.elevGain ?? null,
+        elevLoss: recoveryTraceMetrics?.elevLoss ?? null,
+        repLabel: repLabel ? `${repLabel} Rec` : null,
+        adjusted: false,
+      });
+
+      if (matchingRecoveryGroup) {
+        recoveryTraceIdx += 1;
+      }
+    }
+  }
+
+  return rows.filter((row) => row.durationS >= 5 || row.distanceM >= 10 || row.avgHr != null);
+}
+
+function buildSplitsFromTrace(points: any[]): SplitRow[] {
+  if (!Array.isArray(points) || points.length === 0) return [];
+
+  const groups = buildTraceGroups(points);
+
+  return groups
+    .map((g, idx) => {
+      const metrics = computeMetricsFromTraceSlice(g.points);
+
+      return {
+        index: idx + 1,
+        type: g.type,
+        durationS: metrics.durationS,
+        distanceM: metrics.distanceM,
+        avgPace: metrics.avgPace,
+        maxPace: metrics.maxPace,
+        avgHr: metrics.avgHr,
+        maxHr: metrics.maxHr,
+        avgCad: metrics.avgCad,
+        maxCad: metrics.maxCad,
+        elevGain: metrics.elevGain,
+        elevLoss: metrics.elevLoss,
+        repLabel: null,
+        adjusted: false,
+      } as SplitRow;
+    })
+    .filter((row) => row.durationS >= 5 || row.distanceM >= 10 || row.avgHr != null);
+}
+
+function buildSplits(points: any[], results?: any[], steps?: any[]): SplitRow[] {
+  const resultBased = buildSplitsFromResults(results ?? [], steps ?? [], points ?? []);
+  if (resultBased.length > 0) return resultBased;
+  return buildSplitsFromTrace(points ?? []);
+}
+
+function SplitsTable({
+  points,
+  results,
+  steps,
+}: {
+  points: any[];
+  results: any[];
+  steps: any[];
+}) {
+  const rows = useMemo(() => buildSplits(points, results, steps), [points, results, steps]);
   if (rows.length === 0) return null;
 
   return (
@@ -1543,17 +1805,18 @@ function SplitsTable({ points }: { points: any[] }) {
       <CardHeader>
         <CardTitle>Workout splits</CardTitle>
         <CardDescription>
-          Chronological warmup / work / recovery / cooldown derived from the normalized recorded trace.
+          Rep-aligned splits from structured results, with smart trace correction for overruns and recovery shown between reps.
         </CardDescription>
       </CardHeader>
 
       <CardContent>
         <div className="overflow-x-auto">
-          <table className="w-full text-xs">
+          <table className="w-full text-xs border-separate border-spacing-0">
             <thead className="text-muted-foreground">
               <tr className="border-b">
                 <th className="text-left py-1 pr-2">#</th>
                 <th className="text-left py-1 pr-2">Type</th>
+                <th className="text-left py-1 pr-2">Label</th>
                 <th className="text-right py-1 pr-2">Dist</th>
                 <th className="text-right py-1 pr-2">Time</th>
                 <th className="text-right py-1 pr-2">Avg pace</th>
@@ -1568,38 +1831,60 @@ function SplitsTable({ points }: { points: any[] }) {
             </thead>
 
             <tbody>
-              {rows.map((row) => (
+              {rows.map((r) => (
                 <tr
-                  key={row.index}
+                  key={`${r.index}-${r.type}-${r.repLabel ?? ""}`}
                   className="border-b last:border-b-0"
                   style={{
-                    backgroundColor: STEP_COLORS[row.type] ?? "transparent",
+                    backgroundColor: STEP_COLORS[r.type] ?? "transparent",
                     color: "#e5e7eb",
-                    borderLeft: `3px solid ${STEP_STROKE[row.type] ?? "#444"}`,
+                    borderLeft: `3px solid ${STEP_STROKE[r.type] ?? "#444"}`,
                   }}
                 >
-                  <td className="py-1 pr-2 tabular-nums">{row.index}</td>
-                  <td className="py-1 pr-2 capitalize">{row.type}</td>
-                  <td className="py-1 pr-2 text-right tabular-nums">
-                    {row.distanceM > 0 ? metersFmt(row.distanceM) : "—"}
+                  <td className="py-1 pr-2 tabular-nums">{r.index}</td>
+                  <td className="py-1 pr-2 capitalize">{r.type}</td>
+                  <td className="py-1 pr-2">
+                    {r.repLabel ?? "—"}
+                    {r.adjusted ? " *" : ""}
                   </td>
                   <td className="py-1 pr-2 text-right tabular-nums">
-                    {row.durationS > 0 ? secToClock(row.durationS) : "—"}
+                    {r.distanceM > 0 ? metersFmt(r.distanceM) : "—"}
                   </td>
-                  <td className="py-1 pr-2 text-right tabular-nums">{row.avgPace ? paceFmt(row.avgPace) : "—"}</td>
-                  <td className="py-1 pr-2 text-right tabular-nums">{row.maxPace ? paceFmt(row.maxPace) : "—"}</td>
-                  <td className="py-1 pr-2 text-right tabular-nums">{row.avgHr ?? "—"}</td>
-                  <td className="py-1 pr-2 text-right tabular-nums">{row.maxHr ?? "—"}</td>
-                  <td className="py-1 pr-2 text-right tabular-nums">{row.avgCad ?? "—"}</td>
-                  <td className="py-1 pr-2 text-right tabular-nums">{row.maxCad ?? "—"}</td>
                   <td className="py-1 pr-2 text-right tabular-nums">
-                    {row.elevGain != null ? `${row.elevGain}m` : "—"}
+                    {r.durationS > 0 ? secToClock(r.durationS) : "—"}
                   </td>
-                  <td className="py-1 text-right tabular-nums">{row.elevLoss != null ? `${row.elevLoss}m` : "—"}</td>
+                  <td className="py-1 pr-2 text-right tabular-nums">
+                    {r.avgPace ? paceFmt(r.avgPace) : "—"}
+                  </td>
+                  <td className="py-1 pr-2 text-right tabular-nums">
+                    {r.maxPace ? paceFmt(r.maxPace) : "—"}
+                  </td>
+                  <td className="py-1 pr-2 text-right tabular-nums">
+                    {r.avgHr ?? "—"}
+                  </td>
+                  <td className="py-1 pr-2 text-right tabular-nums">
+                    {r.maxHr ?? "—"}
+                  </td>
+                  <td className="py-1 pr-2 text-right tabular-nums">
+                    {r.avgCad ?? "—"}
+                  </td>
+                  <td className="py-1 pr-2 text-right tabular-nums">
+                    {r.maxCad ?? "—"}
+                  </td>
+                  <td className="py-1 pr-2 text-right tabular-nums">
+                    {r.elevGain != null ? `${r.elevGain}m` : "—"}
+                  </td>
+                  <td className="py-1 text-right tabular-nums">
+                    {r.elevLoss != null ? `${r.elevLoss}m` : "—"}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
+
+          <div className="text-[11px] text-muted-foreground mt-2">
+            * adjusted = recorded rep overran target distance, so pace/distance/time were corrected from the trace to the planned rep target.
+          </div>
         </div>
       </CardContent>
     </Card>
