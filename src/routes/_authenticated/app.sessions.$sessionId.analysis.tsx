@@ -932,13 +932,9 @@ function WorkSegmentPanel({ steps, results, rawPoints }: { steps: any[]; results
 
   const maxHr = repSplits.reduce((m, r) => Math.max(m, Number(r.maxHr ?? 0)), 0) || null;
 
-  const cads = repSplits
-    .map((r) => r.avgCad)
-    .filter((x): x is number => typeof x === "number");
+  const cads = repSplits.map((r) => r.avgCad).filter((x: any) => x);
 
-  const avgCad = cads.length
-    ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length)
-    : null;
+  const avgCad = cads.length ? Math.round(cads.reduce((a: number, b: number) => a + Number(b), 0) / cads.length) : null;
 
   return (
     <Card>
@@ -996,7 +992,37 @@ function WorkSegmentPanel({ steps, results, rawPoints }: { steps: any[]; results
                     <td className="py-1 pr-2 text-right tabular-nums">{r.avgHr ?? "—"}</td>
 
                     <td className="py-1 pr-2 text-right tabular-nums">{r.maxHr ?? "—"}</td>
+<td className="py-1 pr-2 text-right tabular-nums">
+  {r.score != null ? r.score : "—"}
+</td>
 
+<td className="py-1 pr-2">
+  {r.scoreLabel ? (
+    <span
+      className={
+        r.scoreTone === "excellent"
+          ? "text-emerald-400"
+          : r.scoreTone === "good"
+          ? "text-sky-400"
+          : r.scoreTone === "warn"
+          ? "text-amber-400"
+          : "text-red-400"
+      }
+    >
+      {r.scoreLabel}
+    </span>
+  ) : "—"}
+</td>
+
+<td className="py-1 pr-2">
+  {r.isBest ? (
+    <span className="text-emerald-400">🔥 Best</span>
+  ) : r.fadeFlag === "strong" ? (
+    <span className="text-red-400">🔻 Fade</span>
+  ) : r.fadeFlag === "mild" ? (
+    <span className="text-amber-400">⚠ Slowing</span>
+  ) : "—"}
+</td>
                     <td className="py-1 pr-2 text-right tabular-nums">—</td>
                     <td className="py-1 pr-2 text-right tabular-nums">—</td>
 
@@ -1465,98 +1491,7 @@ function UnifiedSessionTable({
     filteredRows.reduce((m, r) => Math.max(m, Number(r.maxHr ?? 0)), 0) || null;
 
   const cads = filteredRows
-    .map((r) => r.avgCad)
-    .filter((x: any): x is number => typeof x === "number");
-
-  const avgCad = cads.length
-    ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length)
-    : null;
-
-  const vos = filteredRows
-    .map((r) => r.vo)
-    .filter((x: any): x is number => typeof x === "number");
-
-  const avgVo = vos.length
-    ? Number((vos.reduce((a, b) => a + b, 0) / vos.length).toFixed(1))
-    : null;
-
-  const gcts = filteredRows
-    .map((r) => r.gct)
-    .filter((x: any): x is number => typeof x === "number");
-
-  const avgGct = gcts.length
-    ? Math.round(gcts.reduce((a, b) => a + b, 0) / gcts.length)
-    : null;
-
-  const strides = filteredRows
-    .map((r) => r.strideLength)
-    .filter((x: any): x is number => typeof x === "number");
-
-  const avgStrideLength = strides.length
-    ? Number((strides.reduce((a, b) => a + b, 0) / strides.length).toFixed(2))
-    : null;
-
-  if (rows.length === 0) return null;
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Session segments</CardTitle>
-        <CardDescription>
-          Unified rep-aligned session table with segment filters and dynamic summary.
-        </CardDescription>
-      </CardHeader>
-
-      <CardContent className="space-y-4">
-        {/* Segment filter buttons */}
-        <div className="flex flex-wrap gap-1">
-          {SCOPE_OPTIONS.map((k) => {
-            const hasData = k === "full" || rows.some((r) => r.type === k);
-            return (
-              <Button
-                key={k}
-                size="sm"
-                variant={segmentFilter === k ? "default" : "outline"}
-                disabled={!hasData}
-                onClick={() => hasData && setSegmentFilter(k)}
-                title={!hasData ? "No data for this segment" : ""}
-              >
-                {SCOPE_LABELS[k]}
-              </Button>
-            );
-          })}
-        </div>
-
-        {/* Basic / Advanced toggle */}
-        <div className="flex gap-1">
-          <Button
-            size="sm"
-            variant={detailMode === "basic" ? "default" : "outline"}
-            onClick={() => setDetailMode("basic")}
-          >
-            Basic
-          </Button>
-          <Button
-            size="sm"
-            variant={detailMode === "advanced" ? "default" : "outline"}
-            onClick={() => setDetailMode("advanced")}
-          >
-            Advanced
-          </Button>
-        </div>
-
-        {/* Dynamic summary */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
-          <Stat label="Distance" value={metersFmt(totalDist)} />
-          <Stat label="Duration" value={secToClock(totalTime)} />
-          <Stat label="Avg pace" value={avgPace ? `${paceFmt(avgPace)} /km` : "—"} />
-          <Stat label="Avg HR" value={avgHr ? `${avgHr} bpm` : "—"} />
-          <Stat label="Max HR" value={maxHr ? `${maxHr} bpm` : "—"} />
-          <Stat label="Avg cadence" value={avgCad ? `${avgCad} spm` : "—"} />
-          {detailMode === "advanced" && (
-            <>
-              <Stat label="Avg VO" value={avgVo != null ? `${avgVo} cm` : "—"} />
-              <Stat label="Avg GCT" value={avgGct != null ? `${avgGct} ms` : "—"} />
+   " value={avgGct != null ? `${avgGct} ms` : "—"} />    .map((r) => r.avgCad)
               <Stat
                 label="Stride length"
                 value={avgStrideLength != null ? `${avgStrideLength} m` : "—"}
@@ -1611,10 +1546,24 @@ function UnifiedSessionTable({
                   key={`${r.index}-${r.type}-${r.repLabel ?? ""}`}
                   className="border-b last:border-b-0"
                   style={{
-                    backgroundColor: STEP_COLORS[r.type] ?? "transparent",
-                    color: "#e5e7eb",
-                    borderLeft: `3px solid ${STEP_STROKE[r.type] ?? "#444"}`,
-                  }}
+  backgroundColor: r.isBest
+    ? "rgba(34,197,94,0.12)"
+    : r.fadeFlag === "strong"
+    ? "rgba(239,68,68,0.10)"
+    : r.fadeFlag === "mild"
+    ? "rgba(251,191,36,0.10)"
+    : STEP_COLORS[r.type] ?? "transparent",
+
+  borderLeft: r.isBest
+    ? "4px solid #22c55e"
+    : r.fadeFlag === "strong"
+    ? "3px solid #ef4444"
+    : r.fadeFlag === "mild"
+    ? "3px solid #f59e0b"
+    : `3px solid ${STEP_STROKE[r.type] ?? "#444"}`,
+
+  color: "#e5e7eb",
+}}
                 >
                   <td className="py-1 pr-2 tabular-nums">{r.index}</td>
                   <td className="py-1 pr-2 capitalize">{r.type}</td>
@@ -1690,6 +1639,98 @@ function UnifiedSessionTable({
     </Card>
   );
 }
+    .filter((x: any): x is number => typeof x === "number");
+
+  const avgCad = cads.length
+    ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length)
+    : null;
+
+  const vos = filteredRows
+    .map((r) => r.vo)
+    .filter((x: any): x is number => typeof x === "number");
+
+  const avgVo = vos.length
+    ? Number((vos.reduce((a, b) => a + b, 0) / vos.length).toFixed(1))
+    : null;
+
+  const gcts = filteredRows
+    .map((r) => r.gct)
+    .filter((x: any): x is number => typeof x === "number");
+
+  const avgGct = gcts.length
+    ? Math.round(gcts.reduce((a, b) => a + b, 0) / gcts.length)
+    : null;
+
+  const strides = filteredRows
+    .map((r) => r.strideLength)
+    .filter((x: any): x is number => typeof x === "number");
+
+  const avgStrideLength = strides.length
+    ? Number((strides.reduce((a, b) => a + b, 0) / strides.length).toFixed(2))
+    : null;
+
+  if (rows.length === 0) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Session segments</CardTitle>
+        <CardDescription>
+          Unified rep-aligned session table with segment filters and dynamic summary.
+        </CardDescription>
+      </CardHeader>
+
+      <CardContent className="space-y-4">
+        {/* Segment filter buttons */}
+        <div className="flex flex-wrap gap-1">
+          {SCOPE_OPTIONS.map((k) => {
+            const hasData = k === "full" || rows.some((r) => r.type === k);
+
+            return (
+              <Button
+                key={k}
+                size="sm"
+                variant={segmentFilter === k ? "default" : "outline"}
+                disabled={!hasData}
+                onClick={() => hasData && setSegmentFilter(k)}
+                title={!hasData ? "No data for this segment" : ""}
+              >
+                {SCOPE_LABELS[k]}
+              </Button>
+            );
+          })}
+        </div>
+
+        {/* Basic / Advanced toggle */}
+        <div className="flex gap-1">
+          <Button
+            size="sm"
+            variant={detailMode === "basic" ? "default" : "outline"}
+            onClick={() => setDetailMode("basic")}
+          >
+            Basic
+          </Button>
+          <Button
+            size="sm"
+            variant={detailMode === "advanced" ? "default" : "outline"}
+            onClick={() => setDetailMode("advanced")}
+          >
+            Advanced
+          </Button>
+        </div>
+
+        {/* Dynamic summary */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+          <Stat label="Distance" value={metersFmt(totalDist)} />
+          <Stat label="Duration" value={secToClock(totalTime)} />
+          <Stat label="Avg pace" value={avgPace ? `${paceFmt(avgPace)} /km` : "—"} />
+          <Stat label="Avg HR" value={avgHr ? `${avgHr} bpm` : "—"} />
+          <Stat label="Max HR" value={maxHr ? `${maxHr} bpm` : "—"} />
+          <Stat label="Avg cadence" value={avgCad ? `${avgCad} spm` : "—"} />
+          {detailMode === "advanced" && (
+            <>
+              <Stat label="Avg VO" value={avgVo != null ? `${avgVo} cm` : "—"} />
+
 
 type TraceGroup = {
   type: "warmup" | "work" | "recovery" | "cooldown" | "strides";
@@ -1850,7 +1891,10 @@ type SplitRow = {
   score?: number | null;
   scoreLabel?: string | null;
   scoreTone?: "excellent" | "good" | "warn" | "bad" | null;
-  paceDeltaPct?: number | null;
+  paceDeltaPct?: number | null;  
+  fadeFlag?: "none" | "mild" | "strong";
+  isBest?: boolean;
+
 
   // ✅ advanced metrics
   hrEnd?: number | null;
@@ -2060,9 +2104,163 @@ function buildSplits(points: any[], results?: any[], steps?: any[]): SplitRow[] 
   if (resultBased.length > 0) return resultBased;
   return buildSplitsFromTrace(points ?? []);
 }
+function median(nums: number[]): number | null {
+  const vals = nums.filter((n) => Number.isFinite(n)).sort((a, b) => a - b);
+  if (!vals.length) return null;
 
+  const mid = Math.floor(vals.length / 2);
+  return vals.length % 2 === 0
+    ? (vals[mid - 1] + vals[mid]) / 2
+    : vals[mid];
+}
+
+function addRepScoring(rows: SplitRow[]): SplitRow[] {
+  const workRows = rows.filter(
+    (r) =>
+      (r.type === "work" || r.type === "strides") &&
+      typeof r.avgPace === "number" &&
+      r.avgPace > 0,
+  );
+
+  const medianWorkPace = median(
+    workRows
+      .map((r) => r.avgPace)
+      .filter((x): x is number => typeof x === "number"),
+  );
+
+  if (!medianWorkPace) {
+    return rows.map((r) => ({
+      ...r,
+      score: null,
+      scoreLabel: null,
+      scoreTone: null,
+      paceDeltaPct: null,
+    }));
+  }
+
+  return rows.map((r) => {
+    if (r.type !== "work" && r.type !== "strides") {
+      return {
+        ...r,
+        score: null,
+        scoreLabel: null,
+        scoreTone: null,
+        paceDeltaPct: null,
+      };
+    }
+
+    if (typeof r.avgPace !== "number" || r.avgPace <= 0) {
+      return {
+        ...r,
+        score: null,
+        scoreLabel: null,
+        scoreTone: null,
+        paceDeltaPct: null,
+      };
+    }
+
+    const paceDeltaPct = ((r.avgPace - medianWorkPace) / medianWorkPace) * 100;
+    const absDelta = Math.abs(paceDeltaPct);
+
+    let score = 100;
+
+    if (absDelta <= 1.5) score -= 0;
+    else if (absDelta <= 3) score -= 8;
+    else if (absDelta <= 5) score -= 18;
+    else if (absDelta <= 8) score -= 30;
+    else score -= 45;
+
+    if (typeof r.maxHr === "number" && typeof r.avgHr === "number") {
+      const hrSpread = r.maxHr - r.avgHr;
+      if (hrSpread > 18) score -= 4;
+      if (hrSpread > 24) score -= 4;
+    }
+
+    if (r.adjusted) score -= 4;
+
+    score = Math.max(0, Math.min(100, Math.round(score)));
+
+    let scoreLabel: string;
+    let scoreTone: "excellent" | "good" | "warn" | "bad";
+
+    if (score >= 92) {
+      scoreLabel = "🔥 Excellent";
+      scoreTone = "excellent";
+    } else if (score >= 80) {
+      scoreLabel = "✅ On pace";
+      scoreTone = "good";
+    } else if (score >= 65) {
+      scoreLabel = "⚠ Slight fade";
+      scoreTone = "warn";
+    } else {
+      scoreLabel = "❌ Off target";
+      scoreTone = "bad";
+    }
+
+    return {
+      ...r,
+      score,
+      scoreLabel,
+      scoreTone,
+      paceDeltaPct: Number(paceDeltaPct.toFixed(1)),
+    };
+  });
+}
+
+function addFadeFlags(rows: SplitRow[]): SplitRow[] {
+  let prevWorkPace: number | null = null;
+
+  return rows.map((r) => {
+    if (r.type !== "work" && r.type !== "strides") {
+      return {
+        ...r,
+        fadeFlag: "none",
+      };
+    }
+
+    if (typeof r.avgPace !== "number") {
+      return {
+        ...r,
+        fadeFlag: "none",
+      };
+    }
+
+    let fadeFlag: "none" | "mild" | "strong" = "none";
+
+    if (prevWorkPace != null) {
+      const deltaPct = ((r.avgPace - prevWorkPace) / prevWorkPace) * 100;
+      if (deltaPct > 6) fadeFlag = "strong";
+      else if (deltaPct > 3) fadeFlag = "mild";
+    }
+
+    prevWorkPace = r.avgPace;
+
+    return {
+      ...r,
+      fadeFlag,
+    };
+  });
+}
 function SplitsTable({ points, results, steps }: { points: any[]; results: any[]; steps: any[] }) {
-  const rows = useMemo(() => buildSplits(points, results, steps), [points, results, steps]);
+  const rows = useMemo(() => {
+  const baseRows = buildSplits(points, results, steps);
+  const scoredRows = addRepScoring(baseRows);
+  const fadedRows = addFadeFlags(scoredRows);
+
+  const workRows = fadedRows.filter(
+    (r) => (r.type === "work" || r.type === "strides") && typeof r.score === "number",
+  );
+
+  const bestScore =
+    workRows.length > 0
+      ? Math.max(...workRows.map((r) => r.score ?? 0))
+      : null;
+
+  return fadedRows.map((r) => ({
+    ...r,
+    isBest: bestScore != null && r.score === bestScore,
+  }));
+}, [points, results, steps]);
   if (rows.length === 0) return null;
 
   return (
@@ -2089,6 +2287,9 @@ function SplitsTable({ points, results, steps }: { points: any[]; results: any[]
                 <th className="text-right py-1 pr-2">Max pace</th>
                 <th className="text-right py-1 pr-2">Avg HR</th>
                 <th className="text-right py-1 pr-2">Max HR</th>
+                <th className="text-right py-1 pr-2">Score</th>
+                <th className="text-left py-1 pr-2">Flag</th>
+                <th className="text-left py-1 pr-2">Trend</th>
                 <th className="text-right py-1 pr-2">Avg cad</th>
                 <th className="text-right py-1 pr-2">Max cad</th>
                 <th className="text-right py-1 pr-2">↑</th>
