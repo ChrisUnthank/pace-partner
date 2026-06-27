@@ -932,9 +932,13 @@ function WorkSegmentPanel({ steps, results, rawPoints }: { steps: any[]; results
 
   const maxHr = repSplits.reduce((m, r) => Math.max(m, Number(r.maxHr ?? 0)), 0) || null;
 
-  const cads = repSplits.map((r) => r.avgCad).filter((x: any) => x);
+  const cads = repSplits
+    .map((r) => r.avgCad)
+    .filter((x: any): x is number => typeof x === "number");
 
-  const avgCad = cads.length ? Math.round(cads.reduce((a: number, b: number) => a + Number(b), 0) / cads.length) : null;
+  const avgCad = cads.length
+    ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length)
+    : null;
 
   return (
     <Card>
@@ -1491,154 +1495,7 @@ function UnifiedSessionTable({
     filteredRows.reduce((m, r) => Math.max(m, Number(r.maxHr ?? 0)), 0) || null;
 
   const cads = filteredRows
-   " value={avgGct != null ? `${avgGct} ms` : "—"} />    .map((r) => r.avgCad)
-              <Stat
-                label="Stride length"
-                value={avgStrideLength != null ? `${avgStrideLength} m` : "—"}
-              />
-            </>
-          )}
-        </div>
-
-        {/* Unified table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs border-separate border-spacing-0">
-            <thead className="text-muted-foreground">
-              <tr className="border-b">
-                <th className="text-left py-1 pr-2">#</th>
-                <th className="text-left py-1 pr-2">Type</th>
-                <th className="text-left py-1 pr-2">Label</th>
-                <th className="text-right py-1 pr-2">Dist</th>
-                <th className="text-right py-1 pr-2">Time</th>
-                <th className="text-right py-1 pr-2">Avg pace</th>
-                <th className="text-right py-1 pr-2">Max pace</th>
-                <th className="text-right py-1 pr-2">Avg HR</th>
-                <th className="text-right py-1 pr-2">Max HR</th>
-
-                {detailMode === "advanced" && (
-                  <>
-                    <th className="text-right py-1 pr-2">HR end</th>
-                    <th className="text-right py-1 pr-2">HR rec</th>
-                    <th className="text-right py-1 pr-2">Drop</th>
-                  </>
-                )}
-
-                <th className="text-right py-1 pr-2">Avg cad</th>
-                <th className="text-right py-1 pr-2">Max cad</th>
-
-                {detailMode === "advanced" && (
-                  <>
-                    <th className="text-right py-1 pr-2">VO</th>
-                    <th className="text-right py-1 pr-2">GCT</th>
-                    <th className="text-right py-1 pr-2">Stride</th>
-                    <th className="text-right py-1 pr-2">Lactate</th>
-                  </>
-                )}
-
-                <th className="text-right py-1 pr-2">↑</th>
-                <th className="text-right py-1">↓</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {filteredRows.map((r) => (
-                <tr
-                  key={`${r.index}-${r.type}-${r.repLabel ?? ""}`}
-                  className="border-b last:border-b-0"
-                  style={{
-  backgroundColor: r.isBest
-    ? "rgba(34,197,94,0.12)"
-    : r.fadeFlag === "strong"
-    ? "rgba(239,68,68,0.10)"
-    : r.fadeFlag === "mild"
-    ? "rgba(251,191,36,0.10)"
-    : STEP_COLORS[r.type] ?? "transparent",
-
-  borderLeft: r.isBest
-    ? "4px solid #22c55e"
-    : r.fadeFlag === "strong"
-    ? "3px solid #ef4444"
-    : r.fadeFlag === "mild"
-    ? "3px solid #f59e0b"
-    : `3px solid ${STEP_STROKE[r.type] ?? "#444"}`,
-
-  color: "#e5e7eb",
-}}
-                >
-                  <td className="py-1 pr-2 tabular-nums">{r.index}</td>
-                  <td className="py-1 pr-2 capitalize">{r.type}</td>
-                  <td className="py-1 pr-2">
-                    {r.repLabel ?? "—"}
-                    {r.adjusted ? " *" : ""}
-                  </td>
-
-                  <td className="py-1 pr-2 text-right tabular-nums">
-                    {r.distanceM > 0 ? metersFmt(r.distanceM) : "—"}
-                  </td>
-
-                  <td className="py-1 pr-2 text-right tabular-nums">
-                    {r.durationS > 0 ? secToClock(r.durationS) : "—"}
-                  </td>
-
-                  <td className="py-1 pr-2 text-right tabular-nums">
-                    {r.avgPace ? paceFmt(r.avgPace) : "—"}
-                  </td>
-
-                  <td className="py-1 pr-2 text-right tabular-nums">
-                    {r.maxPace ? paceFmt(r.maxPace) : "—"}
-                  </td>
-
-                  <td className="py-1 pr-2 text-right tabular-nums">{r.avgHr ?? "—"}</td>
-                  <td className="py-1 pr-2 text-right tabular-nums">{r.maxHr ?? "—"}</td>
-
-                  {detailMode === "advanced" && (
-                    <>
-                      <td className="py-1 pr-2 text-right tabular-nums">{r.hrEnd ?? "—"}</td>
-                      <td className="py-1 pr-2 text-right tabular-nums">{r.hrRecovery ?? "—"}</td>
-                      <td className="py-1 pr-2 text-right tabular-nums">{r.hrDrop ?? "—"}</td>
-                    </>
-                  )}
-
-                  <td className="py-1 pr-2 text-right tabular-nums">{r.avgCad ?? "—"}</td>
-                  <td className="py-1 pr-2 text-right tabular-nums">{r.maxCad ?? "—"}</td>
-
-                  {detailMode === "advanced" && (
-                    <>
-                      <td className="py-1 pr-2 text-right tabular-nums">
-                        {r.vo != null ? `${r.vo}` : "—"}
-                      </td>
-                      <td className="py-1 pr-2 text-right tabular-nums">
-                        {r.gct != null ? `${r.gct}` : "—"}
-                      </td>
-                      <td className="py-1 pr-2 text-right tabular-nums">
-                        {r.strideLength != null ? `${r.strideLength}` : "—"}
-                      </td>
-                      <td className="py-1 pr-2 text-right tabular-nums">
-                        {r.lactate != null ? Number(r.lactate).toFixed(1) : "—"}
-                      </td>
-                    </>
-                  )}
-
-                  <td className="py-1 pr-2 text-right tabular-nums">
-                    {r.elevGain != null ? `${r.elevGain}m` : "—"}
-                  </td>
-                  <td className="py-1 text-right tabular-nums">
-                    {r.elevLoss != null ? `${r.elevLoss}m` : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          <div className="text-[11px] text-muted-foreground mt-2">
-            * adjusted = recorded rep exceeded target distance, so distance/time/pace were corrected from trace to the
-            planned rep target.
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
+    .map((r) => r.avgCad)
     .filter((x: any): x is number => typeof x === "number");
 
   const avgCad = cads.length
@@ -1681,11 +1538,9 @@ function UnifiedSessionTable({
       </CardHeader>
 
       <CardContent className="space-y-4">
-        {/* Segment filter buttons */}
         <div className="flex flex-wrap gap-1">
           {SCOPE_OPTIONS.map((k) => {
             const hasData = k === "full" || rows.some((r) => r.type === k);
-
             return (
               <Button
                 key={k}
@@ -1701,7 +1556,6 @@ function UnifiedSessionTable({
           })}
         </div>
 
-        {/* Basic / Advanced toggle */}
         <div className="flex gap-1">
           <Button
             size="sm"
@@ -1719,7 +1573,6 @@ function UnifiedSessionTable({
           </Button>
         </div>
 
-        {/* Dynamic summary */}
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
           <Stat label="Distance" value={metersFmt(totalDist)} />
           <Stat label="Duration" value={secToClock(totalTime)} />
@@ -1730,7 +1583,137 @@ function UnifiedSessionTable({
           {detailMode === "advanced" && (
             <>
               <Stat label="Avg VO" value={avgVo != null ? `${avgVo} cm` : "—"} />
+              <Stat label="Avg GCT" value={avgGct != null ? `${avgGct} ms` : "—"} />
+              <Stat
+                label="Stride length"
+                value={avgStrideLength != null ? `${avgStrideLength} m` : "—"}
+              />
+            </>
+          )}
+        </div>
 
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs border-separate border-spacing-0">
+            <thead className="text-muted-foreground">
+              <tr className="border-b">
+                <th className="text-left py-1 pr-2">#</th>
+                <th className="text-left py-1 pr-2">Type</th>
+                <th className="text-left py-1 pr-2">Label</th>
+                <th className="text-right py-1 pr-2">Dist</th>
+                <th className="text-right py-1 pr-2">Time</th>
+                <th className="text-right py-1 pr-2">Avg pace</th>
+                <th className="text-right py-1 pr-2">Max pace</th>
+                <th className="text-right py-1 pr-2">Avg HR</th>
+                <th className="text-right py-1 pr-2">Max HR</th>
+                {detailMode === "advanced" && (
+                  <>
+                    <th className="text-right py-1 pr-2">HR end</th>
+                    <th className="text-right py-1 pr-2">HR rec</th>
+                    <th className="text-right py-1 pr-2">Drop</th>
+                  </>
+                )}
+                <th className="text-right py-1 pr-2">Avg cad</th>
+                <th className="text-right py-1 pr-2">Max cad</th>
+                {detailMode === "advanced" && (
+                  <>
+                    <th className="text-right py-1 pr-2">VO</th>
+                    <th className="text-right py-1 pr-2">GCT</th>
+                    <th className="text-right py-1 pr-2">Stride</th>
+                    <th className="text-right py-1 pr-2">Lactate</th>
+                  </>
+                )}
+                <th className="text-right py-1 pr-2">↑</th>
+                <th className="text-right py-1">↓</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredRows.map((r) => (
+                <tr
+                  key={`${r.index}-${r.type}-${r.repLabel ?? ""}`}
+                  className="border-b last:border-b-0"
+                  style={{
+                    backgroundColor: r.isBest
+                      ? "rgba(34,197,94,0.12)"
+                      : r.fadeFlag === "strong"
+                      ? "rgba(239,68,68,0.10)"
+                      : r.fadeFlag === "mild"
+                      ? "rgba(251,191,36,0.10)"
+                      : STEP_COLORS[r.type] ?? "transparent",
+                    borderLeft: r.isBest
+                      ? "4px solid #22c55e"
+                      : r.fadeFlag === "strong"
+                      ? "3px solid #ef4444"
+                      : r.fadeFlag === "mild"
+                      ? "3px solid #f59e0b"
+                      : `3px solid ${STEP_STROKE[r.type] ?? "#444"}`,
+                    color: "#e5e7eb",
+                  }}
+                >
+                  <td className="py-1 pr-2 tabular-nums">{r.index}</td>
+                  <td className="py-1 pr-2 capitalize">{r.type}</td>
+                  <td className="py-1 pr-2">
+                    {r.repLabel ?? "—"}
+                    {r.adjusted ? " *" : ""}
+                  </td>
+                  <td className="py-1 pr-2 text-right tabular-nums">
+                    {r.distanceM > 0 ? metersFmt(r.distanceM) : "—"}
+                  </td>
+                  <td className="py-1 pr-2 text-right tabular-nums">
+                    {r.durationS > 0 ? secToClock(r.durationS) : "—"}
+                  </td>
+                  <td className="py-1 pr-2 text-right tabular-nums">
+                    {r.avgPace ? paceFmt(r.avgPace) : "—"}
+                  </td>
+                  <td className="py-1 pr-2 text-right tabular-nums">
+                    {r.maxPace ? paceFmt(r.maxPace) : "—"}
+                  </td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{r.avgHr ?? "—"}</td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{r.maxHr ?? "—"}</td>
+                  {detailMode === "advanced" && (
+                    <>
+                      <td className="py-1 pr-2 text-right tabular-nums">{r.hrEnd ?? "—"}</td>
+                      <td className="py-1 pr-2 text-right tabular-nums">{r.hrRecovery ?? "—"}</td>
+                      <td className="py-1 pr-2 text-right tabular-nums">{r.hrDrop ?? "—"}</td>
+                    </>
+                  )}
+                  <td className="py-1 pr-2 text-right tabular-nums">{r.avgCad ?? "—"}</td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{r.maxCad ?? "—"}</td>
+                  {detailMode === "advanced" && (
+                    <>
+                      <td className="py-1 pr-2 text-right tabular-nums">
+                        {r.vo != null ? `${r.vo}` : "—"}
+                      </td>
+                      <td className="py-1 pr-2 text-right tabular-nums">
+                        {r.gct != null ? `${r.gct}` : "—"}
+                      </td>
+                      <td className="py-1 pr-2 text-right tabular-nums">
+                        {r.strideLength != null ? `${r.strideLength}` : "—"}
+                      </td>
+                      <td className="py-1 pr-2 text-right tabular-nums">
+                        {r.lactate != null ? Number(r.lactate).toFixed(1) : "—"}
+                      </td>
+                    </>
+                  )}
+                  <td className="py-1 pr-2 text-right tabular-nums">
+                    {r.elevGain != null ? `${r.elevGain}m` : "—"}
+                  </td>
+                  <td className="py-1 text-right tabular-nums">
+                    {r.elevLoss != null ? `${r.elevLoss}m` : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <div className="text-[11px] text-muted-foreground mt-2">
+            * adjusted = recorded rep exceeded target distance, so distance/time/pace were corrected from trace to the
+            planned rep target.
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 type TraceGroup = {
   type: "warmup" | "work" | "recovery" | "cooldown" | "strides";
