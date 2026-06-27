@@ -1286,6 +1286,12 @@ function SessionSummary({
             <Input type="number" value={avgHr} onChange={(e) => setAvgHr(e.target.value)} />
           </div>
         </div>
+        <div className="grid sm:grid-cols-3 gap-3 text-sm">
+          <div className="rounded border px-3 py-2">
+            <div className="text-xs text-muted-foreground">Stride length</div>
+            <div className="font-medium tabular-nums">{formatStride(derivedStride)}</div>
+          </div>
+        </div>
         <div>
           <Label>
             RPE (1–10): <span className="tabular-nums">{rpe}</span>
