@@ -920,7 +920,6 @@ function RecoveryPanel({
   );
 }
 
-
 const ZONE_ORDER = ["z1", "z2", "z3", "z4", "z5"];
 
 const ZONE_LABEL: Record<string, string> = {
@@ -1367,10 +1366,7 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
       (r) => (r.type === "work" || r.type === "strides") && typeof r.score === "number",
     );
 
-    const bestScore =
-      workRows.length > 0
-        ? Math.max(...workRows.map((r) => r.score ?? 0))
-        : null;
+    const bestScore = workRows.length > 0 ? Math.max(...workRows.map((r) => r.score ?? 0)) : null;
 
     return fadedRows.map((r) => ({
       ...r,
@@ -1533,90 +1529,75 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
                           ? "4px solid #f59e0b"
                           : `3px solid ${STEP_STROKE[r.type] ?? "#444"}`;
                   return (
-                  <tr
-                    key={`${r.index}-${r.type}-${r.repLabel ?? ""}`}
-                    className="border-b last:border-b-0"
-                    style={{
-                      // Segment type controls the row fill — performance quality
-                      // is conveyed only via the left border accent and Status column.
-                      backgroundColor: STEP_COLORS[r.type] ?? "transparent",
-                      borderLeft: accent,
-                    }}
-                  >
-                    <td className="py-1 pr-2 tabular-nums">{r.index}</td>
-                    <td className="py-1 pr-2 capitalize">{r.type}</td>
-                    <td className="py-1 pr-2">
-                      {r.repLabel ?? "—"}
-                      {r.adjusted ? " *" : ""}
-                    </td>
-                    <td className="py-1 pr-2 text-right tabular-nums">
-                      {r.distanceM > 0 ? metersFmt(r.distanceM) : "—"}
-                    </td>
-                    <td className="py-1 pr-2 text-right tabular-nums">
-                      {r.durationS > 0 ? secToClock(r.durationS) : "—"}
-                    </td>
-                    <td className="py-1 pr-2 text-right tabular-nums">
-                      {r.avgPace ? paceFmt(r.avgPace) : "—"}
-                    </td>
-                    <td className="py-1 pr-2 text-right tabular-nums">
-                      {r.maxPace ? paceFmt(r.maxPace) : "—"}
-                    </td>
-                    <td className="py-1 pr-2 text-right tabular-nums">{r.avgHr ?? "—"}</td>
-                    <td className="py-1 pr-2 text-right tabular-nums">{r.maxHr ?? "—"}</td>
+                    <tr
+                      key={`${r.index}-${r.type}-${r.repLabel ?? ""}`}
+                      className="border-b last:border-b-0"
+                      style={{
+                        // Segment type controls the row fill — performance quality
+                        // is conveyed only via the left border accent and Status column.
+                        backgroundColor: STEP_COLORS[r.type] ?? "transparent",
+                        borderLeft: accent,
+                      }}
+                    >
+                      <td className="py-1 pr-2 tabular-nums">{r.index}</td>
+                      <td className="py-1 pr-2 capitalize">{r.type}</td>
+                      <td className="py-1 pr-2">
+                        {r.repLabel ?? "—"}
+                        {r.adjusted ? " *" : ""}
+                      </td>
+                      <td className="py-1 pr-2 text-right tabular-nums">
+                        {r.distanceM > 0 ? metersFmt(r.distanceM) : "—"}
+                      </td>
+                      <td className="py-1 pr-2 text-right tabular-nums">
+                        {r.durationS > 0 ? secToClock(r.durationS) : "—"}
+                      </td>
+                      <td className="py-1 pr-2 text-right tabular-nums">{r.avgPace ? paceFmt(r.avgPace) : "—"}</td>
+                      <td className="py-1 pr-2 text-right tabular-nums">{r.maxPace ? paceFmt(r.maxPace) : "—"}</td>
+                      <td className="py-1 pr-2 text-right tabular-nums">{r.avgHr ?? "—"}</td>
+                      <td className="py-1 pr-2 text-right tabular-nums">{r.maxHr ?? "—"}</td>
 
-                    <td className="py-1 pr-2 text-right tabular-nums">
-                      {r.score != null ? r.score : "—"}
-                    </td>
+                      <td className="py-1 pr-2 text-right tabular-nums">{r.score != null ? r.score : "—"}</td>
 
-                    <td className={`py-1 pr-2 ${STATUS_TONE_TEXT[status.tone]}`}>{status.label}</td>
+                      <td className={`py-1 pr-2 ${STATUS_TONE_TEXT[status.tone]}`}>{status.label}</td>
 
-                    {detailMode === "advanced" && (
-                      <>
-                        <td className="py-1 pr-2 text-right tabular-nums">{r.hrEnd ?? "—"}</td>
-                        <td className="py-1 pr-2 text-right tabular-nums">{r.hrRecovery ?? "—"}</td>
-                        <td className="py-1 pr-2 text-right tabular-nums">{r.hrDrop ?? "—"}</td>
-                      </>
-                    )}
+                      {detailMode === "advanced" && (
+                        <>
+                          <td className="py-1 pr-2 text-right tabular-nums">{r.hrEnd ?? "—"}</td>
+                          <td className="py-1 pr-2 text-right tabular-nums">{r.hrRecovery ?? "—"}</td>
+                          <td className="py-1 pr-2 text-right tabular-nums">{r.hrDrop ?? "—"}</td>
+                        </>
+                      )}
 
-                    <td className="py-1 pr-2 text-right tabular-nums">{r.avgCad ?? "—"}</td>
-                    <td className="py-1 pr-2 text-right tabular-nums">{r.maxCad ?? "—"}</td>
+                      <td className="py-1 pr-2 text-right tabular-nums">{r.avgCad ?? "—"}</td>
+                      <td className="py-1 pr-2 text-right tabular-nums">{r.maxCad ?? "—"}</td>
 
-                    {detailMode === "advanced" && (
-                      <>
-                        <td className="py-1 pr-2 text-right tabular-nums">
-                          {formatVO(r.vo)}
-                        </td>
-                        <td className="py-1 pr-2 text-right tabular-nums">
-                          {r.gct != null ? `${r.gct} ms` : "—"}
-                        </td>
-                        <td className="py-1 pr-2 text-right tabular-nums">
-                          {formatStride(r.strideLength)}
-                        </td>
-                        <td className="py-1 pr-2 text-right tabular-nums">
-                          {r.lactate != null ? Number(r.lactate).toFixed(1) : "—"}
-                        </td>
-                        <td className="py-1 pr-2 text-right tabular-nums">
-                          {r.paceDeltaPct != null
-                            ? `${r.paceDeltaPct > 0 ? "+" : ""}${r.paceDeltaPct}%`
-                            : "—"}
-                        </td>
-                      </>
-                    )}
+                      {detailMode === "advanced" && (
+                        <>
+                          <td className="py-1 pr-2 text-right tabular-nums">{formatVO(r.vo)}</td>
+                          <td className="py-1 pr-2 text-right tabular-nums">{r.gct != null ? `${r.gct} ms` : "—"}</td>
+                          <td className="py-1 pr-2 text-right tabular-nums">{formatStride(r.strideLength)}</td>
+                          <td className="py-1 pr-2 text-right tabular-nums">
+                            {r.lactate != null ? Number(r.lactate).toFixed(1) : "—"}
+                          </td>
+                          <td className="py-1 pr-2 text-right tabular-nums">
+                            {r.paceDeltaPct != null ? `${r.paceDeltaPct > 0 ? "+" : ""}${r.paceDeltaPct}%` : "—"}
+                          </td>
+                        </>
+                      )}
 
-                    <td className="py-1 pr-2 text-right tabular-nums">
-                      {r.elevGain != null ? `${r.elevGain}m` : "—"}
-                    </td>
-                    <td className="py-1 text-right tabular-nums">
-                      {r.elevLoss != null ? `${r.elevLoss}m` : "—"}
-                    </td>
-                  </tr>
+                      <td className="py-1 pr-2 text-right tabular-nums">
+                        {r.elevGain != null ? `${r.elevGain}m` : "—"}
+                      </td>
+                      <td className="py-1 text-right tabular-nums">{r.elevLoss != null ? `${r.elevLoss}m` : "—"}</td>
+                    </tr>
                   );
                 })}
               </tbody>
             </table>
 
             <div className="text-[11px] text-muted-foreground mt-2">
-              * adjusted = recorded rep exceeded target distance, so distance/time/pace were corrected from trace to the planned rep target.
+              * adjusted = recorded rep exceeded target distance, so distance/time/pace were corrected from trace to the
+              planned rep target.
             </div>
           </div>
         </CardContent>
@@ -1897,7 +1878,7 @@ function buildSplitsFromResults(results: any[], steps: any[], rawPoints: any[]):
             avgPace: finalMetrics.avgPace ?? traceMetrics.avgPace,
             maxPace: traceMetrics.maxPace,
             avgHr: finalMetrics.avgHr ?? traceMetrics.avgHr,
-            maxHr: finalMetrics.maxHr ?? traceMetrics.maxHr,
+            maxHr: traceMetrics.maxHr ?? finalMetrics.maxHr,
             avgCad: finalMetrics.avgCad ?? traceMetrics.avgCad,
             maxCad: finalMetrics.maxCad ?? traceMetrics.maxCad,
             elevGain: traceMetrics.elevGain,
@@ -1919,11 +1900,7 @@ function buildSplitsFromResults(results: any[], steps: any[], rawPoints: any[]):
     const repStrideCm = r.stride_length_cm != null ? Number(r.stride_length_cm) : null;
     const repStrideM =
       repStrideCm && Number.isFinite(repStrideCm) && repStrideCm > 0 ? Number((repStrideCm / 100).toFixed(2)) : null;
-    const computedStride = computeStrideLengthM(
-      finalMetrics.distanceM,
-      finalMetrics.durationS,
-      finalMetrics.avgCad,
-    );
+    const computedStride = computeStrideLengthM(finalMetrics.distanceM, finalMetrics.durationS, finalMetrics.avgCad);
     const strideLength = repStrideM ?? computedStride ?? finalMetrics.strideLength ?? null;
 
     const lactate =
@@ -1932,18 +1909,22 @@ function buildSplitsFromResults(results: any[], steps: any[], rawPoints: any[]):
         : null;
 
     const hrEnd = r.hr_end != null ? Number(r.hr_end) : null;
-const hrRecovery = r.hr_end_recovery != null ? Number(r.hr_end_recovery) : null;
-const hrDrop = hrEnd != null && hrRecovery != null ? hrEnd - hrRecovery : null;
+    const hrRecovery = r.hr_end_recovery != null ? Number(r.hr_end_recovery) : null;
+    const hrDrop = hrEnd != null && hrRecovery != null ? hrEnd - hrRecovery : null;
+    const safeAvgHr = finalMetrics.avgHr ?? null;
 
+    const safeMaxHr =
+      [finalMetrics.maxHr, safeAvgHr, hrEnd]
+        .filter((x): x is number => typeof x === "number" && Number.isFinite(x))
+        .reduce((m, x) => Math.max(m, x), 0) || null;
 
-const safeAvgHr = finalMetrics.avgHr ?? null;
-const safeHrEnd = hrEnd;
+    const safeAvgHr = finalMetrics.avgHr ?? null;
+    const safeHrEnd = hrEnd;
 
-const safeMaxHr =
-  [finalMetrics.maxHr, safeAvgHr, safeHrEnd]
-    .filter((x): x is number => typeof x === "number" && Number.isFinite(x))
-    .reduce((m, x) => Math.max(m, x), 0) || null;
-
+    const safeMaxHr =
+      [finalMetrics.maxHr, safeAvgHr, safeHrEnd]
+        .filter((x): x is number => typeof x === "number" && Number.isFinite(x))
+        .reduce((m, x) => Math.max(m, x), 0) || null;
 
     rows.push({
       index: rowIndex++,
