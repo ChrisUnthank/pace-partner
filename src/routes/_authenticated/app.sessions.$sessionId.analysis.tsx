@@ -932,9 +932,13 @@ function WorkSegmentPanel({ steps, results, rawPoints }: { steps: any[]; results
 
   const maxHr = repSplits.reduce((m, r) => Math.max(m, Number(r.maxHr ?? 0)), 0) || null;
 
-  const cads = repSplits.map((r) => r.avgCad).filter((x: any) => x);
+  const cads = repSplits
+    .map((r) => r.avgCad)
+    .filter((x): x is number => typeof x === "number");
 
-  const avgCad = cads.length ? Math.round(cads.reduce((a: number, b: number) => a + Number(b), 0) / cads.length) : null;
+  const avgCad = cads.length
+    ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length)
+    : null;
 
   return (
     <Card>
