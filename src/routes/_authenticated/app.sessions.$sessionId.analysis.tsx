@@ -90,13 +90,7 @@ type MetricKey = (typeof METRICS)[number]["key"];
 function SessionAnalysis() {
   const { sessionId } = Route.useParams();
 
-  const [enabled, setEnabled] = useState<Record<MetricKey, boolean>>({
-    hr: true,
-    pace: true,
-    cadence: false,
-    elev: false,
-    vo: false,
-    gct: false,
+  const [: false,  const [enabled, setEnabled] = useState<Record<MetricKey, boolean>>({
   });
 
   const [xMode, setXMode] = useState<"time" | "distance">("time");
@@ -226,10 +220,45 @@ function SessionAnalysis() {
 
   const computeFatigue = useServerFn(computeContinuousFatigue);
 
-  const { samples, bands, mode, hasMetric, gpsPoints } = useMemo(
-    () => buildSamples(safeSteps, safeResults, safeRawPoints),
-    [safeSteps, safeResults, safeRawPoints],
-  );
+  const { samples, bands, mode, hasMetric, gpsPoints, traceBuildFailed } = useMemo(() => {
+  try {
+    const built = buildSamples(safeSteps, safeResults, safeRawPoints);
+
+    return {
+      samples: Array.isArray(built?.samples) ? built.samples : [],
+      bands: Array.isArray(built?.bands) ? built.bands : [],
+      mode: built?.mode ?? "none",
+      hasMetric: built?.hasMetric ?? {
+        hr: false,
+        pace: false,
+        cadence: false,
+        elev: false,
+        vo: false,
+        gct: false,
+      },
+      gpsPoints: Array.isArray(built?.gpsPoints) ? built.gpsPoints : [],
+      traceBuildFailed: false,
+    };
+  } catch (err) {
+    console.error("buildSamples error:", err);
+
+    return {
+      samples: [],
+      bands: [],
+      mode: "none",
+      hasMetric: {
+        hr: false,
+        pace: false,
+        cadence: false,
+        elev: false,
+        vo: false,
+        gct: false,
+      },
+      gpsPoints: [],
+      traceBuildFailed: true,
+    };
+  }
+}, [safeSteps, safeResults, safeRawPoints]);
 
   const availableScopes = useMemo(() => {
     const kinds = new Set(samples.map((s) => s.stepKind).filter(Boolean));
@@ -270,11 +299,18 @@ function SessionAnalysis() {
   }, [visibleSamples, xKey]);
 
   const hasRaw = safeRawPoints.length > 0;
-  const hasRepData = safeResults.length > 0;
+const hasRepData = safeResults.length > 0;
 
-  // ✅ Manual-friendly analysis mode
-  const isManualOnly = !hasRaw && hasRepData;
-  const modeType = hasRaw ? "trace" : isManualOnly ? "interval" : "empty";
+// ✅ Manual-friendly analysis mode
+const isManualOnly = !hasRaw && hasRepData;
+
+// If raw exists but trace building failed, fall back to interval/empty instead of crashing
+const modeType =
+  hasRaw && !traceBuildFailed
+    ? "trace"
+    : hasRepData
+      ? "interval"
+      : "empty";
 
   const continuousFatigue = safeFatigue.find((f: any) => f.method === "continuous_drift");
   const repFatigue = safeFatigue.filter((f: any) => f.method !== "continuous_drift");
@@ -375,12 +411,14 @@ function SessionAnalysis() {
               <div>
                 <CardTitle>Session graph</CardTitle>
                 <CardDescription>
-                  {modeType === "trace"
-                    ? "High-resolution trace"
-                    : modeType === "interval"
-                      ? "Interval summary (manual session)"
-                      : "No data available for analysis"}
-                </CardDescription>
+  {modeType === "trace"
+    ? "High-resolution trace"
+    : traceBuildFailed
+      ? "Trace data exists, but the detailed trace could not be rendered safely"
+      : modeType === "interval"
+        ? "Interval summary"
+        : "No data available for analysis"}
+</CardDescription>
               </div>
               <div className="flex gap-1">
                 <Button size="sm" variant={xKey === "t" ? "default" : "outline"} onClick={() => setXMode("time")}>
@@ -598,14 +636,16 @@ function SessionAnalysis() {
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
-            ) : modeType === "interval" ? (
-              <div className="h-[220px] w-full rounded border border-dashed flex flex-col items-center justify-center text-sm text-muted-foreground">
-                <div>Manual session detected</div>
-                <div className="text-xs mt-1">
-                  No raw trace is available, but interval and recovery analysis can still be reviewed below.
-                </div>
-              </div>
-            ) : (
+           ) : modeType === "interval" ? (
+  <div className="h-[220px] w-full rounded border border-dashed flex flex-col items-center justify-center text-sm text-muted-foreground">
+    <div>{traceBuildFailed ? "Trace rendering failed safely" : "Interval summary mode"}</div>
+    <div className="text-xs mt-1 text-center max-w-md">
+      {traceBuildFailed
+        ? "This FIT session has raw data, but the detailed trace could not be rendered. Interval and recovery analysis can still be reviewed below."
+        : "No raw trace is available, but interval and recovery analysis can still be reviewed below."}
+    </div>
+  </div>
+) : (
               <div className="h-[220px] w-full rounded border border-dashed flex flex-col items-center justify-center text-sm text-muted-foreground">
                 <div>No detailed trace available for this session</div>
                 <div className="text-xs mt-1">
@@ -673,7 +713,12 @@ function SessionAnalysis() {
         )}
 
         {recoveryRows.length >= 2 && <RecoveryPanel rows={recoveryRows} />}
-        {gpsPoints.length >= 2 && <MapPanel points={gpsPoints} />}
+        {Array.isArray(gpsPoints) &&
+  gpsPoints.filter((p: any) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng)).length >= 2 && (
+    <MapPanel
+      points={gpsPoints.filter((p: any) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng))}
+    />
+  )}
 
         <Card>
           <CardHeader>
@@ -691,7 +736,13 @@ function SessionAnalysis() {
         </Card>
 
         <WorkSegmentPanel steps={safeSteps} results={safeResults} />
-        <SplitsTable points={Array.isArray(rawPoints) ? rawPoints : []} />
+        <SplitsTable
+  points={
+    Array.isArray(rawPoints)
+      ? rawPoints.filter((p: any) => p && (p.elapsed_s != null || p.distance_m != null))
+      : []
+  }
+/>
 
         {showContinuousFatigueCard && (
           <Card>
@@ -788,6 +839,13 @@ function SessionAnalysis() {
     </AppShell>
   );
 }
+    hr: true,
+    pace: true,
+    cadence: false,
+    elev: false,
+    vo: false,
+
+
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="border rounded px-3 py-2">
