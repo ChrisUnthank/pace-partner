@@ -90,13 +90,7 @@ type MetricKey = (typeof METRICS)[number]["key"];
 function SessionAnalysis() {
   const { sessionId } = Route.useParams();
 
-  const [enabled, setEnabled] = useState<Record<MetricKey, boolean>>({
-    hr: true,
-    pace: true,
-    cadence: false,
-    elev: false,
-    vo: false,
-    gct: false,
+  const [: false,  const [enabled, setEnabled] = useState<Record<MetricKey, boolean>>({
   });
 
   const [xMode, setXMode] = useState<"time" | "distance">("time");
@@ -439,22 +433,23 @@ const modeType =
             </div>
 
             <div className="flex flex-wrap gap-1 mt-2">
-              {SCOPE_OPTIONS.map((k) => {
-                const hasData = k === "full" || samples.some((s) => s.stepKind === k);
+              {SCOPE_OPTIONS => {
+  const hasData =
+    k === "full" || samples.some((s) => s.stepKind === k);
 
-                return (
-                  <Button
-                    key={k}
-                    size="sm"
-                    variant={scope === k ? "default" : "outline"}
-                    disabled={!hasData}
-                    onClick={() => hasData && setScope(k)}
-                    title={!hasData ? "No data for this segment" : ""}
-                  >
-                    {SCOPE_LABELS[k]}
-                  </Button>
-                );
-              })}
+  return (
+    <Button
+      key={k}
+      size="sm"
+      variant={scope === k ? "default" : "outline"}
+      disabled={!hasData}
+      onClick={() => hasData && setScope(k)}
+      title={!hasData ? "No data for this segment" : ""}
+    >
+      {SCOPE_LABELS[k]}
+    </Button>
+  );
+})}
             </div>
 
             <div className="flex flex-wrap gap-1 mt-2">
@@ -853,6 +848,11 @@ const modeType =
     </AppShell>
   );
 }
+    hr: true,
+    pace: true,
+    cadence: false,
+    elev: false,
+    vo: false,
 
 
 function Stat({ label, value }: { label: string; value: string }) {
@@ -1105,8 +1105,7 @@ function MapPanel({
 }: {
   points: { lat?: number; lng?: number }[];
 }) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<maplibregl.Map | null>(null);
+ null);  const containerRef = useRef<HTMLDivElement | null>(null);
   const [mapStatus, setMapStatus] = useState<"ready" | "unsupported" | "failed">("ready");
 
   const safePoints = useMemo(() => {
@@ -1293,27 +1292,48 @@ function buildSamples(
     const samples: Sample[] = rawPoints.map((p: any, idx: number) => {
       const rawPace = p.pace_sec_per_km != null ? Number(p.pace_sec_per_km) : undefined;
 
-      const s: Sample = {
-        t: Number(p.elapsed_s ?? idx),
-        d: p.distance_m != null ? Number(p.distance_m) : undefined,
-        hr: p.hr != null ? Number(p.hr) : undefined,
-        pace: rawPace != null && rawPace <= 600 ? rawPace : undefined,
-        cadence: p.cadence != null ? Number(p.cadence) : undefined,
-        elev: p.elevation_m != null ? Number(p.elevation_m) : undefined,
-        vo:
-          p.vertical_oscillation_cm != null && Number(p.vertical_oscillation_cm) > 0
-            ? Number(p.vertical_oscillation_cm)
-            : undefined,
-        gct:
-          p.ground_contact_time_ms != null && Number(p.ground_contact_time_ms) > 0
-            ? Number(p.ground_contact_time_ms)
-            : undefined,
-        lat: p.lat != null ? Number(p.lat) : undefined,
-        lng: p.lng != null ? Number(p.lng) : undefined,
-        stepId: "trace",
-        stepKind: p.segment_type ?? "work",
-        repNumber: 1,
-      };
+      const currentT = Number(p.elapsed_s ?? idx);
+const currentD = p.distance_m != null ? Number(p.distance_m) : undefined;
+
+const prev = idx > 0 ? rawPoints[idx - 1] : null;
+const prevT = prev?.elapsed_s != null ? Number(prev.elapsed_s) : currentT;
+const prevD = prev?.distance_m != null ? Number(prev.distance_m) : currentD ?? 0;
+
+const segmentDuration = Math.max(0, currentT - prevT);
+const segmentDistance = Math.max(0, (currentD ?? 0) - prevD);
+
+let normalizedKind = p.segment_type ?? "work";
+
+// ✅ Ignore tiny fake cooldown tails at the end of a work-only file
+if (
+  normalizedKind === "cooldown" &&
+  segmentDuration < 120 &&
+  segmentDistance < 200
+) {
+  normalizedKind = "work";
+}
+
+const s: Sample = {
+  t: currentT,
+  d: currentD,
+  hr: p.hr != null ? Number(p.hr) : undefined,
+  pace: rawPace != null && rawPace <= 600 ? rawPace : undefined,
+  cadence: p.cadence != null ? Number(p.cadence) : undefined,
+  elev: p.elevation_m != null ? Number(p.elevation_m) : undefined,
+  vo:
+    p.vertical_oscillation_cm != null && Number(p.vertical_oscillation_cm) > 0
+      ? Number(p.vertical_oscillation_cm)
+      : undefined,
+  gct:
+    p.ground_contact_time_ms != null && Number(p.ground_contact_time_ms) > 0
+      ? Number(p.ground_contact_time_ms)
+      : undefined,
+  lat: p.lat != null ? Number(p.lat) : undefined,
+  lng: p.lng != null ? Number(p.lng) : undefined,
+  stepId: "trace",
+  stepKind: normalizedKind,
+  repNumber: 1,
+};
 
       if (s.hr != null) has.hr = true;
       if (s.pace != null) has.pace = true;
@@ -1339,25 +1359,52 @@ function buildSamples(
       for (let i = 1; i < samples.length; i++) {
         const kind = samples[i].stepKind || "work";
         if (kind !== currentKind) {
+          // ✅ close previous segment safely
+        const endSamplePrev = samples[i - 1];
+        const durationPrev = endSamplePrev.t - startT;
+        const distancePrev = (endSamplePrev.d ?? 0) - startD;
+
+        // 🚫 Skip tiny fake cooldown segments
+        if (
+          currentKind === "cooldown" &&
+          durationPrev < 120 &&
+          distancePrev < 200
+        ) {
+          // do nothing (skip this band)
+        } else {
           bands.push({
             kind: currentKind,
             t1: startT,
-            t2: samples[i - 1].t,
+            t2: endSamplePrev.t,
             d1: startD,
-            d2: samples[i - 1].d ?? startD,
+            d2: endSamplePrev.d ?? startD,
           });
-          currentKind = kind;
-          startT = samples[i].t;
-          startD = samples[i].d ?? startD;
         }
-      }
 
+        currentKind = kind;
+        startT = samples[i].t;
+        startD = samples[i].d ?? startD;
+      }
+    }
+
+    // ✅ handle final segment safely
+    const endSample = samples[samples.length - 1];
+    const finalDuration = endSample.t - startT;
+    const finalDistance = (endSample.d ?? 0) - startD;
+
+    if (
+      currentKind === "cooldown" &&
+      finalDuration < 120 &&
+      finalDistance < 200
+    ) {
+      // 🚫 skip tiny cooldown at end
+    } else {
       bands.push({
         kind: currentKind,
         t1: startT,
-        t2: samples[samples.length - 1].t,
+        t2: endSample.t,
         d1: startD,
-        d2: samples[samples.length - 1].d ?? startD,
+        d2: endSample.d ?? startD,
       });
     }
 
