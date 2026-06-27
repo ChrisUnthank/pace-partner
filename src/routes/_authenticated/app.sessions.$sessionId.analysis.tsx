@@ -854,13 +854,6 @@ const modeType =
     </AppShell>
   );
 }
-    hr: true,
-    pace: true,
-    cadence: false,
-    elev: false,
-    vo: false,
-
-
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="border rounded px-3 py-2">
