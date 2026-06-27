@@ -1496,31 +1496,45 @@ type SplitRow = {
   elevLoss: number | null;
 };
 
-const SPLIT_ROW_CLASS: Record<SplitRow["type"], string> = {
-  warmup: "bg-sky-50",
-  work: "bg-red-50",
-  recovery: "bg-slate-50",
-  cooldown: "bg-emerald-50",
-  strides: "bg-amber-50",
+const SPLIT_COLORS: Record<SplitRow["type"], string> = {
+  warmup: "#0ea5e9",
+  work: "#ef4444",
+  recovery: "#64748b",
+  cooldown: "#10b981",
+  strides: "#f59e0b",
 };
+
+function normalizeSplitType(value: unknown): SplitRow["type"] {
+  if (
+    value === "warmup" ||
+    value === "work" ||
+    value === "recovery" ||
+    value === "cooldown" ||
+    value === "strides"
+  ) {
+    return value;
+  }
+
+  return "work";
+}
 
 function buildSplits(points: any[]): SplitRow[] {
   if (!Array.isArray(points) || points.length === 0) return [];
 
   const groups: any[][] = [];
   let current: any[] = [];
-  let currentType: string | null = null;
+  let currentType: SplitRow["type"] | null = null;
 
-  for (const p of points) {
-    let t = p.segment_type ?? "work";
+  for (const point of points) {
+    const type = normalizeSplitType(point.__normalized_type ?? point.segment_type);
 
-    if (t !== currentType) {
+    if (type !== currentType) {
       if (current.length > 0) groups.push(current);
       current = [];
-      currentType = t;
+      currentType = type;
     }
 
-    current.push(p);
+    current.push(point);
   }
 
   if (current.length > 0) groups.push(current);
@@ -1528,36 +1542,60 @@ function buildSplits(points: any[]): SplitRow[] {
   return groups.map((grp, idx) => {
     const first = grp[0];
     const last = grp[grp.length - 1];
+    const durationS = Math.max(0, Number(last.elapsed_s ?? 0) - Number(first.elapsed_s ?? 0));
+    const distanceM = Math.max(0, Number(last.distance_m ?? 0) - Number(first.distance_m ?? 0));
+    let type = normalizeSplitType(first.__normalized_type ?? first.segment_type);
 
-    const durationS =
-      Number(last.elapsed_s ?? 0) - Number(first.elapsed_s ?? 0);
+    if (type === "cooldown" && durationS < 120 && distanceM < 200) {
+      type = "work";
+    }
 
-    const distanceM =
-      Number(last.distance_m ?? 0) - Number(first.distance_m ?? 0);
+    const hrs = grp
+      .map((p) => Number(p.hr))
+      .filter((x: number) => Number.isFinite(x) && x > 0);
+    const paces = grp
+      .map((p) => Number(p.pace_sec_per_km))
+      .filter((x: number) => Number.isFinite(x) && x > 0 && x <= 900);
+    const cads = grp
+      .map((p) => Number(p.cadence))
+      .filter((x: number) => Number.isFinite(x) && x > 0);
 
-    const type = (first.segment_type ?? "work") as SplitRow["type"];
+    let gain = 0;
+    let loss = 0;
+    let haveElev = false;
 
-    const hrs = grp.map((p) => p.hr).filter((x: any) => typeof x === "number");
-    const paces = grp.map((p) => p.pace_sec_per_km).filter((x: any) => typeof x === "number");
+    for (let i = 1; i < grp.length; i++) {
+      const a = Number(grp[i - 1].elevation_m);
+      const b = Number(grp[i].elevation_m);
+
+      if (Number.isFinite(a) && Number.isFinite(b)) {
+        haveElev = true;
+        const delta = b - a;
+        if (delta > 0) gain += delta;
+        else loss += Math.abs(delta);
+      }
+    }
+
+    const avgPace =
+      distanceM > 0 && durationS > 0
+        ? (durationS / distanceM) * 1000
+        : paces.length
+          ? paces.reduce((a, b) => a + b, 0) / paces.length
+          : null;
 
     return {
       index: idx + 1,
       type,
       durationS,
       distanceM,
-      avgPace:
-        distanceM > 0 && durationS > 0
-          ? (durationS / distanceM) * 1000
-          : paces.length
-          ? paces.reduce((a, b) => a + b, 0) / paces.length
-          : null,
+      avgPace,
       maxPace: paces.length ? Math.min(...paces) : null,
       avgHr: hrs.length ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null,
       maxHr: hrs.length ? Math.max(...hrs) : null,
-      avgCad: null,
-      maxCad: null,
-      elevGain: null,
-      elevLoss: null,
+      avgCad: cads.length ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length) : null,
+      maxCad: cads.length ? Math.max(...cads) : null,
+      elevGain: haveElev ? Math.round(gain) : null,
+      elevLoss: haveElev ? Math.round(loss) : null,
     };
   });
 }
@@ -1596,58 +1634,38 @@ function SplitsTable({ points }: { points: any[] }) {
             </thead>
 
             <tbody>
-              {rows.map((r) => (
-                
-
-<tr
-  key={r.index}
-  className="border-b last:border-b-0"
-  style={{
-    backgroundColor: SPLIT_COLORS[r.type] ?? "#111827",
-    color: "#ffffff",
-    borderRadius: "2px",
-  }}
->
-
-const SPLIT_COLORS: Record<SplitRow["type"], string> = {
-  warmup: "#0ea5e9",
-  work: "#ef4444",
-  recovery: "#64748b",
-  cooldown: "#10b981",
-  strides: "#f59e0b",
-};
-
-                  <td className="py-1 pr-2 tabular-nums">{r.index}</td>
-                  <td className="py-1 pr-2 capitalize">{r.type}</td>
+              {rows.map((row) => (
+                <tr
+                  key={row.index}
+                  className="border-b last:border-b-0"
+                  style={{
+                    backgroundColor: SPLIT_COLORS[row.type],
+                    color: "#ffffff",
+                  }}
+                >
+                  <td className="py-1 pr-2 tabular-nums">{row.index}</td>
+                  <td className="py-1 pr-2 capitalize">{row.type}</td>
                   <td className="py-1 pr-2 text-right tabular-nums">
-                    {r.distanceM > 0 ? metersFmt(r.distanceM) : "—"}
+                    {row.distanceM > 0 ? metersFmt(row.distanceM) : "—"}
                   </td>
                   <td className="py-1 pr-2 text-right tabular-nums">
-                    {r.durationS > 0 ? secToClock(r.durationS) : "—"}
+                    {row.durationS > 0 ? secToClock(row.durationS) : "—"}
                   </td>
                   <td className="py-1 pr-2 text-right tabular-nums">
-                    {r.avgPace ? paceFmt(r.avgPace) : "—"}
+                    {row.avgPace ? paceFmt(row.avgPace) : "—"}
                   </td>
                   <td className="py-1 pr-2 text-right tabular-nums">
-                    {r.maxPace ? paceFmt(r.maxPace) : "—"}
+                    {row.maxPace ? paceFmt(row.maxPace) : "—"}
                   </td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{row.avgHr ?? "—"}</td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{row.maxHr ?? "—"}</td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{row.avgCad ?? "—"}</td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{row.maxCad ?? "—"}</td>
                   <td className="py-1 pr-2 text-right tabular-nums">
-                    {r.avgHr ?? "—"}
-                  </td>
-                  <td className="py-1 pr-2 text-right tabular-nums">
-                    {r.maxHr ?? "—"}
-                  </td>
-                  <td className="py-1 pr-2 text-right tabular-nums">
-                    {r.avgCad ?? "—"}
-                  </td>
-                  <td className="py-1 pr-2 text-right tabular-nums">
-                    {r.maxCad ?? "—"}
-                  </td>
-                  <td className="py-1 pr-2 text-right tabular-nums">
-                    {r.elevGain != null ? `${r.elevGain}m` : "—"}
+                    {row.elevGain != null ? `${row.elevGain}m` : "—"}
                   </td>
                   <td className="py-1 text-right tabular-nums">
-                    {r.elevLoss != null ? `${r.elevLoss}m` : "—"}
+                    {row.elevLoss != null ? `${row.elevLoss}m` : "—"}
                   </td>
                 </tr>
               ))}
@@ -1658,76 +1676,3 @@ const SPLIT_COLORS: Record<SplitRow["type"], string> = {
     </Card>
   );
 }
-
-  return groups.map((grp, idx) => {
-    const first = grp[0];
-    const last = grp[grp.length - 1];
-
-    const durationS = Math.max(
-      0,
-      Number(last.elapsed_s ?? 0) - Number(first.elapsed_s ?? 0),
-    );
-    const distanceM = Math.max(
-      0,
-      Number(last.distance_m ?? 0) - Number(first.distance_m ?? 0),
-    );
-
-    let rawType = first.__normalized_type ?? first.segment_type ?? "work";
-
-    // ✅ Final safety check for fake cooldown groups
-    if (
-      rawType === "cooldown" &&
-      durationS < 120 &&
-      distanceM < 200
-    ) {
-      rawType = "work";
-    }
-
-    const type = (rawType as SplitRow["type"]) || "work";
-
-    const hrs = grp
-      .map((p) => p.hr)
-      .filter((x: any): x is number => typeof x === "number" && x > 0);
-
-    const paces = grp
-      .map((p) => p.pace_sec_per_km)
-      .filter(
-        (x: any): x is number =>
-          typeof x === "number" && x > 0 && x <= 900,
-      );
-
-    const cads = grp
-      .map((p) => p.cadence)
-      .filter((x: any): x is number => typeof x === "number" && x > 0);
-
-    let gain = 0;
-    let loss = 0;
-    let haveElev = false;
-
-    for (let i = 1; i < grp.length; i++) {
-      const a = grp[i - 1].elevation_m;
-      const b = grp[i].elevation_m;
-
-      if (typeof a === "number" && typeof b === "number") {
-        haveElev = true;
-        const d = b - a;
-        if (d > 0) gain += d;
-        else loss += -d;
-      }
-    }
-
-    const avgPace =
-      distanceM > 0 && durationS > 0
-        ? (durationS / distanceM) * 1000
-        : paces.length
-          ? paces.reduce((a, b) => a + b, 0) / paces.length
-          : null;
-
-    return {
-      index: idx + 1,
-      type,
-      durationS,
-      distanceM,
-      avgPace,
-      maxPace: paces.length ? Math.min(...paces) : null, // fastest = smallest sec/km
-      avgHr: hrs.length
