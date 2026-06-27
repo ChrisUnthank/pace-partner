@@ -97,7 +97,6 @@ function SessionAnalysis() {
     elev: false,
     vo: false,
     gct: false,
-    strides: false,
   });
 
   const [xMode, setXMode] = useState<"time" | "distance">("time");
