@@ -97,7 +97,6 @@ function SessionAnalysis() {
     elev: false,
     vo: false,
     gct: false,
-    strides: false,
   });
 
   const [xMode, setXMode] = useState<"time" | "distance">("time");
@@ -1095,6 +1094,7 @@ function MapPanel({
   points: { lat?: number; lng?: number }[];
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<any>(null);
   const [mapStatus, setMapStatus] = useState<"ready" | "unsupported" | "failed">("ready");
 
   const safePoints = useMemo(() => {
