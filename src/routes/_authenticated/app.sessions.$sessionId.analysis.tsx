@@ -110,14 +110,6 @@ function SessionAnalysis() {
   const [xMode, setXMode] = useState<"time" | "distance">("time");
   const [scope, setScope] = useState<ScopeKey>("full");
 
-  useEffect(() => {
-    const scopeHasData = scope === "full" ? samples.length > 0 : samples.some((s) => s.stepKind === scope);
-
-    if (!scopeHasData) {
-      setScope("full");
-    }
-  }, [samples, scope]);
-
   const { data: session, isLoading: sessionLoading } = useQuery({
     queryKey: ["session", sessionId],
     queryFn: async () => {
@@ -269,6 +261,14 @@ function SessionAnalysis() {
   }, [safeSteps, safeResults, safeRawPoints]);
 
   const availableScopes = SCOPE_OPTIONS;
+
+  useEffect(() => {
+    const scopeHasData = scope === "full" ? samples.length > 0 : samples.some((s) => s.stepKind === scope);
+
+    if (!scopeHasData) {
+      setScope("full");
+    }
+  }, [samples, scope]);
 
   const visibleSamples = useMemo(() => {
     if (scope === "full") return samples;
@@ -1435,13 +1435,9 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
           <div className="flex flex-wrap gap-1">
             {SCOPE_OPTIONS.map((k) => {
               const hasData = (() => {
-                if (k === "full") return samples.length > 0;
+                if (k === "full") return rows.length > 0;
 
-                const scopeSamples = samples.filter((s) => s.stepKind === k);
-
-                if (scopeSamples.length === 0) return false;
-
-                return METRICS.some((m) => enabled[m.key] && hasMetric[m.key]);
+                return rows.some((row) => row.type === k);
               })();
 
               return (
