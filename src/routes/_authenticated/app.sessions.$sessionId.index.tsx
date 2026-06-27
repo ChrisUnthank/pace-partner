@@ -35,6 +35,7 @@ import { ActivityIcon } from "@/lib/activity-icon";
 import { invalidateSession } from "@/lib/session-invalidation";
 import { deleteSession, uploadAndParseSessionFile } from "@/lib/session-files.functions";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { computeStrideLengthM, formatStride } from "@/lib/session-metrics";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/")({
   component: SessionDetail,
