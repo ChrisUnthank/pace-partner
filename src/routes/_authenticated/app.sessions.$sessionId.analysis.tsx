@@ -1408,6 +1408,7 @@ const s: Sample = {
         d2: endSample.d ?? startD,
       });
     }
+  }
 
     return {
       samples,
