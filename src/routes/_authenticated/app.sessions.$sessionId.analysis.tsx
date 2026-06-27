@@ -23,6 +23,14 @@ import { secToClock, metersFmt, paceFmt } from "@/lib/format";
 import { sessionClassificationLabel } from "@/lib/session-categories";
 import { useServerFn } from "@tanstack/react-start";
 import { computeContinuousFatigue } from "@/lib/ai.functions";
+import {
+  normalizeVO,
+  formatVO,
+  computeStrideLengthM,
+  formatStride,
+  rowStatus,
+  buildSessionInsight,
+} from "@/lib/session-metrics";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/analysis")({
   component: SessionAnalysis,
