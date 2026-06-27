@@ -1384,6 +1384,7 @@ const s: Sample = {
         startT = samples[i].t;
         startD = samples[i].d ?? startD;
       }
+      }
     }
 
     // ✅ handle final segment safely
