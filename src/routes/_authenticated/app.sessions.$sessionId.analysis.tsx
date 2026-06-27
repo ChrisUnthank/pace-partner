@@ -974,54 +974,25 @@ function ZonePanel({ rows, title }: { rows: any[]; title: string }) {
   );
 }
 
-function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
-  const mapRef = useRef<maplibregl.Map | null>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const [mapStatus, setMapStatus] = useState<"map" | "fallback">("map");
-
-  const safePoints = useMemo(() => {
-    return Array.isArray(points)
-      ? points.filter(
-          (p): p is { lat: number; lng: number } =>
-            p != null &&
-            Number.isFinite(Number(p.lat)) &&
-            Number.isFinite(Number(p.lng)),
-        )
-      : [];
-  }, [points]);
-
-  useEffect(() => {
-    if (!containerRef.current || safePoints.length < 2) return;
-
-    let cancelled = false;
-
-    try {
-      const map = new maplibregl.Map({
-        container: containerRef.current,
-        style: "https://demotiles.maplibre.org/style.json",
-        interactive: true,
-      });
-
-      mapRef.current = map;
-
-      map.once("load", () => {
-        if (cancelled) return;
-
-        const coords: [number, number][] = safePoints.map((p) => [
+function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {function MapPanel({ points }: { points: { lat?: number.map((p) => [
           Number(p.lng),
           Number(p.lat),
         ]);
 
+        console.log("Map coords count:", coords.length);
+
+        const geojson = {
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: coords,
+          },
+          properties: {},
+        } as const;
+
         map.addSource("route", {
           type: "geojson",
-          data: {
-            type: "Feature",
-            geometry: {
-              type: "LineString",
-              coordinates: coords,
-            },
-            properties: {},
-          },
+          data: geojson,
         });
 
         map.addLayer({
@@ -1034,47 +1005,70 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
           },
         });
 
-        const bounds = new maplibregl.LngLatBounds(coords[0], coords[0]);
-        coords.forEach((coord) => bounds.extend(coord));
-        map.fitBounds(bounds, { padding: 24, duration: 0 });
+        const bounds = new maplibregl.LngLatBounds(
+          coords[0],
+          coords[0]
+        );
+
+        coords.forEach((c) => bounds.extend(c));
+
+        map.fitBounds(bounds, {
+          padding: 24,
+          duration: 0,
+        });
       });
 
-      map.on("error", (event) => {
-        console.error("MapPanel map error:", event);
-        if (!cancelled) setMapStatus("fallback");
+      map.on("error", (e) => {
+        console.error("MapPanel map error:", e);
+
+        // ✅ FALLBACK TRIGGER
+        if (!cancelled) {
+          setMapStatus("fallback");
+        }
       });
     } catch (err) {
       console.error("MapPanel init error:", err);
-      if (!cancelled) setMapStatus("fallback");
+
+      // ✅ FALLBACK TRIGGER
+      if (!cancelled) {
+        setMapStatus("fallback");
+      }
     }
 
     return () => {
       cancelled = true;
       try {
-        mapRef.current?.remove();
-        mapRef.current = null;
+        if (mapRef.current) {
+          mapRef.current.remove();
+          mapRef.current = null;
+        }
       } catch {
-        // Ignore map cleanup errors.
+        // ignore cleanup errors
       }
     };
   }, [safePoints]);
 
   if (safePoints.length < 2) return null;
 
+  // ✅ ✅ ✅ SVG FALLBACK (NO WEBGL REQUIRED)
   if (mapStatus === "fallback") {
     const lats = safePoints.map((p) => Number(p.lat));
     const lngs = safePoints.map((p) => Number(p.lng));
+
     const minLat = Math.min(...lats);
     const maxLat = Math.max(...lats);
     const minLng = Math.min(...lngs);
     const maxLng = Math.max(...lngs);
+
     const width = 600;
     const height = 300;
 
     const project = (lat: number, lng: number) => {
       const x = ((lng - minLng) / (maxLng - minLng || 1)) * width;
-      const y = height - ((lat - minLat) / (maxLat - minLat || 1)) * height;
-      return [x, y] as const;
+      const y =
+        height -
+        ((lat - minLat) / (maxLat - minLat || 1)) * height;
+      return [x, y];
     };
 
     const path = safePoints
@@ -1088,15 +1082,57 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
       <Card>
         <CardHeader>
           <CardTitle>Route preview</CardTitle>
-          <CardDescription>Static route preview (WebGL not available in this environment)</CardDescription>
+          <CardDescription>
+            Static route preview (WebGL not available in this environment)
+          </CardDescription>
         </CardHeader>
+
         <CardContent>
-          <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} className="border rounded bg-black">
-            <polyline points={path} fill="none" stroke="#ef4444" strokeWidth="2" />
-            <circle cx={project(safePoints[0].lat, safePoints[0].lng)[0]} cy={project(safePoints[0].lat, safePoints[0].lng)[1]} r="4" fill="#22c55e" />
+            
+   <div className="text-xs text-muted-foreground mb-2 space-y-1">
+    <div>
+      Start: {safePoints[0].lat?.toFixed(5)}, {safePoints[0].lng?.toFixed(5)}
+    </div>
+    <div>
+      End: {safePoints[safePoints.length - 1].lat?.toFixed(5)}, {safePoints[safePoints.length - 1].lng?.toFixed(5)}
+    </div>
+  </div>
+
+          <svg
+            width="100%"
+            height={height}
+            viewBox={`0 0 ${width} ${height}`}
+            className="border rounded bg-black"
+          >
+            <polyline
+              points={path}
+              fill="none"
+              stroke="#ef4444"
+              strokeWidth="2"
+            />
+
+            {/* start point */}
             <circle
-              cx={project(safePoints[safePoints.length - 1].lat, safePoints[safePoints.length - 1].lng)[0]}
-              cy={project(safePoints[safePoints.length - 1].lat, safePoints[safePoints.length - 1].lng)[1]}
+              cx={project(safePoints[0].lat!, safePoints[0].lng!)[0]}
+              cy={project(safePoints[0].lat!, safePoints[0].lng!)[1]}
+              r="4"
+              fill="#22c55e"
+            />
+
+            {/* end point */}
+            <circle
+              cx={
+                project(
+                  safePoints[safePoints.length - 1].lat!,
+                  safePoints[safePoints.length - 1].lng!
+                )[0]
+              }
+              cy={
+                project(
+                  safePoints[safePoints.length - 1].lat!,
+                  safePoints[safePoints.length - 1].lng!
+                )[1]
+              }
               r="4"
               fill="#ef4444"
             />
@@ -1110,14 +1146,54 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
     <Card>
       <CardHeader>
         <CardTitle>Route map</CardTitle>
-        <CardDescription>GPS trace from uploaded activity data.</CardDescription>
+        <CardDescription>
+          GPS trace from uploaded activity data.
+        </CardDescription>
       </CardHeader>
       <CardContent>
-        <div ref={containerRef} className="h-[320px] w-full rounded border" />
+        <div
+          ref={containerRef}
+          className="h-[320px] w-full rounded border"
+        />
       </CardContent>
     </Card>
   );
 }
+  const mapRef = useRef<maplibregl.Map | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [mapStatus, setMapStatus] = useState<"map" | "fallback">("map");
+
+  const safePoints = useMemo(() => {
+    return Array.isArray(points)
+      ? points.filter(
+          (p) =>
+            p &&
+            Number.isFinite(Number(p.lat)) &&
+            Number.isFinite(Number(p.lng))
+        )
+      : [];
+  }, [points]);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    if (safePoints.length < 2) return;
+
+    let cancelled = false;
+    let map: maplibregl.Map | null = null;
+
+    try {
+      map = new maplibregl.Map({
+        container: containerRef.current,
+        style: "https://demotiles.maplibre.org/style.json",
+        interactive: true,
+      });
+
+      mapRef.current = map;
+
+      map.once("load", () => {
+        if (cancelled || !map) return;
+
+
 
 function buildSamples(
   steps: any[],
@@ -1551,14 +1627,14 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
                       <td className="py-1 pr-2 text-right tabular-nums">{r.score != null ? r.score : "—"}</td>
 
                       <td className={`py-1 pr-2 ${STATUS_TONE_TEXT[status.tone]}`}>
-                        {status.label}
-                        {r.paceDeltaPct != null && (
-                          <span className="text-muted-foreground ml-1">
-                            ({r.paceDeltaPct > 0 ? "+" : ""}
-                            {Math.abs(Number(r.paceDeltaPct)).toFixed(1)}%)
-                          </span>
-                        )}
-                      </td>
+  {status.label}
+  {r.paceDeltaPct != null && (
+    <span className="text-muted-foreground ml-1">
+  ({r.paceDeltaPct > 0 ? "+" : ""}
+   {Math.abs(Number(r.paceDeltaPct).toFixed(1))}%)
+  </span>
+  )}
+</td>
 
                       {detailMode === "advanced" && (
                         <>
@@ -2055,34 +2131,10 @@ function median(nums: number[]): number | null {
   return vals.length % 2 === 0 ? (vals[mid - 1] + vals[mid]) / 2 : vals[mid];
 }
 
-function addRepScoring(rows: SplitRow[]): SplitRow[] {
-  const workRows = rows.filter(
-    (row) =>
-      (row.type === "work" || row.type === "strides") &&
-      typeof row.avgPace === "number" &&
-      row.avgPace > 0,
-  );
-
-  const medianWorkPace = median(
-    workRows
-      .map((row) => row.avgPace)
-      .filter((value): value is number => typeof value === "number"),
-  );
-
-  if (!medianWorkPace) {
-    return rows.map((row) => ({
-      ...row,
-      score: null,
-      scoreLabel: null,
-      scoreTone: null,
-      paceDeltaPct: null,
-    }));
-  }
-
-  return rows.map((row) => {
-    if (row.type !== "work" && row.type !== "strides") {
+function addRepScoring(rows: SplitRow[]): SplitRow[] {function addRepScoring(rows: Split    // ✅ non-work rows → no scoring
+    if (r.type !== "work" && r.type !== "strides") {
       return {
-        ...row,
+        ...r,
         score: null,
         scoreLabel: null,
         scoreTone: null,
@@ -2090,9 +2142,9 @@ function addRepScoring(rows: SplitRow[]): SplitRow[] {
       };
     }
 
-    if (typeof row.avgPace !== "number" || row.avgPace <= 0) {
+    if (typeof r.avgPace !== "number" || r.avgPace <= 0) {
       return {
-        ...row,
+        ...r,
         score: null,
         scoreLabel: null,
         scoreTone: null,
@@ -2100,10 +2152,15 @@ function addRepScoring(rows: SplitRow[]): SplitRow[] {
       };
     }
 
-    const paceDeltaPct = ((row.avgPace - medianWorkPace) / medianWorkPace) * 100;
+    // ✅ pace vs session median
+    const paceDeltaPct =
+      ((r.avgPace - medianWorkPace) / medianWorkPace) * 100;
+
     const absDelta = Math.abs(paceDeltaPct);
+
     let score = 100;
 
+    // ✅ tighter pacing accuracy bands
     if (absDelta <= 0.8) score -= 0;
     else if (absDelta <= 1.8) score -= 5;
     else if (absDelta <= 3) score -= 10;
@@ -2111,21 +2168,36 @@ function addRepScoring(rows: SplitRow[]): SplitRow[] {
     else if (absDelta <= 8) score -= 35;
     else score -= 50;
 
-    if (typeof row.maxPace === "number" && typeof row.avgPace === "number") {
-      const spreadPct = ((row.avgPace - row.maxPace) / row.avgPace) * 100;
+    // ✅ intra-rep variability (fast/slow swings)
+    if (
+      typeof r.maxPace === "number" &&
+      typeof r.avgPace === "number"
+    ) {
+      const spreadPct =
+        ((r.avgPace - r.maxPace) / r.avgPace) * 100;
+
       if (spreadPct > 3) score -= 3;
       if (spreadPct > 6) score -= 5;
     }
 
-    if (typeof row.maxHr === "number" && typeof row.avgHr === "number") {
-      const hrSpread = row.maxHr - row.avgHr;
+    // ✅ HR efficiency penalty
+    if (
+      typeof r.maxHr === "number" &&
+      typeof r.avgHr === "number"
+    ) {
+      const hrSpread = r.maxHr - r.avgHr;
+
       if (hrSpread > 18) score -= 4;
       if (hrSpread > 24) score -= 4;
     }
 
-    if (row.adjusted) score -= 4;
+    // ✅ adjusted rep penalty (overrun correction)
+    if (r.adjusted) score -= 4;
+
+    // ✅ clamp + round
     score = Math.max(0, Math.min(100, Math.round(score)));
 
+    // ✅ labels
     let scoreLabel: string;
     let scoreTone: "excellent" | "good" | "warn" | "bad";
 
@@ -2144,7 +2216,7 @@ function addRepScoring(rows: SplitRow[]): SplitRow[] {
     }
 
     return {
-      ...row,
+      ...r,
       score,
       scoreLabel,
       scoreTone,
@@ -2152,6 +2224,30 @@ function addRepScoring(rows: SplitRow[]): SplitRow[] {
     };
   });
 }
+  const workRows = rows.filter(
+    (r) =>
+      (r.type === "work" || r.type === "strides") &&
+      typeof r.avgPace === "number" &&
+      r.avgPace > 0,
+  );
+
+  const medianWorkPace = median(
+    workRows
+      .map((r) => r.avgPace)
+      .filter((x): x is number => typeof x === "number"),
+  );
+
+  if (!medianWorkPace) {
+    return rows.map((r) => ({
+      ...r,
+      score: null,
+      scoreLabel: null,
+      scoreTone: null,
+      paceDeltaPct: null,
+    }));
+  }
+
+  return rows.map((r) => {
 
 function addFadeFlags(rows: SplitRow[]): SplitRow[] {
   let prevWorkPace: number | null = null;
