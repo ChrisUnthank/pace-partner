@@ -1544,27 +1544,16 @@ const t = normalizedType as string;
 
   return groups.map((grp, idx) => {
     let rawType = grp[0].segment_type ?? "work";
-
-const first = grp[0];
-const last = grp[grp.length - 1];
-
-const durationS = Math.max(0, Number(last.elapsed_s ?? 0) - Number(first.elapsed_s ?? 0));
-const distanceM = Math.max(0, Number(last.distance_m ?? 0) - Number(first.distance_m ?? 0));
-
-// ✅ Filter fake cooldown groups
-if (
-  rawType === "cooldown" &&
-  durationS < 120 &&
-  distanceM < 200
-) {
-  rawType = "work";
-}
-
-const type = (rawType as SplitRow["type"]) || "work";
     const first = grp[0];
     const last = grp[grp.length - 1];
     const durationS = Math.max(0, Number(last.elapsed_s ?? 0) - Number(first.elapsed_s ?? 0));
     const distanceM = Math.max(0, Number(last.distance_m ?? 0) - Number(first.distance_m ?? 0));
+
+    if (rawType === "cooldown" && durationS < 120 && distanceM < 200) {
+      rawType = "work";
+    }
+
+    const type = (rawType as SplitRow["type"]) || "work";
     const hrs = grp.map((p) => p.hr).filter((x: any): x is number => typeof x === "number" && x > 0);
     const paces = grp
       .map((p) => p.pace_sec_per_km)
