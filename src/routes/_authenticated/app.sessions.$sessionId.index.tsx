@@ -1201,10 +1201,12 @@ function FuelingPanel({ session }: { session: any }) {
 
 function SessionSummary({
   session,
+  results = [],
   onSaved,
   onCompleted,
 }: {
   session: any;
+  results?: any[];
   onSaved: () => void;
   onCompleted?: () => void;
 }) {
@@ -1226,6 +1228,23 @@ function SessionSummary({
     session.avg_hr,
     session.rpe,
   ]);
+
+  // Derived stride length: prefer an explicit per-rep value, else compute from
+  // session totals + average rep cadence. Returns null when not enough data.
+  const derivedStride = (() => {
+    const explicit = results
+      .map((r: any) => Number(r?.stride_length_cm))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    if (explicit.length) {
+      const avgCm = explicit.reduce((a, b) => a + b, 0) / explicit.length;
+      return Number((avgCm / 100).toFixed(2));
+    }
+    const cads = results
+      .map((r: any) => Number(r?.cadence))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    const avgCad = cads.length ? cads.reduce((a, b) => a + b, 0) / cads.length : null;
+    return computeStrideLengthM(session.total_distance_m, session.total_time_seconds, avgCad);
+  })();
 
   async function complete() {
     const wasAlreadyComplete = !!session.completed_at;
