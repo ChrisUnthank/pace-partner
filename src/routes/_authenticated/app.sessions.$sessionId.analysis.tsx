@@ -720,22 +720,17 @@ function SessionAnalysis() {
           </CardContent>
         </Card>
 
-        <WorkSegmentPanel
-  steps={safeSteps}
-  results={safeResults}
-  rawPoints={safeRawPoints}
-/>
-        
-<SplitsTable
-  points={
-    Array.isArray(rawPoints)
-      ? rawPoints.filter((p: any) => p && (p.elapsed_s != null || p.distance_m != null))
-      : []
-  }
-  results={safeResults}
-  steps={safeSteps}
-/>
+        <WorkSegmentPanel steps={safeSteps} results={safeResults} rawPoints={safeRawPoints} />
 
+        <SplitsTable
+          points={
+            Array.isArray(rawPoints)
+              ? rawPoints.filter((p: any) => p && (p.elapsed_s != null || p.distance_m != null))
+              : []
+          }
+          results={safeResults}
+          steps={safeSteps}
+        />
 
         {showContinuousFatigueCard && (
           <Card>
@@ -919,41 +914,29 @@ function RecoveryPanel({
   );
 }
 
-function WorkSegmentPanel({
-  steps,
-  results,
-  rawPoints,
-}: {
-  steps: any[];
-  results: any[];
-  rawPoints: any[];
-}) {
+function WorkSegmentPanel({ steps, results, rawPoints }: { steps: any[]; results: any[]; rawPoints: any[] }) {
+  // ✅ Build corrected rep-aligned splits
   const repSplits = buildSplitsFromResults(results, steps, rawPoints).filter(
     (r) => r.type === "work" || r.type === "strides",
   );
 
   if (repSplits.length === 0) return null;
 
+  // ✅ Aggregate stats (from corrected data)
   const totalTime = repSplits.reduce((a, r) => a + (r.durationS ?? 0), 0);
   const totalDist = repSplits.reduce((a, r) => a + (r.distanceM ?? 0), 0);
 
   const avgPace = totalDist > 0 ? (totalTime / totalDist) * 1000 : null;
 
-  const hrs = repSplits
-    .map((r) => r.avgHr)
-    .filter((x: any) => typeof x === "number");
+  const hrs = repSplits.map((r) => r.avgHr).filter((x: any) => typeof x === "number");
 
-  const avgHr = hrs.length
-    ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length)
-    : null;
+  const avgHr = hrs.length ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null;
 
-  const maxHr =
-    repSplits.reduce((m, r) => Math.max(m, Number(r.maxHr ?? 0)), 0) || null;
+  const maxHr = repSplits.reduce((m, r) => Math.max(m, Number(r.maxHr ?? 0)), 0) || null;
 
-  const cads = repSplits.map((r) => r.avgCad).filter((x: any) => typeof x === "number");
-  const avgCad = cads.length
-    ? Math.round(cads.reduce((a: number, b: number) => a + Number(b), 0) / cads.length)
-    : null;
+  const cads = repSplits.map((r) => r.avgCad).filter((x: any) => x);
+
+  const avgCad = cads.length ? Math.round(cads.reduce((a: number, b: number) => a + Number(b), 0) / cads.length) : null;
 
   return (
     <Card>
@@ -963,6 +946,7 @@ function WorkSegmentPanel({
       </CardHeader>
 
       <CardContent className="space-y-4">
+        {/* ✅ Summary stats */}
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
           <Stat label="Work distance" value={metersFmt(totalDist)} />
           <Stat label="Work duration" value={secToClock(totalTime)} />
@@ -972,6 +956,7 @@ function WorkSegmentPanel({
           <Stat label="Avg cadence" value={avgCad ? `${avgCad} spm` : "—"} />
         </div>
 
+        {/* ✅ Per-rep table */}
         <div>
           <div className="text-xs font-semibold text-muted-foreground mb-1">Per-rep</div>
 
@@ -984,25 +969,48 @@ function WorkSegmentPanel({
                   <th className="text-right py-1 pr-2">Dist</th>
                   <th className="text-right py-1 pr-2">Pace</th>
                   <th className="text-right py-1 pr-2">HR avg</th>
-                  <th className="text-right py-1 pr-2">HR max</th>
+                  <th className="text-right py-1 pr-2">HR end</th>
+                  <th className="text-right py-1 pr-2">HR rec</th>
+                  <th className="text-right py-1 pr-2">Drop</th>
                   <th className="text-right py-1 pr-2">Cad</th>
+                  <th className="text-right py-1">La</th>
                 </tr>
               </thead>
 
               <tbody>
-                {repSplits.map((r, i) => (
-                  <tr key={i} className="border-b last:border-0">
-                    <td className="py-1 pr-2">{r.repLabel ?? `#${i + 1}`}</td>
-                    <td className="py-1 pr-2 text-right">{secToClock(r.durationS ?? 0)}</td>
-                    <td className="py-1 pr-2 text-right">{metersFmt(r.distanceM ?? 0)}</td>
-                    <td className="py-1 pr-2 text-right">{r.avgPace ? paceFmt(r.avgPace) : "—"}</td>
-                    <td className="py-1 pr-2 text-right">{r.avgHr ?? "—"}</td>
-                    <td className="py-1 pr-2 text-right">{r.maxHr ?? "—"}</td>
-                    <td className="py-1 pr-2 text-right">{r.avgCad ?? "—"}</td>
+                {repSplits.map((r) => (
+                  <tr key={r.index} className="border-b last:border-b-0">
+                    <td className="py-1 pr-2">
+                      {r.repLabel ?? `R${r.index}`}
+                      {r.adjusted ? " *" : ""}
+                    </td>
+
+                    <td className="py-1 pr-2 text-right tabular-nums">{r.durationS ? secToClock(r.durationS) : "—"}</td>
+
+                    <td className="py-1 pr-2 text-right tabular-nums">{r.distanceM ? metersFmt(r.distanceM) : "—"}</td>
+
+                    <td className="py-1 pr-2 text-right tabular-nums">{r.avgPace ? paceFmt(r.avgPace) : "—"}</td>
+
+                    <td className="py-1 pr-2 text-right tabular-nums">{r.avgHr ?? "—"}</td>
+
+                    <td className="py-1 pr-2 text-right tabular-nums">{r.maxHr ?? "—"}</td>
+
+                    <td className="py-1 pr-2 text-right tabular-nums">—</td>
+                    <td className="py-1 pr-2 text-right tabular-nums">—</td>
+
+                    <td className="py-1 pr-2 text-right tabular-nums">{r.avgCad ?? "—"}</td>
+
+                    <td className="py-1 text-right tabular-nums">—</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* ✅ Adjustment legend */}
+          <div className="text-[11px] text-muted-foreground mt-2">
+            * adjusted = rep exceeded target distance and was corrected using trace (e.g. watch not stopped exactly at
+            rep end)
           </div>
         </div>
       </CardContent>
@@ -1504,20 +1512,13 @@ function computeMetricsFromTraceSlice(slice: any[]) {
   const durationS = Math.max(0, Number(last.elapsed_s ?? 0) - Number(first.elapsed_s ?? 0));
   const distanceM = Math.max(0, Number(last.distance_m ?? 0) - Number(first.distance_m ?? 0));
 
-  const hrs = slice
-    .map((p) => p.hr)
-    .filter((x: any): x is number => typeof x === "number" && x > 0);
+  const hrs = slice.map((p) => p.hr).filter((x: any): x is number => typeof x === "number" && x > 0);
 
   const paces = slice
     .map((p) => p.pace_sec_per_km)
-    .filter(
-      (x: any): x is number =>
-        typeof x === "number" && x > 0 && x <= 900,
-    );
+    .filter((x: any): x is number => typeof x === "number" && x > 0 && x <= 900);
 
-  const cads = slice
-    .map((p) => p.cadence)
-    .filter((x: any): x is number => typeof x === "number" && x > 0);
+  const cads = slice.map((p) => p.cadence).filter((x: any): x is number => typeof x === "number" && x > 0);
 
   let gain = 0;
   let loss = 0;
@@ -1645,9 +1646,7 @@ function buildSplitsFromResults(results: any[], steps: any[], rawPoints: any[]):
     if ((kind === "work" || kind === "strides") && step?.target_kind === "distance" && step?.target_distance_m) {
       const targetDistance = Number(step.target_distance_m);
       const recordedOverrun =
-        recordedDistance > 0 && targetDistance > 0
-          ? recordedDistance > targetDistance * 1.05
-          : false;
+        recordedDistance > 0 && targetDistance > 0 ? recordedDistance > targetDistance * 1.05 : false;
 
       const matchingTraceGroup = traceWorkGroups[workTraceIdx];
 
@@ -1706,21 +1705,14 @@ function buildSplitsFromResults(results: any[], steps: any[], rawPoints: any[]):
       ? computeMetricsFromTraceSlice(matchingRecoveryGroup.points)
       : null;
 
-    if (
-      recoveryDuration > 0 ||
-      recoveryDistance > 0 ||
-      recoveryHr != null ||
-      recoveryTraceMetrics
-    ) {
-      const finalRecoveryDuration =
-        recoveryDuration > 0 ? recoveryDuration : recoveryTraceMetrics?.durationS ?? 0;
-      const finalRecoveryDistance =
-        recoveryDistance > 0 ? recoveryDistance : recoveryTraceMetrics?.distanceM ?? 0;
+    if (recoveryDuration > 0 || recoveryDistance > 0 || recoveryHr != null || recoveryTraceMetrics) {
+      const finalRecoveryDuration = recoveryDuration > 0 ? recoveryDuration : (recoveryTraceMetrics?.durationS ?? 0);
+      const finalRecoveryDistance = recoveryDistance > 0 ? recoveryDistance : (recoveryTraceMetrics?.distanceM ?? 0);
 
       const recoveryPace =
         finalRecoveryDuration > 0 && finalRecoveryDistance > 0
           ? (finalRecoveryDuration / finalRecoveryDistance) * 1000
-          : recoveryTraceMetrics?.avgPace ?? null;
+          : (recoveryTraceMetrics?.avgPace ?? null);
 
       rows.push({
         index: rowIndex++,
@@ -1783,15 +1775,7 @@ function buildSplits(points: any[], results?: any[], steps?: any[]): SplitRow[] 
   return buildSplitsFromTrace(points ?? []);
 }
 
-function SplitsTable({
-  points,
-  results,
-  steps,
-}: {
-  points: any[];
-  results: any[];
-  steps: any[];
-}) {
+function SplitsTable({ points, results, steps }: { points: any[]; results: any[]; steps: any[] }) {
   const rows = useMemo(() => buildSplits(points, results, steps), [points, results, steps]);
   if (rows.length === 0) return null;
 
@@ -1800,7 +1784,8 @@ function SplitsTable({
       <CardHeader>
         <CardTitle>Workout splits</CardTitle>
         <CardDescription>
-          Rep-aligned splits from structured results, with smart trace correction for overruns and recovery shown between reps.
+          Rep-aligned splits from structured results, with smart trace correction for overruns and recovery shown
+          between reps.
         </CardDescription>
       </CardHeader>
 
@@ -1848,37 +1833,22 @@ function SplitsTable({
                   <td className="py-1 pr-2 text-right tabular-nums">
                     {r.durationS > 0 ? secToClock(r.durationS) : "—"}
                   </td>
-                  <td className="py-1 pr-2 text-right tabular-nums">
-                    {r.avgPace ? paceFmt(r.avgPace) : "—"}
-                  </td>
-                  <td className="py-1 pr-2 text-right tabular-nums">
-                    {r.maxPace ? paceFmt(r.maxPace) : "—"}
-                  </td>
-                  <td className="py-1 pr-2 text-right tabular-nums">
-                    {r.avgHr ?? "—"}
-                  </td>
-                  <td className="py-1 pr-2 text-right tabular-nums">
-                    {r.maxHr ?? "—"}
-                  </td>
-                  <td className="py-1 pr-2 text-right tabular-nums">
-                    {r.avgCad ?? "—"}
-                  </td>
-                  <td className="py-1 pr-2 text-right tabular-nums">
-                    {r.maxCad ?? "—"}
-                  </td>
-                  <td className="py-1 pr-2 text-right tabular-nums">
-                    {r.elevGain != null ? `${r.elevGain}m` : "—"}
-                  </td>
-                  <td className="py-1 text-right tabular-nums">
-                    {r.elevLoss != null ? `${r.elevLoss}m` : "—"}
-                  </td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{r.avgPace ? paceFmt(r.avgPace) : "—"}</td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{r.maxPace ? paceFmt(r.maxPace) : "—"}</td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{r.avgHr ?? "—"}</td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{r.maxHr ?? "—"}</td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{r.avgCad ?? "—"}</td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{r.maxCad ?? "—"}</td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{r.elevGain != null ? `${r.elevGain}m` : "—"}</td>
+                  <td className="py-1 text-right tabular-nums">{r.elevLoss != null ? `${r.elevLoss}m` : "—"}</td>
                 </tr>
               ))}
             </tbody>
           </table>
 
           <div className="text-[11px] text-muted-foreground mt-2">
-            * adjusted = recorded rep overran target distance, so pace/distance/time were corrected from the trace to the planned rep target.
+            * adjusted = recorded rep overran target distance, so pace/distance/time were corrected from the trace to
+            the planned rep target.
           </div>
         </div>
       </CardContent>
