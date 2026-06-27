@@ -1104,7 +1104,7 @@ function MapPanel({
 }: {
   points: { lat?: number; lng?: number }[];
 }) {
- null);  const containerRef = useRef<HTMLDivElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const [mapStatus, setMapStatus] = useState<"ready" | "unsupported" | "failed">("ready");
 
   const safePoints = useMemo(() => {
