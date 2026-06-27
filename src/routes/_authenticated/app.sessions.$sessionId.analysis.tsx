@@ -110,6 +110,14 @@ function SessionAnalysis() {
   const [xMode, setXMode] = useState<"time" | "distance">("time");
   const [scope, setScope] = useState<ScopeKey>("full");
 
+  useEffect(() => {
+    const scopeHasData = scope === "full" ? samples.length > 0 : samples.some((s) => s.stepKind === scope);
+
+    if (!scopeHasData) {
+      setScope("full");
+    }
+  }, [samples, scope]);
+
   const { data: session, isLoading: sessionLoading } = useQuery({
     queryKey: ["session", sessionId],
     queryFn: async () => {
@@ -1426,7 +1434,16 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
         <CardContent className="space-y-4">
           <div className="flex flex-wrap gap-1">
             {SCOPE_OPTIONS.map((k) => {
-              const hasData = k === "full" || rows.some((r) => r.type === k);
+              const hasData = (() => {
+                if (k === "full") return samples.length > 0;
+
+                const scopeSamples = samples.filter((s) => s.stepKind === k);
+
+                if (scopeSamples.length === 0) return false;
+
+                return METRICS.some((m) => enabled[m.key] && hasMetric[m.key]);
+              })();
+
               return (
                 <Button
                   key={k}
