@@ -23,6 +23,14 @@ import { secToClock, metersFmt, paceFmt } from "@/lib/format";
 import { sessionClassificationLabel } from "@/lib/session-categories";
 import { useServerFn } from "@tanstack/react-start";
 import { computeContinuousFatigue } from "@/lib/ai.functions";
+import {
+  normalizeVO,
+  formatVO,
+  computeStrideLengthM,
+  formatStride,
+  rowStatus,
+  buildSessionInsight,
+} from "@/lib/session-metrics";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/analysis")({
   component: SessionAnalysis,
@@ -912,174 +920,6 @@ function RecoveryPanel({
   );
 }
 
-function WorkSegmentPanel({ steps, results, rawPoints }: { steps: any[]; results: any[]; rawPoints: any[] }) {
-  // ✅ Build corrected rep-aligned splits
-  const repSplits = buildSplitsFromResults(results, steps, rawPoints).filter(
-    (r) => r.type === "work" || r.type === "strides",
-  );
-
-  if (repSplits.length === 0) return null;
-
-  // ✅ Aggregate stats (from corrected data)
-  const totalTime = repSplits.reduce((a, r) => a + (r.durationS ?? 0), 0);
-  const totalDist = repSplits.reduce((a, r) => a + (r.distanceM ?? 0), 0);
-
-  const avgPace = totalDist > 0 ? (totalTime / totalDist) * 1000 : null;
-
-  const hrs = repSplits.map((r) => r.avgHr).filter((x: any) => typeof x === "number");
-
-  const avgHr = hrs.length ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null;
-
-  const maxHr = repSplits.reduce((m, r) => Math.max(m, Number(r.maxHr ?? 0)), 0) || null;
-
-  const cads = repSplits.map((r) => r.avgCad).filter((x: any): x is number => typeof x === "number");
-
-  const avgCad = cads.length ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length) : null;
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Work segment breakdown</CardTitle>
-        <CardDescription>Aggregated from work reps only — excludes warmup, recovery, and cooldown.</CardDescription>
-      </CardHeader>
-
-      <CardContent className="space-y-4">
-        {/* ✅ Summary stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
-          <Stat label="Work distance" value={metersFmt(totalDist)} />
-          <Stat label="Work duration" value={secToClock(totalTime)} />
-          <Stat label="Avg pace" value={avgPace ? `${paceFmt(avgPace)} /km` : "—"} />
-          <Stat label="Avg HR" value={avgHr ? `${avgHr} bpm` : "—"} />
-          <Stat label="Max HR" value={maxHr ? `${maxHr} bpm` : "—"} />
-          <Stat label="Avg cadence" value={avgCad ? `${avgCad} spm` : "—"} />
-        </div>
-
-        {/* ✅ Per-rep table */}
-        <div>
-          <div className="text-xs font-semibold text-muted-foreground mb-1">Per-rep</div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead className="text-muted-foreground">
-                <tr className="border-b">
-                  <th className="text-left py-1 pr-2">Rep</th>
-                  <th className="text-right py-1 pr-2">Time</th>
-                  <th className="text-right py-1 pr-2">Dist</th>
-                  <th className="text-right py-1 pr-2">Pace</th>
-                  <th className="text-right py-1 pr-2">HR avg</th>
-                  <th className="text-right py-1 pr-2">HR end</th>
-                  <th className="text-right py-1 pr-2">HR rec</th>
-                  <th className="text-right py-1 pr-2">Drop</th>
-                  <th className="text-right py-1 pr-2">Cad</th>
-                  <th className="text-right py-1">La</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {repSplits.map((r) => (
-                  <tr key={r.index} className="border-b last:border-b-0">
-                    <td className="py-1 pr-2">
-                      {r.repLabel ?? `R${r.index}`}
-                      {r.adjusted ? " *" : ""}
-                    </td>
-
-                    <td className="py-1 pr-2 text-right tabular-nums">{r.durationS ? secToClock(r.durationS) : "—"}</td>
-
-                    <td className="py-1 pr-2 text-right tabular-nums">{r.distanceM ? metersFmt(r.distanceM) : "—"}</td>
-
-                    <td className="py-1 pr-2 text-right tabular-nums">{r.avgPace ? paceFmt(r.avgPace) : "—"}</td>
-
-                    <td className="py-1 pr-2 text-right tabular-nums">{r.avgHr ?? "—"}</td>
-
-                    <td className="py-1 pr-2 text-right tabular-nums">{r.maxHr ?? "—"}</td>
-                    <td className="py-1 pr-2 text-right tabular-nums">{r.score != null ? r.score : "—"}</td>
-
-                    <td className="py-1 pr-2">
-                      {r.scoreLabel ? (
-                        <span
-                          className={
-                            r.scoreTone === "excellent"
-                              ? "text-emerald-400"
-                              : r.scoreTone === "good"
-                                ? "text-sky-400"
-                                : r.scoreTone === "warn"
-                                  ? "text-amber-400"
-                                  : "text-red-400"
-                          }
-                        >
-                          {r.scoreLabel}
-                        </span>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-
-                    <td className="py-1 pr-2">
-                      {r.isBest ? (
-                        <span className="text-emerald-400">🔥 Best</span>
-                      ) : r.fadeFlag === "strong" ? (
-                        <span className="text-red-400">🔻 Fade</span>
-                      ) : r.fadeFlag === "mild" ? (
-                        <span className="text-amber-400">⚠ Slowing</span>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                    <td className="py-1 pr-2 text-right tabular-nums">{r.score != null ? r.score : "—"}</td>
-
-                    <td className="py-1 pr-2">
-                      {r.scoreLabel ? (
-                        <span
-                          className={
-                            r.scoreTone === "excellent"
-                              ? "text-emerald-400"
-                              : r.scoreTone === "good"
-                                ? "text-sky-400"
-                                : r.scoreTone === "warn"
-                                  ? "text-amber-400"
-                                  : "text-red-400"
-                          }
-                        >
-                          {r.scoreLabel}
-                        </span>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-
-                    <td className="py-1 pr-2">
-                      {r.isBest ? (
-                        <span className="text-emerald-400">🔥 Best</span>
-                      ) : r.fadeFlag === "strong" ? (
-                        <span className="text-red-400">🔻 Fade</span>
-                      ) : r.fadeFlag === "mild" ? (
-                        <span className="text-amber-400">⚠ Slowing</span>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                    <td className="py-1 pr-2 text-right tabular-nums">—</td>
-                    <td className="py-1 pr-2 text-right tabular-nums">—</td>
-
-                    <td className="py-1 pr-2 text-right tabular-nums">{r.avgCad ?? "—"}</td>
-
-                    <td className="py-1 text-right tabular-nums">—</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* ✅ Adjustment legend */}
-          <div className="text-[11px] text-muted-foreground mt-2">
-            * adjusted = rep exceeded target distance and was corrected using trace (e.g. watch not stopped exactly at
-            rep end)
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
 
 const ZONE_ORDER = ["z1", "z2", "z3", "z4", "z5"];
 
@@ -1337,10 +1177,7 @@ function buildSamples(
         pace: rawPace != null && rawPace <= 600 ? rawPace : undefined,
         cadence: p.cadence != null ? Number(p.cadence) : undefined,
         elev: p.elevation_m != null ? Number(p.elevation_m) : undefined,
-        vo:
-          p.vertical_oscillation_cm != null && Number(p.vertical_oscillation_cm) > 0
-            ? Number(p.vertical_oscillation_cm)
-            : undefined,
+        vo: normalizeVO(p.vertical_oscillation_cm) ?? undefined,
         gct:
           p.ground_contact_time_ms != null && Number(p.ground_contact_time_ms) > 0
             ? Number(p.ground_contact_time_ms)
@@ -1490,6 +1327,33 @@ function buildSamples(
   };
 }
 
+const STATUS_TONE_TEXT: Record<string, string> = {
+  good: "text-emerald-500",
+  ok: "text-sky-500",
+  warn: "text-amber-500",
+  bad: "text-red-500",
+  none: "text-muted-foreground",
+};
+
+function SessionInsightCard({ rows }: { rows: SplitRow[] }) {
+  const insight = useMemo(() => buildSessionInsight(rows), [rows]);
+  if (!insight) return null;
+  const toneClass =
+    insight.tone === "good"
+      ? "border-l-4 border-emerald-500 bg-emerald-500/5"
+      : insight.tone === "warn"
+        ? "border-l-4 border-amber-500 bg-amber-500/5"
+        : "border-l-4 border-red-500 bg-red-500/5";
+  return (
+    <Card className={toneClass}>
+      <CardHeader className="pb-2">
+        <CardTitle>Session insight</CardTitle>
+      </CardHeader>
+      <CardContent className="text-sm">{insight.text}</CardContent>
+    </Card>
+  );
+}
+
 function UnifiedSessionTable({ points, results, steps }: { points: any[]; results: any[]; steps: any[] }) {
   const [segmentFilter, setSegmentFilter] = useState<ScopeKey>("full");
   const [detailMode, setDetailMode] = useState<"basic" | "advanced">("basic");
@@ -1551,6 +1415,7 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
 
   return (
     <>
+      <SessionInsightCard rows={filteredRows} />
       <Card>
         <CardHeader>
           <CardTitle>Session segments</CardTitle>
@@ -1628,8 +1493,7 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
                   <th className="text-right py-1 pr-2">Avg HR</th>
                   <th className="text-right py-1 pr-2">Max HR</th>
                   <th className="text-right py-1 pr-2">Score</th>
-                  <th className="text-left py-1 pr-2">Flag</th>
-                  <th className="text-left py-1 pr-2">Trend</th>
+                  <th className="text-left py-1 pr-2">Status</th>
 
                   {detailMode === "advanced" && (
                     <>
@@ -1658,28 +1522,25 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
               </thead>
 
               <tbody>
-                {filteredRows.map((r) => (
+                {filteredRows.map((r) => {
+                  const status = rowStatus(r);
+                  const accent =
+                    status.key === "best"
+                      ? "4px solid #22c55e"
+                      : status.key === "fade"
+                        ? "4px solid #ef4444"
+                        : status.key === "slight_fade"
+                          ? "4px solid #f59e0b"
+                          : `3px solid ${STEP_STROKE[r.type] ?? "#444"}`;
+                  return (
                   <tr
                     key={`${r.index}-${r.type}-${r.repLabel ?? ""}`}
                     className="border-b last:border-b-0"
                     style={{
-                      backgroundColor: r.isBest
-                        ? "rgba(34,197,94,0.12)"
-                        : r.fadeFlag === "strong"
-                        ? "rgba(239,68,68,0.10)"
-                        : r.fadeFlag === "mild"
-                        ? "rgba(251,191,36,0.10)"
-                        : STEP_COLORS[r.type] ?? "transparent",
-
-                      borderLeft: r.isBest
-                        ? "4px solid #22c55e"
-                        : r.fadeFlag === "strong"
-                        ? "3px solid #ef4444"
-                        : r.fadeFlag === "mild"
-                        ? "3px solid #f59e0b"
-                        : `3px solid ${STEP_STROKE[r.type] ?? "#444"}`,
-
-                      color: "#e5e7eb",
+                      // Segment type controls the row fill — performance quality
+                      // is conveyed only via the left border accent and Status column.
+                      backgroundColor: STEP_COLORS[r.type] ?? "transparent",
+                      borderLeft: accent,
                     }}
                   >
                     <td className="py-1 pr-2 tabular-nums">{r.index}</td>
@@ -1707,33 +1568,7 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
                       {r.score != null ? r.score : "—"}
                     </td>
 
-                    <td className="py-1 pr-2">
-                      {r.scoreLabel ? (
-                        <span
-                          className={
-                            r.scoreTone === "excellent"
-                              ? "text-emerald-400"
-                              : r.scoreTone === "good"
-                              ? "text-sky-400"
-                              : r.scoreTone === "warn"
-                              ? "text-amber-400"
-                              : "text-red-400"
-                          }
-                        >
-                          {r.scoreLabel}
-                        </span>
-                      ) : "—"}
-                    </td>
-
-                    <td className="py-1 pr-2">
-                      {r.isBest ? (
-                        <span className="text-emerald-400">🔥 Best</span>
-                      ) : r.fadeFlag === "strong" ? (
-                        <span className="text-red-400">🔻 Fade</span>
-                      ) : r.fadeFlag === "mild" ? (
-                        <span className="text-amber-400">⚠ Slowing</span>
-                      ) : "—"}
-                    </td>
+                    <td className={`py-1 pr-2 ${STATUS_TONE_TEXT[status.tone]}`}>{status.label}</td>
 
                     {detailMode === "advanced" && (
                       <>
@@ -1749,13 +1584,13 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
                     {detailMode === "advanced" && (
                       <>
                         <td className="py-1 pr-2 text-right tabular-nums">
-                          {r.vo != null ? `${r.vo} cm` : "—"}
+                          {formatVO(r.vo)}
                         </td>
                         <td className="py-1 pr-2 text-right tabular-nums">
                           {r.gct != null ? `${r.gct} ms` : "—"}
                         </td>
                         <td className="py-1 pr-2 text-right tabular-nums">
-                          {r.strideLength != null ? `${r.strideLength} m` : "—"}
+                          {formatStride(r.strideLength)}
                         </td>
                         <td className="py-1 pr-2 text-right tabular-nums">
                           {r.lactate != null ? Number(r.lactate).toFixed(1) : "—"}
@@ -1775,7 +1610,8 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
                       {r.elevLoss != null ? `${r.elevLoss}m` : "—"}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
 
@@ -1848,6 +1684,9 @@ function computeMetricsFromTraceSlice(slice: any[]) {
       maxCad: null,
       elevGain: null,
       elevLoss: null,
+      avgVo: null as number | null,
+      avgGct: null as number | null,
+      strideLength: null as number | null,
     };
   }
 
@@ -1864,6 +1703,14 @@ function computeMetricsFromTraceSlice(slice: any[]) {
     .filter((x: any): x is number => typeof x === "number" && x > 0 && x <= 900);
 
   const cads = slice.map((p) => p.cadence).filter((x: any): x is number => typeof x === "number" && x > 0);
+
+  const vos = slice
+    .map((p) => normalizeVO(p.vertical_oscillation_cm))
+    .filter((x): x is number => typeof x === "number" && x > 0);
+
+  const gcts = slice
+    .map((p) => p.ground_contact_time_ms)
+    .filter((x: any): x is number => typeof x === "number" && x > 0);
 
   let gain = 0;
   let loss = 0;
@@ -1888,6 +1735,9 @@ function computeMetricsFromTraceSlice(slice: any[]) {
         ? paces.reduce((a, b) => a + b, 0) / paces.length
         : null;
 
+  const avgCad = cads.length ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length) : null;
+  const strideLength = computeStrideLengthM(distanceM, durationS, avgCad);
+
   return {
     durationS,
     distanceM,
@@ -1895,10 +1745,13 @@ function computeMetricsFromTraceSlice(slice: any[]) {
     maxPace: paces.length ? Math.min(...paces) : null,
     avgHr: hrs.length ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null,
     maxHr: hrs.length ? Math.max(...hrs) : null,
-    avgCad: cads.length ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length) : null,
+    avgCad,
     maxCad: cads.length ? Math.max(...cads) : null,
     elevGain: haveElev ? Math.round(gain) : null,
     elevLoss: haveElev ? Math.round(loss) : null,
+    avgVo: vos.length ? Number((vos.reduce((a, b) => a + b, 0) / vos.length).toFixed(1)) : null,
+    avgGct: gcts.length ? Math.round(gcts.reduce((a, b) => a + b, 0) / gcts.length) : null,
+    strideLength,
   };
 }
 
@@ -2013,6 +1866,9 @@ function buildSplitsFromResults(results: any[], steps: any[], rawPoints: any[]):
       maxCad: r.cadence != null ? Number(r.cadence) : null,
       elevGain: null as number | null,
       elevLoss: null as number | null,
+      avgVo: null as number | null,
+      avgGct: null as number | null,
+      strideLength: null as number | null,
     };
 
     let adjusted = false;
@@ -2046,6 +1902,9 @@ function buildSplitsFromResults(results: any[], steps: any[], rawPoints: any[]):
             maxCad: finalMetrics.maxCad ?? traceMetrics.maxCad,
             elevGain: traceMetrics.elevGain,
             elevLoss: traceMetrics.elevLoss,
+            avgVo: traceMetrics.avgVo,
+            avgGct: traceMetrics.avgGct,
+            strideLength: traceMetrics.strideLength,
           };
         }
       }
@@ -2054,6 +1913,27 @@ function buildSplitsFromResults(results: any[], steps: any[], rawPoints: any[]):
         workTraceIdx += 1;
       }
     }
+
+    // Stride length: prefer explicit cm value on the row, else compute from
+    // duration/distance/cadence, else fall back to trace-derived stride.
+    const repStrideCm = r.stride_length_cm != null ? Number(r.stride_length_cm) : null;
+    const repStrideM =
+      repStrideCm && Number.isFinite(repStrideCm) && repStrideCm > 0 ? Number((repStrideCm / 100).toFixed(2)) : null;
+    const computedStride = computeStrideLengthM(
+      finalMetrics.distanceM,
+      finalMetrics.durationS,
+      finalMetrics.avgCad,
+    );
+    const strideLength = repStrideM ?? computedStride ?? finalMetrics.strideLength ?? null;
+
+    const lactate =
+      r.lactate_taken && r.lactate_mmol != null && Number.isFinite(Number(r.lactate_mmol))
+        ? Number(r.lactate_mmol)
+        : null;
+
+    const hrEnd = r.hr_end != null ? Number(r.hr_end) : null;
+    const hrRecovery = r.hr_end_recovery != null ? Number(r.hr_end_recovery) : null;
+    const hrDrop = hrEnd != null && hrRecovery != null ? hrEnd - hrRecovery : null;
 
     rows.push({
       index: rowIndex++,
@@ -2070,6 +1950,13 @@ function buildSplitsFromResults(results: any[], steps: any[], rawPoints: any[]):
       elevLoss: finalMetrics.elevLoss,
       repLabel,
       adjusted,
+      hrEnd,
+      hrRecovery,
+      hrDrop,
+      vo: finalMetrics.avgVo,
+      gct: finalMetrics.avgGct,
+      lactate,
+      strideLength,
     });
 
     // Recovery row, anchored to structured recovery first, with trace support second
@@ -2106,6 +1993,13 @@ function buildSplitsFromResults(results: any[], steps: any[], rawPoints: any[]):
         elevLoss: recoveryTraceMetrics?.elevLoss ?? null,
         repLabel: repLabel ? `${repLabel} Rec` : null,
         adjusted: false,
+        hrEnd: null,
+        hrRecovery: recoveryHr,
+        hrDrop: hrDrop,
+        vo: recoveryTraceMetrics?.avgVo ?? null,
+        gct: recoveryTraceMetrics?.avgGct ?? null,
+        lactate: null,
+        strideLength: recoveryTraceMetrics?.strideLength ?? null,
       });
 
       if (matchingRecoveryGroup) {
@@ -2141,6 +2035,13 @@ function buildSplitsFromTrace(points: any[]): SplitRow[] {
         elevLoss: metrics.elevLoss,
         repLabel: null,
         adjusted: false,
+        vo: metrics.avgVo,
+        gct: metrics.avgGct,
+        strideLength: metrics.strideLength,
+        hrEnd: null,
+        hrRecovery: null,
+        hrDrop: null,
+        lactate: null,
       } as SplitRow;
     })
     .filter((row) => row.durationS >= 5 || row.distanceM >= 10 || row.avgHr != null);
@@ -2280,102 +2181,4 @@ function addFadeFlags(rows: SplitRow[]): SplitRow[] {
       fadeFlag,
     };
   });
-}
-function SplitsTable({ points, results, steps }: { points: any[]; results: any[]; steps: any[] }) {
-  const rows = useMemo(() => {
-    const baseRows = buildSplits(points, results, steps);
-    const scoredRows = addRepScoring(baseRows);
-    const fadedRows = addFadeFlags(scoredRows);
-
-    const workRows = fadedRows.filter(
-      (r) => (r.type === "work" || r.type === "strides") && typeof r.score === "number",
-    );
-
-    const bestScore = workRows.length > 0 ? Math.max(...workRows.map((r) => r.score ?? 0)) : null;
-
-    return fadedRows.map((r) => ({
-      ...r,
-      isBest: bestScore != null && r.score === bestScore,
-    }));
-  }, [points, results, steps]);
-  if (rows.length === 0) return null;
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Workout splits</CardTitle>
-        <CardDescription>
-          Rep-aligned splits from structured results, with smart trace correction for overruns and recovery shown
-          between reps.
-        </CardDescription>
-      </CardHeader>
-
-      <CardContent>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs border-separate border-spacing-0">
-            <thead className="text-muted-foreground">
-              <tr className="border-b">
-                <th className="text-left py-1 pr-2">#</th>
-                <th className="text-left py-1 pr-2">Type</th>
-                <th className="text-left py-1 pr-2">Label</th>
-                <th className="text-right py-1 pr-2">Dist</th>
-                <th className="text-right py-1 pr-2">Time</th>
-                <th className="text-right py-1 pr-2">Avg pace</th>
-                <th className="text-right py-1 pr-2">Max pace</th>
-                <th className="text-right py-1 pr-2">Avg HR</th>
-                <th className="text-right py-1 pr-2">Max HR</th>
-                <th className="text-right py-1 pr-2">Score</th>
-                <th className="text-left py-1 pr-2">Flag</th>
-                <th className="text-left py-1 pr-2">Trend</th>
-                <th className="text-right py-1 pr-2">Avg cad</th>
-                <th className="text-right py-1 pr-2">Max cad</th>
-                <th className="text-right py-1 pr-2">↑</th>
-                <th className="text-right py-1">↓</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {rows.map((r) => (
-                <tr
-                  key={`${r.index}-${r.type}-${r.repLabel ?? ""}`}
-                  className="border-b last:border-b-0"
-                  style={{
-                    backgroundColor: STEP_COLORS[r.type] ?? "transparent",
-                    color: "#e5e7eb",
-                    borderLeft: `3px solid ${STEP_STROKE[r.type] ?? "#444"}`,
-                  }}
-                >
-                  <td className="py-1 pr-2 tabular-nums">{r.index}</td>
-                  <td className="py-1 pr-2 capitalize">{r.type}</td>
-                  <td className="py-1 pr-2">
-                    {r.repLabel ?? "—"}
-                    {r.adjusted ? " *" : ""}
-                  </td>
-                  <td className="py-1 pr-2 text-right tabular-nums">
-                    {r.distanceM > 0 ? metersFmt(r.distanceM) : "—"}
-                  </td>
-                  <td className="py-1 pr-2 text-right tabular-nums">
-                    {r.durationS > 0 ? secToClock(r.durationS) : "—"}
-                  </td>
-                  <td className="py-1 pr-2 text-right tabular-nums">{r.avgPace ? paceFmt(r.avgPace) : "—"}</td>
-                  <td className="py-1 pr-2 text-right tabular-nums">{r.maxPace ? paceFmt(r.maxPace) : "—"}</td>
-                  <td className="py-1 pr-2 text-right tabular-nums">{r.avgHr ?? "—"}</td>
-                  <td className="py-1 pr-2 text-right tabular-nums">{r.maxHr ?? "—"}</td>
-                  <td className="py-1 pr-2 text-right tabular-nums">{r.avgCad ?? "—"}</td>
-                  <td className="py-1 pr-2 text-right tabular-nums">{r.maxCad ?? "—"}</td>
-                  <td className="py-1 pr-2 text-right tabular-nums">{r.elevGain != null ? `${r.elevGain}m` : "—"}</td>
-                  <td className="py-1 text-right tabular-nums">{r.elevLoss != null ? `${r.elevLoss}m` : "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          <div className="text-[11px] text-muted-foreground mt-2">
-            * adjusted = recorded rep overran target distance, so pace/distance/time were corrected from the trace to
-            the planned rep target.
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
 }
