@@ -1175,7 +1175,11 @@ function buildSamples(
       const segmentDuration = Math.max(0, currentT - prevT);
       const segmentDistance = Math.max(0, (currentD ?? 0) - prevD);
 
-      let normalizedKind = p.segment_type ?? "work";
+      let normalizedKind = String(p.segment_type ?? "work").toLowerCase();
+
+      if (!["warmup", "work", "recovery", "cooldown", "strides"].includes(normalizedKind)) {
+        normalizedKind = "work";
+      }
 
       // ✅ Ignore tiny fake cooldown tails at the end of a work-only file
       if (normalizedKind === "cooldown" && segmentDuration < 120 && segmentDistance < 200) {
