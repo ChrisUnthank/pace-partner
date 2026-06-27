@@ -1345,10 +1345,7 @@ function buildSamples(
         pace: rawPace != null && rawPace <= 600 ? rawPace : undefined,
         cadence: p.cadence != null ? Number(p.cadence) : undefined,
         elev: p.elevation_m != null ? Number(p.elevation_m) : undefined,
-        vo:
-          p.vertical_oscillation_cm != null && Number(p.vertical_oscillation_cm) > 0
-            ? Number(p.vertical_oscillation_cm)
-            : undefined,
+        vo: normalizeVO(p.vertical_oscillation_cm) ?? undefined,
         gct:
           p.ground_contact_time_ms != null && Number(p.ground_contact_time_ms) > 0
             ? Number(p.ground_contact_time_ms)
