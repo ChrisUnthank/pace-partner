@@ -1495,6 +1495,33 @@ function buildSamples(
   };
 }
 
+const STATUS_TONE_TEXT: Record<string, string> = {
+  good: "text-emerald-500",
+  ok: "text-sky-500",
+  warn: "text-amber-500",
+  bad: "text-red-500",
+  none: "text-muted-foreground",
+};
+
+function SessionInsightCard({ rows }: { rows: SplitRow[] }) {
+  const insight = useMemo(() => buildSessionInsight(rows), [rows]);
+  if (!insight) return null;
+  const toneClass =
+    insight.tone === "good"
+      ? "border-l-4 border-emerald-500 bg-emerald-500/5"
+      : insight.tone === "warn"
+        ? "border-l-4 border-amber-500 bg-amber-500/5"
+        : "border-l-4 border-red-500 bg-red-500/5";
+  return (
+    <Card className={toneClass}>
+      <CardHeader className="pb-2">
+        <CardTitle>Session insight</CardTitle>
+      </CardHeader>
+      <CardContent className="text-sm">{insight.text}</CardContent>
+    </Card>
+  );
+}
+
 function UnifiedSessionTable({ points, results, steps }: { points: any[]; results: any[]; steps: any[] }) {
   const [segmentFilter, setSegmentFilter] = useState<ScopeKey>("full");
   const [detailMode, setDetailMode] = useState<"basic" | "advanced">("basic");
@@ -1556,6 +1583,7 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
 
   return (
     <>
+      <SessionInsightCard rows={filteredRows} />
       <Card>
         <CardHeader>
           <CardTitle>Session segments</CardTitle>
@@ -1633,8 +1661,7 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
                   <th className="text-right py-1 pr-2">Avg HR</th>
                   <th className="text-right py-1 pr-2">Max HR</th>
                   <th className="text-right py-1 pr-2">Score</th>
-                  <th className="text-left py-1 pr-2">Flag</th>
-                  <th className="text-left py-1 pr-2">Trend</th>
+                  <th className="text-left py-1 pr-2">Status</th>
 
                   {detailMode === "advanced" && (
                     <>
@@ -1663,28 +1690,25 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
               </thead>
 
               <tbody>
-                {filteredRows.map((r) => (
+                {filteredRows.map((r) => {
+                  const status = rowStatus(r);
+                  const accent =
+                    status.key === "best"
+                      ? "4px solid #22c55e"
+                      : status.key === "fade"
+                        ? "4px solid #ef4444"
+                        : status.key === "slight_fade"
+                          ? "4px solid #f59e0b"
+                          : `3px solid ${STEP_STROKE[r.type] ?? "#444"}`;
+                  return (
                   <tr
                     key={`${r.index}-${r.type}-${r.repLabel ?? ""}`}
                     className="border-b last:border-b-0"
                     style={{
-                      backgroundColor: r.isBest
-                        ? "rgba(34,197,94,0.12)"
-                        : r.fadeFlag === "strong"
-                        ? "rgba(239,68,68,0.10)"
-                        : r.fadeFlag === "mild"
-                        ? "rgba(251,191,36,0.10)"
-                        : STEP_COLORS[r.type] ?? "transparent",
-
-                      borderLeft: r.isBest
-                        ? "4px solid #22c55e"
-                        : r.fadeFlag === "strong"
-                        ? "3px solid #ef4444"
-                        : r.fadeFlag === "mild"
-                        ? "3px solid #f59e0b"
-                        : `3px solid ${STEP_STROKE[r.type] ?? "#444"}`,
-
-                      color: "#e5e7eb",
+                      // Segment type controls the row fill — performance quality
+                      // is conveyed only via the left border accent and Status column.
+                      backgroundColor: STEP_COLORS[r.type] ?? "transparent",
+                      borderLeft: accent,
                     }}
                   >
                     <td className="py-1 pr-2 tabular-nums">{r.index}</td>
@@ -1712,33 +1736,7 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
                       {r.score != null ? r.score : "—"}
                     </td>
 
-                    <td className="py-1 pr-2">
-                      {r.scoreLabel ? (
-                        <span
-                          className={
-                            r.scoreTone === "excellent"
-                              ? "text-emerald-400"
-                              : r.scoreTone === "good"
-                              ? "text-sky-400"
-                              : r.scoreTone === "warn"
-                              ? "text-amber-400"
-                              : "text-red-400"
-                          }
-                        >
-                          {r.scoreLabel}
-                        </span>
-                      ) : "—"}
-                    </td>
-
-                    <td className="py-1 pr-2">
-                      {r.isBest ? (
-                        <span className="text-emerald-400">🔥 Best</span>
-                      ) : r.fadeFlag === "strong" ? (
-                        <span className="text-red-400">🔻 Fade</span>
-                      ) : r.fadeFlag === "mild" ? (
-                        <span className="text-amber-400">⚠ Slowing</span>
-                      ) : "—"}
-                    </td>
+                    <td className={`py-1 pr-2 ${STATUS_TONE_TEXT[status.tone]}`}>{status.label}</td>
 
                     {detailMode === "advanced" && (
                       <>
@@ -1754,13 +1752,13 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
                     {detailMode === "advanced" && (
                       <>
                         <td className="py-1 pr-2 text-right tabular-nums">
-                          {r.vo != null ? `${r.vo} cm` : "—"}
+                          {formatVO(r.vo)}
                         </td>
                         <td className="py-1 pr-2 text-right tabular-nums">
                           {r.gct != null ? `${r.gct} ms` : "—"}
                         </td>
                         <td className="py-1 pr-2 text-right tabular-nums">
-                          {r.strideLength != null ? `${r.strideLength} m` : "—"}
+                          {formatStride(r.strideLength)}
                         </td>
                         <td className="py-1 pr-2 text-right tabular-nums">
                           {r.lactate != null ? Number(r.lactate).toFixed(1) : "—"}
@@ -1780,7 +1778,8 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
                       {r.elevLoss != null ? `${r.elevLoss}m` : "—"}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
 
