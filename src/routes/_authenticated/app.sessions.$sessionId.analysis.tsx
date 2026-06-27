@@ -1490,6 +1490,38 @@ function buildSamples(
   };
 }
 
+<td className="py-1 pr-2 text-right tabular-nums">
+  {r.score != null ? r.score : "—"}
+</td>
+
+<td className="py-1 pr-2">
+  {r.scoreLabel ? (
+    <span
+      className={
+        r.scoreTone === "excellent"
+          ? "text-emerald-400"
+          : r.scoreTone === "good"
+          ? "text-sky-400"
+          : r.scoreTone === "warn"
+          ? "text-amber-400"
+          : "text-red-400"
+      }
+    >
+      {r.scoreLabel}
+    </span>
+  ) : "—"}
+</td>
+
+<td className="py-1 pr-2">
+  {r.isBest ? (
+    <span className="text-emerald-400">🔥 Best</span>
+  ) : r.fadeFlag === "strong" ? (
+    <span className="text-red-400">🔻 Fade</span>
+  ) : r.fadeFlag === "mild" ? (
+    <span className="text-amber-400">⚠ Slowing</span>
+  ) : "—"}
+</td>
+
 function UnifiedSessionTable({ points, results, steps }: { points: any[]; results: any[]; steps: any[] }) {
   const [segmentFilter, setSegmentFilter] = useState<ScopeKey>("full");
   const [detailMode, setDetailMode] = useState<"basic" | "advanced">("basic");
