@@ -721,13 +721,17 @@ function SessionAnalysis() {
         </Card>
 
         <WorkSegmentPanel steps={safeSteps} results={safeResults} />
-        <SplitsTable
-          points={
-            Array.isArray(rawPoints)
-              ? rawPoints.filter((p: any) => p && (p.elapsed_s != null || p.distance_m != null))
-              : []
-          }
-        />
+        
+<SplitsTable
+  points={
+    Array.isArray(rawPoints)
+      ? rawPoints.filter((p: any) => p && (p.elapsed_s != null || p.distance_m != null))
+      : []
+  }
+  results={safeResults}
+  steps={safeSteps}
+/>
+
 
         {showContinuousFatigueCard && (
           <Card>
