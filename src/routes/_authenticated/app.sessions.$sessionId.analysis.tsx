@@ -90,13 +90,7 @@ type MetricKey = (typeof METRICS)[number]["key"];
 function SessionAnalysis() {
   const { sessionId } = Route.useParams();
 
-  const [enabled, setEnabled] = useState<Record<MetricKey, boolean>>({
-    hr: true,
-    pace: true,
-    cadence: false,
-    elev: false,
-    vo: false,
-    gct: false,
+  const [: false,  const [enabled, setEnabled] = useState<Record<MetricKey, boolean>>({
   });
 
   const [xMode, setXMode] = useState<"time" | "distance">("time");
@@ -845,6 +839,12 @@ const modeType =
     </AppShell>
   );
 }
+    hr: true,
+    pace: true,
+    cadence: false,
+    elev: false,
+    vo: false,
+
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
@@ -1091,72 +1091,173 @@ function ZonePanel({ rows, title }: { rows: any[]; title: string }) {
   );
 }
 
-function MapPanel({ points }: { points: { lat: number; lng: number }[] }) {
-  const ref = useRef<HTMLDivElement>(null);
+function MapPanel({
+  points,
+}: {
+  points: { lat?: number; lng?: number }[];
+}) {
+ null);  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [mapStatus, setMapStatus] = useState<"ready" | "unsupported" | "failed">("ready");
+
+  const safePoints = useMemo(() => {
+    return Array.isArray(points)
+      ? points.filter(
+          (p) =>
+            p &&
+            Number.isFinite(Number(p.lat)) &&
+            Number.isFinite(Number(p.lng)),
+        )
+      : [];
+  }, [points]);
+
+  function browserSupportsWebGL() {
+    if (typeof window === "undefined") return false;
+
+    try {
+      const canvas = document.createElement("canvas");
+      const gl =
+        canvas.getContext("webgl") ||
+        canvas.getContext("experimental-webgl");
+      return !!gl;
+    } catch {
+      return false;
+    }
+  }
 
   useEffect(() => {
-    if (!ref.current || !points.length) return;
+    if (!containerRef.current) return;
+    if (safePoints.length < 2) return;
 
-    const map = new maplibregl.Map({
-      container: ref.current,
-      style: {
-        version: 8,
-        sources: {
-          osm: {
-            type: "raster",
-            tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-            tileSize: 256,
-            attribution: "© OpenStreetMap contributors",
-          },
-        },
-        layers: [{ id: "osm", type: "raster", source: "osm" }],
-      },
-      center: [points[0].lng, points[0].lat],
-      zoom: 13,
-    });
+    // ✅ Prevent crash in environments where WebGL is blocked/disabled
+    if (!browserSupportsWebGL()) {
+      console.warn("MapPanel: WebGL unavailable, skipping map render");
+      setMapStatus("unsupported");
+      return;
+    }
 
-    map.on("load", () => {
-      const coords = points.map((p) => [p.lng, p.lat]);
+    let cancelled = false;
+    let map: maplibregl.Map | null = null;
 
-      map.addSource("route", {
-        type: "geojson",
-        data: {
+    try {
+      map = new maplibregl.Map({
+        container: containerRef.current,
+        style: "https://demotiles.maplibre.org/style.json",
+        interactive: true,
+      });
+
+      mapRef.current = map;
+
+      map.on("load", () => {
+        if (cancelled || !map) return;
+
+        const coords = safePoints.map((p) => [Number(p.lng), Number(p.lat)]);
+
+        const geojson = {
           type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: coords,
+          },
           properties: {},
-          geometry: { type: "LineString", coordinates: coords as any },
-        },
+        } as const;
+
+        if (map.getSource("route")) {
+          try {
+            (map.getSource("route") as any).setData(geojson);
+          } catch (err) {
+            console.error("MapPanel source update error:", err);
+          }
+        } else {
+          map.addSource("route", {
+            type: "geojson",
+            data: geojson,
+          });
+
+          map.addLayer({
+            id: "route-line",
+            type: "line",
+            source: "route",
+            paint: {
+              "line-color": "#ef4444",
+              "line-width": 3,
+            },
+          });
+        }
+
+        try {
+          const bounds = new maplibregl.LngLatBounds(
+            [coords[0][0], coords[0][1]],
+            [coords[0][0], coords[0][1]],
+          );
+
+          coords.forEach((c) => bounds.extend([c[0], c[1]]));
+
+          map.fitBounds(bounds, {
+            padding: 24,
+            duration: 0,
+          });
+        } catch (err) {
+          console.error("MapPanel fitBounds error:", err);
+        }
       });
 
-      map.addLayer({
-        id: "route",
-        type: "line",
-        source: "route",
-        layout: { "line-join": "round", "line-cap": "round" },
-        paint: { "line-color": "#ef4444", "line-width": 4 },
+      map.on("error", (e) => {
+        console.error("MapPanel map error:", e);
+        if (!cancelled) {
+          setMapStatus("failed");
+        }
       });
+    } catch (err) {
+      console.error("MapPanel init error:", err);
+      if (!cancelled) {
+        setMapStatus("failed");
+      }
+    }
 
-      const bounds = coords.reduce(
-        (b, c) => b.extend(c as [number, number]),
-        new maplibregl.LngLatBounds(coords[0] as any, coords[0] as any),
-      );
+    return () => {
+      cancelled = true;
+      try {
+        if (mapRef.current) {
+          mapRef.current.remove();
+          mapRef.current = null;
+        }
+      } catch (err) {
+        console.error("MapPanel cleanup error:", err);
+      }
+    };
+  }, [safePoints]);
 
-      map.fitBounds(bounds, { padding: 30, duration: 0 });
-    });
+  if (safePoints.length < 2) return null;
 
-    return () => map.remove();
-  }, [points]);
+  if (mapStatus === "unsupported" || mapStatus === "failed") {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Route map</CardTitle>
+          <CardDescription>
+            GPS points were found, but the map could not be rendered in this browser environment.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground">
+          The session analysis can still be reviewed below without the map.
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Route</CardTitle>
+        <CardTitle>Route map</CardTitle>
+        <CardDescription>GPS trace from uploaded activity data.</CardDescription>
       </CardHeader>
       <CardContent>
-        <div ref={ref} className="h-[320px] w-full rounded overflow-hidden" />
+        <div ref={containerRef} className="h-[320px] w-full rounded border" />
       </CardContent>
     </Card>
   );
 }
+
 
 function buildSamples(
   steps: any[],
