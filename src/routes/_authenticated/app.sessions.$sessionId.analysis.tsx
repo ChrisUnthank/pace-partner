@@ -1559,7 +1559,14 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
 
                       <td className="py-1 pr-2 text-right tabular-nums">{r.score != null ? r.score : "—"}</td>
 
-                      <td className={`py-1 pr-2 ${STATUS_TONE_TEXT[status.tone]}`}>{status.label}</td>
+                      <td className={`py-1 pr-2 ${STATUS_TONE_TEXT[status.tone]}`}>
+  {status.label}
+  {r.paceDeltaPct != null && (
+    <span className="text-muted-foreground ml-1">
+      ({r.paceDeltaPct > 0 ? "+" : ""}{r.paceDeltaPct}%)
+    </span>
+  )}
+</td>
 
                       {detailMode === "advanced" && (
                         <>
@@ -2056,32 +2063,7 @@ function median(nums: number[]): number | null {
   return vals.length % 2 === 0 ? (vals[mid - 1] + vals[mid]) / 2 : vals[mid];
 }
 
-function addRepScoring(rows: SplitRow[]): SplitRow[] {
-  const workRows = rows.filter(
-    (r) =>
-      (r.type === "work" || r.type === "strides") &&
-      typeof r.avgPace === "number" &&
-      r.avgPace > 0,
-  );
-
-  const medianWorkPace = median(
-    workRows
-      .map((r) => r.avgPace)
-      .filter((x): x is number => typeof x === "number"),
-  );
-
-  if (!medianWorkPace) {
-    return rows.map((r) => ({
-      ...r,
-      score: null,
-      scoreLabel: null,
-      scoreTone: null,
-      paceDeltaPct: null,
-    }));
-  }
-
-  return rows.map((r) => {
-    // ✅ non-work rows → no scoring
+function addRepScoring(rows: SplitRow[]): SplitRow[] {function addRepScoring(rows: Split    // ✅ non-work rows → no scoring
     if (r.type !== "work" && r.type !== "strides") {
       return {
         ...r,
@@ -2174,6 +2156,30 @@ function addRepScoring(rows: SplitRow[]): SplitRow[] {
     };
   });
 }
+  const workRows = rows.filter(
+    (r) =>
+      (r.type === "work" || r.type === "strides") &&
+      typeof r.avgPace === "number" &&
+      r.avgPace > 0,
+  );
+
+  const medianWorkPace = median(
+    workRows
+      .map((r) => r.avgPace)
+      .filter((x): x is number => typeof x === "number"),
+  );
+
+  if (!medianWorkPace) {
+    return rows.map((r) => ({
+      ...r,
+      score: null,
+      scoreLabel: null,
+      scoreTone: null,
+      paceDeltaPct: null,
+    }));
+  }
+
+  return rows.map((r) => {
 
 function addFadeFlags(rows: SplitRow[]): SplitRow[] {
   let prevWorkPace: number | null = null;
