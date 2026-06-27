@@ -1897,9 +1897,14 @@ function buildSplitsFromResults(results: any[], steps: any[], rawPoints: any[]):
 
     // Stride length: prefer explicit cm value on the row, else compute from
     // duration/distance/cadence, else fall back to trace-derived stride.
+
     const repStrideCm = r.stride_length_cm != null ? Number(r.stride_length_cm) : null;
+
     const repStrideM =
-      repStrideCm && Number.isFinite(repStrideCm) && repStrideCm > 0 ? Number((repStrideCm / 100).toFixed(2)) : null;
+      repStrideCm && Number.isFinite(repStrideCm) && repStrideCm >= 50 && repStrideCm <= 300
+        ? Number((repStrideCm / 100).toFixed(2))
+        : null;
+
     const computedStride = computeStrideLengthM(finalMetrics.distanceM, finalMetrics.durationS, finalMetrics.avgCad);
     const strideLength = repStrideM ?? computedStride ?? finalMetrics.strideLength ?? null;
 
@@ -1912,8 +1917,17 @@ function buildSplitsFromResults(results: any[], steps: any[], rawPoints: any[]):
     const hrRecovery = r.hr_end_recovery != null ? Number(r.hr_end_recovery) : null;
     const hrDrop = hrEnd != null && hrRecovery != null ? hrEnd - hrRecovery : null;
     const safeAvgHr = finalMetrics.avgHr ?? null;
+
     const safeMaxHr =
       [finalMetrics.maxHr, safeAvgHr, hrEnd]
+        .filter((x): x is number => typeof x === "number" && Number.isFinite(x))
+        .reduce((m, x) => Math.max(m, x), 0) || null;
+
+    const safeAvgHr = finalMetrics.avgHr ?? null;
+    const safeHrEnd = hrEnd;
+
+    const safeMaxHr =
+      [finalMetrics.maxHr, safeAvgHr, safeHrEnd]
         .filter((x): x is number => typeof x === "number" && Number.isFinite(x))
         .reduce((m, x) => Math.max(m, x), 0) || null;
 
