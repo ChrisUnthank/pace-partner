@@ -1570,12 +1570,12 @@ function SplitsTable({ points }: { points: any[] }) {
             <tbody>
               {rows.map((row) => (
                 <tr
-                  key={r.index}
+                  key={row.index}
                   className="border-b last:border-b-0"
                   style={{
-                    backgroundColor: STEP_COLORS[r.type] ?? "transparent",
+                    backgroundColor: STEP_COLORS[row.type] ?? "transparent",
                     color: "#e5e7eb",
-                    borderLeft: `3px solid ${STEP_STROKE[r.type] ?? "#444"}`,
+                    borderLeft: `3px solid ${STEP_STROKE[row.type] ?? "#444"}`,
                   }}
                 >
                   <td className="py-1 pr-2 tabular-nums">{row.index}</td>
