@@ -1429,7 +1429,7 @@ function buildSamples(
   };
 }
 
-type SplitRow = {type SplitRow;
+type SplitRow = {
   type: "warmup" | "work" | "recovery" | "cooldown" | "strides";
   durationS: number;
   distanceM: number;
