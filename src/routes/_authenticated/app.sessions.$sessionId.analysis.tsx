@@ -90,41 +90,55 @@ type MetricKey = (typeof METRICS)[number]["key"];
 function SessionAnalysis() {
   const { sessionId } = Route.useParams();
 
-  const [enabled, setEnabled] = useState<Record<MetricKey, boolean>>({
-    hr: true,
-    pace: true,
-    cadence: false,
-    elev: false,
-    vo: false,
-    gct: false,
+  const [: false,  const [enabled, setEnabled] = useState<Record<MetricKey, boolean>>({
   });
 
   const [xMode, setXMode] = useState<"time" | "distance">("time");
   const [scope, setScope] = useState<ScopeKey>("full");
 
-  const { data: session } = useQuery({
+  const {
+    data: session,
+    isLoading: sessionLoading,
+  } = useQuery({
     queryKey: ["session", sessionId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("sessions").select("*, athletes(name)").eq("id", sessionId).single();
+      const { data, error } = await supabase
+        .from("sessions")
+        .select("*, athletes(name)")
+        .eq("id", sessionId)
+        .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error("session error:", error);
+        return null;
+      }
+
       return data;
     },
+    retry: false,
   });
 
-  const { data: steps } = useQuery({
+  const { data: steps = [] } = useQuery({
     queryKey: ["steps", sessionId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("steps").select("*").eq("session_id", sessionId).order("step_order");
+      const { data, error } = await supabase
+        .from("steps")
+        .select("*")
+        .eq("session_id", sessionId)
+        .order("step_order");
 
-      if (error) throw error;
+      if (error) {
+        console.error("steps error:", error);
+        return [];
+      }
+
       return data ?? [];
     },
   });
 
   const stepIds = Array.isArray(steps) ? steps.map((s: any) => s.id) : [];
 
-  const { data: results } = useQuery({
+  const { data: results = [] } = useQuery({
     queryKey: ["results", sessionId, stepIds.join(",")],
     enabled: stepIds.length > 0,
     queryFn: async () => {
@@ -135,12 +149,16 @@ function SessionAnalysis() {
         .order("set_number")
         .order("rep_number");
 
-      if (error) throw error;
+      if (error) {
+        console.error("results error:", error);
+        return [];
+      }
+
       return data ?? [];
     },
   });
 
-  const { data: zoneTime } = useQuery({
+  const { data: zoneTime = [] } = useQuery({
     queryKey: ["zone-time", sessionId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -148,22 +166,33 @@ function SessionAnalysis() {
         .select("zone, seconds, source")
         .eq("session_id", sessionId);
 
-      if (error) throw error;
+      if (error) {
+        console.error("zone-time error:", error);
+        return [];
+      }
+
       return data ?? [];
     },
   });
 
-  const { data: fatigue } = useQuery({
+  const { data: fatigue = [] } = useQuery({
     queryKey: ["fatigue", sessionId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("session_fatigue").select("*").eq("session_id", sessionId);
+      const { data, error } = await supabase
+        .from("session_fatigue")
+        .select("*")
+        .eq("session_id", sessionId);
 
-      if (error) throw error;
+      if (error) {
+        console.error("fatigue error:", error);
+        return [];
+      }
+
       return data ?? [];
     },
   });
 
-  const { data: rawPoints } = useQuery({
+  const { data: rawPoints = [] } = useQuery({
     queryKey: ["raw-points", sessionId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -174,7 +203,11 @@ function SessionAnalysis() {
         .eq("session_id", sessionId)
         .order("elapsed_s", { ascending: true });
 
-      if (error) throw error;
+      if (error) {
+        console.error("raw-points error:", error);
+        return [];
+      }
+
       return data ?? [];
     },
   });
@@ -208,7 +241,9 @@ function SessionAnalysis() {
   }, [bands, scope]);
 
   const xCanUseDistance =
-    Array.isArray(visibleSamples) && visibleSamples.length > 0 && visibleSamples.every((s) => s.d != null);
+    Array.isArray(visibleSamples) &&
+    visibleSamples.length > 0 &&
+    visibleSamples.every((s) => s.d != null);
 
   const xKey: keyof Sample = xMode === "distance" && xCanUseDistance ? "d" : "t";
 
@@ -231,23 +266,24 @@ function SessionAnalysis() {
   const hasRaw = safeRawPoints.length > 0;
   const hasRepData = safeResults.length > 0;
 
-  // ✅ NEW: detect manual sessions
+  // ✅ Manual-friendly analysis mode
   const isManualOnly = !hasRaw && hasRepData;
   const modeType = hasRaw ? "trace" : isManualOnly ? "interval" : "empty";
 
   const continuousFatigue = safeFatigue.find((f: any) => f.method === "continuous_drift");
   const repFatigue = safeFatigue.filter((f: any) => f.method !== "continuous_drift");
-
   const isIntervals = session?.structure === "intervals";
   const showContinuousFatigueCard = hasRaw && !isIntervals;
+  const showIntervalFatigueHint = isManualOnly && safeResults.length > 0;
 
   useEffect(() => {
     if (!session) return;
     if (session.structure !== "continuous") return;
     if (!hasRaw) return;
     if (continuousFatigue) return;
-
-    computeFatigue({ data: { sessionId } }).catch(() => {});
+    computeFatigue({ data: { sessionId } }).catch((err) => {
+      console.error("compute fatigue error:", err);
+    });
   }, [session, hasRaw, continuousFatigue, computeFatigue, sessionId]);
 
   const hasGraphData =
@@ -267,10 +303,44 @@ function SessionAnalysis() {
       }));
   }, [safeResults]);
 
-  if (!session) {
+  const manualRows = useMemo(() => {
+    return safeResults.filter(
+      (r: any) =>
+        r.actual_time_seconds != null ||
+        r.actual_distance_m != null ||
+        r.hr_avg != null ||
+        r.hr_end != null,
+    );
+  }, [safeResults]);
+
+  const manualAvgHr = useMemo(() => {
+    const rowsWithHr = manualRows.filter((r: any) => r.hr_avg != null);
+    if (!rowsWithHr.length) return null;
+    return Math.round(
+      rowsWithHr.reduce((sum: number, r: any) => sum + Number(r.hr_avg ?? 0), 0) / rowsWithHr.length,
+    );
+  }, [manualRows]);
+
+  if (sessionLoading) {
     return (
       <AppShell>
         <p>Loading…</p>
+      </AppShell>
+    );
+  }
+
+  if (!session) {
+    return (
+      <AppShell>
+        <div className="space-y-3 max-w-lg">
+          <h1 className="text-lg font-semibold">Session unavailable</h1>
+          <p className="text-sm text-muted-foreground">
+            The session could not be loaded, or the analysis data is incomplete.
+          </p>
+          <Button asChild variant="outline" size="sm">
+            <Link to="/app/sessions">← Back to sessions</Link>
+          </Button>
+        </div>
       </AppShell>
     );
   }
@@ -286,9 +356,7 @@ function SessionAnalysis() {
           >
             ← Back to details
           </Link>
-
           <h1 className="text-2xl font-bold mt-2">{session.title}</h1>
-
           <p className="text-sm text-muted-foreground">
             {session.session_date} · {session.athletes?.name} · {sessionClassificationLabel(session as any)}
             {session.completed_at && <span className="ml-2 text-emerald-600">Completed</span>}
@@ -301,19 +369,17 @@ function SessionAnalysis() {
               <div>
                 <CardTitle>Session graph</CardTitle>
                 <CardDescription>
-                  {mode === "trace"
+                  {modeType === "trace"
                     ? "High-resolution trace"
-                    : mode === "rep"
-                      ? "Rep summary view"
-                      : "No detailed trace available for this session"}
+                    : modeType === "interval"
+                      ? "Interval summary (manual session)"
+                      : "No data available for analysis"}
                 </CardDescription>
               </div>
-
               <div className="flex gap-1">
                 <Button size="sm" variant={xKey === "t" ? "default" : "outline"} onClick={() => setXMode("time")}>
                   Time
                 </Button>
-
                 <Button
                   size="sm"
                   variant={xKey === "d" ? "default" : "outline"}
@@ -359,19 +425,17 @@ function SessionAnalysis() {
           </CardHeader>
 
           <CardContent>
-            {hasGraphData ? (
+            {modeType === "trace" && hasGraphData ? (
               <div className="h-[360px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={seriesData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-
                     <XAxis
                       dataKey="x"
                       type="number"
                       domain={["dataMin", "dataMax"]}
                       tickFormatter={(v) => (xKey === "t" ? secToClock(Number(v)) : metersFmt(Number(v)))}
                     />
-
                     <YAxis
                       yAxisId="hr"
                       orientation="left"
@@ -379,7 +443,6 @@ function SessionAnalysis() {
                       tick={{ fontSize: 11 }}
                       width={36}
                     />
-
                     <YAxis
                       yAxisId="pace"
                       orientation="right"
@@ -389,7 +452,6 @@ function SessionAnalysis() {
                       width={48}
                       tickFormatter={(v) => secToClock(Number(v))}
                     />
-
                     <YAxis
                       yAxisId="cadence"
                       orientation="left"
@@ -397,7 +459,6 @@ function SessionAnalysis() {
                       tick={{ fontSize: 11 }}
                       width={32}
                     />
-
                     <YAxis
                       yAxisId="elev"
                       orientation="right"
@@ -405,7 +466,6 @@ function SessionAnalysis() {
                       tick={{ fontSize: 11 }}
                       width={32}
                     />
-
                     <YAxis
                       yAxisId="vo"
                       orientation="left"
@@ -414,7 +474,6 @@ function SessionAnalysis() {
                       width={32}
                       tickFormatter={(v) => `${Number(v).toFixed(1)}`}
                     />
-
                     <YAxis
                       yAxisId="gct"
                       orientation="right"
@@ -533,6 +592,13 @@ function SessionAnalysis() {
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
+            ) : modeType === "interval" ? (
+              <div className="h-[220px] w-full rounded border border-dashed flex flex-col items-center justify-center text-sm text-muted-foreground">
+                <div>Manual session detected</div>
+                <div className="text-xs mt-1">
+                  No raw trace is available, but interval and recovery analysis can still be reviewed below.
+                </div>
+              </div>
             ) : (
               <div className="h-[220px] w-full rounded border border-dashed flex flex-col items-center justify-center text-sm text-muted-foreground">
                 <div>No detailed trace available for this session</div>
@@ -561,8 +627,46 @@ function SessionAnalysis() {
           </CardContent>
         </Card>
 
-        {recoveryRows.length >= 2 && <RecoveryPanel rows={recoveryRows} />}
+        {modeType === "interval" && manualRows.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Interval summary</CardTitle>
+              <CardDescription>Rep-level performance for manually entered session</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="text-sm space-y-2">
+                {manualRows.map((r: any, i: number) => {
+                  const label =
+                    r.rep_number != null
+                      ? `${(r.set_number ?? 1) > 1 ? `Set ${r.set_number} · ` : ""}Rep ${r.rep_number}`
+                      : `Row ${i + 1}`;
 
+                  const parts = [
+                    r.actual_time_seconds != null ? `${Math.round(Number(r.actual_time_seconds))}s` : null,
+                    r.actual_distance_m != null ? `${Math.round(Number(r.actual_distance_m))}m` : null,
+                    r.hr_avg != null ? `${Math.round(Number(r.hr_avg))} bpm` : null,
+                  ].filter(Boolean);
+
+                  return (
+                    <div key={i} className="flex justify-between border rounded px-3 py-2">
+                      <span>{label}</span>
+                      <span className="text-muted-foreground">{parts.length ? parts.join(" · ") : "—"}</span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {manualAvgHr != null && (
+                <div className="text-sm border rounded px-3 py-2 flex justify-between">
+                  <span className="font-medium">Average HR</span>
+                  <span>{manualAvgHr} bpm</span>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {recoveryRows.length >= 2 && <RecoveryPanel rows={recoveryRows} />}
         {gpsPoints.length >= 2 && <MapPanel points={gpsPoints} />}
 
         <Card>
@@ -581,7 +685,6 @@ function SessionAnalysis() {
         </Card>
 
         <WorkSegmentPanel steps={safeSteps} results={safeResults} />
-
         <SplitsTable points={Array.isArray(rawPoints) ? rawPoints : []} />
 
         {showContinuousFatigueCard && (
@@ -594,10 +697,27 @@ function SessionAnalysis() {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => computeFatigue({ data: { sessionId } }).then(() => window.location.reload())}
+                onClick={() =>
+                  computeFatigue({ data: { sessionId } })
+                    .then(() => window.location.reload())
+                    .catch((err) => console.error("recompute fatigue error:", err))
+                }
               >
                 Recompute run fatigue
               </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {showIntervalFatigueHint && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Fatigue insight</CardTitle>
+              <CardDescription>Based on interval performance (manual session)</CardDescription>
+            </CardHeader>
+            <CardContent className="text-sm text-muted-foreground">
+              Continuous fatigue analysis requires uploaded activity data. Interval-based trends can still be reviewed
+              using rep times, heart rate, and recovery metrics above.
             </CardContent>
           </Card>
         )}
@@ -613,7 +733,6 @@ function SessionAnalysis() {
                 <span className="font-medium">Efficiency score</span>
                 <span className="tabular-nums">{continuousFatigue.efficiency_score ?? "—"}/100</span>
               </div>
-
               <div className="flex justify-between border rounded px-3 py-2 text-muted-foreground">
                 <span>HR drift</span>
                 <span>
@@ -622,7 +741,6 @@ function SessionAnalysis() {
                     : "—"}
                 </span>
               </div>
-
               <div className="flex justify-between border rounded px-3 py-2 text-muted-foreground">
                 <span>Pace drift</span>
                 <span>
@@ -664,6 +782,12 @@ function SessionAnalysis() {
     </AppShell>
   );
 }
+    hr: true,
+    pace: true,
+    cadence: false,
+    elev: false,
+    vo: false,
+
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
