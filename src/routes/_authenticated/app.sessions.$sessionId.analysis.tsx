@@ -2131,6 +2131,7 @@ function addFadeFlags(rows: SplitRow[]): SplitRow[] {
 
   return rows.map((r) => {
     if (r.type !== "work" && r.type !== "strides") {
+      prevWorkPace = null; // ✅ reset when leaving work
       return {
         ...r,
         fadeFlag: "none",
