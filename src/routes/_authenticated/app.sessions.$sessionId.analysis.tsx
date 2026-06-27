@@ -974,34 +974,200 @@ function ZonePanel({ rows, title }: { rows: any[]; title: string }) {
   );
 }
 
-function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
+function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {function MapPanel({ points }: { points: { lat?: number.map((p) => [
+          Number(p.lng),
+          Number(p.lat),
+        ]);
+
+        console.log("Map coords count:", coords.length);
+
+        const geojson = {
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: coords,
+          },
+          properties: {},
+        } as const;
+
+        map.addSource("route", {
+          type: "geojson",
+          data: geojson,
+        });
+
+        map.addLayer({
+          id: "route-line",
+          type: "line",
+          source: "route",
+          paint: {
+            "line-color": "#ef4444",
+            "line-width": 3,
+          },
+        });
+
+        const bounds = new maplibregl.LngLatBounds(
+          coords[0],
+          coords[0]
+        );
+
+        coords.forEach((c) => bounds.extend(c));
+
+        map.fitBounds(bounds, {
+          padding: 24,
+          duration: 0,
+        });
+      });
+
+      map.on("error", (e) => {
+        console.error("MapPanel map error:", e);
+
+        // ✅ FALLBACK TRIGGER
+        if (!cancelled) {
+          setMapStatus("fallback");
+        }
+      });
+    } catch (err) {
+      console.error("MapPanel init error:", err);
+
+      // ✅ FALLBACK TRIGGER
+      if (!cancelled) {
+        setMapStatus("fallback");
+      }
+    }
+
+    return () => {
+      cancelled = true;
+      try {
+        if (mapRef.current) {
+          mapRef.current.remove();
+          mapRef.current = null;
+        }
+      } catch {
+        // ignore cleanup errors
+      }
+    };
+  }, [safePoints]);
+
+  if (safePoints.length < 2) return null;
+
+  // ✅ ✅ ✅ SVG FALLBACK (NO WEBGL REQUIRED)
+  if (mapStatus === "fallback") {
+    const lats = safePoints.map((p) => Number(p.lat));
+    const lngs = safePoints.map((p) => Number(p.lng));
+
+    const minLat = Math.min(...lats);
+    const maxLat = Math.max(...lats);
+    const minLng = Math.min(...lngs);
+    const maxLng = Math.max(...lngs);
+
+    const width = 600;
+    const height = 300;
+
+    const project = (lat: number, lng: number) => {
+      const x = ((lng - minLng) / (maxLng - minLng || 1)) * width;
+      const y =
+        height -
+        ((lat - minLat) / (maxLat - minLat || 1)) * height;
+      return [x, y];
+    };
+
+    const path = safePoints
+      .map((p) => {
+        const [x, y] = project(Number(p.lat), Number(p.lng));
+        return `${x},${y}`;
+      })
+      .join(" ");
+
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Route preview</CardTitle>
+          <CardDescription>
+            Static route preview (WebGL not available in this environment)
+          </CardDescription>
+        </CardHeader>
+
+        <CardContent>
+          <svg
+            width="100%"
+            height={height}
+            viewBox={`0 0 ${width} ${height}`}
+            className="border rounded bg-black"
+          >
+            <polyline
+              points={path}
+              fill="none"
+              stroke="#ef4444"
+              strokeWidth="2"
+            />
+
+            {/* start point */}
+            <circle
+              cx={project(safePoints[0].lat!, safePoints[0].lng!)[0]}
+              cy={project(safePoints[0].lat!, safePoints[0].lng!)[1]}
+              r="4"
+              fill="#22c55e"
+            />
+
+            {/* end point */}
+            <circle
+              cx={
+                project(
+                  safePoints[safePoints.length - 1].lat!,
+                  safePoints[safePoints.length - 1].lng!
+                )[0]
+              }
+              cy={
+                project(
+                  safePoints[safePoints.length - 1].lat!,
+                  safePoints[safePoints.length - 1].lng!
+                )[1]
+              }
+              r="4"
+              fill="#ef4444"
+            />
+          </svg>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Route map</CardTitle>
+        <CardDescription>
+          GPS trace from uploaded activity data.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div
+          ref={containerRef}
+          className="h-[320px] w-full rounded border"
+        />
+      </CardContent>
+    </Card>
+  );
+}
   const mapRef = useRef<maplibregl.Map | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [mapStatus, setMapStatus] = useState<"ready" | "unsupported" | "failed">("ready");
+  const [mapStatus, setMapStatus] = useState<"map" | "fallback">("map");
 
   const safePoints = useMemo(() => {
     return Array.isArray(points)
-      ? points.filter((p) => p && Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)))
+      ? points.filter(
+          (p) =>
+            p &&
+            Number.isFinite(Number(p.lat)) &&
+            Number.isFinite(Number(p.lng))
+        )
       : [];
   }, [points]);
-
-  function browserSupportsWebGL() {
-    if (typeof window === "undefined") return false;
-
-    try {
-      const canvas = document.createElement("canvas");
-      const gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
-      return !!gl;
-    } catch {
-      return false;
-    }
-  }
 
   useEffect(() => {
     if (!containerRef.current) return;
     if (safePoints.length < 2) return;
 
-    
     let cancelled = false;
     let map: maplibregl.Map | null = null;
 
@@ -1017,114 +1183,7 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
       map.once("load", () => {
         if (cancelled || !map) return;
 
-        const coords = safePoints.map((p) => [Number(p.lng), Number(p.lat)]);
 
-        
-// ✅ DEBUG LINE
-  console.log("Map coords count:", coords.length, coords.slice(0, 5));
-
-        const geojson = {
-          type: "Feature",
-          geometry: {
-            type: "LineString",
-            coordinates: coords,
-          },
-          properties: {},
-        } as const;
-
-        if (map.getSource("route")) {
-          try {
-            (map.getSource("route") as any).setData(geojson);
-          } catch (err) {
-            console.error("MapPanel source update error:", err);
-          }
-        } else {
-          map.addSource("route", {
-            type: "geojson",
-            data: geojson,
-          });
-
-          map.addLayer({
-            id: "route-line",
-            type: "line",
-            source: "route",
-            paint: {
-              "line-color": "#ef4444",
-              "line-width": 3,
-            },
-          });
-        }
-
-        try {
-          const bounds = new maplibregl.LngLatBounds([coords[0][0], coords[0][1]], [coords[0][0], coords[0][1]]);
-
-          coords.forEach((c) => bounds.extend([c[0], c[1]]));
-
-          map.fitBounds(bounds, {
-            padding: 24,
-            duration: 0,
-          });
-        } catch (err) {
-          console.error("MapPanel fitBounds error:", err);
-        }
-      });
-
-      map.on("error", (e) => {
-        console.error("MapPanel map error:", e);
-        if (!cancelled) {
-          setMapStatus("failed");
-        }
-      });
-    } catch (err) {
-      console.error("MapPanel init error:", err);
-      if (!cancelled) {
-        setMapStatus("failed");
-      }
-    }
-
-    return () => {
-      cancelled = true;
-      try {
-        if (mapRef.current) {
-          mapRef.current.remove();
-          mapRef.current = null;
-        }
-      } catch (err) {
-        console.error("MapPanel cleanup error:", err);
-      }
-    };
-  }, [safePoints]);
-
-  if (safePoints.length < 2) return null;
-
-  if (mapStatus === "unsupported" || mapStatus === "failed") {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Route map</CardTitle>
-          <CardDescription>
-            GPS points were found, but the map could not be rendered in this browser environment.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          The session analysis can still be reviewed below without the map.
-        </CardContent>
-      </Card>
-    );
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Route map</CardTitle>
-        <CardDescription>GPS trace from uploaded activity data.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div ref={containerRef} className="h-[320px] w-full rounded border" />
-      </CardContent>
-    </Card>
-  );
-}
 
 function buildSamples(
   steps: any[],
@@ -1562,7 +1621,7 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
   {r.paceDeltaPct != null && (
     <span className="text-muted-foreground ml-1">
   ({r.paceDeltaPct > 0 ? "+" : ""}
-   {Math.abs(Number(r.paceDeltaPct)).toFixed(1)}%)
+   {Math.abs(Number(r.paceDeltaPct).toFixed(1))}%)
   </span>
   )}
 </td>
@@ -2062,32 +2121,7 @@ function median(nums: number[]): number | null {
   return vals.length % 2 === 0 ? (vals[mid - 1] + vals[mid]) / 2 : vals[mid];
 }
 
-function addRepScoring(rows: SplitRow[]): SplitRow[] {
-  const workRows = rows.filter(
-    (r) =>
-      (r.type === "work" || r.type === "strides") &&
-      typeof r.avgPace === "number" &&
-      r.avgPace > 0,
-  );
-
-  const medianWorkPace = median(
-    workRows
-      .map((r) => r.avgPace)
-      .filter((x): x is number => typeof x === "number"),
-  );
-
-  if (!medianWorkPace) {
-    return rows.map((r) => ({
-      ...r,
-      score: null,
-      scoreLabel: null,
-      scoreTone: null,
-      paceDeltaPct: null,
-    }));
-  }
-
-  return rows.map((r) => {
-    // ✅ non-work rows → no scoring
+function addRepScoring(rows: SplitRow[]): SplitRow[] {function addRepScoring(rows: Split    // ✅ non-work rows → no scoring
     if (r.type !== "work" && r.type !== "strides") {
       return {
         ...r,
@@ -2180,6 +2214,31 @@ function addRepScoring(rows: SplitRow[]): SplitRow[] {
     };
   });
 }
+  const workRows = rows.filter(
+    (r) =>
+      (r.type === "work" || r.type === "strides") &&
+      typeof r.avgPace === "number" &&
+      r.avgPace > 0,
+  );
+
+  const medianWorkPace = median(
+    workRows
+      .map((r) => r.avgPace)
+      .filter((x): x is number => typeof x === "number"),
+  );
+
+  if (!medianWorkPace) {
+    return rows.map((r) => ({
+      ...r,
+      score: null,
+      scoreLabel: null,
+      scoreTone: null,
+      paceDeltaPct: null,
+    }));
+  }
+
+  return rows.map((r) => {
+
 function addFadeFlags(rows: SplitRow[]): SplitRow[] {
   let prevWorkPace: number | null = null;
 
