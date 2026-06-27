@@ -1916,11 +1916,12 @@ function buildSplitsFromResults(results: any[], steps: any[], rawPoints: any[]):
     const hrEnd = r.hr_end != null ? Number(r.hr_end) : null;
     const hrRecovery = r.hr_end_recovery != null ? Number(r.hr_end_recovery) : null;
     const hrDrop = hrEnd != null && hrRecovery != null ? hrEnd - hrRecovery : null;
+
+    // ✅ Ensure max HR is always physiologically valid
     const safeAvgHr = finalMetrics.avgHr ?? null;
-    const safeHrEnd = hrEnd;
 
     const safeMaxHr =
-      [finalMetrics.maxHr, safeAvgHr, safeHrEnd]
+      [finalMetrics.maxHr, safeAvgHr, hrEnd]
         .filter((x): x is number => typeof x === "number" && Number.isFinite(x))
         .reduce((m, x) => Math.max(m, x), 0) || null;
 
