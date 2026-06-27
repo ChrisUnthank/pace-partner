@@ -1503,7 +1503,10 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
       (r) => (r.type === "work" || r.type === "strides") && typeof r.score === "number",
     );
 
-    const bestScore = workRows.length > 0 ? Math.max(...workRows.map((r) => r.score ?? 0)) : null;
+    const bestScore =
+      workRows.length > 0
+        ? Math.max(...workRows.map((r) => r.score ?? 0))
+        : null;
 
     return fadedRows.map((r) => ({
       ...r,
@@ -1522,32 +1525,296 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
   const avgPace = totalDist > 0 ? (totalTime / totalDist) * 1000 : null;
 
   const hrs = filteredRows.map((r) => r.avgHr).filter((x: any): x is number => typeof x === "number");
-
   const avgHr = hrs.length ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null;
-
   const maxHr = filteredRows.reduce((m, r) => Math.max(m, Number(r.maxHr ?? 0)), 0) || null;
 
   const cads = filteredRows.map((r) => r.avgCad).filter((x: any): x is number => typeof x === "number");
-
   const avgCad = cads.length ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length) : null;
 
   const vos = filteredRows.map((r) => r.vo).filter((x: any): x is number => typeof x === "number");
-
   const avgVo = vos.length ? Number((vos.reduce((a, b) => a + b, 0) / vos.length).toFixed(1)) : null;
 
   const gcts = filteredRows.map((r) => r.gct).filter((x: any): x is number => typeof x === "number");
-
   const avgGct = gcts.length ? Math.round(gcts.reduce((a, b) => a + b, 0) / gcts.length) : null;
 
   const strides = filteredRows.map((r) => r.strideLength).filter((x: any): x is number => typeof x === "number");
-
   const avgStrideLength = strides.length
     ? Number((strides.reduce((a, b) => a + b, 0) / strides.length).toFixed(2))
     : null;
 
+  const insight = getSessionInsight(filteredRows);
+
+  const bestRep =
+    filteredRows
+      .filter((r) => (r.type === "work" || r.type === "strides") && typeof r.score === "number")
+      .sort((a, b) => Number(b.score ?? 0) - Number(a.score ?? 0))[0] ?? null;
+
   if (rows.length === 0) return null;
 
   return (
+    <>
+      {insight && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Session insight</CardTitle>
+            <CardDescription>
+              Quick interpretation of execution quality for the current segment filter.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="text-sm">
+            <div
+              className={
+                insight.tone === "good"
+                  ? "border rounded px-3 py-2 text-emerald-400"
+                  : insight.tone === "warn"
+                  ? "border rounded px-3 py-2 text-amber-400"
+                  : "border rounded px-3 py-2 text-red-400"
+              }
+            >
+              <div className="font-medium">{insight.title}</div>
+              <div className="text-muted-foreground">{insight.detail}</div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Session segments</CardTitle>
+          <CardDescription>
+            Unified rep-aligned session table with segment filters, dynamic summary, rep scoring, and advanced metrics.
+          </CardDescription>
+        </CardHeader>
+
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap gap-1">
+            {SCOPE_OPTIONS.map((k) => {
+              const hasData = k === "full" || rows.some((r) => r.type === k);
+              return (
+                <Button
+                  key={k}
+                  size="sm"
+                  variant={segmentFilter === k ? "default" : "outline"}
+                  disabled={!hasData}
+                  onClick={() => hasData && setSegmentFilter(k)}
+                  title={!hasData ? "No data for this segment" : ""}
+                >
+                  {SCOPE_LABELS[k]}
+                </Button>
+              );
+            })}
+          </div>
+
+          <div className="flex gap-1">
+            <Button
+              size="sm"
+              variant={detailMode === "basic" ? "default" : "outline"}
+              onClick={() => setDetailMode("basic")}
+            >
+              Basic
+            </Button>
+            <Button
+              size="sm"
+              variant={detailMode === "advanced" ? "default" : "outline"}
+              onClick={() => setDetailMode("advanced")}
+            >
+              Advanced
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+            <Stat label="Distance" value={metersFmt(totalDist)} />
+            <Stat label="Duration" value={secToClock(totalTime)} />
+            <Stat label="Avg pace" value={avgPace ? `${paceFmt(avgPace)} /km` : "—"} />
+            <Stat label="Avg HR" value={avgHr ? `${avgHr} bpm` : "—"} />
+            <Stat label="Max HR" value={maxHr ? `${maxHr} bpm` : "—"} />
+            <Stat label="Avg cadence" value={avgCad ? `${avgCad} spm` : "—"} />
+            {bestRep && (
+              <Stat label="Best rep" value={`${bestRep.repLabel ?? `R${bestRep.index}`} (${bestRep.score}/100)`} />
+            )}
+            {detailMode === "advanced" && (
+              <>
+                <Stat label="Avg VO" value={avgVo != null ? `${avgVo} cm` : "—"} />
+                <Stat label="Avg GCT" value={avgGct != null ? `${avgGct} ms` : "—"} />
+                <Stat label="Stride length" value={avgStrideLength != null ? `${avgStrideLength} m` : "—"} />
+              </>
+            )}
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border-separate border-spacing-0">
+              <thead className="text-muted-foreground">
+                <tr className="border-b">
+                  <th className="text-left py-1 pr-2">#</th>
+                  <th className="text-left py-1 pr-2">Type</th>
+                  <th className="text-left py-1 pr-2">Label</th>
+                  <th className="text-right py-1 pr-2">Dist</th>
+                  <th className="text-right py-1 pr-2">Time</th>
+                  <th className="text-right py-1 pr-2">Avg pace</th>
+                  <th className="text-right py-1 pr-2">Max pace</th>
+                  <th className="text-right py-1 pr-2">Avg HR</th>
+                  <th className="text-right py-1 pr-2">Max HR</th>
+                  <th className="text-right py-1 pr-2">Score</th>
+                  <th className="text-left py-1 pr-2">Flag</th>
+                  <th className="text-left py-1 pr-2">Trend</th>
+
+                  {detailMode === "advanced" && (
+                    <>
+                      <th className="text-right py-1 pr-2">HR end</th>
+                      <th className="text-right py-1 pr-2">HR rec</th>
+                      <th className="text-right py-1 pr-2">Drop</th>
+                    </>
+                  )}
+
+                  <th className="text-right py-1 pr-2">Avg cad</th>
+                  <th className="text-right py-1 pr-2">Max cad</th>
+
+                  {detailMode === "advanced" && (
+                    <>
+                      <th className="text-right py-1 pr-2">VO</th>
+                      <th className="text-right py-1 pr-2">GCT</th>
+                      <th className="text-right py-1 pr-2">Stride</th>
+                      <th className="text-right py-1 pr-2">Lactate</th>
+                      <th className="text-right py-1 pr-2">Δ pace %</th>
+                    </>
+                  )}
+
+                  <th className="text-right py-1 pr-2">↑</th>
+                  <th className="text-right py-1">↓</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {filteredRows.map((r) => (
+                  <tr
+                    key={`${r.index}-${r.type}-${r.repLabel ?? ""}`}
+                    className="border-b last:border-b-0"
+                    style={{
+                      backgroundColor: r.isBest
+                        ? "rgba(34,197,94,0.12)"
+                        : r.fadeFlag === "strong"
+                        ? "rgba(239,68,68,0.10)"
+                        : r.fadeFlag === "mild"
+                        ? "rgba(251,191,36,0.10)"
+                        : STEP_COLORS[r.type] ?? "transparent",
+
+                      borderLeft: r.isBest
+                        ? "4px solid #22c55e"
+                        : r.fadeFlag === "strong"
+                        ? "3px solid #ef4444"
+                        : r.fadeFlag === "mild"
+                        ? "3px solid #f59e0b"
+                        : `3px solid ${STEP_STROKE[r.type] ?? "#444"}`,
+
+                      color: "#e5e7eb",
+                    }}
+                  >
+                    <td className="py-1 pr-2 tabular-nums">{r.index}</td>
+                    <td className="py-1 pr-2 capitalize">{r.type}</td>
+                    <td className="py-1 pr-2">
+                      {r.repLabel ?? "—"}
+                      {r.adjusted ? " *" : ""}
+                    </td>
+                    <td className="py-1 pr-2 text-right tabular-nums">
+                      {r.distanceM > 0 ? metersFmt(r.distanceM) : "—"}
+                    </td>
+                    <td className="py-1 pr-2 text-right tabular-nums">
+                      {r.durationS > 0 ? secToClock(r.durationS) : "—"}
+                    </td>
+                    <td className="py-1 pr-2 text-right tabular-nums">
+                      {r.avgPace ? paceFmt(r.avgPace) : "—"}
+                    </td>
+                    <td className="py-1 pr-2 text-right tabular-nums">
+                      {r.maxPace ? paceFmt(r.maxPace) : "—"}
+                    </td>
+                    <td className="py-1 pr-2 text-right tabular-nums">{r.avgHr ?? "—"}</td>
+                    <td className="py-1 pr-2 text-right tabular-nums">{r.maxHr ?? "—"}</td>
+
+                    <td className="py-1 pr-2 text-right tabular-nums">
+                      {r.score != null ? r.score : "—"}
+                    </td>
+
+                    <td className="py-1 pr-2">
+                      {r.scoreLabel ? (
+                        <span
+                          className={
+                            r.scoreTone === "excellent"
+                              ? "text-emerald-400"
+                              : r.scoreTone === "good"
+                              ? "text-sky-400"
+                              : r.scoreTone === "warn"
+                              ? "text-amber-400"
+                              : "text-red-400"
+                          }
+                        >
+                          {r.scoreLabel}
+                        </span>
+                      ) : "—"}
+                    </td>
+
+                    <td className="py-1 pr-2">
+                      {r.isBest ? (
+                        <span className="text-emerald-400">🔥 Best</span>
+                      ) : r.fadeFlag === "strong" ? (
+                        <span className="text-red-400">🔻 Fade</span>
+                      ) : r.fadeFlag === "mild" ? (
+                        <span className="text-amber-400">⚠ Slowing</span>
+                      ) : "—"}
+                    </td>
+
+                    {detailMode === "advanced" && (
+                      <>
+                        <td className="py-1 pr-2 text-right tabular-nums">{r.hrEnd ?? "—"}</td>
+                        <td className="py-1 pr-2 text-right tabular-nums">{r.hrRecovery ?? "—"}</td>
+                        <td className="py-1 pr-2 text-right tabular-nums">{r.hrDrop ?? "—"}</td>
+                      </>
+                    )}
+
+                    <td className="py-1 pr-2 text-right tabular-nums">{r.avgCad ?? "—"}</td>
+                    <td className="py-1 pr-2 text-right tabular-nums">{r.maxCad ?? "—"}</td>
+
+                    {detailMode === "advanced" && (
+                      <>
+                        <td className="py-1 pr-2 text-right tabular-nums">
+                          {r.vo != null ? `${r.vo} cm` : "—"}
+                        </td>
+                        <td className="py-1 pr-2 text-right tabular-nums">
+                          {r.gct != null ? `${r.gct} ms` : "—"}
+                        </td>
+                        <td className="py-1 pr-2 text-right tabular-nums">
+                          {r.strideLength != null ? `${r.strideLength} m` : "—"}
+                        </td>
+                        <td className="py-1 pr-2 text-right tabular-nums">
+                          {r.lactate != null ? Number(r.lactate).toFixed(1) : "—"}
+                        </td>
+                        <td className="py-1 pr-2 text-right tabular-nums">
+                          {r.paceDeltaPct != null
+                            ? `${r.paceDeltaPct > 0 ? "+" : ""}${r.paceDeltaPct}%`
+                            : "—"}
+                        </td>
+                      </>
+                    )}
+
+                    <td className="py-1 pr-2 text-right tabular-nums">
+                      {r.elevGain != null ? `${r.elevGain}m` : "—"}
+                    </td>
+                    <td className="py-1 text-right tabular-nums">
+                      {r.elevLoss != null ? `${r.elevLoss}m` : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <div className="text-[11px] text-muted-foreground mt-2">
+              * adjusted = recorded rep exceeded target distance, so distance/time/pace were corrected from trace to the planned rep target.
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </>
+  );
+}
     <Card>
       <CardHeader>
         <CardTitle>Session segments</CardTitle>
