@@ -2099,11 +2099,22 @@ function addRepScoring(rows: SplitRow[]): SplitRow[] {
 
     let score = 100;
 
-    if (absDelta <= 1.5) score -= 0;
-    else if (absDelta <= 3) score -= 8;
-    else if (absDelta <= 5) score -= 18;
-    else if (absDelta <= 8) score -= 30;
-    else score -= 45;
+    if (absDelta <= 0.8)
+      score -= 0; // truly perfect
+    else if (absDelta <= 1.8)
+      score -= 5; // still elite but not perfect
+    else if (absDelta <= 3) score -= 10;
+    else if (absDelta <= 5) score -= 20;
+    else if (absDelta <= 8) score -= 35;
+    else score -= 50;
+
+    // penalise excessive variation within the rep (fast/slow swings)
+    if (typeof r.maxPace === "number" && typeof r.avgPace === "number") {
+      const spreadPct = ((r.avgPace - r.maxPace) / r.avgPace) * 100;
+
+      if (spreadPct > 3) score -= 3;
+      if (spreadPct > 6) score -= 5;
+    }
 
     if (typeof r.maxHr === "number" && typeof r.avgHr === "number") {
       const hrSpread = r.maxHr - r.avgHr;
