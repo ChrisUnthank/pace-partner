@@ -102,17 +102,10 @@ function SessionAnalysis() {
   const [xMode, setXMode] = useState<"time" | "distance">("time");
   const [scope, setScope] = useState<ScopeKey>("full");
 
-  const {
-    data: session,
-    isLoading: sessionLoading,
-  } = useQuery({
+  const { data: session, isLoading: sessionLoading } = useQuery({
     queryKey: ["session", sessionId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("sessions")
-        .select("*, athletes(name)")
-        .eq("id", sessionId)
-        .single();
+      const { data, error } = await supabase.from("sessions").select("*, athletes(name)").eq("id", sessionId).single();
 
       if (error) {
         console.error("session error:", error);
@@ -127,11 +120,7 @@ function SessionAnalysis() {
   const { data: steps = [] } = useQuery({
     queryKey: ["steps", sessionId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("steps")
-        .select("*")
-        .eq("session_id", sessionId)
-        .order("step_order");
+      const { data, error } = await supabase.from("steps").select("*").eq("session_id", sessionId).order("step_order");
 
       if (error) {
         console.error("steps error:", error);
@@ -184,10 +173,7 @@ function SessionAnalysis() {
   const { data: fatigue = [] } = useQuery({
     queryKey: ["fatigue", sessionId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("session_fatigue")
-        .select("*")
-        .eq("session_id", sessionId);
+      const { data, error } = await supabase.from("session_fatigue").select("*").eq("session_id", sessionId);
 
       if (error) {
         console.error("fatigue error:", error);
@@ -227,44 +213,44 @@ function SessionAnalysis() {
   const computeFatigue = useServerFn(computeContinuousFatigue);
 
   const { samples, bands, mode, hasMetric, gpsPoints, traceBuildFailed } = useMemo(() => {
-  try {
-    const built = buildSamples(safeSteps, safeResults, safeRawPoints);
+    try {
+      const built = buildSamples(safeSteps, safeResults, safeRawPoints);
 
-    return {
-      samples: Array.isArray(built?.samples) ? built.samples : [],
-      bands: Array.isArray(built?.bands) ? built.bands : [],
-      mode: built?.mode ?? "none",
-      hasMetric: built?.hasMetric ?? {
-        hr: false,
-        pace: false,
-        cadence: false,
-        elev: false,
-        vo: false,
-        gct: false,
-      },
-      gpsPoints: Array.isArray(built?.gpsPoints) ? built.gpsPoints : [],
-      traceBuildFailed: false,
-    };
-  } catch (err) {
-    console.error("buildSamples error:", err);
+      return {
+        samples: Array.isArray(built?.samples) ? built.samples : [],
+        bands: Array.isArray(built?.bands) ? built.bands : [],
+        mode: built?.mode ?? "none",
+        hasMetric: built?.hasMetric ?? {
+          hr: false,
+          pace: false,
+          cadence: false,
+          elev: false,
+          vo: false,
+          gct: false,
+        },
+        gpsPoints: Array.isArray(built?.gpsPoints) ? built.gpsPoints : [],
+        traceBuildFailed: false,
+      };
+    } catch (err) {
+      console.error("buildSamples error:", err);
 
-    return {
-      samples: [],
-      bands: [],
-      mode: "none",
-      hasMetric: {
-        hr: false,
-        pace: false,
-        cadence: false,
-        elev: false,
-        vo: false,
-        gct: false,
-      },
-      gpsPoints: [],
-      traceBuildFailed: true,
-    };
-  }
-}, [safeSteps, safeResults, safeRawPoints]);
+      return {
+        samples: [],
+        bands: [],
+        mode: "none",
+        hasMetric: {
+          hr: false,
+          pace: false,
+          cadence: false,
+          elev: false,
+          vo: false,
+          gct: false,
+        },
+        gpsPoints: [],
+        traceBuildFailed: true,
+      };
+    }
+  }, [safeSteps, safeResults, safeRawPoints]);
 
   const availableScopes = SCOPE_OPTIONS;
 
@@ -279,9 +265,7 @@ function SessionAnalysis() {
   }, [bands, scope]);
 
   const xCanUseDistance =
-    Array.isArray(visibleSamples) &&
-    visibleSamples.length > 0 &&
-    visibleSamples.every((s) => s.d != null);
+    Array.isArray(visibleSamples) && visibleSamples.length > 0 && visibleSamples.every((s) => s.d != null);
 
   const xKey: keyof Sample = xMode === "distance" && xCanUseDistance ? "d" : "t";
 
@@ -302,18 +286,13 @@ function SessionAnalysis() {
   }, [visibleSamples, xKey]);
 
   const hasRaw = safeRawPoints.length > 0;
-const hasRepData = safeResults.length > 0;
+  const hasRepData = safeResults.length > 0;
 
-// ✅ Manual-friendly analysis mode
-const isManualOnly = !hasRaw && hasRepData;
+  // ✅ Manual-friendly analysis mode
+  const isManualOnly = !hasRaw && hasRepData;
 
-// If raw exists but trace building failed, fall back to interval/empty instead of crashing
-const modeType =
-  hasRaw && !traceBuildFailed
-    ? "trace"
-    : hasRepData
-      ? "interval"
-      : "empty";
+  // If raw exists but trace building failed, fall back to interval/empty instead of crashing
+  const modeType = hasRaw && !traceBuildFailed ? "trace" : hasRepData ? "interval" : "empty";
 
   const continuousFatigue = safeFatigue.find((f: any) => f.method === "continuous_drift");
   const repFatigue = safeFatigue.filter((f: any) => f.method !== "continuous_drift");
@@ -350,20 +329,14 @@ const modeType =
 
   const manualRows = useMemo(() => {
     return safeResults.filter(
-      (r: any) =>
-        r.actual_time_seconds != null ||
-        r.actual_distance_m != null ||
-        r.hr_avg != null ||
-        r.hr_end != null,
+      (r: any) => r.actual_time_seconds != null || r.actual_distance_m != null || r.hr_avg != null || r.hr_end != null,
     );
   }, [safeResults]);
 
   const manualAvgHr = useMemo(() => {
     const rowsWithHr = manualRows.filter((r: any) => r.hr_avg != null);
     if (!rowsWithHr.length) return null;
-    return Math.round(
-      rowsWithHr.reduce((sum: number, r: any) => sum + Number(r.hr_avg ?? 0), 0) / rowsWithHr.length,
-    );
+    return Math.round(rowsWithHr.reduce((sum: number, r: any) => sum + Number(r.hr_avg ?? 0), 0) / rowsWithHr.length);
   }, [manualRows]);
 
   if (sessionLoading) {
@@ -414,14 +387,14 @@ const modeType =
               <div>
                 <CardTitle>Session graph</CardTitle>
                 <CardDescription>
-  {modeType === "trace"
-    ? "High-resolution trace"
-    : traceBuildFailed
-      ? "Trace data exists, but the detailed trace could not be rendered safely"
-      : modeType === "interval"
-        ? "Interval summary"
-        : "No data available for analysis"}
-</CardDescription>
+                  {modeType === "trace"
+                    ? "High-resolution trace"
+                    : traceBuildFailed
+                      ? "Trace data exists, but the detailed trace could not be rendered safely"
+                      : modeType === "interval"
+                        ? "Interval summary"
+                        : "No data available for analysis"}
+                </CardDescription>
               </div>
               <div className="flex gap-1">
                 <Button size="sm" variant={xKey === "t" ? "default" : "outline"} onClick={() => setXMode("time")}>
@@ -650,16 +623,16 @@ const modeType =
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
-           ) : modeType === "interval" ? (
-  <div className="h-[220px] w-full rounded border border-dashed flex flex-col items-center justify-center text-sm text-muted-foreground">
-    <div>{traceBuildFailed ? "Trace rendering failed safely" : "Interval summary mode"}</div>
-    <div className="text-xs mt-1 text-center max-w-md">
-      {traceBuildFailed
-        ? "This FIT session has raw data, but the detailed trace could not be rendered. Interval and recovery analysis can still be reviewed below."
-        : "No raw trace is available, but interval and recovery analysis can still be reviewed below."}
-    </div>
-  </div>
-) : (
+            ) : modeType === "interval" ? (
+              <div className="h-[220px] w-full rounded border border-dashed flex flex-col items-center justify-center text-sm text-muted-foreground">
+                <div>{traceBuildFailed ? "Trace rendering failed safely" : "Interval summary mode"}</div>
+                <div className="text-xs mt-1 text-center max-w-md">
+                  {traceBuildFailed
+                    ? "This FIT session has raw data, but the detailed trace could not be rendered. Interval and recovery analysis can still be reviewed below."
+                    : "No raw trace is available, but interval and recovery analysis can still be reviewed below."}
+                </div>
+              </div>
+            ) : (
               <div className="h-[220px] w-full rounded border border-dashed flex flex-col items-center justify-center text-sm text-muted-foreground">
                 <div>No detailed trace available for this session</div>
                 <div className="text-xs mt-1">
@@ -728,11 +701,9 @@ const modeType =
 
         {recoveryRows.length >= 2 && <RecoveryPanel rows={recoveryRows} />}
         {Array.isArray(gpsPoints) &&
-  gpsPoints.filter((p: any) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng)).length >= 2 && (
-    <MapPanel
-      points={gpsPoints.filter((p: any) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng))}
-    />
-  )}
+          gpsPoints.filter((p: any) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng)).length >= 2 && (
+            <MapPanel points={gpsPoints.filter((p: any) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng))} />
+          )}
 
         <Card>
           <CardHeader>
@@ -751,12 +722,12 @@ const modeType =
 
         <WorkSegmentPanel steps={safeSteps} results={safeResults} />
         <SplitsTable
-  points={
-    Array.isArray(rawPoints)
-      ? rawPoints.filter((p: any) => p && (p.elapsed_s != null || p.distance_m != null))
-      : []
-  }
-/>
+          points={
+            Array.isArray(rawPoints)
+              ? rawPoints.filter((p: any) => p && (p.elapsed_s != null || p.distance_m != null))
+              : []
+          }
+        />
 
         {showContinuousFatigueCard && (
           <Card>
@@ -853,7 +824,6 @@ const modeType =
     </AppShell>
   );
 }
-
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
@@ -1100,23 +1070,14 @@ function ZonePanel({ rows, title }: { rows: any[]; title: string }) {
   );
 }
 
-function MapPanel({
-  points,
-}: {
-  points: { lat?: number; lng?: number }[];
-}) {
+function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [mapStatus, setMapStatus] = useState<"ready" | "unsupported" | "failed">("ready");
 
   const safePoints = useMemo(() => {
     return Array.isArray(points)
-      ? points.filter(
-          (p) =>
-            p &&
-            Number.isFinite(Number(p.lat)) &&
-            Number.isFinite(Number(p.lng)),
-        )
+      ? points.filter((p) => p && Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)))
       : [];
   }, [points]);
 
@@ -1125,9 +1086,7 @@ function MapPanel({
 
     try {
       const canvas = document.createElement("canvas");
-      const gl =
-        canvas.getContext("webgl") ||
-        canvas.getContext("experimental-webgl");
+      const gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
       return !!gl;
     } catch {
       return false;
@@ -1195,10 +1154,7 @@ function MapPanel({
         }
 
         try {
-          const bounds = new maplibregl.LngLatBounds(
-            [coords[0][0], coords[0][1]],
-            [coords[0][0], coords[0][1]],
-          );
+          const bounds = new maplibregl.LngLatBounds([coords[0][0], coords[0][1]], [coords[0][0], coords[0][1]]);
 
           coords.forEach((c) => bounds.extend([c[0], c[1]]));
 
@@ -1268,7 +1224,6 @@ function MapPanel({
   );
 }
 
-
 function buildSamples(
   steps: any[],
   results: any[],
@@ -1294,47 +1249,43 @@ function buildSamples(
       const rawPace = p.pace_sec_per_km != null ? Number(p.pace_sec_per_km) : undefined;
 
       const currentT = Number(p.elapsed_s ?? idx);
-const currentD = p.distance_m != null ? Number(p.distance_m) : undefined;
+      const currentD = p.distance_m != null ? Number(p.distance_m) : undefined;
 
-const prev = idx > 0 ? rawPoints[idx - 1] : null;
-const prevT = prev?.elapsed_s != null ? Number(prev.elapsed_s) : currentT;
-const prevD = prev?.distance_m != null ? Number(prev.distance_m) : currentD ?? 0;
+      const prev = idx > 0 ? rawPoints[idx - 1] : null;
+      const prevT = prev?.elapsed_s != null ? Number(prev.elapsed_s) : currentT;
+      const prevD = prev?.distance_m != null ? Number(prev.distance_m) : (currentD ?? 0);
 
-const segmentDuration = Math.max(0, currentT - prevT);
-const segmentDistance = Math.max(0, (currentD ?? 0) - prevD);
+      const segmentDuration = Math.max(0, currentT - prevT);
+      const segmentDistance = Math.max(0, (currentD ?? 0) - prevD);
 
-let normalizedKind = p.segment_type ?? "work";
+      let normalizedKind = p.segment_type ?? "work";
 
-// ✅ Ignore tiny fake cooldown tails at the end of a work-only file
-if (
-  normalizedKind === "cooldown" &&
-  segmentDuration < 120 &&
-  segmentDistance < 200
-) {
-  normalizedKind = "work";
-}
+      // ✅ Ignore tiny fake cooldown tails at the end of a work-only file
+      if (normalizedKind === "cooldown" && segmentDuration < 120 && segmentDistance < 200) {
+        normalizedKind = "work";
+      }
 
-const s: Sample = {
-  t: currentT,
-  d: currentD,
-  hr: p.hr != null ? Number(p.hr) : undefined,
-  pace: rawPace != null && rawPace <= 600 ? rawPace : undefined,
-  cadence: p.cadence != null ? Number(p.cadence) : undefined,
-  elev: p.elevation_m != null ? Number(p.elevation_m) : undefined,
-  vo:
-    p.vertical_oscillation_cm != null && Number(p.vertical_oscillation_cm) > 0
-      ? Number(p.vertical_oscillation_cm)
-      : undefined,
-  gct:
-    p.ground_contact_time_ms != null && Number(p.ground_contact_time_ms) > 0
-      ? Number(p.ground_contact_time_ms)
-      : undefined,
-  lat: p.lat != null ? Number(p.lat) : undefined,
-  lng: p.lng != null ? Number(p.lng) : undefined,
-  stepId: "trace",
-  stepKind: normalizedKind,
-  repNumber: 1,
-};
+      const s: Sample = {
+        t: currentT,
+        d: currentD,
+        hr: p.hr != null ? Number(p.hr) : undefined,
+        pace: rawPace != null && rawPace <= 600 ? rawPace : undefined,
+        cadence: p.cadence != null ? Number(p.cadence) : undefined,
+        elev: p.elevation_m != null ? Number(p.elevation_m) : undefined,
+        vo:
+          p.vertical_oscillation_cm != null && Number(p.vertical_oscillation_cm) > 0
+            ? Number(p.vertical_oscillation_cm)
+            : undefined,
+        gct:
+          p.ground_contact_time_ms != null && Number(p.ground_contact_time_ms) > 0
+            ? Number(p.ground_contact_time_ms)
+            : undefined,
+        lat: p.lat != null ? Number(p.lat) : undefined,
+        lng: p.lng != null ? Number(p.lng) : undefined,
+        stepId: "trace",
+        stepKind: normalizedKind,
+        repNumber: 1,
+      };
 
       if (s.hr != null) has.hr = true;
       if (s.pace != null) has.pace = true;
@@ -1361,62 +1312,54 @@ const s: Sample = {
         const kind = samples[i].stepKind || "work";
         if (kind !== currentKind) {
           // ✅ close previous segment safely
-        const endSamplePrev = samples[i - 1];
-        const durationPrev = endSamplePrev.t - startT;
-        const distancePrev = (endSamplePrev.d ?? 0) - startD;
+          const endSamplePrev = samples[i - 1];
+          const durationPrev = endSamplePrev.t - startT;
+          const distancePrev = (endSamplePrev.d ?? 0) - startD;
 
-        // 🚫 Skip tiny fake cooldown segments
-        if (
-          currentKind === "cooldown" &&
-          durationPrev < 120 &&
-          distancePrev < 200
-        ) {
-          // do nothing (skip this band)
-        } else {
-          bands.push({
-            kind: currentKind,
-            t1: startT,
-            t2: endSamplePrev.t,
-            d1: startD,
-            d2: endSamplePrev.d ?? startD,
-          });
+          // 🚫 Skip tiny fake cooldown segments
+          if (currentKind === "cooldown" && durationPrev < 120 && distancePrev < 200) {
+            // do nothing (skip this band)
+          } else {
+            bands.push({
+              kind: currentKind,
+              t1: startT,
+              t2: endSamplePrev.t,
+              d1: startD,
+              d2: endSamplePrev.d ?? startD,
+            });
+          }
+
+          currentKind = kind;
+          startT = samples[i].t;
+          startD = samples[i].d ?? startD;
         }
-
-        currentKind = kind;
-        startT = samples[i].t;
-        startD = samples[i].d ?? startD;
       }
+
+      // ✅ handle final segment safely
+      const endSample = samples[samples.length - 1];
+      const finalDuration = endSample.t - startT;
+      const finalDistance = (endSample.d ?? 0) - startD;
+
+      if (currentKind === "cooldown" && finalDuration < 120 && finalDistance < 200) {
+        // 🚫 skip tiny cooldown at end
+      } else {
+        bands.push({
+          kind: currentKind,
+          t1: startT,
+          t2: endSample.t,
+          d1: startD,
+          d2: endSample.d ?? startD,
+        });
+      }
+
+      return {
+        samples,
+        bands,
+        mode: "trace",
+        hasMetric: has,
+        gpsPoints,
+      };
     }
-
-    // ✅ handle final segment safely
-    const endSample = samples[samples.length - 1];
-    const finalDuration = endSample.t - startT;
-    const finalDistance = (endSample.d ?? 0) - startD;
-
-    if (
-      currentKind === "cooldown" &&
-      finalDuration < 120 &&
-      finalDistance < 200
-    ) {
-      // 🚫 skip tiny cooldown at end
-    } else {
-      bands.push({
-        kind: currentKind,
-        t1: startT,
-        t2: endSample.t,
-        d1: startD,
-        d2: endSample.d ?? startD,
-      });
-    }
-
-    return {
-      samples,
-      bands,
-      mode: "trace",
-      hasMetric: has,
-      gpsPoints,
-    };
-  }
   }
 
   if (Array.isArray(results) && results.length > 0) {
@@ -1506,13 +1449,7 @@ const SPLIT_COLORS: Record<SplitRow["type"], string> = {
 };
 
 function normalizeSplitType(value: unknown): SplitRow["type"] {
-  if (
-    value === "warmup" ||
-    value === "work" ||
-    value === "recovery" ||
-    value === "cooldown" ||
-    value === "strides"
-  ) {
+  if (value === "warmup" || value === "work" || value === "recovery" || value === "cooldown" || value === "strides") {
     return value;
   }
 
@@ -1551,15 +1488,11 @@ function buildSplits(points: any[]): SplitRow[] {
       type = "work";
     }
 
-    const hrs = grp
-      .map((p) => Number(p.hr))
-      .filter((x: number) => Number.isFinite(x) && x > 0);
+    const hrs = grp.map((p) => Number(p.hr)).filter((x: number) => Number.isFinite(x) && x > 0);
     const paces = grp
       .map((p) => Number(p.pace_sec_per_km))
       .filter((x: number) => Number.isFinite(x) && x > 0 && x <= 900);
-    const cads = grp
-      .map((p) => Number(p.cadence))
-      .filter((x: number) => Number.isFinite(x) && x > 0);
+    const cads = grp.map((p) => Number(p.cadence)).filter((x: number) => Number.isFinite(x) && x > 0);
 
     let gain = 0;
     let loss = 0;
@@ -1637,11 +1570,12 @@ function SplitsTable({ points }: { points: any[] }) {
             <tbody>
               {rows.map((row) => (
                 <tr
-                  key={row.index}
+                  key={r.index}
                   className="border-b last:border-b-0"
                   style={{
-                    backgroundColor: SPLIT_COLORS[row.type],
-                    color: "#ffffff",
+                    backgroundColor: STEP_COLORS[r.type] ?? "transparent",
+                    color: "#e5e7eb",
+                    borderLeft: `3px solid ${STEP_STROKE[r.type] ?? "#444"}`,
                   }}
                 >
                   <td className="py-1 pr-2 tabular-nums">{row.index}</td>
@@ -1652,12 +1586,8 @@ function SplitsTable({ points }: { points: any[] }) {
                   <td className="py-1 pr-2 text-right tabular-nums">
                     {row.durationS > 0 ? secToClock(row.durationS) : "—"}
                   </td>
-                  <td className="py-1 pr-2 text-right tabular-nums">
-                    {row.avgPace ? paceFmt(row.avgPace) : "—"}
-                  </td>
-                  <td className="py-1 pr-2 text-right tabular-nums">
-                    {row.maxPace ? paceFmt(row.maxPace) : "—"}
-                  </td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{row.avgPace ? paceFmt(row.avgPace) : "—"}</td>
+                  <td className="py-1 pr-2 text-right tabular-nums">{row.maxPace ? paceFmt(row.maxPace) : "—"}</td>
                   <td className="py-1 pr-2 text-right tabular-nums">{row.avgHr ?? "—"}</td>
                   <td className="py-1 pr-2 text-right tabular-nums">{row.maxHr ?? "—"}</td>
                   <td className="py-1 pr-2 text-right tabular-nums">{row.avgCad ?? "—"}</td>
@@ -1665,9 +1595,7 @@ function SplitsTable({ points }: { points: any[] }) {
                   <td className="py-1 pr-2 text-right tabular-nums">
                     {row.elevGain != null ? `${row.elevGain}m` : "—"}
                   </td>
-                  <td className="py-1 text-right tabular-nums">
-                    {row.elevLoss != null ? `${row.elevLoss}m` : "—"}
-                  </td>
+                  <td className="py-1 text-right tabular-nums">{row.elevLoss != null ? `${row.elevLoss}m` : "—"}</td>
                 </tr>
               ))}
             </tbody>
