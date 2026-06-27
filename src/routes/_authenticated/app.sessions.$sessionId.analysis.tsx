@@ -1014,7 +1014,7 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
 
       mapRef.current = map;
 
-      map.on("load", () => {
+      map.once("load", () => {
         if (cancelled || !map) return;
 
         const coords = safePoints.map((p) => [Number(p.lng), Number(p.lat)]);
