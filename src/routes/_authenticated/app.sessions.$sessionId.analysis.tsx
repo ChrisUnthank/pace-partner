@@ -1402,10 +1402,8 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
     ? Number((strides.reduce((a, b) => a + b, 0) / strides.length).toFixed(2))
     : null;
 
-  const bestRep =
-    filteredRows
-      .filter((r) => (r.type === "work" || r.type === "strides") && typeof r.score === "number")
-      .sort((a, b) => Number(b.score ?? 0) - Number(a.score ?? 0))[0] ?? null;
+  // ✅ Use already-computed best flags
+  const bestReps = filteredRows.filter((r) => r.isBest);
 
   if (rows.length === 0) return null;
 
@@ -1463,8 +1461,8 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
             <Stat label="Avg HR" value={avgHr ? `${avgHr} bpm` : "—"} />
             <Stat label="Max HR" value={maxHr ? `${maxHr} bpm` : "—"} />
             <Stat label="Avg cadence" value={avgCad ? `${avgCad} spm` : "—"} />
-            {bestRep && (
-              <Stat label="Best rep" value={`${bestRep.repLabel ?? `R${bestRep.index}`} (${bestRep.score}/100)`} />
+            {bestReps.length > 0 && (
+              <Stat label="Best reps" value={bestReps.map((r) => r.repLabel ?? `R${r.index}`).join(", ")} />
             )}
             {detailMode === "advanced" && (
               <>
