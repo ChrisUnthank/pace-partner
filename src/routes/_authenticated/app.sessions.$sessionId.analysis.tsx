@@ -2204,6 +2204,13 @@ function buildSplitsFromTrace(points: any[]): SplitRow[] {
         elevLoss: metrics.elevLoss,
         repLabel: null,
         adjusted: false,
+        vo: metrics.avgVo,
+        gct: metrics.avgGct,
+        strideLength: metrics.strideLength,
+        hrEnd: null,
+        hrRecovery: null,
+        hrDrop: null,
+        lactate: null,
       } as SplitRow;
     })
     .filter((row) => row.durationS >= 5 || row.distanceM >= 10 || row.avgHr != null);
