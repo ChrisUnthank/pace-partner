@@ -1019,6 +1019,10 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
 
         const coords = safePoints.map((p) => [Number(p.lng), Number(p.lat)]);
 
+        
+// ✅ DEBUG LINE
+  console.log("Map coords count:", coords.length, coords.slice(0, 5));
+
         const geojson = {
           type: "Feature",
           geometry: {
