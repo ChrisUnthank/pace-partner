@@ -1853,6 +1853,9 @@ function computeMetricsFromTraceSlice(slice: any[]) {
       maxCad: null,
       elevGain: null,
       elevLoss: null,
+      avgVo: null as number | null,
+      avgGct: null as number | null,
+      strideLength: null as number | null,
     };
   }
 
@@ -1869,6 +1872,14 @@ function computeMetricsFromTraceSlice(slice: any[]) {
     .filter((x: any): x is number => typeof x === "number" && x > 0 && x <= 900);
 
   const cads = slice.map((p) => p.cadence).filter((x: any): x is number => typeof x === "number" && x > 0);
+
+  const vos = slice
+    .map((p) => normalizeVO(p.vertical_oscillation_cm))
+    .filter((x): x is number => typeof x === "number" && x > 0);
+
+  const gcts = slice
+    .map((p) => p.ground_contact_time_ms)
+    .filter((x: any): x is number => typeof x === "number" && x > 0);
 
   let gain = 0;
   let loss = 0;
@@ -1893,6 +1904,9 @@ function computeMetricsFromTraceSlice(slice: any[]) {
         ? paces.reduce((a, b) => a + b, 0) / paces.length
         : null;
 
+  const avgCad = cads.length ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length) : null;
+  const strideLength = computeStrideLengthM(distanceM, durationS, avgCad);
+
   return {
     durationS,
     distanceM,
@@ -1900,10 +1914,13 @@ function computeMetricsFromTraceSlice(slice: any[]) {
     maxPace: paces.length ? Math.min(...paces) : null,
     avgHr: hrs.length ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null,
     maxHr: hrs.length ? Math.max(...hrs) : null,
-    avgCad: cads.length ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length) : null,
+    avgCad,
     maxCad: cads.length ? Math.max(...cads) : null,
     elevGain: haveElev ? Math.round(gain) : null,
     elevLoss: haveElev ? Math.round(loss) : null,
+    avgVo: vos.length ? Number((vos.reduce((a, b) => a + b, 0) / vos.length).toFixed(1)) : null,
+    avgGct: gcts.length ? Math.round(gcts.reduce((a, b) => a + b, 0) / gcts.length) : null,
+    strideLength,
   };
 }
 
