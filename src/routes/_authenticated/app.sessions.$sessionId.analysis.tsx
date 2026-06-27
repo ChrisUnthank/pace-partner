@@ -1900,13 +1900,17 @@ function buildSplitsFromResults(results: any[], steps: any[], rawPoints: any[]):
 
     const repStrideCm = r.stride_length_cm != null ? Number(r.stride_length_cm) : null;
 
+    // ✅ Only accept realistic stride values (50cm–300cm)
     const repStrideM =
       repStrideCm && Number.isFinite(repStrideCm) && repStrideCm >= 50 && repStrideCm <= 300
         ? Number((repStrideCm / 100).toFixed(2))
         : null;
 
+    // ✅ Compute stride from actual rep metrics
     const computedStride = computeStrideLengthM(finalMetrics.distanceM, finalMetrics.durationS, finalMetrics.avgCad);
-    const strideLength = repStrideM ?? computedStride ?? finalMetrics.strideLength ?? null;
+
+    // ✅ FINAL priority order
+    const strideLength = computedStride ?? repStrideM ?? finalMetrics.strideLength ?? null;
 
     const lactate =
       r.lactate_taken && r.lactate_mmol != null && Number.isFinite(Number(r.lactate_mmol))
