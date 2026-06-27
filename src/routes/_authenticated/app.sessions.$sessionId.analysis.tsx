@@ -1418,6 +1418,8 @@ const s: Sample = {
     };
   }
 
+  }
+
   if (Array.isArray(results) && results.length > 0) {
     const stepOrder = new Map<string, number>();
     steps.forEach((s) => stepOrder.set(s.id, s.step_order ?? 0));
