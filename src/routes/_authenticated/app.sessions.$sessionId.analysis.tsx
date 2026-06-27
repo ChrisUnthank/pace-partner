@@ -90,13 +90,7 @@ type MetricKey = (typeof METRICS)[number]["key"];
 function SessionAnalysis() {
   const { sessionId } = Route.useParams();
 
-  const [enabled, setEnabled] = useState<Record<MetricKey, boolean>>({
-    hr: true,
-    pace: true,
-    cadence: false,
-    elev: false,
-    vo: false,
-    gct: false,
+  const [: false,  const [enabled, setEnabled] = useState<Record<MetricKey, boolean>>({
   });
 
   const [xMode, setXMode] = useState<"time" | "distance">("time");
@@ -439,22 +433,23 @@ const modeType =
             </div>
 
             <div className="flex flex-wrap gap-1 mt-2">
-              {SCOPE_OPTIONS.map((k) => {
-                const hasData = k === "full" || samples.some((s) => s.stepKind === k);
+              {SCOPE_OPTIONS => {
+  const hasData =
+    k === "full" || samples.some((s) => s.stepKind === k);
 
-                return (
-                  <Button
-                    key={k}
-                    size="sm"
-                    variant={scope === k ? "default" : "outline"}
-                    disabled={!hasData}
-                    onClick={() => hasData && setScope(k)}
-                    title={!hasData ? "No data for this segment" : ""}
-                  >
-                    {SCOPE_LABELS[k]}
-                  </Button>
-                );
-              })}
+  return (
+    <Button
+      key={k}
+      size="sm"
+      variant={scope === k ? "default" : "outline"}
+      disabled={!hasData}
+      onClick={() => hasData && setScope(k)}
+      title={!hasData ? "No data for this segment" : ""}
+    >
+      {SCOPE_LABELS[k]}
+    </Button>
+  );
+})}
             </div>
 
             <div className="flex flex-wrap gap-1 mt-2">
@@ -853,6 +848,11 @@ const modeType =
     </AppShell>
   );
 }
+    hr: true,
+    pace: true,
+    cadence: false,
+    elev: false,
+    vo: false,
 
 
 function Stat({ label, value }: { label: string; value: string }) {
@@ -1105,8 +1105,7 @@ function MapPanel({
 }: {
   points: { lat?: number; lng?: number }[];
 }) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<maplibregl.Map | null>(null);
+ null);  const containerRef = useRef<HTMLDivElement | null>(null);
   const [mapStatus, setMapStatus] = useState<"ready" | "unsupported" | "failed">("ready");
 
   const safePoints = useMemo(() => {
@@ -1418,8 +1417,6 @@ const s: Sample = {
     };
   }
 
-  }
-
   if (Array.isArray(results) && results.length > 0) {
     const stepOrder = new Map<string, number>();
     steps.forEach((s) => stepOrder.set(s.id, s.step_order ?? 0));
@@ -1600,10 +1597,21 @@ function SplitsTable({ points }: { points: any[] }) {
             <tbody>
               {rows.map((r) => (
                 
+
+
 <tr
   key={r.index}
-  className={`border-b last:border-b-0 text-gray-900 ${SPLIT_ROW_CLASS[r.type] ?? ""}`}
+  className={`border-b last:border-b-0 text-white ${SPLIT_ROW_CLASS[r.type] ?? ""}`}
 >
+
+const SPLIT_ROW_CLASS: Record<SplitRow["type"], string> = {
+  warmup: "bg-blue-500",
+  work: "bg-red-500",
+  recovery: "bg-gray-500",
+  cooldown: "bg-green-500",
+  strides: "bg-amber-500",
+};
+
 
                   <td className="py-1 pr-2 tabular-nums">{r.index}</td>
                   <td className="py-1 pr-2 capitalize">{r.type}</td>
@@ -1646,3 +1654,76 @@ function SplitsTable({ points }: { points: any[] }) {
     </Card>
   );
 }
+
+  return groups.map((grp, idx) => {
+    const first = grp[0];
+    const last = grp[grp.length - 1];
+
+    const durationS = Math.max(
+      0,
+      Number(last.elapsed_s ?? 0) - Number(first.elapsed_s ?? 0),
+    );
+    const distanceM = Math.max(
+      0,
+      Number(last.distance_m ?? 0) - Number(first.distance_m ?? 0),
+    );
+
+    let rawType = first.__normalized_type ?? first.segment_type ?? "work";
+
+    // ✅ Final safety check for fake cooldown groups
+    if (
+      rawType === "cooldown" &&
+      durationS < 120 &&
+      distanceM < 200
+    ) {
+      rawType = "work";
+    }
+
+    const type = (rawType as SplitRow["type"]) || "work";
+
+    const hrs = grp
+      .map((p) => p.hr)
+      .filter((x: any): x is number => typeof x === "number" && x > 0);
+
+    const paces = grp
+      .map((p) => p.pace_sec_per_km)
+      .filter(
+        (x: any): x is number =>
+          typeof x === "number" && x > 0 && x <= 900,
+      );
+
+    const cads = grp
+      .map((p) => p.cadence)
+      .filter((x: any): x is number => typeof x === "number" && x > 0);
+
+    let gain = 0;
+    let loss = 0;
+    let haveElev = false;
+
+    for (let i = 1; i < grp.length; i++) {
+      const a = grp[i - 1].elevation_m;
+      const b = grp[i].elevation_m;
+
+      if (typeof a === "number" && typeof b === "number") {
+        haveElev = true;
+        const d = b - a;
+        if (d > 0) gain += d;
+        else loss += -d;
+      }
+    }
+
+    const avgPace =
+      distanceM > 0 && durationS > 0
+        ? (durationS / distanceM) * 1000
+        : paces.length
+          ? paces.reduce((a, b) => a + b, 0) / paces.length
+          : null;
+
+    return {
+      index: idx + 1,
+      type,
+      durationS,
+      distanceM,
+      avgPace,
+      maxPace: paces.length ? Math.min(...paces) : null, // fastest = smallest sec/km
+      avgHr: hrs.length
