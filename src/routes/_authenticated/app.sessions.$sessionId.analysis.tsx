@@ -1542,8 +1542,6 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
     ? Number((strides.reduce((a, b) => a + b, 0) / strides.length).toFixed(2))
     : null;
 
-  const insight = getSessionInsight(filteredRows);
-
   const bestRep =
     filteredRows
       .filter((r) => (r.type === "work" || r.type === "strides") && typeof r.score === "number")
@@ -1553,31 +1551,6 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
 
   return (
     <>
-      {insight && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Session insight</CardTitle>
-            <CardDescription>
-              Quick interpretation of execution quality for the current segment filter.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="text-sm">
-            <div
-              className={
-                insight.tone === "good"
-                  ? "border rounded px-3 py-2 text-emerald-400"
-                  : insight.tone === "warn"
-                  ? "border rounded px-3 py-2 text-amber-400"
-                  : "border rounded px-3 py-2 text-red-400"
-              }
-            >
-              <div className="font-medium">{insight.title}</div>
-              <div className="text-muted-foreground">{insight.detail}</div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       <Card>
         <CardHeader>
           <CardTitle>Session segments</CardTitle>
