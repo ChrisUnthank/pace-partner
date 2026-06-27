@@ -90,7 +90,13 @@ type MetricKey = (typeof METRICS)[number]["key"];
 function SessionAnalysis() {
   const { sessionId } = Route.useParams();
 
-  const [: false,  const [enabled, setEnabled] = useState<Record<MetricKey, boolean>>({
+  const [enabled, setEnabled] = useState<Record<MetricKey, boolean>>({
+    hr: true,
+    pace: true,
+    cadence: false,
+    elev: false,
+    vo: false,
+    gct: false,
   });
 
   const [xMode, setXMode] = useState<"time" | "distance">("time");
@@ -433,7 +439,7 @@ const modeType =
             </div>
 
             <div className="flex flex-wrap gap-1 mt-2">
-              {SCOPE_OPTIONS => {
+              {SCOPE_OPTIONS.map((k) => {
   const hasData =
     k === "full" || samples.some((s) => s.stepKind === k);
 
