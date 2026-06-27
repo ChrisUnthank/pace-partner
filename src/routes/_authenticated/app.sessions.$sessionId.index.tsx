@@ -329,6 +329,7 @@ function SessionDetail() {
         </div>
         <SessionSummary
           session={session}
+          results={results ?? []}
           onSaved={() => invalidateSession(qc, sessionId, session.athlete_id)}
           onCompleted={() => setInsightOpen(true)}
         />
