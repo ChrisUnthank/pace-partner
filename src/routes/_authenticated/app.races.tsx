@@ -260,8 +260,8 @@ function RaceList({ athleteId }: { athleteId: string }) {
 
                         if (!match) {
                           return (
-                            <Button size="sm" variant="outline" disabled>
-                              Analysis
+                            <Button size="sm" variant="outline" disabled title="Upload activity file or link session">
+                              No analysis
                             </Button>
                           );
                         }
