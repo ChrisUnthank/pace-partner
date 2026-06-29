@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";<h1 className="text-2xl font-bold flex items-center gap-2">
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -208,41 +208,7 @@ function SessionDetail() {
 }
     
 async function toggleRaceStatus() {
-  const nextDayType = session.day_type === "race" ? "training" : "race";
-
-  const update: any = {
-    day_type: nextDayType,
-  };
-
-  // optional: auto-fix ugly default title
-  if (
-    nextDayType === "race" &&
-    (session.title?.startsWith("RUN-") || session.title?.startsWith("Run-"))
-  ) {
-    update.title = `Race - ${session.session_date}`;
-  }
-
-  const { error } = await supabase
-    .from("sessions")
-    .update(update)
-    .eq("id", sessionId);
-
-  if (error) {
-    toast.error(error.message);
-    return;
-  }
-
-  toast.success(
-    nextDayType === "race"
-      ? "Marked as race"
-      : "Changed back to training"
-  );
-
-  qc.invalidateQueries({ queryKey: ["session", sessionId] });
-  qc.invalidateQueries({ queryKey: ["sessions-list"] });
-}
-
-async function toggleRaceStatus() {
+  if (!session) return;
   const makeRace = session.day_type !== "race";
 
   const { error } = await supabase
