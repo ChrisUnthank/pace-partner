@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";<h1 className="text-2xl font-bold flex items-center gap-2">
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -208,7 +208,6 @@ function SessionDetail() {
 }
     
 async function toggleRaceStatus() {
-  if (!session) return;
   const nextDayType = session.day_type === "race" ? "training" : "race";
 
   const update: any = {
@@ -243,49 +242,60 @@ async function toggleRaceStatus() {
   qc.invalidateQueries({ queryKey: ["sessions-list"] });
 }
 
-async function createPerformanceFromSession() {
-  if (!session) return;
-  if (session.day_type !== "race") {
-    toast.error("Mark this session as Race first");
-    return;
-  }
-
-  if (!session.completed_at) {
-    toast.error("Complete the session first");
-    return;
-  }
-
-  if (!session.total_time_seconds || !session.total_distance_m) {
-    toast.error("Session needs total time and distance");
-    return;
-  }
-
-  const payload = {
-    athlete_id: session.athlete_id,
-    performance_date: session.session_date,
-    distance_m: Math.round(Number(session.total_distance_m)),
-    time_seconds: Number(session.total_time_seconds),
-    event_name: session.title || null,
-    notes: session.notes || null,
-    is_pb: false,
-    context: "race",
-  };
+async function toggleRaceStatus() {
+  const makeRace = session.day_type !== "race";
 
   const { error } = await supabase
-    .from("performances")
-    .insert(payload);
+    .from("sessions")
+    .update({
+      day_type: makeRace ? "race" : "training",
+    })
+    .eq("id", sessionId);
 
   if (error) {
     toast.error(error.message);
     return;
   }
 
-  toast.success("Race result created ✅");
+  qc.invalidateQueries({ queryKey: ["session", sessionId] });
 
-  qc.invalidateQueries({ queryKey: ["races", session.athlete_id] });
-  qc.invalidateQueries({ queryKey: ["my-pbs", session.athlete_id] });
+  // ✅ AUTO CREATE PERFORMANCE
+  if (makeRace) {
+    if (
+      session.completed_at &&
+      session.total_time_seconds &&
+      session.total_distance_m
+    ) {
+      const payload = {
+        athlete_id: session.athlete_id,
+        performance_date: session.session_date,
+        distance_m: Math.round(Number(session.total_distance_m)),
+        time_seconds: Number(session.total_time_seconds),
+        event_name: session.title || null,
+        notes: session.notes || null,
+        is_pb: false,
+        context: "race",
+      };
+
+      const { error: perfError } = await supabase
+        .from("performances")
+        .insert(payload);
+
+      if (!perfError) {
+        toast.success("Marked as race + result created ✅");
+
+        qc.invalidateQueries({ queryKey: ["races", session.athlete_id] });
+        qc.invalidateQueries({ queryKey: ["my-pbs", session.athlete_id] });
+      } else {
+        toast.error(perfError.message);
+      }
+    } else {
+      toast("Marked as race. Add totals to create result.");
+    }
+  } else {
+    toast("Changed back to training");
+  }
 }
-
     
 useEffect(() => {
   if (session?.title) {
