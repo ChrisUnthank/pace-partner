@@ -4,23 +4,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyAthlete, useMyRoles, useAuthUser } from "@/lib/use-auth";
 import { AppShell } from "@/components/app-shell";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { metersFmt, secToClock, clockToSec, todayISO } from "@/lib/format";
@@ -52,10 +40,7 @@ function RacesPage() {
     queryKey: ["races-roster", user?.id, isCoach],
     enabled: !!user && isCoach,
     queryFn: async () => {
-      const { data } = await supabase
-        .from("coach_athletes")
-        .select("athletes(id, name)")
-        .eq("coach_user_id", user!.id);
+      const { data } = await supabase.from("coach_athletes").select("athletes(id, name)").eq("coach_user_id", user!.id);
 
       return (data ?? []).map((r: any) => r.athletes).filter(Boolean);
     },
@@ -83,11 +68,7 @@ function RacesPage() {
                   <SelectValue placeholder="Pick athlete" />
                 </SelectTrigger>
                 <SelectContent>
-                  {myAthlete && (
-                    <SelectItem value={myAthlete.id}>
-                      {myAthlete.name} (me)
-                    </SelectItem>
-                  )}
+                  {myAthlete && <SelectItem value={myAthlete.id}>{myAthlete.name} (me)</SelectItem>}
                   {(roster ?? []).map((a: any) => (
                     <SelectItem key={a.id} value={a.id}>
                       {a.name}
@@ -102,9 +83,7 @@ function RacesPage() {
         {activeAthleteId ? (
           <RaceList athleteId={activeAthleteId} />
         ) : (
-          <p className="text-sm text-muted-foreground">
-            Pick an athlete to view race results.
-          </p>
+          <p className="text-sm text-muted-foreground">Pick an athlete to view race results.</p>
         )}
       </div>
     </AppShell>
@@ -142,10 +121,17 @@ function RaceList({ athleteId }: { athleteId: string }) {
       return;
     }
 
+    const finalDistance = distanceMode === "custom" ? Number(customDistance) : distance;
+
+    if (!finalDistance || isNaN(finalDistance) || finalDistance <= 0) {
+      toast.error("Enter a valid distance in meters");
+      return;
+    }
+
     const { error } = await supabase.from("performances").insert({
       athlete_id: athleteId,
       performance_date: date,
-      distance_m: distance,
+      distance_m: finalDistance,
       time_seconds: sec,
       event_name: event || null,
       overall_place: placing ? Number(placing) : null,
@@ -170,10 +156,7 @@ function RaceList({ athleteId }: { athleteId: string }) {
   }
 
   async function remove(id: string) {
-    const { error } = await supabase
-      .from("performances")
-      .delete()
-      .eq("id", id);
+    const { error } = await supabase.from("performances").delete().eq("id", id);
 
     if (error) {
       toast.error(error.message);
@@ -197,74 +180,82 @@ function RaceList({ athleteId }: { athleteId: string }) {
       <Card>
         <CardHeader>
           <CardTitle>Add a race</CardTitle>
-          <CardDescription>
-            Recorded races feed PBs and the physiological profile.
-          </CardDescription>
+          <CardDescription>Recorded races feed PBs and the physiological profile.</CardDescription>
         </CardHeader>
 
         <CardContent className="grid sm:grid-cols-6 gap-3">
           <div className="sm:col-span-2">
             <Label className="text-xs">Date</Label>
-            <Input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-            />
+            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           </div>
 
-          <div className="sm:col-span-2">
+          <div className="sm:col-span-2 space-y-2">
             <Label className="text-xs">Distance</Label>
-            <Select
-              value={String(distance)}
-              onValueChange={(v) => setDistance(Number(v))}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {COMMON_DISTANCES.map((d) => (
-                  <SelectItem key={d.m} value={String(d.m)}>
-                    {d.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+
+            {/* Mode toggle */}
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={distanceMode === "preset" ? "default" : "outline"}
+                onClick={() => setDistanceMode("preset")}
+              >
+                Preset
+              </Button>
+
+              <Button
+                type="button"
+                size="sm"
+                variant={distanceMode === "custom" ? "default" : "outline"}
+                onClick={() => setDistanceMode("custom")}
+              >
+                Custom
+              </Button>
+            </div>
+
+            {/* Preset dropdown */}
+            {distanceMode === "preset" ? (
+              <Select value={String(distance)} onValueChange={(v) => setDistance(Number(v))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {COMMON_DISTANCES.map((d) => (
+                    <SelectItem key={d.m} value={String(d.m)}>
+                      {d.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              // Custom input
+              <Input
+                type="number"
+                placeholder="e.g. 7400"
+                value={customDistance}
+                onChange={(e) => setCustomDistance(e.target.value)}
+              />
+            )}
           </div>
 
           <div className="sm:col-span-2">
             <Label className="text-xs">Time</Label>
-            <Input
-              placeholder="16:32"
-              value={time}
-              onChange={(e) => setTime(e.target.value)}
-            />
+            <Input placeholder="16:32" value={time} onChange={(e) => setTime(e.target.value)} />
           </div>
 
           <div className="sm:col-span-3">
             <Label className="text-xs">Event name</Label>
-            <Input
-              value={event}
-              onChange={(e) => setEvent(e.target.value)}
-              placeholder="London Champs 5000m"
-            />
+            <Input value={event} onChange={(e) => setEvent(e.target.value)} placeholder="London Champs 5000m" />
           </div>
 
           <div className="sm:col-span-1">
             <Label className="text-xs">Placing</Label>
-            <Input
-              type="number"
-              value={placing}
-              onChange={(e) => setPlacing(e.target.value)}
-              placeholder="Optional"
-            />
+            <Input type="number" value={placing} onChange={(e) => setPlacing(e.target.value)} placeholder="Optional" />
           </div>
 
           <div className="sm:col-span-6">
             <Label className="text-xs">Notes</Label>
-            <Textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-            />
+            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
 
           <div className="sm:col-span-6">
@@ -287,16 +278,10 @@ function RaceList({ athleteId }: { athleteId: string }) {
                 const isPb = pbByDist.get(r.distance_m) === r.time_seconds;
 
                 return (
-                  <div
-                    key={r.id}
-                    className="flex items-center justify-between px-4 py-3 text-sm gap-3"
-                  >
+                  <div key={r.id} className="flex items-center justify-between px-4 py-3 text-sm gap-3">
                     <div className="min-w-0">
                       <div className="font-medium truncate">
-                        {metersFmt(r.distance_m)} ·{" "}
-                        <span className="tabular-nums">
-                          {secToClock(r.time_seconds)}
-                        </span>
+                        {metersFmt(r.distance_m)} · <span className="tabular-nums">{secToClock(r.time_seconds)}</span>
                         {isPb && (
                           <Badge variant="default" className="ml-2">
                             PB
@@ -311,11 +296,7 @@ function RaceList({ athleteId }: { athleteId: string }) {
                       </div>
                     </div>
 
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => remove(r.id)}
-                    >
+                    <Button variant="ghost" size="sm" onClick={() => remove(r.id)}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
