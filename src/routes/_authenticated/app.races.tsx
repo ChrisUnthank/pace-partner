@@ -207,6 +207,7 @@ function RaceList({ athleteId }: { athleteId: string }) {
       <Card>
         <CardHeader>
           <CardTitle>Results</CardTitle>
+          <CardDescription>Race results and personal bests</CardDescription>
         </CardHeader>
 
         <CardContent className="p-0">
