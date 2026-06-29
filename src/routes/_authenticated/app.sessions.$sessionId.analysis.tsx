@@ -439,16 +439,13 @@ function SessionAnalysis() {
 
             <div className="flex flex-wrap gap-1 mt-2">
               {SCOPE_OPTIONS.map((k) => {
-                const hasData = (() => {
-                  if (k === "full") return samples.length > 0;
-
-                  const scopeSamples = samples.filter((s) => s.stepKind === k);
-
-                  if (scopeSamples.length === 0) return false;
-
-                  // ✅ must also have at least one enabled + available metric
-                  return METRICS.some((m) => enabled[m.key] && hasMetric[m.key]);
-                })();
+                // Enable a segment button purely based on whether the session
+                // contains that segment type — independent of which metrics
+                // the user has toggled on.
+                const hasData =
+                  k === "full"
+                    ? samples.length > 0 || bands.length > 0
+                    : samples.some((s) => s.stepKind === k) || bands.some((b) => b.kind === k);
 
                 return (
                   <Button
@@ -457,6 +454,7 @@ function SessionAnalysis() {
                     variant={scope === k ? "default" : "outline"}
                     disabled={!hasData}
                     onClick={() => hasData && setScope(k)}
+                    className={!hasData ? "opacity-50 cursor-default" : "cursor-pointer"}
                     title={!hasData ? "No data for this segment" : ""}
                   >
                     {SCOPE_LABELS[k]}
