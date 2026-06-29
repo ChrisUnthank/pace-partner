@@ -269,7 +269,9 @@ function RaceList({ athleteId }: { athleteId: string }) {
         <CardHeader>
           <CardTitle className="text-base">Add race (manual)</CardTitle>
 
-          <CardDescription>Recorded races feed PBs and the physiological profile.</CardDescription>
+          <CardDescription>
+            Manual entry for races without GPS or historical results. Races will feed PBs and the physiological profile.
+          </CardDescription>
         </CardHeader>
 
         <CardContent className="grid sm:grid-cols-6 gap-2 opacity-90">
