@@ -267,7 +267,8 @@ function RaceList({ athleteId }: { athleteId: string }) {
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle>Add a race</CardTitle>
+          <CardTitle className="text-base">Add race (manual)</CardTitle>
+
           <CardDescription>Recorded races feed PBs and the physiological profile.</CardDescription>
         </CardHeader>
 
