@@ -131,3 +131,16 @@
   text-transform: uppercase;
   color: var(--color-muted-foreground);
 }
+
+/* Safety net: keep MapLibre's absolutely-positioned canvas inside its
+   container even if the .maplibregl-map class hasn't been applied yet
+   (e.g. during re-mount). Prevents the canvas from escaping and
+   overlaying the sidebar / page chrome. */
+.maplibregl-canvas-container,
+.maplibregl-canvas {
+  position: absolute !important;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
