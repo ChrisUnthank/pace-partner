@@ -295,46 +295,6 @@ function RaceList({ athleteId }: { athleteId: string }) {
   </div>
 </div>
 
-                    <div className="min-w-0">
-                      <div className="font-medium truncate">
-                        {metersFmt(r.distance_m)} · <span className="tabular-nums">{secToClock(r.time_seconds)}</span>
-                        {isPb && (
-                          <Badge variant="default" className="ml-2">
-                            PB
-                          </Badge>
-                        )}
-                      </div>
-
-                      <div className="text-xs text-muted-foreground truncate">
-                        {r.performance_date}
-                        {r.event_name ? ` · ${r.event_name}` : ""}
-                        {r.overall_place ? ` · Placed ${r.overall_place}` : ""}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {/* ✅ View Analysis */}
-                      {(() => {
-                        const match = findMatchingSession(r);
-
-                        if (!match) return null;
-
-                        return (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => (window.location.href = `/app/sessions/${match.id}/analysis`)}
-                          >
-                            Analysis
-                          </Button>
-                        );
-                      })()}
-
-                      <Button variant="ghost" size="sm" onClick={() => remove(r.id)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
                 );
               })}
             </div>
