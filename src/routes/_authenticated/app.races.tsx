@@ -232,69 +232,56 @@ function RaceList({ athleteId }: { athleteId: string }) {
 
                 return (
                   <div
-  key={r.id}
-  className="flex items-center justify-between px-4 py-3 gap-3 hover:bg-muted/30 transition"
->
-  {/* LEFT SIDE */}
-  <div className="min-w-0">
-    <div className="flex items-center gap-2 flex-wrap">
-      <span className="font-semibold">
-        {metersFmt(r.distance_m)}
-      </span>
+                    key={r.id}
+                    className="flex items-center justify-between px-4 py-3 gap-3 hover:bg-muted/30 transition"
+                  >
+                    {/* LEFT SIDE */}
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold">{metersFmt(r.distance_m)}</span>
 
-      <span className="tabular-nums text-base font-medium">
-        {secToClock(r.time_seconds)}
-      </span>
+                        <span className="tabular-nums text-base font-medium">{secToClock(r.time_seconds)}</span>
 
-      {/* ✅ PB BADGE */}
-      {isPb && (
-        <Badge className="bg-emerald-600 text-white">PB</Badge>
-      )}
-    </div>
+                        {/* ✅ PB BADGE */}
+                        {isPb && <Badge className="bg-emerald-600 text-white">PB</Badge>}
+                      </div>
 
-    <div className="text-xs text-muted-foreground truncate mt-0.5">
-      {r.performance_date}
-      {r.event_name ? ` · ${r.event_name}` : ""}
-      {r.overall_place ? ` · ${r.overall_place}` : ""}
-    </div>
-  </div>
+                      <div className="text-xs text-muted-foreground truncate mt-0.5">
+                        {r.performance_date}
+                        {r.event_name ? ` · ${r.event_name}` : ""}
+                        {r.overall_place ? ` · ${r.overall_place}` : ""}
+                      </div>
+                    </div>
 
-  {/* RIGHT SIDE */}
-  <div className="flex items-center gap-2 shrink-0">
-    {(() => {
-      const match = findMatchingSession(r);
+                    {/* RIGHT SIDE */}
+                    <div className="flex items-center gap-2 shrink-0">
+                      {(() => {
+                        const match = findMatchingSession(r);
 
-      if (!match) {
-        return (
-          <Button size="sm" variant="outline" disabled>
-            Analysis
-          </Button>
-        );
-      }
+                        if (!match) {
+                          return (
+                            <Button size="sm" variant="outline" disabled>
+                              Analysis
+                            </Button>
+                          );
+                        }
 
-      return (
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() =>
-            (window.location.href = `/app/sessions/${match.id}/analysis`)
-          }
-        >
-          Analysis
-        </Button>
-      );
-    })()}
+                        return (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => (window.location.href = `/app/sessions/${match.id}/analysis`)}
+                          >
+                            🏁 Race Analysis
+                          </Button>
+                        );
+                      })()}
 
-    <Button
-      variant="ghost"
-      size="sm"
-      onClick={() => remove(r.id)}
-    >
-      <Trash2 className="h-4 w-4" />
-    </Button>
-  </div>
-</div>
-
+                      <Button variant="ghost" size="sm" onClick={() => remove(r.id)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
                 );
               })}
             </div>
