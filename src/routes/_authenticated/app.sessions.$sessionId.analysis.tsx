@@ -993,58 +993,17 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
 
   const safePoints = useMemo(() => {
     return Array.isArray(points)
-      ? points.filter((p) => p && Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)))
-      : [];
-  }, [points]);
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
+      ? points.filter node.style.height = "100%";      ? points.filter((p) => p && Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)))
+          node.style.maxWidth = "100%";
+          node.style.maxHeight = "100%";
+        });
 
-    el.style.position = "absolute";
-    el.style.inset = "0";
-    el.style.overflow = "hidden";
-
-    return () => {
-      el.style.position = "";
-      el.style.inset = "";
-      el.style.overflow = "";
-    };
-  }, []);
-  useEffect(() => {
-    if (!containerRef.current || safePoints.length < 2) return;
-
-    let cancelled = false;
-    let map: maplibregl.Map | null = null;
-
-    try {
-      map = new maplibregl.Map({
-        container: containerRef.current,
-        style: "https://demotiles.maplibre.org/style.json",
-        interactive: true,
-      });
-
-      mapRef.current = map;
-
-      map.once("load", () => {
-        if (cancelled || !map) return;
-        const root = containerRef.current;
-        if (root) {
-          const mapEl = root.querySelector(".maplibregl-map") as HTMLElement | null;
-          const canvasWrap = root.querySelector(".maplibregl-canvas-container") as HTMLElement | null;
-          const canvas = root.querySelector(".maplibregl-canvas") as HTMLCanvasElement | null;
-
-          [mapEl, canvasWrap, canvas].forEach((node) => {
-            if (!node) return;
-            node.style.position = "absolute";
-            node.style.inset = "0";
-            node.style.width = "100%";
-            node.style.height = "100%";
-            node.style.maxWidth = "100%";
-            node.style.maxHeight = "100%";
-          });
+        if (canvasWrap) {
+          canvasWrap.style.overflow = "hidden";
         }
 
         const coords = safePoints.map((p) => [Number(p.lng), Number(p.lat)] as [number, number]);
+
         const geojson = {
           type: "Feature",
           geometry: {
@@ -1069,9 +1028,28 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
           },
         });
 
+        // Start marker
+        new maplibregl.Marker({ color: "#22c55e" })
+          .setLngLat(coords[0])
+          .addTo(map);
+
+        // Finish marker
+        new maplibregl.Marker({ color: "#ef4444" })
+          .setLngLat(coords[coords.length - 1])
+          .addTo(map);
+
         const bounds = new maplibregl.LngLatBounds(coords[0], coords[0]);
         coords.forEach((coord) => bounds.extend(coord));
         map.fitBounds(bounds, { padding: 24, duration: 0 });
+
+        // Force one resize after layout settles
+        requestAnimationFrame(() => {
+          try {
+            map?.resize();
+          } catch {
+            // ignore
+          }
+        });
       });
 
       map.on("error", (event) => {
@@ -1121,17 +1099,45 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
 
     const first = safePoints[0];
     const last = safePoints[safePoints.length - 1];
+    const [startX, startY] = project(Number(first.lat), Number(first.lng));
+    const [endX, endY] = project(Number(last.lat), Number(last.lng));
 
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Route map</CardTitle>
-          <CardDescription>GPS trace from uploaded activity data.</CardDescription>
+          <CardTitle>Route preview</CardTitle>
+          <CardDescription>Static route preview (WebGL not available in this environment)</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="relative isolate overflow-hidden h-[320px] w-full rounded border">
-            <div ref={containerRef} className="absolute inset-0" />
+          <div className="text-xs text-muted-foreground mb-2 space-y-1">
+            <div>
+              Start: {first.lat?.toFixed(5)}, {first.lng?.toFixed(5)}
+            </div>
+            <div>
+              End: {last.lat?.toFixed(5)}, {last.lng?.toFixed(5)}
+            </div>
           </div>
+
+          <svg
+            width="100%"
+            height={height}
+            viewBox={`0 0 ${width} ${height}`}
+            className="border rounded bg-black"
+          >
+            <polyline points={path} fill="none" stroke="#ef4444" strokeWidth="2" />
+
+            {/* Start cue */}
+            <circle cx={startX} cy={startY} r="5" fill="#22c55e" />
+            <text x={startX + 8} y={startY - 8} fill="#22c55e" fontSize="12" fontWeight="600">
+              Start
+            </text>
+
+            {/* End cue */}
+            <circle cx={endX} cy={endY} r="5" fill="#ef4444" />
+            <text x={endX + 8} y={endY - 8} fill="#ef4444" fontSize="12" fontWeight="600">
+              Finish
+            </text>
+          </svg>
         </CardContent>
       </Card>
     );
@@ -1144,11 +1150,54 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
         <CardDescription>GPS trace from uploaded activity data.</CardDescription>
       </CardHeader>
       <CardContent>
-        <div ref={containerRef} className="h-[320px] w-full rounded border" />
+        <div className="relative isolate overflow-hidden h-[320px] w-full rounded border">
+          <div
+            ref={containerRef}
+            className="absolute inset-0"
+            style={{
+              overflow: "hidden",
+              cursor: "default",
+            }}
+          />
+        </div>
       </CardContent>
     </Card>
   );
 }
+      : [];
+  }, [points]);
+
+  useEffect(() => {
+    if (!containerRef.current || safePoints.length < 2) return;
+
+    let cancelled = false;
+    let map: maplibregl.Map | null = null;
+
+    try {
+      map = new maplibregl.Map({
+        container: containerRef.current,
+        style: "https://demotiles.maplibre.org/style.json",
+        interactive: false, // important: prevents hand cursor / drag behavior
+        attributionControl: false,
+      });
+
+      mapRef.current = map;
+
+      map.once("load", () => {
+        if (cancelled || !map || !containerRef.current) return;
+
+        // Hard-contain any injected map/canvas elements inside this panel
+        const root = containerRef.current;
+        const mapEl = root.querySelector(".maplibregl-map") as HTMLElement | null;
+        const canvasWrap = root.querySelector(".maplibregl-canvas-container") as HTMLElement | null;
+        const canvas = root.querySelector(".maplibregl-canvas") as HTMLCanvasElement | null;
+
+        [root, mapEl, canvasWrap, canvas].forEach((node) => {
+          if (!node) return;
+          node.style.position = "absolute";
+          node.style.inset = "0";
+          node.style.width = "100%";
+
 
 function buildSamples(
   steps: any[],
