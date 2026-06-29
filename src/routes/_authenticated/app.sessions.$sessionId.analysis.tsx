@@ -987,182 +987,107 @@ function ZonePanel({ rows, title }: { rows: any[]; title: string }) {
 }
 
 function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
-  const mapRef = useRef<maplibregl.Map | null>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const [mapStatus, setMapStatus] = useState<"map" | "fallback">("map");
-
   const safePoints = useMemo(() => {
     return Array.isArray(points)
-      ? points.filter(
-          (p) => p && Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)),
-        )
+      ? points.filter((p) => p && Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)))
       : [];
   }, [points]);
 
-  useEffect(() => {
-    if (!containerRef.current || safePoints.length < 2) return;
-
-    let cancelled = false;
-    let map: maplibregl.Map | null = null;
-
-    try {
-      map = new maplibregl.Map({
-        container: containerRef.current,
-        style: "https://demotiles.maplibre.org/style.json",
-        interactive: false,
-        attributionControl: false,
-      });
-
-      mapRef.current = map;
-
-      map.once("load", () => {
-        if (cancelled || !map || !containerRef.current) return;
-
-        const root = containerRef.current;
-        const mapEl = root.querySelector(".maplibregl-map") as HTMLElement | null;
-        const canvasWrap = root.querySelector(".maplibregl-canvas-container") as HTMLElement | null;
-        const canvas = root.querySelector(".maplibregl-canvas") as HTMLCanvasElement | null;
-
-        [root, mapEl, canvasWrap, canvas].forEach((node) => {
-          if (!node) return;
-          node.style.position = "absolute";
-          node.style.inset = "0";
-          node.style.width = "100%";
-          node.style.height = "100%";
-          node.style.maxWidth = "100%";
-          node.style.maxHeight = "100%";
-        });
-
-        if (canvasWrap) {
-          canvasWrap.style.overflow = "hidden";
-        }
-
-        const coords = safePoints.map(
-          (p) => [Number(p.lng), Number(p.lat)] as [number, number],
-        );
-
-        const geojson = {
-          type: "Feature",
-          geometry: { type: "LineString", coordinates: coords },
-          properties: {},
-        } as const;
-
-        map.addSource("route", { type: "geojson", data: geojson });
-        map.addLayer({
-          id: "route-line",
-          type: "line",
-          source: "route",
-          paint: { "line-color": "#ef4444", "line-width": 3 },
-        });
-
-        new maplibregl.Marker({ color: "#22c55e" }).setLngLat(coords[0]).addTo(map);
-        new maplibregl.Marker({ color: "#ef4444" })
-          .setLngLat(coords[coords.length - 1])
-          .addTo(map);
-
-        const bounds = new maplibregl.LngLatBounds(coords[0], coords[0]);
-        coords.forEach((coord) => bounds.extend(coord));
-        map.fitBounds(bounds, { padding: 24, duration: 0 });
-
-        requestAnimationFrame(() => {
-          try {
-            map?.resize();
-          } catch {
-            // ignore
-          }
-        });
-      });
-
-      map.on("error", (event) => {
-        console.error("MapPanel map error:", event);
-        if (!cancelled) setMapStatus("fallback");
-      });
-    } catch (err) {
-      console.error("MapPanel init error:", err);
-      if (!cancelled) setMapStatus("fallback");
-    }
-
-    return () => {
-      cancelled = true;
-      try {
-        mapRef.current?.remove();
-        mapRef.current = null;
-      } catch {
-        // ignore
-      }
-    };
-  }, [safePoints]);
-
   if (safePoints.length < 2) return null;
 
-  if (mapStatus === "fallback") {
-    const lats = safePoints.map((p) => Number(p.lat));
-    const lngs = safePoints.map((p) => Number(p.lng));
-    const minLat = Math.min(...lats);
-    const maxLat = Math.max(...lats);
-    const minLng = Math.min(...lngs);
-    const maxLng = Math.max(...lngs);
-    const width = 600;
-    const height = 300;
+  const lats = safePoints.map((p) => Number(p.lat));
+  const lngs = safePoints.map((p) => Number(p.lng));
+  const minLat = Math.min(...lats);
+  const maxLat = Math.max(...lats);
+  const minLng = Math.min(...lngs);
+  const maxLng = Math.max(...lngs);
 
-    const project = (lat: number, lng: number) => {
-      const x = ((lng - minLng) / (maxLng - minLng || 1)) * width;
-      const y = height - ((lat - minLat) / (maxLat - minLat || 1)) * height;
-      return [x, y] as const;
-    };
+  const width = 800;
+  const height = 320;
+  const pad = 20;
 
-    const path = safePoints
-      .map((p) => {
-        const [x, y] = project(Number(p.lat), Number(p.lng));
-        return `${x},${y}`;
-      })
-      .join(" ");
+  const project = (lat: number, lng: number) => {
+    const usableW = width - pad * 2;
+    const usableH = height - pad * 2;
 
-    const first = safePoints[0];
-    const last = safePoints[safePoints.length - 1];
-    const [startX, startY] = project(Number(first.lat), Number(first.lng));
-    const [endX, endY] = project(Number(last.lat), Number(last.lng));
+    const x = pad + ((lng - minLng) / (maxLng - minLng || 1)) * usableW;
+    const y = height - pad - ((lat - minLat) / (maxLat - minLat || 1)) * usableH;
 
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Route preview</CardTitle>
-          <CardDescription>Static route preview (WebGL not available in this environment)</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="text-xs text-muted-foreground mb-2 space-y-1">
-            <div>
-              Start: {first.lat?.toFixed(5)}, {first.lng?.toFixed(5)}
-            </div>
-            <div>
-              End: {last.lat?.toFixed(5)}, {last.lng?.toFixed(5)}
-            </div>
+    return [x, y] as const;
+  };
+
+  const path = safePoints
+    .map((p) => {
+      const [x, y] = project(Number(p.lat), Number(p.lng));
+      return `${x},${y}`;
+    })
+    .join(" ");
+
+  const first = safePoints[0];
+  const last = safePoints[safePoints.length - 1];
+
+  const [startX, startY] = project(Number(first.lat), Number(first.lng));
+  const [endX, endY] = project(Number(last.lat), Number(last.lng));
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Route preview</CardTitle>
+        <CardDescription>Static route preview from uploaded GPS trace.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="text-xs text-muted-foreground mb-2 space-y-1">
+          <div>
+            Start: {first.lat?.toFixed(5)}, {first.lng?.toFixed(5)}
           </div>
+          <div>
+            Finish: {last.lat?.toFixed(5)}, {last.lng?.toFixed(5)}
+          </div>
+        </div>
 
-          <svg
-            width="100%"
-            height={height}
-            viewBox={`0 0 ${width} ${height}`}
-            className="border rounded bg-black"
+        <svg
+          width="100%"
+          height={height}
+          viewBox={`0 0 ${width} ${height}`}
+          className="border rounded bg-black"
+        >
+          <polyline
+            points={path}
+            fill="none"
+            stroke="#ef4444"
+            strokeWidth="3"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+
+          {/* Start cue */}
+          <circle cx={startX} cy={startY} r="5" fill="#22c55e" />
+          <text
+            x={startX + 8}
+            y={startY - 8}
+            fill="#22c55e"
+            fontSize="12"
+            fontWeight="600"
           >
-            <polyline points={path} fill="none" stroke="#ef4444" strokeWidth="2" />
+            Start
+          </text>
 
-            {/* Start cue */}
-            <circle cx={startX} cy={startY} r="5" fill="#22c55e" />
-            <text x={startX + 8} y={startY - 8} fill="#22c55e" fontSize="12" fontWeight="600">
-              Start
-            </text>
-
-            {/* End cue */}
-            <circle cx={endX} cy={endY} r="5" fill="#ef4444" />
-            <text x={endX + 8} y={endY - 8} fill="#ef4444" fontSize="12" fontWeight="600">
-              Finish
-            </text>
-          </svg>
-        </CardContent>
-      </Card>
-    );
-  }
+          {/* Finish cue */}
+          <circle cx={endX} cy={endY} r="5" fill="#ef4444" />
+          <text
+            x={endX + 8}
+            y={endY - 8}
+            fill="#ef4444"
+            fontSize="12"
+            fontWeight="600"
+          >
+            Finish
+          </text>
+        </svg>
+      </CardContent>
+    </Card>
+  );
+}
 
   return (
     <Card>
@@ -1185,6 +1110,40 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
     </Card>
   );
 }
+      : [];
+  }, [points]);
+
+  useEffect(() => {
+    if (!containerRef.current || safePoints.length < 2) return;
+
+    let cancelled = false;
+    let map: maplibregl.Map | null = null;
+
+    try {
+      map = new maplibregl.Map({
+        container: containerRef.current,
+        style: "https://demotiles.maplibre.org/style.json",
+        interactive: false, // important: prevents hand cursor / drag behavior
+        attributionControl: false,
+      });
+
+      mapRef.current = map;
+
+      map.once("load", () => {
+        if (cancelled || !map || !containerRef.current) return;
+
+        // Hard-contain any injected map/canvas elements inside this panel
+        const root = containerRef.current;
+        const mapEl = root.querySelector(".maplibregl-map") as HTMLElement | null;
+        const canvasWrap = root.querySelector(".maplibregl-canvas-container") as HTMLElement | null;
+        const canvas = root.querySelector(".maplibregl-canvas") as HTMLCanvasElement | null;
+
+        [root, mapEl, canvasWrap, canvas].forEach((node) => {
+          if (!node) return;
+          node.style.position = "absolute";
+          node.style.inset = "0";
+          node.style.width = "100%";
+
 
 function buildSamples(
   steps: any[],
