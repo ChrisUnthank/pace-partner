@@ -244,6 +244,7 @@ async function toggleRaceStatus() {
 }
 
 async function createPerformanceFromSession() {
+  if (!session) return;
   if (session.day_type !== "race") {
     toast.error("Mark this session as Race first");
     return;
