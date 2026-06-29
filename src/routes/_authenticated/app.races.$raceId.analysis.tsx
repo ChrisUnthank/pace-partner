@@ -26,11 +26,7 @@ function RaceAnalysisPage() {
   const { data: race, isLoading } = useQuery({
     queryKey: ["race", raceId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("performances")
-        .select("*")
-        .eq("id", raceId)
-        .maybeSingle();
+      const { data, error } = await supabase.from("performances").select("*").eq("id", raceId).maybeSingle();
       if (error) throw error;
       return data;
     },
@@ -48,15 +44,14 @@ function RaceAnalysisPage() {
     setSplits((s) => [...s, newSplit()]);
   }
 
-  const avgPace =
-    race?.distance_m && race?.time_seconds
-      ? (race.time_seconds / race.distance_m) * 1000
-      : null;
+  const avgPace = race?.distance_m && race?.time_seconds ? (race.time_seconds / race.distance_m) * 1000 : null;
 
   const computed = splits.map((s) => {
-    const d = Number(s.distance);
+    const d = s.distance ? Number(s.distance) : null;
     const t = clockToSec(s.time);
-    const pace = d > 0 && t != null ? (t / d) * 1000 : null;
+
+    const pace = d && t != null ? (t / d) * 1000 : null;
+
     return { ...s, d, t, pace };
   });
 
@@ -95,9 +90,7 @@ function RaceAnalysisPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Splits</CardTitle>
-                <CardDescription>
-                  Enter distance and time per split. Pace is computed live.
-                </CardDescription>
+                <CardDescription>Enter distance and time per split. Pace is computed live.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="grid grid-cols-[40px_1fr_1fr_110px_40px] gap-2 text-xs text-muted-foreground px-1">
@@ -109,10 +102,7 @@ function RaceAnalysisPage() {
                 </div>
 
                 {computed.map((s, i) => (
-                  <div
-                    key={s.id}
-                    className="grid grid-cols-[40px_1fr_1fr_110px_40px] gap-2 items-center"
-                  >
+                  <div key={s.id} className="grid grid-cols-[40px_1fr_1fr_110px_40px] gap-2 items-center">
                     <div className="text-sm text-muted-foreground tabular-nums">{i + 1}</div>
                     <Input
                       type="number"
@@ -120,13 +110,9 @@ function RaceAnalysisPage() {
                       value={s.distance}
                       onChange={(e) => update(s.id, { distance: e.target.value })}
                     />
-                    <Input
-                      placeholder="3:00"
-                      value={s.time}
-                      onChange={(e) => update(s.id, { time: e.target.value })}
-                    />
+                    <Input placeholder="3:00" value={s.time} onChange={(e) => update(s.id, { time: e.target.value })} />
                     <div className="tabular-nums text-sm">
-                      {s.pace ? paceFmt(s.pace) : "—"}
+                      {s.d ? (s.d >= 1000 ? `${(s.d / 1000).toFixed(1)} km` : `${s.d} m`) : "--"}
                     </div>
                     <Button variant="ghost" size="icon-sm" onClick={() => remove(s.id)}>
                       <Trash2 className="h-4 w-4" />
