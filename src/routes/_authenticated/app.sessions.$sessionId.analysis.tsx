@@ -280,6 +280,16 @@ function SessionAnalysis() {
     return bands.filter((b) => b.kind === scope);
   }, [bands, scope]);
 
+  const mapPoints = useMemo(
+    () =>
+      Array.isArray(gpsPoints)
+        ? gpsPoints.filter(
+            (p: any) => Number.isFinite(Number(p?.lat)) && Number.isFinite(Number(p?.lng)),
+          )
+        : [],
+    [gpsPoints],
+  );
+
   const xCanUseDistance =
     Array.isArray(visibleSamples) && visibleSamples.length > 0 && visibleSamples.every((s) => s.d != null);
 
