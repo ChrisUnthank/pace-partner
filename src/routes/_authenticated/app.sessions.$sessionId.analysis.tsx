@@ -280,6 +280,16 @@ function SessionAnalysis() {
     return bands.filter((b) => b.kind === scope);
   }, [bands, scope]);
 
+  const mapPoints = useMemo(
+    () =>
+      Array.isArray(gpsPoints)
+        ? gpsPoints.filter(
+            (p: any) => Number.isFinite(Number(p?.lat)) && Number.isFinite(Number(p?.lng)),
+          )
+        : [],
+    [gpsPoints],
+  );
+
   const xCanUseDistance =
     Array.isArray(visibleSamples) && visibleSamples.length > 0 && visibleSamples.every((s) => s.d != null);
 
@@ -429,16 +439,13 @@ function SessionAnalysis() {
 
             <div className="flex flex-wrap gap-1 mt-2">
               {SCOPE_OPTIONS.map((k) => {
-                const hasData = (() => {
-                  if (k === "full") return samples.length > 0;
-
-                  const scopeSamples = samples.filter((s) => s.stepKind === k);
-
-                  if (scopeSamples.length === 0) return false;
-
-                  // ✅ must also have at least one enabled + available metric
-                  return METRICS.some((m) => enabled[m.key] && hasMetric[m.key]);
-                })();
+                // Enable a segment button purely based on whether the session
+                // contains that segment type — independent of which metrics
+                // the user has toggled on.
+                const hasData =
+                  k === "full"
+                    ? samples.length > 0 || bands.length > 0
+                    : samples.some((s) => s.stepKind === k) || bands.some((b) => b.kind === k);
 
                 return (
                   <Button
@@ -447,6 +454,7 @@ function SessionAnalysis() {
                     variant={scope === k ? "default" : "outline"}
                     disabled={!hasData}
                     onClick={() => hasData && setScope(k)}
+                    className={!hasData ? "opacity-50 cursor-default" : "cursor-pointer"}
                     title={!hasData ? "No data for this segment" : ""}
                   >
                     {SCOPE_LABELS[k]}
@@ -725,10 +733,7 @@ function SessionAnalysis() {
         )}
 
         {recoveryRows.length >= 2 && <RecoveryPanel rows={recoveryRows} />}
-        {Array.isArray(gpsPoints) &&
-          gpsPoints.filter((p: any) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng)).length >= 2 && (
-            <MapPanel points={gpsPoints.filter((p: any) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng))} />
-          )}
+        {mapPoints.length >= 2 && <MapPanel points={mapPoints} />}
 
         <Card>
           <CardHeader>
@@ -1135,7 +1140,9 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
         <CardDescription>GPS trace from uploaded activity data.</CardDescription>
       </CardHeader>
       <CardContent>
-        <div ref={containerRef} className="h-[320px] w-full rounded border" />
+        <div className="relative isolate overflow-hidden h-[320px] w-full rounded border">
+          <div ref={containerRef} className="absolute inset-0" />
+        </div>
       </CardContent>
     </Card>
   );
