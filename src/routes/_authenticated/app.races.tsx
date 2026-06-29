@@ -141,6 +141,8 @@ function RaceList({ athleteId }: { athleteId: string }) {
   const [notes, setNotes] = useState("");
 
   async function add() {
+    setScrollY(window.scrollY);
+
     const sec = clockToSec(time);
 
     if (sec === null || sec === undefined || isNaN(sec)) {
@@ -183,6 +185,8 @@ function RaceList({ athleteId }: { athleteId: string }) {
   }
 
   async function remove(id: string) {
+    setScrollY(window.scrollY);
+
     const { error } = await supabase.from("performances").delete().eq("id", id);
 
     if (error) {
