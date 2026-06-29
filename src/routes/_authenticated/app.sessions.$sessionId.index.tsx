@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";<h1 className="text-2xl font-bold flex items-center gap-2">
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -163,51 +163,49 @@ function SessionDetail() {
   });
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const file = e.target.files?.[0];
+  if (!file) return;
 
-    setUploading(true);
+  setUploading(true);
 
-    const reader = new FileReader();
+  const reader = new FileReader();
 
-    reader.onload = async () => {
-      const base64 = String(reader.result || "").split(",")[1];
+  reader.onload = async () => {
+    const base64 = String(reader.result || "").split(",")[1];
 
-      try {
-        const res: any = await uploadFile({
-          data: {
-            athleteId: session!.athlete_id,
-            sessionId: sessionId, // ✅ THIS LINKS TO EXISTING SESSION
-            filename: file.name,
-            kind: file.name.toLowerCase().endsWith(".gpx") ? "gpx" : "fit",
-            fileBase64: base64,
-          },
-        });
+    try {
+      const res: any = await uploadFile({
+        data: {
+          athleteId: session!.athlete_id,
+          sessionId: sessionId,
+          filename: file.name,
+          kind: file.name.toLowerCase().endsWith(".gpx") ? "gpx" : "fit",
+          fileBase64: base64,
+        },
+      });
 
-        // ✅ CRITICAL FIX (catch parse errors)
-        if (res?.error) {
-          throw new Error(res.error);
-        }
-
-        toast.success("File uploaded and session updated");
-
-        // refresh UI
-        qc.invalidateQueries({ queryKey: ["session", sessionId] });
-        qc.invalidateQueries({ queryKey: ["steps", sessionId] });
-        qc.invalidateQueries({ queryKey: ["results", sessionId] });
-        qc.invalidateQueries({ queryKey: ["raw-points", sessionId] });
-        qc.invalidateQueries({ queryKey: ["zone-time", sessionId] });
-        qc.invalidateQueries({ queryKey: ["fatigue", sessionId] });
-      } catch (err: any) {
-        console.error("FIT upload error:", err);
-        toast.error(err.message);
+      if (res?.error) {
+        throw new Error(res.error);
       }
 
-      setUploading(false);
-    };
+      toast.success("File uploaded and session updated");
 
-    reader.readAsDataURL(file);
-  }
+      qc.invalidateQueries({ queryKey: ["session", sessionId] });
+      qc.invalidateQueries({ queryKey: ["steps", sessionId] });
+      qc.invalidateQueries({ queryKey: ["results", sessionId] });
+      qc.invalidateQueries({ queryKey: ["raw-points", sessionId] });
+      qc.invalidateQueries({ queryKey: ["zone-time", sessionId] });
+      qc.invalidateQueries({ queryKey: ["fatigue", sessionId] });
+    } catch (err: any) {
+      console.error("FIT upload error:", err);
+      toast.error(err.message);
+    }
+
+    setUploading(false);
+  };
+
+  reader.readAsDataURL(file);
+}
 
 useEffect(() => {
   if (session?.title) {
