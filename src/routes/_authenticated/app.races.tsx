@@ -260,8 +260,12 @@ function RaceList({ athleteId }: { athleteId: string }) {
 
                         if (!match) {
                           return (
-                            <Button size="sm" variant="outline" disabled title="Upload activity file or link session">
-                              No analysis
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => (window.location.href = `/app/races/${r.id}/analysis`)}
+                            >
+                              Analysis
                             </Button>
                           );
                         }
