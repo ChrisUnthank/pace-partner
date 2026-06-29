@@ -208,6 +208,7 @@ function SessionDetail() {
 }
     
 async function toggleRaceStatus() {
+  if (!session) return;
   const nextDayType = session.day_type === "race" ? "training" : "race";
 
   const update: any = {
@@ -240,10 +241,6 @@ async function toggleRaceStatus() {
 
   qc.invalidateQueries({ queryKey: ["session", sessionId] });
   qc.invalidateQueries({ queryKey: ["sessions-list"] });
-}
-
-async function toggleRaceStatus() {
-  ...
 }
 
 async function createPerformanceFromSession() {
