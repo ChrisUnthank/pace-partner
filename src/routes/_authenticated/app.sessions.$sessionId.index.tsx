@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";<h1 className="text-2xl font-bold flex items-center gap-2">
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -208,7 +208,6 @@ function SessionDetail() {
 }
     
 async function toggleRaceStatus() {
-  if (!session) return;
   const nextDayType = session.day_type === "race" ? "training" : "race";
 
   const update: any = {
@@ -323,15 +322,37 @@ useEffect(() => {
                 Save as template
               </Button>
             )}
-            {session.completed_at && (
-              <Button asChild size="sm" variant="outline">
-                <Link to="/app/sessions/$sessionId/analysis" params={{ sessionId }}>
-                  <LineChart className="h-4 w-4 mr-1" />
-                  View analysis
-                </Link>
-              </Button>
-            )}
+            <div className="flex items-center gap-2 flex-wrap">
 
+  {/* ✅ Mark as Race */}
+  <Button
+    size="sm"
+    variant={session.day_type === "race" ? "default" : "outline"}
+    onClick={toggleRaceStatus}
+  >
+    {session.day_type === "race" ? "Race ✅" : "Mark as Race"}
+  </Button>
+
+  {/* ✅ Existing analysis */}
+  {session.completed_at && (
+    <Button asChild size="sm" variant="outline">
+      <Link to="/app/sessions/$sessionId/analysis" params={{ sessionId }}>
+        <LineChart className="h-4 w-4 mr-1" />
+        View analysis
+      </Link>
+    </Button>
+  )}
+
+  {/* ✅ Future Race Analysis (disabled for now) */}
+  <Button
+    size="sm"
+    variant="outline"
+    disabled={session.day_type !== "race"}
+  >
+    Race analysis
+  </Button>
+
+</div>
             <Button
               size="sm"
               variant="destructive"
