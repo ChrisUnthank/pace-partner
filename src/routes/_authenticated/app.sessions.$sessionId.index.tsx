@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";<h1 className="text-2xl font-bold flex items-center gap-2">
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -51,6 +51,9 @@ function SessionDetail() {
   const [saveTplOpen, setSaveTplOpen] = useState(false);
   const [tplName, setTplName] = useState("");
   const [insightOpen, setInsightOpen] = useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleValue, setTitleValue] = useState("");
+
 
   // ✅ FIT upload setup
   const uploadFile = useServerFn(uploadAndParseSessionFile);
@@ -205,6 +208,12 @@ function SessionDetail() {
 
     reader.readAsDataURL(file);
   }
+
+useEffect(() => {
+  if (session?.title) {
+    setTitleValue(session.title);
+  }
+}, [session?.title]);
 
   if (isLoading)
     return (
