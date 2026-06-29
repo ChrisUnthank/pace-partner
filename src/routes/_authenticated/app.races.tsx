@@ -272,7 +272,7 @@ function RaceList({ athleteId }: { athleteId: string }) {
           <CardDescription>Recorded races feed PBs and the physiological profile.</CardDescription>
         </CardHeader>
 
-        <CardContent className="grid sm:grid-cols-6 gap-3">
+        <CardContent className="grid sm:grid-cols-6 gap-2 opacity-90">
           <div className="sm:col-span-2">
             <Label className="text-xs">Date</Label>
             <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
