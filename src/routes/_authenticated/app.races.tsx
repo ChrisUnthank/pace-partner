@@ -294,7 +294,7 @@ function RaceList({ athleteId }: { athleteId: string }) {
     </Button>
   </div>
 </div>
-``
+
                     <div className="min-w-0">
                       <div className="font-medium truncate">
                         {metersFmt(r.distance_m)} · <span className="tabular-nums">{secToClock(r.time_seconds)}</span>
