@@ -271,17 +271,6 @@ return (
     {match ? "Race Analysis" : "Analysis"}
   </Button>
 );
-                        }
-
-                        return (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => (window.location.href = `/app/sessions/${match.id}/analysis`)}
-                          >
-                            🏁 Race Analysis
-                          </Button>
-                        );
                       })()}
 
                       <Button variant="ghost" size="sm" onClick={() => remove(r.id)}>
