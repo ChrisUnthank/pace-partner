@@ -725,10 +725,7 @@ function SessionAnalysis() {
         )}
 
         {recoveryRows.length >= 2 && <RecoveryPanel rows={recoveryRows} />}
-        {Array.isArray(gpsPoints) &&
-          gpsPoints.filter((p: any) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng)).length >= 2 && (
-            <MapPanel points={gpsPoints.filter((p: any) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng))} />
-          )}
+        {mapPoints.length >= 2 && <MapPanel points={mapPoints} />}
 
         <Card>
           <CardHeader>
