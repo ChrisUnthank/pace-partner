@@ -407,13 +407,6 @@ useEffect(() => {
     Race analysis
   </Button>
 
-<Button
-  size="sm"
-  variant="outline"
-  onClick={createPerformanceFromSession}
->
-  Create race result
-</Button>
 
 </div>
             <Button
