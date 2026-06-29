@@ -206,6 +206,41 @@ function SessionDetail() {
 
   reader.readAsDataURL(file);
 }
+    
+async function toggleRaceStatus() {
+  const nextDayType = session.day_type === "race" ? "training" : "race";
+
+  const update: any = {
+    day_type: nextDayType,
+  };
+
+  // optional: auto-fix ugly default title
+  if (
+    nextDayType === "race" &&
+    (session.title?.startsWith("RUN-") || session.title?.startsWith("Run-"))
+  ) {
+    update.title = `Race - ${session.session_date}`;
+  }
+
+  const { error } = await supabase
+    .from("sessions")
+    .update(update)
+    .eq("id", sessionId);
+
+  if (error) {
+    toast.error(error.message);
+    return;
+  }
+
+  toast.success(
+    nextDayType === "race"
+      ? "Marked as race"
+      : "Changed back to training"
+  );
+
+  qc.invalidateQueries({ queryKey: ["session", sessionId] });
+  qc.invalidateQueries({ queryKey: ["sessions-list"] });
+}
 
 useEffect(() => {
   if (session?.title) {
