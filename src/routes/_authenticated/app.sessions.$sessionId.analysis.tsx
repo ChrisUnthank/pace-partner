@@ -1140,7 +1140,9 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
         <CardDescription>GPS trace from uploaded activity data.</CardDescription>
       </CardHeader>
       <CardContent>
-        <div ref={containerRef} className="h-[320px] w-full rounded border" />
+        <div className="relative isolate overflow-hidden h-[320px] w-full rounded border">
+          <div ref={containerRef} className="absolute inset-0" />
+        </div>
       </CardContent>
     </Card>
   );
