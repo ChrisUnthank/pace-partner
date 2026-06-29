@@ -1087,62 +1087,6 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
   );
 }
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Route map</CardTitle>
-        <CardDescription>GPS trace from uploaded activity data.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="relative isolate overflow-hidden h-[320px] w-full rounded border">
-          <div
-            ref={containerRef}
-            className="absolute inset-0"
-            style={{
-              overflow: "hidden",
-              cursor: "default",
-            }}
-          />
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-      : [];
-  }, [points]);
-
-  useEffect(() => {
-    if (!containerRef.current || safePoints.length < 2) return;
-
-    let cancelled = false;
-    let map: maplibregl.Map | null = null;
-
-    try {
-      map = new maplibregl.Map({
-        container: containerRef.current,
-        style: "https://demotiles.maplibre.org/style.json",
-        interactive: false, // important: prevents hand cursor / drag behavior
-        attributionControl: false,
-      });
-
-      mapRef.current = map;
-
-      map.once("load", () => {
-        if (cancelled || !map || !containerRef.current) return;
-
-        // Hard-contain any injected map/canvas elements inside this panel
-        const root = containerRef.current;
-        const mapEl = root.querySelector(".maplibregl-map") as HTMLElement | null;
-        const canvasWrap = root.querySelector(".maplibregl-canvas-container") as HTMLElement | null;
-        const canvas = root.querySelector(".maplibregl-canvas") as HTMLCanvasElement | null;
-
-        [root, mapEl, canvasWrap, canvas].forEach((node) => {
-          if (!node) return;
-          node.style.position = "absolute";
-          node.style.inset = "0";
-          node.style.width = "100%";
-
-
 function buildSamples(
   steps: any[],
   results: any[],
