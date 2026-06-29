@@ -1205,10 +1205,6 @@ function buildSamples(
         // ✅ THIS is your graph driver (unchanged)
         stepKind: normalizedKind,
 
-        // ✅ ADD THESE TWO LINES ONLY
-        originalKind,
-        normalizedKind,
-
         repNumber: 1,
       };
 
