@@ -1201,7 +1201,14 @@ function buildSamples(
         lat: p.lat != null ? Number(p.lat) : undefined,
         lng: p.lng != null ? Number(p.lng) : undefined,
         stepId: "trace",
+
+        // ✅ THIS is your graph driver (unchanged)
         stepKind: normalizedKind,
+
+        // ✅ ADD THESE TWO LINES ONLY
+        originalKind,
+        normalizedKind,
+
         repNumber: 1,
       };
 
