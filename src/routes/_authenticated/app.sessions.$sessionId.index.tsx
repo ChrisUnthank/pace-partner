@@ -208,6 +208,7 @@ function SessionDetail() {
 }
     
 async function toggleRaceStatus() {
+  if (!session) return;
   const nextDayType = session.day_type === "race" ? "training" : "race";
 
   const update: any = {
