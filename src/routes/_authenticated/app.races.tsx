@@ -274,7 +274,6 @@ function RaceList({ athleteId }: { athleteId: string }) {
             Manual entry for races without GPS or historical results. Races will feed PBs and the physiological profile.
           </CardDescription>
         </CardHeader>
-
         <CardContent className="grid sm:grid-cols-6 gap-2 opacity-90">
           <div className="sm:col-span-2">
             <Label className="text-xs">Date</Label>
