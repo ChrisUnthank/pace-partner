@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { metersFmt, secToClock, clockToSec, todayISO } from "@/lib/format";
 import { toast } from "sonner";
 import { Trash2, Trophy } from "lucide-react";
+import { useEffect } from "react";
 
 export const Route = createFileRoute("/_authenticated/app/races")({
   component: RacesPage,
@@ -92,6 +93,7 @@ function RacesPage() {
 
 function RaceList({ athleteId }: { athleteId: string }) {
   const qc = useQueryClient();
+  const [scrollY, setScrollY] = useState(0);
   const { data: sessions = [] } = useQuery({
     queryKey: ["sessions-for-races", athleteId],
     queryFn: async () => {
@@ -130,6 +132,12 @@ function RaceList({ athleteId }: { athleteId: string }) {
       return data ?? [];
     },
   });
+
+  useEffect(() => {
+    if (scrollY > 0) {
+      window.scrollTo({ top: scrollY });
+    }
+  }, [races]);
 
   const [date, setDate] = useState(todayISO());
   const [distance, setDistance] = useState<number>(5000);
