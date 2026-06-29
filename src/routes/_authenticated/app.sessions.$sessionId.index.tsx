@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";<h1 className="text-2xl font-bold flex items-center gap-2">
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
