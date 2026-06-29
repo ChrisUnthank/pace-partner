@@ -993,7 +993,42 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
 
   const safePoints = useMemo(() => {
     return Array.isArray(points)
-      ? points.filter node.style.height = "100%";      ? points.filter((p) => p && Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)))
+      ? points.filter(
+          (p) => p && Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)),
+        )
+      : [];
+  }, [points]);
+
+  useEffect(() => {
+    if (!containerRef.current || safePoints.length < 2) return;
+
+    let cancelled = false;
+    let map: maplibregl.Map | null = null;
+
+    try {
+      map = new maplibregl.Map({
+        container: containerRef.current,
+        style: "https://demotiles.maplibre.org/style.json",
+        interactive: false,
+        attributionControl: false,
+      });
+
+      mapRef.current = map;
+
+      map.once("load", () => {
+        if (cancelled || !map || !containerRef.current) return;
+
+        const root = containerRef.current;
+        const mapEl = root.querySelector(".maplibregl-map") as HTMLElement | null;
+        const canvasWrap = root.querySelector(".maplibregl-canvas-container") as HTMLElement | null;
+        const canvas = root.querySelector(".maplibregl-canvas") as HTMLCanvasElement | null;
+
+        [root, mapEl, canvasWrap, canvas].forEach((node) => {
+          if (!node) return;
+          node.style.position = "absolute";
+          node.style.inset = "0";
+          node.style.width = "100%";
+          node.style.height = "100%";
           node.style.maxWidth = "100%";
           node.style.maxHeight = "100%";
         });
@@ -1002,38 +1037,25 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
           canvasWrap.style.overflow = "hidden";
         }
 
-        const coords = safePoints.map((p) => [Number(p.lng), Number(p.lat)] as [number, number]);
+        const coords = safePoints.map(
+          (p) => [Number(p.lng), Number(p.lat)] as [number, number],
+        );
 
         const geojson = {
           type: "Feature",
-          geometry: {
-            type: "LineString",
-            coordinates: coords,
-          },
+          geometry: { type: "LineString", coordinates: coords },
           properties: {},
         } as const;
 
-        map.addSource("route", {
-          type: "geojson",
-          data: geojson,
-        });
-
+        map.addSource("route", { type: "geojson", data: geojson });
         map.addLayer({
           id: "route-line",
           type: "line",
           source: "route",
-          paint: {
-            "line-color": "#ef4444",
-            "line-width": 3,
-          },
+          paint: { "line-color": "#ef4444", "line-width": 3 },
         });
 
-        // Start marker
-        new maplibregl.Marker({ color: "#22c55e" })
-          .setLngLat(coords[0])
-          .addTo(map);
-
-        // Finish marker
+        new maplibregl.Marker({ color: "#22c55e" }).setLngLat(coords[0]).addTo(map);
         new maplibregl.Marker({ color: "#ef4444" })
           .setLngLat(coords[coords.length - 1])
           .addTo(map);
@@ -1042,7 +1064,6 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
         coords.forEach((coord) => bounds.extend(coord));
         map.fitBounds(bounds, { padding: 24, duration: 0 });
 
-        // Force one resize after layout settles
         requestAnimationFrame(() => {
           try {
             map?.resize();
@@ -1067,7 +1088,7 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
         mapRef.current?.remove();
         mapRef.current = null;
       } catch {
-        // ignore cleanup errors
+        // ignore
       }
     };
   }, [safePoints]);
@@ -1164,40 +1185,6 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
     </Card>
   );
 }
-      : [];
-  }, [points]);
-
-  useEffect(() => {
-    if (!containerRef.current || safePoints.length < 2) return;
-
-    let cancelled = false;
-    let map: maplibregl.Map | null = null;
-
-    try {
-      map = new maplibregl.Map({
-        container: containerRef.current,
-        style: "https://demotiles.maplibre.org/style.json",
-        interactive: false, // important: prevents hand cursor / drag behavior
-        attributionControl: false,
-      });
-
-      mapRef.current = map;
-
-      map.once("load", () => {
-        if (cancelled || !map || !containerRef.current) return;
-
-        // Hard-contain any injected map/canvas elements inside this panel
-        const root = containerRef.current;
-        const mapEl = root.querySelector(".maplibregl-map") as HTMLElement | null;
-        const canvasWrap = root.querySelector(".maplibregl-canvas-container") as HTMLElement | null;
-        const canvas = root.querySelector(".maplibregl-canvas") as HTMLCanvasElement | null;
-
-        [root, mapEl, canvasWrap, canvas].forEach((node) => {
-          if (!node) return;
-          node.style.position = "absolute";
-          node.style.inset = "0";
-          node.style.width = "100%";
-
 
 function buildSamples(
   steps: any[],
