@@ -108,6 +108,8 @@ function RaceList({ athleteId }: { athleteId: string }) {
 
   const [date, setDate] = useState(todayISO());
   const [distance, setDistance] = useState<number>(5000);
+  const [distanceMode, setDistanceMode] = useState<"preset" | "custom">("preset");
+  const [customDistance, setCustomDistance] = useState<string>("");
   const [time, setTime] = useState("");
   const [event, setEvent] = useState("");
   const [placing, setPlacing] = useState("");
