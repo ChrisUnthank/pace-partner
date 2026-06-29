@@ -92,7 +92,32 @@ function RacesPage() {
 
 function RaceList({ athleteId }: { athleteId: string }) {
   const qc = useQueryClient();
+  const { data: sessions = [] } = useQuery({
+    queryKey: ["sessions-for-races", athleteId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("sessions")
+        .select("id, session_date, total_distance_m, total_time_seconds")
+        .eq("athlete_id", athleteId)
+        .not("completed_at", "is", null);
 
+      return data ?? [];
+    },
+  });
+  function findMatchingSession(r: any) {
+    return sessions.find((s: any) => {
+      // Must match date
+      if (s.session_date !== r.performance_date) return false;
+
+      // Must be reasonably close distance (allow small GPS variation)
+      const distDiff = Math.abs(Number(s.total_distance_m || 0) - Number(r.distance_m || 0));
+
+      // Must be reasonably close time (±10s tolerance)
+      const timeDiff = Math.abs(Number(s.total_time_seconds || 0) - Number(r.time_seconds || 0));
+
+      return distDiff < 50 && timeDiff < 10;
+    });
+  }
   const { data: races } = useQuery({
     queryKey: ["races", athleteId],
     queryFn: async () => {
@@ -298,9 +323,28 @@ function RaceList({ athleteId }: { athleteId: string }) {
                       </div>
                     </div>
 
-                    <Button variant="ghost" size="sm" onClick={() => remove(r.id)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      {/* ✅ View Analysis */}
+                      {(() => {
+                        const match = findMatchingSession(r);
+
+                        if (!match) return null;
+
+                        return (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => (window.location.href = `/app/sessions/${match.id}/analysis`)}
+                          >
+                            Analysis
+                          </Button>
+                        );
+                      })()}
+
+                      <Button variant="ghost" size="sm" onClick={() => remove(r.id)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 );
               })}
