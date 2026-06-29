@@ -280,16 +280,6 @@ function SessionAnalysis() {
     return bands.filter((b) => b.kind === scope);
   }, [bands, scope]);
 
-  const mapPoints = useMemo(
-    () =>
-      Array.isArray(gpsPoints)
-        ? gpsPoints.filter(
-            (p: any) => Number.isFinite(Number(p?.lat)) && Number.isFinite(Number(p?.lng)),
-          )
-        : [],
-    [gpsPoints],
-  );
-
   const xCanUseDistance =
     Array.isArray(visibleSamples) && visibleSamples.length > 0 && visibleSamples.every((s) => s.d != null);
 
@@ -439,9 +429,6 @@ function SessionAnalysis() {
 
             <div className="flex flex-wrap gap-1 mt-2">
               {SCOPE_OPTIONS.map((k) => {
-                // Enable a segment button purely based on whether the session
-                // contains that segment type — independent of which metrics
-                // the user has toggled on.
                 const hasData =
                   k === "full"
                     ? samples.length > 0 || bands.length > 0
@@ -733,7 +720,10 @@ function SessionAnalysis() {
         )}
 
         {recoveryRows.length >= 2 && <RecoveryPanel rows={recoveryRows} />}
-        {mapPoints.length >= 2 && <MapPanel points={mapPoints} />}
+        {Array.isArray(gpsPoints) &&
+          gpsPoints.filter((p: any) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng)).length >= 2 && (
+            <MapPanel points={gpsPoints.filter((p: any) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng))} />
+          )}
 
         <Card>
           <CardHeader>
@@ -1006,7 +996,20 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
       ? points.filter((p) => p && Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)))
       : [];
   }, [points]);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
 
+    el.style.position = "absolute";
+    el.style.inset = "0";
+    el.style.overflow = "hidden";
+
+    return () => {
+      el.style.position = "";
+      el.style.inset = "";
+      el.style.overflow = "";
+    };
+  }, []);
   useEffect(() => {
     if (!containerRef.current || safePoints.length < 2) return;
 
@@ -1024,6 +1027,22 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
 
       map.once("load", () => {
         if (cancelled || !map) return;
+        const root = containerRef.current;
+        if (root) {
+          const mapEl = root.querySelector(".maplibregl-map") as HTMLElement | null;
+          const canvasWrap = root.querySelector(".maplibregl-canvas-container") as HTMLElement | null;
+          const canvas = root.querySelector(".maplibregl-canvas") as HTMLCanvasElement | null;
+
+          [mapEl, canvasWrap, canvas].forEach((node) => {
+            if (!node) return;
+            node.style.position = "absolute";
+            node.style.inset = "0";
+            node.style.width = "100%";
+            node.style.height = "100%";
+            node.style.maxWidth = "100%";
+            node.style.maxHeight = "100%";
+          });
+        }
 
         const coords = safePoints.map((p) => [Number(p.lng), Number(p.lat)] as [number, number]);
         const geojson = {
@@ -1106,28 +1125,13 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Route preview</CardTitle>
-          <CardDescription>Static route preview (WebGL not available in this environment)</CardDescription>
+          <CardTitle>Route map</CardTitle>
+          <CardDescription>GPS trace from uploaded activity data.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="text-xs text-muted-foreground mb-2 space-y-1">
-            <div>
-              Start: {first.lat?.toFixed(5)}, {first.lng?.toFixed(5)}
-            </div>
-            <div>
-              End: {last.lat?.toFixed(5)}, {last.lng?.toFixed(5)}
-            </div>
+          <div className="relative isolate overflow-hidden h-[320px] w-full rounded border">
+            <div ref={containerRef} className="absolute inset-0" />
           </div>
-          <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} className="border rounded bg-black">
-            <polyline points={path} fill="none" stroke="#ef4444" strokeWidth="2" />
-            <circle
-              cx={project(first.lat!, first.lng!)[0]}
-              cy={project(first.lat!, first.lng!)[1]}
-              r="4"
-              fill="#22c55e"
-            />
-            <circle cx={project(last.lat!, last.lng!)[0]} cy={project(last.lat!, last.lng!)[1]} r="4" fill="#ef4444" />
-          </svg>
         </CardContent>
       </Card>
     );
@@ -1140,9 +1144,7 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
         <CardDescription>GPS trace from uploaded activity data.</CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="relative isolate overflow-hidden h-[320px] w-full rounded border">
-          <div ref={containerRef} className="absolute inset-0" />
-        </div>
+        <div ref={containerRef} className="h-[320px] w-full rounded border" />
       </CardContent>
     </Card>
   );
