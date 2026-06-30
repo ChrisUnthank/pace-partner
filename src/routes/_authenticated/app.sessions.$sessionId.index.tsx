@@ -208,10 +208,11 @@ function SessionDetail() {
 
   async function toggleRaceStatus() {
     if (!session) return;
-    const makeRace = session.day_type !== "race";
-    // ✅ HANDLE UNASSIGN (already marked as race)
-    if (session.day_type === "race") {
-      // 1. Update session back to training
+
+    const isCurrentlyRace = session.day_type === "race";
+
+    // ✅ REMOVE RACE
+    if (isCurrentlyRace) {
       const { error } = await supabase.from("sessions").update({ day_type: "training" }).eq("id", sessionId);
 
       if (error) {
@@ -219,70 +220,62 @@ function SessionDetail() {
         return;
       }
 
-      // 2. Remove linked performance
-      await (supabase.from("performances") as any).delete().eq("session_id", sessionId);
+      // delete linked race
+      await supabase.from("performances").delete().eq("session_id", sessionId);
 
       toast("Race removed ✅");
 
       qc.invalidateQueries({ queryKey: ["session", sessionId] });
       qc.invalidateQueries({ queryKey: ["races", session.athlete_id] });
 
-      return; // ✅ CRITICAL: stops rest of function
-    }
-    const { error } = await supabase
-      .from("sessions")
-      .update({
-        day_type: makeRace ? "race" : "training",
-      })
-      .eq("id", sessionId);
-
-    if (error) {
-      toast.error(error.message);
-      return;
+      return; // ✅ STOP HERE
     }
 
-    qc.invalidateQueries({ queryKey: ["session", sessionId] });
+    // ✅ CREATE RACE
 
-    // ✅ AUTO CREATE PERFORMANCE
-    if (makeRace) {
-      if (session.completed_at && session.total_time_seconds && session.total_distance_m) {
-        // ✅ Prevent duplicate race creation
-        const { data: existing } = await (supabase.from("performances") as any)
-          .select("id")
-          .eq("session_id", sessionId)
-          .maybeSingle();
+    if (session.completed_at && session.total_time_seconds && session.total_distance_m) {
+      // ✅ prevent duplicates
+      const { data: existing } = await supabase
+        .from("performances")
+        .select("id")
+        .eq("session_id", sessionId)
+        .maybeSingle();
 
-        if (existing) {
-          toast("Race already exists");
-          return;
-        }
-
-        const payload = {
-          athlete_id: session.athlete_id,
-          performance_date: session.session_date,
-          distance_m: Math.round(Number(session.total_distance_m)),
-          time_seconds: Number(session.total_time_seconds),
-          event_name: session.title || null,
-          notes: session.notes || null,
-          session_id: sessionId,
-          is_pb: false,
-          context: "race",
-        };
-
-        const { error: perfError } = await supabase.from("performances" as any).insert(payload as any);
-
-        if (!perfError) {
-          toast.success("Marked as race + result created ✅");
-          qc.invalidateQueries({ queryKey: ["races", session.athlete_id] });
-          qc.invalidateQueries({ queryKey: ["my-pbs", session.athlete_id] });
-        } else {
-          toast.error(perfError.message);
-        }
-      } else {
-        toast("Marked as race. Add totals to create result.");
+      if (existing) {
+        toast("Race already exists");
+        return;
       }
+
+      // update session
+      await supabase.from("sessions").update({ day_type: "race" }).eq("id", sessionId);
+
+      // create performance
+      const payload = {
+        athlete_id: session.athlete_id,
+        performance_date: session.session_date,
+        distance_m: Math.round(Number(session.total_distance_m)),
+        time_seconds: Number(session.total_time_seconds),
+        event_name: session.title || null,
+        notes: session.notes || null,
+        session_id: sessionId, // ✅ critical
+        is_pb: false,
+        context: "race",
+      };
+
+      const { error: perfError } = await supabase.from("performances").insert(payload);
+
+      if (perfError) {
+        toast.error(perfError.message);
+        return;
+      }
+
+      toast.success("Race created ✅");
+
+      qc.invalidateQueries({ queryKey: ["session", sessionId] });
+      qc.invalidateQueries({ queryKey: ["races", session.athlete_id] });
+      qc.invalidateQueries({ queryKey: ["my-pbs", session.athlete_id] });
     } else {
-      toast("Changed back to training");
+      toast("Add totals to create race");
     }
   }
 
