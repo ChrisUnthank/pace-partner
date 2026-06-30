@@ -27,12 +27,14 @@ import { Route as AuthenticatedAppCheckoutRouteImport } from './routes/_authenti
 import { Route as AuthenticatedAppAthletesRouteImport } from './routes/_authenticated/app.athletes'
 import { Route as AuthenticatedAppAnalyticsRouteImport } from './routes/_authenticated/app.analytics'
 import { Route as AuthenticatedAppSessionsIndexRouteImport } from './routes/_authenticated/app.sessions.index'
+import { Route as AuthenticatedAppRacesIndexRouteImport } from './routes/_authenticated/app.races.index'
 import { Route as AuthenticatedAppAthletesIndexRouteImport } from './routes/_authenticated/app.athletes.index'
 import { Route as ApiPublicHooksRunDailyRemindersRouteImport } from './routes/api/public/hooks/run-daily-reminders'
 import { Route as ApiPublicHooksDispatchPushRouteImport } from './routes/api/public/hooks/dispatch-push'
 import { Route as AuthenticatedAppSessionsNewRouteImport } from './routes/_authenticated/app.sessions.new'
 import { Route as AuthenticatedAppSessionsCalendarRouteImport } from './routes/_authenticated/app.sessions.calendar'
 import { Route as AuthenticatedAppSessionsSessionIdRouteImport } from './routes/_authenticated/app.sessions.$sessionId'
+import { Route as AuthenticatedAppRacesRaceIdRouteImport } from './routes/_authenticated/app.races.$raceId'
 import { Route as AuthenticatedAppAthletesAthleteIdRouteImport } from './routes/_authenticated/app.athletes.$athleteId'
 import { Route as AuthenticatedAppSessionsSessionIdIndexRouteImport } from './routes/_authenticated/app.sessions.$sessionId.index'
 import { Route as AuthenticatedAppRacesRaceIdIndexRouteImport } from './routes/_authenticated/app.races.$raceId.index'
@@ -137,6 +139,12 @@ const AuthenticatedAppSessionsIndexRoute =
     path: '/',
     getParentRoute: () => AuthenticatedAppSessionsRoute,
   } as any)
+const AuthenticatedAppRacesIndexRoute =
+  AuthenticatedAppRacesIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedAppRacesRoute,
+  } as any)
 const AuthenticatedAppAthletesIndexRoute =
   AuthenticatedAppAthletesIndexRouteImport.update({
     id: '/',
@@ -173,6 +181,12 @@ const AuthenticatedAppSessionsSessionIdRoute =
     path: '/$sessionId',
     getParentRoute: () => AuthenticatedAppSessionsRoute,
   } as any)
+const AuthenticatedAppRacesRaceIdRoute =
+  AuthenticatedAppRacesRaceIdRouteImport.update({
+    id: '/$raceId',
+    path: '/$raceId',
+    getParentRoute: () => AuthenticatedAppRacesRoute,
+  } as any)
 const AuthenticatedAppAthletesAthleteIdRoute =
   AuthenticatedAppAthletesAthleteIdRouteImport.update({
     id: '/$athleteId',
@@ -187,9 +201,9 @@ const AuthenticatedAppSessionsSessionIdIndexRoute =
   } as any)
 const AuthenticatedAppRacesRaceIdIndexRoute =
   AuthenticatedAppRacesRaceIdIndexRouteImport.update({
-    id: '/$raceId/',
-    path: '/$raceId/',
-    getParentRoute: () => AuthenticatedAppRacesRoute,
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedAppRacesRaceIdRoute,
   } as any)
 const AuthenticatedAppSessionsSessionIdAnalysisRoute =
   AuthenticatedAppSessionsSessionIdAnalysisRouteImport.update({
@@ -199,9 +213,9 @@ const AuthenticatedAppSessionsSessionIdAnalysisRoute =
   } as any)
 const AuthenticatedAppRacesRaceIdAnalysisRoute =
   AuthenticatedAppRacesRaceIdAnalysisRouteImport.update({
-    id: '/$raceId/analysis',
-    path: '/$raceId/analysis',
-    getParentRoute: () => AuthenticatedAppRacesRoute,
+    id: '/analysis',
+    path: '/analysis',
+    getParentRoute: () => AuthenticatedAppRacesRaceIdRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -222,12 +236,14 @@ export interface FileRoutesByFullPath {
   '/app/vitals': typeof AuthenticatedAppVitalsRoute
   '/app/': typeof AuthenticatedAppIndexRoute
   '/app/athletes/$athleteId': typeof AuthenticatedAppAthletesAthleteIdRoute
+  '/app/races/$raceId': typeof AuthenticatedAppRacesRaceIdRouteWithChildren
   '/app/sessions/$sessionId': typeof AuthenticatedAppSessionsSessionIdRouteWithChildren
   '/app/sessions/calendar': typeof AuthenticatedAppSessionsCalendarRoute
   '/app/sessions/new': typeof AuthenticatedAppSessionsNewRoute
   '/api/public/hooks/dispatch-push': typeof ApiPublicHooksDispatchPushRoute
   '/api/public/hooks/run-daily-reminders': typeof ApiPublicHooksRunDailyRemindersRoute
   '/app/athletes/': typeof AuthenticatedAppAthletesIndexRoute
+  '/app/races/': typeof AuthenticatedAppRacesIndexRoute
   '/app/sessions/': typeof AuthenticatedAppSessionsIndexRoute
   '/app/races/$raceId/analysis': typeof AuthenticatedAppRacesRaceIdAnalysisRoute
   '/app/sessions/$sessionId/analysis': typeof AuthenticatedAppSessionsSessionIdAnalysisRoute
@@ -244,7 +260,6 @@ export interface FileRoutesByTo {
   '/app/messages': typeof AuthenticatedAppMessagesRoute
   '/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
   '/app/profile': typeof AuthenticatedAppProfileRoute
-  '/app/races': typeof AuthenticatedAppRacesRouteWithChildren
   '/app/templates': typeof AuthenticatedAppTemplatesRoute
   '/app/today': typeof AuthenticatedAppTodayRoute
   '/app/vitals': typeof AuthenticatedAppVitalsRoute
@@ -255,6 +270,7 @@ export interface FileRoutesByTo {
   '/api/public/hooks/dispatch-push': typeof ApiPublicHooksDispatchPushRoute
   '/api/public/hooks/run-daily-reminders': typeof ApiPublicHooksRunDailyRemindersRoute
   '/app/athletes': typeof AuthenticatedAppAthletesIndexRoute
+  '/app/races': typeof AuthenticatedAppRacesIndexRoute
   '/app/sessions': typeof AuthenticatedAppSessionsIndexRoute
   '/app/races/$raceId/analysis': typeof AuthenticatedAppRacesRaceIdAnalysisRoute
   '/app/sessions/$sessionId/analysis': typeof AuthenticatedAppSessionsSessionIdAnalysisRoute
@@ -281,12 +297,14 @@ export interface FileRoutesById {
   '/_authenticated/app/vitals': typeof AuthenticatedAppVitalsRoute
   '/_authenticated/app/': typeof AuthenticatedAppIndexRoute
   '/_authenticated/app/athletes/$athleteId': typeof AuthenticatedAppAthletesAthleteIdRoute
+  '/_authenticated/app/races/$raceId': typeof AuthenticatedAppRacesRaceIdRouteWithChildren
   '/_authenticated/app/sessions/$sessionId': typeof AuthenticatedAppSessionsSessionIdRouteWithChildren
   '/_authenticated/app/sessions/calendar': typeof AuthenticatedAppSessionsCalendarRoute
   '/_authenticated/app/sessions/new': typeof AuthenticatedAppSessionsNewRoute
   '/api/public/hooks/dispatch-push': typeof ApiPublicHooksDispatchPushRoute
   '/api/public/hooks/run-daily-reminders': typeof ApiPublicHooksRunDailyRemindersRoute
   '/_authenticated/app/athletes/': typeof AuthenticatedAppAthletesIndexRoute
+  '/_authenticated/app/races/': typeof AuthenticatedAppRacesIndexRoute
   '/_authenticated/app/sessions/': typeof AuthenticatedAppSessionsIndexRoute
   '/_authenticated/app/races/$raceId/analysis': typeof AuthenticatedAppRacesRaceIdAnalysisRoute
   '/_authenticated/app/sessions/$sessionId/analysis': typeof AuthenticatedAppSessionsSessionIdAnalysisRoute
@@ -313,12 +331,14 @@ export interface FileRouteTypes {
     | '/app/vitals'
     | '/app/'
     | '/app/athletes/$athleteId'
+    | '/app/races/$raceId'
     | '/app/sessions/$sessionId'
     | '/app/sessions/calendar'
     | '/app/sessions/new'
     | '/api/public/hooks/dispatch-push'
     | '/api/public/hooks/run-daily-reminders'
     | '/app/athletes/'
+    | '/app/races/'
     | '/app/sessions/'
     | '/app/races/$raceId/analysis'
     | '/app/sessions/$sessionId/analysis'
@@ -335,7 +355,6 @@ export interface FileRouteTypes {
     | '/app/messages'
     | '/app/noticeboard'
     | '/app/profile'
-    | '/app/races'
     | '/app/templates'
     | '/app/today'
     | '/app/vitals'
@@ -346,6 +365,7 @@ export interface FileRouteTypes {
     | '/api/public/hooks/dispatch-push'
     | '/api/public/hooks/run-daily-reminders'
     | '/app/athletes'
+    | '/app/races'
     | '/app/sessions'
     | '/app/races/$raceId/analysis'
     | '/app/sessions/$sessionId/analysis'
@@ -371,12 +391,14 @@ export interface FileRouteTypes {
     | '/_authenticated/app/vitals'
     | '/_authenticated/app/'
     | '/_authenticated/app/athletes/$athleteId'
+    | '/_authenticated/app/races/$raceId'
     | '/_authenticated/app/sessions/$sessionId'
     | '/_authenticated/app/sessions/calendar'
     | '/_authenticated/app/sessions/new'
     | '/api/public/hooks/dispatch-push'
     | '/api/public/hooks/run-daily-reminders'
     | '/_authenticated/app/athletes/'
+    | '/_authenticated/app/races/'
     | '/_authenticated/app/sessions/'
     | '/_authenticated/app/races/$raceId/analysis'
     | '/_authenticated/app/sessions/$sessionId/analysis'
@@ -521,6 +543,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppSessionsIndexRouteImport
       parentRoute: typeof AuthenticatedAppSessionsRoute
     }
+    '/_authenticated/app/races/': {
+      id: '/_authenticated/app/races/'
+      path: '/'
+      fullPath: '/app/races/'
+      preLoaderRoute: typeof AuthenticatedAppRacesIndexRouteImport
+      parentRoute: typeof AuthenticatedAppRacesRoute
+    }
     '/_authenticated/app/athletes/': {
       id: '/_authenticated/app/athletes/'
       path: '/'
@@ -563,6 +592,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppSessionsSessionIdRouteImport
       parentRoute: typeof AuthenticatedAppSessionsRoute
     }
+    '/_authenticated/app/races/$raceId': {
+      id: '/_authenticated/app/races/$raceId'
+      path: '/$raceId'
+      fullPath: '/app/races/$raceId'
+      preLoaderRoute: typeof AuthenticatedAppRacesRaceIdRouteImport
+      parentRoute: typeof AuthenticatedAppRacesRoute
+    }
     '/_authenticated/app/athletes/$athleteId': {
       id: '/_authenticated/app/athletes/$athleteId'
       path: '/$athleteId'
@@ -579,10 +615,10 @@ declare module '@tanstack/react-router' {
     }
     '/_authenticated/app/races/$raceId/': {
       id: '/_authenticated/app/races/$raceId/'
-      path: '/$raceId'
+      path: '/'
       fullPath: '/app/races/$raceId/'
       preLoaderRoute: typeof AuthenticatedAppRacesRaceIdIndexRouteImport
-      parentRoute: typeof AuthenticatedAppRacesRoute
+      parentRoute: typeof AuthenticatedAppRacesRaceIdRoute
     }
     '/_authenticated/app/sessions/$sessionId/analysis': {
       id: '/_authenticated/app/sessions/$sessionId/analysis'
@@ -593,10 +629,10 @@ declare module '@tanstack/react-router' {
     }
     '/_authenticated/app/races/$raceId/analysis': {
       id: '/_authenticated/app/races/$raceId/analysis'
-      path: '/$raceId/analysis'
+      path: '/analysis'
       fullPath: '/app/races/$raceId/analysis'
       preLoaderRoute: typeof AuthenticatedAppRacesRaceIdAnalysisRouteImport
-      parentRoute: typeof AuthenticatedAppRacesRoute
+      parentRoute: typeof AuthenticatedAppRacesRaceIdRoute
     }
   }
 }
@@ -618,15 +654,33 @@ const AuthenticatedAppAthletesRouteWithChildren =
     AuthenticatedAppAthletesRouteChildren,
   )
 
-interface AuthenticatedAppRacesRouteChildren {
+interface AuthenticatedAppRacesRaceIdRouteChildren {
   AuthenticatedAppRacesRaceIdAnalysisRoute: typeof AuthenticatedAppRacesRaceIdAnalysisRoute
   AuthenticatedAppRacesRaceIdIndexRoute: typeof AuthenticatedAppRacesRaceIdIndexRoute
 }
 
+const AuthenticatedAppRacesRaceIdRouteChildren: AuthenticatedAppRacesRaceIdRouteChildren =
+  {
+    AuthenticatedAppRacesRaceIdAnalysisRoute:
+      AuthenticatedAppRacesRaceIdAnalysisRoute,
+    AuthenticatedAppRacesRaceIdIndexRoute:
+      AuthenticatedAppRacesRaceIdIndexRoute,
+  }
+
+const AuthenticatedAppRacesRaceIdRouteWithChildren =
+  AuthenticatedAppRacesRaceIdRoute._addFileChildren(
+    AuthenticatedAppRacesRaceIdRouteChildren,
+  )
+
+interface AuthenticatedAppRacesRouteChildren {
+  AuthenticatedAppRacesRaceIdRoute: typeof AuthenticatedAppRacesRaceIdRouteWithChildren
+  AuthenticatedAppRacesIndexRoute: typeof AuthenticatedAppRacesIndexRoute
+}
+
 const AuthenticatedAppRacesRouteChildren: AuthenticatedAppRacesRouteChildren = {
-  AuthenticatedAppRacesRaceIdAnalysisRoute:
-    AuthenticatedAppRacesRaceIdAnalysisRoute,
-  AuthenticatedAppRacesRaceIdIndexRoute: AuthenticatedAppRacesRaceIdIndexRoute,
+  AuthenticatedAppRacesRaceIdRoute:
+    AuthenticatedAppRacesRaceIdRouteWithChildren,
+  AuthenticatedAppRacesIndexRoute: AuthenticatedAppRacesIndexRoute,
 }
 
 const AuthenticatedAppRacesRouteWithChildren =
@@ -720,13 +774,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
