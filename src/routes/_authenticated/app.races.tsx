@@ -231,7 +231,7 @@ function RaceList({ athleteId }: { athleteId: string }) {
                     {/* RIGHT SIDE */}
                     <div className="flex items-center gap-2 shrink-0">
                       <Button asChild size="sm" variant="outline">
-                        <Link to="/app/races/$raceId/analysis" params={{ raceId: r.id }}>
+                        <Link to="/_authenticated/app/races/$raceId/analysis" params={{ raceId: r.id }}>
                           Race Analysis
                         </Link>
                       </Button>
