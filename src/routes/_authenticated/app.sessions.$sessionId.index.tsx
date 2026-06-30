@@ -226,19 +226,18 @@ function SessionDetail() {
 
     // ✅ AUTO CREATE PERFORMANCE
     if (makeRace) {
-      if (session.completed_at && session.total_time_seconds && session.total_distance_m) 
-     
-    const { data: existing } = await supabase
-      .from("performances")
-      .select("id")
-      .eq("session_id", sessionId)
-      .maybeSingle();
+      if (session.completed_at && session.total_time_seconds && session.total_distance_m) {
+        const { data: existing } = await supabase
+          .from("performances")
+          .select("id")
+          .eq("session_id", sessionId)
+          .maybeSingle();
 
-    if (existing) {
-      console.log("Race already exists");
-      toast("Race already created for this session");
-      return;   //  
-      {
+        if (existing) {
+          toast("Race already created for this session");
+          return;
+        }
+
         const payload = {
           athlete_id: session.athlete_id,
           performance_date: session.session_date,
@@ -255,7 +254,6 @@ function SessionDetail() {
 
         if (!perfError) {
           toast.success("Marked as race + result created ✅");
-
           qc.invalidateQueries({ queryKey: ["races", session.athlete_id] });
           qc.invalidateQueries({ queryKey: ["my-pbs", session.athlete_id] });
         } else {
