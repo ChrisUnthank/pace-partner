@@ -256,19 +256,11 @@ function RaceList({ athleteId }: { athleteId: string }) {
 
                     {/* RIGHT SIDE */}
                     <div className="flex items-center gap-2 shrink-0">
-                      {(() => {
-                        const match = findMatchingSession(r);
-
-                        import { Link } from "@tanstack/react-router";
-
-                        return (
-                          <Button asChild size="sm" variant="outline">
-                            <Link to="/_authenticated/app/races/$raceId/analysis" params={{ raceId: r.id }}>
-                              Race Analysis
-                            </Link>
-                          </Button>
-                        );
-                      })()}
+                      <Button asChild size="sm" variant="outline">
+                        <Link to="/app/races/$raceId/analysis" params={{ raceId: r.id }}>
+                          Race Analysis
+                        </Link>
+                      </Button>
 
                       <Button variant="ghost" size="sm" onClick={() => remove(r.id)}>
                         <Trash2 className="h-4 w-4" />
