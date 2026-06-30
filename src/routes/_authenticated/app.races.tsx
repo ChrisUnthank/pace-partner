@@ -17,7 +17,7 @@ import { toast } from "sonner";
 import { Trash2, Trophy } from "lucide-react";
 import { useEffect } from "react";
 
-export const Route = createFileRoute("/_authenticated/app/races")({
+export const Route = createFileRoute("/app/races")({
   component: RacesPage,
 });
 
