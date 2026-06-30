@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Trophy, ArrowLeft } from "lucide-react";
 import { metersFmt, secToClock } from "@/lib/format";
 
-export const Route = createFileRoute("/app/races/$raceId")({
+export const Route = createFileRoute("/_authenticated/app/races/$raceId/")({
   component: RaceDetailPage,
 });
 
@@ -91,7 +91,7 @@ function RaceDetailPage() {
 
             <div>
               <Button asChild>
-                <Link to="/_authenticated/app/races/$raceId/analysis" params={{ raceId }}>
+                <Link to="/app/races/$raceId/analysis" params={{ raceId }}>
                   Race Analysis
                 </Link>
               </Button>
