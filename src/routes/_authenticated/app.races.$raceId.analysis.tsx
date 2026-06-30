@@ -54,7 +54,36 @@ function RaceAnalysisPage() {
 
     return { ...s, d, t, pace };
   });
+  async function loadSplits() {
+    if (!raceId) return;
 
+    const { data, error } = await supabase
+      .from("performance_splits")
+      .select("*")
+      .eq("performance_id", raceId)
+      .order("split_index", { ascending: true });
+
+    if (error) {
+      console.error("Load splits error:", error);
+      return;
+    }
+
+    if (!data || data.length === 0) return;
+
+    setSplits(
+      data.map((s) => ({
+        id: crypto.randomUUID(),
+        distance: s.distance_m?.toString() ?? "",
+        time: secToClock(s.time_seconds),
+      })),
+    );
+  }
+
+  useEffect(() => {
+    if (splits.length === 1 && splits[0].distance === "" && splits[0].time === "") {
+      loadSplits();
+    }
+  }, [raceId]);
   return (
     <AppShell>
       <div className="space-y-6 max-w-3xl">
