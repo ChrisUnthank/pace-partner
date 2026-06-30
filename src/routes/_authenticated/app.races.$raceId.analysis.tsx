@@ -53,18 +53,14 @@ function RaceAnalysisPage() {
   const avgPace = race?.distance_m && race?.time_seconds ? (race.time_seconds / race.distance_m) * 1000 : null;
 
   const computed = splits.map((s) => {
-    const validPaces = computed.map((s) => s.pace).filter((p): p is number => p !== null);
-
-    const maxPace = validPaces.length > 0 ? Math.max(...validPaces) : null;
-    const minPace = validPaces.length > 0 ? Math.min(...validPaces) : null;
-
     const d = s.distance ? Number(s.distance) : null;
     const t = clockToSec(s.time);
-
     const pace = d && t != null ? (t / d) * 1000 : null;
-
     return { ...s, d, t, pace };
   });
+  const validPaces = computed.map((s) => s.pace).filter((p): p is number => p !== null);
+  const maxPace = validPaces.length > 0 ? Math.max(...validPaces) : null;
+  const minPace = validPaces.length > 0 ? Math.min(...validPaces) : null;
   async function loadSplits() {
     if (!raceId) return;
     // performance_splits table not yet created — splits persist in component state only.
@@ -123,7 +119,7 @@ function RaceAnalysisPage() {
 
                 {computed.map((s, i) => (
                   <div key={s.id}>
-                    {s.pace && maxPace && (
+                    {s.pace && maxPace && minPace && (
                       <div style={{ marginTop: 6 }}>
                         <div
                           style={{
@@ -135,7 +131,7 @@ function RaceAnalysisPage() {
                         >
                           <div
                             style={{
-                              width: `${(minPace! / s.pace) * 100}%`,
+                              width: `${(minPace / s.pace) * 100}%`,
                               height: "100%",
                               background: "#3b82f6",
                               transition: "width 0.3s ease",
