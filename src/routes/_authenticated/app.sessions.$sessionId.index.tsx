@@ -209,7 +209,26 @@ function SessionDetail() {
   async function toggleRaceStatus() {
     if (!session) return;
     const makeRace = session.day_type !== "race";
+    // ✅ HANDLE UNASSIGN (already marked as race)
+    if (session.day_type === "race") {
+      // 1. Update session back to training
+      const { error } = await supabase.from("sessions").update({ day_type: "training" }).eq("id", sessionId);
 
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+
+      // 2. Remove linked performance
+      await supabase.from("performances").delete().eq("session_id", sessionId);
+
+      toast("Race removed ✅");
+
+      qc.invalidateQueries({ queryKey: ["session", sessionId] });
+      qc.invalidateQueries({ queryKey: ["races", session.athlete_id] });
+
+      return; // ✅ CRITICAL: stops rest of function
+    }
     const { error } = await supabase
       .from("sessions")
       .update({
@@ -367,15 +386,11 @@ function SessionDetail() {
                 </Button>
               )}
 
-              
-{session.day_type === "race" && session.completed_at && (
-  <Button asChild size="sm" variant="outline">
-    <Link to="/app/races" >
-      Race Analysis
-    </Link>
-  </Button>
-)}
-
+              {session.day_type === "race" && session.completed_at && (
+                <Button asChild size="sm" variant="outline">
+                  <Link to="/app/races">Race Analysis</Link>
+                </Button>
+              )}
             </div>
             <Button
               size="sm"
