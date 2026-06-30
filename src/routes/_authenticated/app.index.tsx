@@ -17,7 +17,7 @@ import { ClipboardList, CalendarDays, Megaphone, MessageSquare } from "lucide-re
 import { listPosts } from "@/lib/noticeboard.functions";
 import { ActivityIcon } from "@/lib/activity-icon";
 
-export const Route = createFileRoute("/_authenticated/app/")({
+export const Route = createFileRoute("/app")({
   component: AppHome,
 });
 
