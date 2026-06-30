@@ -257,6 +257,18 @@ function SessionDetail() {
           return;
         }
 
+        // ✅ Prevent duplicate race creation
+        const { data: existing } = await supabase
+          .from("performances")
+          .select("id")
+          .eq("session_id", sessionId)
+          .maybeSingle();
+
+        if (existing) {
+          toast("Race already exists");
+          return;
+        }
+
         const payload = {
           athlete_id: session.athlete_id,
           performance_date: session.session_date,
