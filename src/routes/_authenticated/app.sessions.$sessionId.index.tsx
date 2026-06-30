@@ -221,7 +221,7 @@ function SessionDetail() {
       }
 
       // delete linked race
-      await supabase.from("performances").delete().eq("session_id", sessionId);
+      await (supabase.from("performances") as any).delete().eq("session_id", sessionId);
 
       toast("Race removed ✅");
 
@@ -235,8 +235,7 @@ function SessionDetail() {
 
     if (session.completed_at && session.total_time_seconds && session.total_distance_m) {
       // ✅ prevent duplicates
-      const { data: existing } = await supabase
-        .from("performances")
+      const { data: existing } = await (supabase.from("performances") as any)
         .select("id")
         .eq("session_id", sessionId)
         .maybeSingle();
@@ -262,7 +261,7 @@ function SessionDetail() {
         context: "race",
       };
 
-      const { error: perfError } = await supabase.from("performances").insert(payload);
+      const { error: perfError } = await (supabase.from("performances") as any).insert(payload);
 
       if (perfError) {
         toast.error(perfError.message);
