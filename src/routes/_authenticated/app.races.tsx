@@ -17,7 +17,7 @@ import { toast } from "sonner";
 import { Trash2, Trophy } from "lucide-react";
 import { useEffect } from "react";
 
-export const Route = createFileRoute("/_authenticated/app/races")({
+export const Route = createFileRoute("/app/races")({
   component: RacesPage,
 });
 
@@ -256,11 +256,16 @@ function RaceList({ athleteId }: { athleteId: string }) {
 
                     {/* RIGHT SIDE */}
                     <div className="flex items-center gap-2 shrink-0">
-                      <Button asChild size="sm" variant="outline">
-                        <Link to="/app/races/$raceId/analysis" params={{ raceId: r.id }}>
-                          Race Analysis
-                        </Link>
-                      </Button>
+                      
+<Button asChild size="sm" variant="outline">
+  <Link
+    to="/app/races/$raceId/analysis"
+    params={{ raceId: r.id }}
+  >
+    Race Analysis
+  </Link>
+</Butto
+
 
                       <Button variant="ghost" size="sm" onClick={() => remove(r.id)}>
                         <Trash2 className="h-4 w-4" />
