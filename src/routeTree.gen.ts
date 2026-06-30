@@ -35,6 +35,7 @@ import { Route as AuthenticatedAppSessionsCalendarRouteImport } from './routes/_
 import { Route as AuthenticatedAppSessionsSessionIdRouteImport } from './routes/_authenticated/app.sessions.$sessionId'
 import { Route as AuthenticatedAppAthletesAthleteIdRouteImport } from './routes/_authenticated/app.athletes.$athleteId'
 import { Route as AuthenticatedAppSessionsSessionIdIndexRouteImport } from './routes/_authenticated/app.sessions.$sessionId.index'
+import { Route as AuthenticatedAppRacesRaceIdIndexRouteImport } from './routes/_authenticated/app.races.$raceId.index'
 import { Route as AuthenticatedAppSessionsSessionIdAnalysisRouteImport } from './routes/_authenticated/app.sessions.$sessionId.analysis'
 import { Route as AuthenticatedAppRacesRaceIdAnalysisRouteImport } from './routes/_authenticated/app.races.$raceId.analysis'
 
@@ -184,6 +185,12 @@ const AuthenticatedAppSessionsSessionIdIndexRoute =
     path: '/',
     getParentRoute: () => AuthenticatedAppSessionsSessionIdRoute,
   } as any)
+const AuthenticatedAppRacesRaceIdIndexRoute =
+  AuthenticatedAppRacesRaceIdIndexRouteImport.update({
+    id: '/$raceId/',
+    path: '/$raceId/',
+    getParentRoute: () => AuthenticatedAppRacesRoute,
+  } as any)
 const AuthenticatedAppSessionsSessionIdAnalysisRoute =
   AuthenticatedAppSessionsSessionIdAnalysisRouteImport.update({
     id: '/analysis',
@@ -224,6 +231,7 @@ export interface FileRoutesByFullPath {
   '/app/sessions/': typeof AuthenticatedAppSessionsIndexRoute
   '/app/races/$raceId/analysis': typeof AuthenticatedAppRacesRaceIdAnalysisRoute
   '/app/sessions/$sessionId/analysis': typeof AuthenticatedAppSessionsSessionIdAnalysisRoute
+  '/app/races/$raceId/': typeof AuthenticatedAppRacesRaceIdIndexRoute
   '/app/sessions/$sessionId/': typeof AuthenticatedAppSessionsSessionIdIndexRoute
 }
 export interface FileRoutesByTo {
@@ -250,6 +258,7 @@ export interface FileRoutesByTo {
   '/app/sessions': typeof AuthenticatedAppSessionsIndexRoute
   '/app/races/$raceId/analysis': typeof AuthenticatedAppRacesRaceIdAnalysisRoute
   '/app/sessions/$sessionId/analysis': typeof AuthenticatedAppSessionsSessionIdAnalysisRoute
+  '/app/races/$raceId': typeof AuthenticatedAppRacesRaceIdIndexRoute
   '/app/sessions/$sessionId': typeof AuthenticatedAppSessionsSessionIdIndexRoute
 }
 export interface FileRoutesById {
@@ -281,6 +290,7 @@ export interface FileRoutesById {
   '/_authenticated/app/sessions/': typeof AuthenticatedAppSessionsIndexRoute
   '/_authenticated/app/races/$raceId/analysis': typeof AuthenticatedAppRacesRaceIdAnalysisRoute
   '/_authenticated/app/sessions/$sessionId/analysis': typeof AuthenticatedAppSessionsSessionIdAnalysisRoute
+  '/_authenticated/app/races/$raceId/': typeof AuthenticatedAppRacesRaceIdIndexRoute
   '/_authenticated/app/sessions/$sessionId/': typeof AuthenticatedAppSessionsSessionIdIndexRoute
 }
 export interface FileRouteTypes {
@@ -312,6 +322,7 @@ export interface FileRouteTypes {
     | '/app/sessions/'
     | '/app/races/$raceId/analysis'
     | '/app/sessions/$sessionId/analysis'
+    | '/app/races/$raceId/'
     | '/app/sessions/$sessionId/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -338,6 +349,7 @@ export interface FileRouteTypes {
     | '/app/sessions'
     | '/app/races/$raceId/analysis'
     | '/app/sessions/$sessionId/analysis'
+    | '/app/races/$raceId'
     | '/app/sessions/$sessionId'
   id:
     | '__root__'
@@ -368,6 +380,7 @@ export interface FileRouteTypes {
     | '/_authenticated/app/sessions/'
     | '/_authenticated/app/races/$raceId/analysis'
     | '/_authenticated/app/sessions/$sessionId/analysis'
+    | '/_authenticated/app/races/$raceId/'
     | '/_authenticated/app/sessions/$sessionId/'
   fileRoutesById: FileRoutesById
 }
@@ -564,6 +577,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppSessionsSessionIdIndexRouteImport
       parentRoute: typeof AuthenticatedAppSessionsSessionIdRoute
     }
+    '/_authenticated/app/races/$raceId/': {
+      id: '/_authenticated/app/races/$raceId/'
+      path: '/$raceId'
+      fullPath: '/app/races/$raceId/'
+      preLoaderRoute: typeof AuthenticatedAppRacesRaceIdIndexRouteImport
+      parentRoute: typeof AuthenticatedAppRacesRoute
+    }
     '/_authenticated/app/sessions/$sessionId/analysis': {
       id: '/_authenticated/app/sessions/$sessionId/analysis'
       path: '/analysis'
@@ -600,11 +620,13 @@ const AuthenticatedAppAthletesRouteWithChildren =
 
 interface AuthenticatedAppRacesRouteChildren {
   AuthenticatedAppRacesRaceIdAnalysisRoute: typeof AuthenticatedAppRacesRaceIdAnalysisRoute
+  AuthenticatedAppRacesRaceIdIndexRoute: typeof AuthenticatedAppRacesRaceIdIndexRoute
 }
 
 const AuthenticatedAppRacesRouteChildren: AuthenticatedAppRacesRouteChildren = {
   AuthenticatedAppRacesRaceIdAnalysisRoute:
     AuthenticatedAppRacesRaceIdAnalysisRoute,
+  AuthenticatedAppRacesRaceIdIndexRoute: AuthenticatedAppRacesRaceIdIndexRoute,
 }
 
 const AuthenticatedAppRacesRouteWithChildren =
@@ -698,13 +720,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

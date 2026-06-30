@@ -231,8 +231,8 @@ function RaceList({ athleteId }: { athleteId: string }) {
                     {/* RIGHT SIDE */}
                     <div className="flex items-center gap-2 shrink-0">
                       <Button asChild size="sm" variant="outline">
-                        <Link to="/_authenticated/app/races/$raceId/analysis" params={{ raceId: r.id }}>
-                          Race Analysis
+                        <Link to="/app/races/$raceId" params={{ raceId: r.id }}>
+                          View
                         </Link>
                       </Button>
                       <Button variant="ghost" size="sm" onClick={() => remove(r.id)}>
