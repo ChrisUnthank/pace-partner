@@ -226,7 +226,19 @@ function SessionDetail() {
 
     // ✅ AUTO CREATE PERFORMANCE
     if (makeRace) {
-      if (session.completed_at && session.total_time_seconds && session.total_distance_m) {
+      if (session.completed_at && session.total_time_seconds && session.total_distance_m) 
+     
+    const { data: existing } = await supabase
+      .from("performances")
+      .select("id")
+      .eq("session_id", sessionId)
+      .maybeSingle();
+
+    if (existing) {
+      console.log("Race already exists");
+      toast("Race already created for this session");
+      return;   //  
+      {
         const payload = {
           athlete_id: session.athlete_id,
           performance_date: session.session_date,
@@ -357,10 +369,15 @@ function SessionDetail() {
                 </Button>
               )}
 
-              {/* ✅ Future Race Analysis (disabled for now) */}
-              <Button size="sm" variant="outline" disabled={session.day_type !== "race"}>
-                Race analysis
-              </Button>
+              
+{session.day_type === "race" && session.completed_at && (
+  <Button asChild size="sm" variant="outline">
+    <Link to="/app/races" >
+      Race Analysis
+    </Link>
+  </Button>
+)}
+
             </div>
             <Button
               size="sm"
