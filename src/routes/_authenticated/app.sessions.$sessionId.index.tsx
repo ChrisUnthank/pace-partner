@@ -368,12 +368,13 @@ function SessionDetail() {
             )}
             <div className="flex items-center gap-2 flex-wrap">
               {/* ✅ Mark as Race */}
+
               <Button
                 size="sm"
-                variant={session.day_type === "race" ? "default" : "outline"}
+                variant={session.day_type === "race" ? "destructive" : "outline"}
                 onClick={toggleRaceStatus}
               >
-                {session.day_type === "race" ? "Race ✅" : "Mark as Race"}
+                {session.day_type === "race" ? "Remove Race" : "Mark as Race"}
               </Button>
 
               {/* ✅ Existing analysis */}
