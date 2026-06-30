@@ -259,6 +259,8 @@ function RaceList({ athleteId }: { athleteId: string }) {
                       {(() => {
                         const match = findMatchingSession(r);
 
+                        import { Link } from "@tanstack/react-router";
+
                         return (
                           <Button asChild size="sm" variant="outline">
                             <Link to="/_authenticated/app/races/$raceId/analysis" params={{ raceId: r.id }}>
