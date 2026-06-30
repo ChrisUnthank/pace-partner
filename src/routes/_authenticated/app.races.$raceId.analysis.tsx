@@ -28,7 +28,13 @@ function RaceAnalysisPage() {
     queryFn: async () => {
       const { data, error } = await (supabase as any).from("performances").select("*").eq("id", raceId).maybeSingle();
       if (error) throw error;
-      return data as { id: string; distance_m: number | null; time_seconds: number | null; event_name: string | null; performance_date: string | null } | null;
+      return data as {
+        id: string;
+        distance_m: number | null;
+        time_seconds: number | null;
+        event_name: string | null;
+        performance_date: string | null;
+      } | null;
     },
   });
 
@@ -47,6 +53,11 @@ function RaceAnalysisPage() {
   const avgPace = race?.distance_m && race?.time_seconds ? (race.time_seconds / race.distance_m) * 1000 : null;
 
   const computed = splits.map((s) => {
+    const validPaces = computed.map((s) => s.pace).filter((p): p is number => p !== null);
+
+    const maxPace = validPaces.length > 0 ? Math.max(...validPaces) : null;
+    const minPace = validPaces.length > 0 ? Math.min(...validPaces) : null;
+
     const d = s.distance ? Number(s.distance) : null;
     const t = clockToSec(s.time);
 
@@ -111,21 +122,53 @@ function RaceAnalysisPage() {
                 </div>
 
                 {computed.map((s, i) => (
-                  <div key={s.id} className="grid grid-cols-[40px_1fr_1fr_110px_40px] gap-2 items-center">
-                    <div className="text-sm text-muted-foreground tabular-nums">{i + 1}</div>
-                    <Input
-                      type="number"
-                      placeholder="1000"
-                      value={s.distance}
-                      onChange={(e) => update(s.id, { distance: e.target.value })}
-                    />
-                    <Input placeholder="3:00" value={s.time} onChange={(e) => update(s.id, { time: e.target.value })} />
-                    <div className="tabular-nums text-sm">
-                      {s.d ? (s.d >= 1000 ? `${(s.d / 1000).toFixed(1)} km` : `${s.d} m`) : "--"}
+                  <div key={s.id}>
+                    {s.pace && maxPace && (
+                      <div style={{ marginTop: 6 }}>
+                        <div
+                          style={{
+                            height: 8,
+                            borderRadius: 4,
+                            background: "#e5e7eb",
+                            overflow: "hidden",
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: `${(minPace! / s.pace) * 100}%`,
+                              height: "100%",
+                              background: "#3b82f6",
+                              transition: "width 0.3s ease",
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-[40px_1fr_1fr_110px_40px] gap-2 items-center">
+                      <div className="text-sm text-muted-foreground tabular-nums">{i + 1}</div>
+
+                      <Input
+                        type="number"
+                        placeholder="1000"
+                        value={s.distance}
+                        onChange={(e) => update(s.id, { distance: e.target.value })}
+                      />
+
+                      <Input
+                        placeholder="3:00"
+                        value={s.time}
+                        onChange={(e) => update(s.id, { time: e.target.value })}
+                      />
+
+                      <div className="tabular-nums text-sm">
+                        {s.d ? (s.d >= 1000 ? `${(s.d / 1000).toFixed(1)} km` : `${s.d} m`) : "--"}
+                      </div>
+
+                      <Button variant="ghost" size="icon-sm" onClick={() => remove(s.id)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </div>
-                    <Button variant="ghost" size="icon-sm" onClick={() => remove(s.id)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
                   </div>
                 ))}
 
