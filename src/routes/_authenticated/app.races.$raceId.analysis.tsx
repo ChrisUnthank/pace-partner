@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Trash2, Plus, Trophy } from "lucide-react";
 import { metersFmt, secToClock, clockToSec, paceFmt } from "@/lib/format";
 
-export const Route = createFileRoute("/_authenticated/app/races/$raceId/analysis")({
+export const Route = createFileRoute("/app/races/$raceId/analysis")({
   component: RaceAnalysisPage,
 });
 
