@@ -95,32 +95,6 @@ function RacesPage() {
 function RaceList({ athleteId }: { athleteId: string }) {
   const qc = useQueryClient();
   const [scrollY, setScrollY] = useState(0);
-  const { data: sessions = [] } = useQuery({
-    queryKey: ["sessions-for-races", athleteId],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("sessions")
-        .select("id, session_date, total_distance_m, total_time_seconds")
-        .eq("athlete_id", athleteId)
-        .not("completed_at", "is", null);
-
-      return data ?? [];
-    },
-  });
-  function findMatchingSession(r: any) {
-    return sessions.find((s: any) => {
-      // Must match date
-      if (s.session_date !== r.performance_date) return false;
-
-      // Must be reasonably close distance (allow small GPS variation)
-      const distDiff = Math.abs(Number(s.total_distance_m || 0) - Number(r.distance_m || 0));
-
-      // Must be reasonably close time (±10s tolerance)
-      const timeDiff = Math.abs(Number(s.total_time_seconds || 0) - Number(r.time_seconds || 0));
-
-      return distDiff < 50 && timeDiff < 10;
-    });
-  }
   const { data: races } = useQuery({
     queryKey: ["races", athleteId],
     queryFn: async () => {
