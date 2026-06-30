@@ -26,9 +26,9 @@ function RaceAnalysisPage() {
   const { data: race, isLoading } = useQuery({
     queryKey: ["race", raceId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("performances").select("*").eq("id", raceId).maybeSingle();
+      const { data, error } = await (supabase as any).from("performances").select("*").eq("id", raceId).maybeSingle();
       if (error) throw error;
-      return data;
+      return data as { id: string; distance_m: number | null; time_seconds: number | null; event_name: string | null; performance_date: string | null } | null;
     },
   });
 
@@ -56,27 +56,7 @@ function RaceAnalysisPage() {
   });
   async function loadSplits() {
     if (!raceId) return;
-
-    const { data, error } = await supabase
-      .from("performance_splits")
-      .select("*")
-      .eq("performance_id", raceId)
-      .order("split_index", { ascending: true });
-
-    if (error) {
-      console.error("Load splits error:", error);
-      return;
-    }
-
-    if (!data || data.length === 0) return;
-
-    setSplits(
-      data.map((s) => ({
-        id: crypto.randomUUID(),
-        distance: s.distance_m?.toString() ?? "",
-        time: secToClock(s.time_seconds),
-      })),
-    );
+    // performance_splits table not yet created — splits persist in component state only.
   }
 
   useEffect(() => {
