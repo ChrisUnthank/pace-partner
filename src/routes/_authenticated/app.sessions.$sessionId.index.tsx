@@ -220,7 +220,7 @@ function SessionDetail() {
       }
 
       // 2. Remove linked performance
-      await supabase.from("performances").delete().eq("session_id", sessionId);
+      await (supabase.from("performances") as any).delete().eq("session_id", sessionId);
 
       toast("Race removed ✅");
 
@@ -246,20 +246,8 @@ function SessionDetail() {
     // ✅ AUTO CREATE PERFORMANCE
     if (makeRace) {
       if (session.completed_at && session.total_time_seconds && session.total_distance_m) {
-        const { data: existing } = await supabase
-          .from("performances" as any)
-          .select("id")
-          .eq("session_id", sessionId)
-          .maybeSingle();
-
-        if (existing) {
-          toast("Race already created for this session");
-          return;
-        }
-
         // ✅ Prevent duplicate race creation
-        const { data: existing } = await supabase
-          .from("performances")
+        const { data: existing } = await (supabase.from("performances") as any)
           .select("id")
           .eq("session_id", sessionId)
           .maybeSingle();
