@@ -228,7 +228,7 @@ function SessionDetail() {
     if (makeRace) {
       if (session.completed_at && session.total_time_seconds && session.total_distance_m) {
         const { data: existing } = await supabase
-          .from("performances")
+          .from("performances" as any)
           .select("id")
           .eq("session_id", sessionId)
           .maybeSingle();
@@ -250,7 +250,7 @@ function SessionDetail() {
           context: "race",
         };
 
-        const { error: perfError } = await supabase.from("performances").insert(payload);
+        const { error: perfError } = await supabase.from("performances" as any).insert(payload as any);
 
         if (!perfError) {
           toast.success("Marked as race + result created ✅");
