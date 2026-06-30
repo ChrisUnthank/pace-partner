@@ -118,7 +118,7 @@ function RaceAnalysisPage() {
                 </div>
 
                 {computed.map((s, i) => (
-                  <div key={s.id}>
+                  <div key={s.id} style={{ marginBottom: 12 }}>
                     {s.pace && maxPace && minPace && (
                       <div style={{ marginTop: 6 }}>
                         <div
