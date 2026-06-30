@@ -54,7 +54,6 @@ function SessionDetail() {
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleValue, setTitleValue] = useState("");
 
-
   // ✅ FIT upload setup
   const uploadFile = useServerFn(uploadAndParseSessionFile);
   const [uploading, setUploading] = useState(false);
@@ -163,111 +162,106 @@ function SessionDetail() {
   });
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-  const file = e.target.files?.[0];
-  if (!file) return;
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-  setUploading(true);
+    setUploading(true);
 
-  const reader = new FileReader();
+    const reader = new FileReader();
 
-  reader.onload = async () => {
-    const base64 = String(reader.result || "").split(",")[1];
+    reader.onload = async () => {
+      const base64 = String(reader.result || "").split(",")[1];
 
-    try {
-      const res: any = await uploadFile({
-        data: {
-          athleteId: session!.athlete_id,
-          sessionId: sessionId,
-          filename: file.name,
-          kind: file.name.toLowerCase().endsWith(".gpx") ? "gpx" : "fit",
-          fileBase64: base64,
-        },
-      });
+      try {
+        const res: any = await uploadFile({
+          data: {
+            athleteId: session!.athlete_id,
+            sessionId: sessionId,
+            filename: file.name,
+            kind: file.name.toLowerCase().endsWith(".gpx") ? "gpx" : "fit",
+            fileBase64: base64,
+          },
+        });
 
-      if (res?.error) {
-        throw new Error(res.error);
+        if (res?.error) {
+          throw new Error(res.error);
+        }
+
+        toast.success("File uploaded and session updated");
+
+        qc.invalidateQueries({ queryKey: ["session", sessionId] });
+        qc.invalidateQueries({ queryKey: ["steps", sessionId] });
+        qc.invalidateQueries({ queryKey: ["results", sessionId] });
+        qc.invalidateQueries({ queryKey: ["raw-points", sessionId] });
+        qc.invalidateQueries({ queryKey: ["zone-time", sessionId] });
+        qc.invalidateQueries({ queryKey: ["fatigue", sessionId] });
+      } catch (err: any) {
+        console.error("FIT upload error:", err);
+        toast.error(err.message);
       }
 
-      toast.success("File uploaded and session updated");
+      setUploading(false);
+    };
 
-      qc.invalidateQueries({ queryKey: ["session", sessionId] });
-      qc.invalidateQueries({ queryKey: ["steps", sessionId] });
-      qc.invalidateQueries({ queryKey: ["results", sessionId] });
-      qc.invalidateQueries({ queryKey: ["raw-points", sessionId] });
-      qc.invalidateQueries({ queryKey: ["zone-time", sessionId] });
-      qc.invalidateQueries({ queryKey: ["fatigue", sessionId] });
-    } catch (err: any) {
-      console.error("FIT upload error:", err);
-      toast.error(err.message);
-    }
-
-    setUploading(false);
-  };
-
-  reader.readAsDataURL(file);
-}
-    
-async function toggleRaceStatus() {
-  if (!session) return;
-  const makeRace = session.day_type !== "race";
-
-  const { error } = await supabase
-    .from("sessions")
-    .update({
-      day_type: makeRace ? "race" : "training",
-    })
-    .eq("id", sessionId);
-
-  if (error) {
-    toast.error(error.message);
-    return;
+    reader.readAsDataURL(file);
   }
 
-  qc.invalidateQueries({ queryKey: ["session", sessionId] });
+  async function toggleRaceStatus() {
+    if (!session) return;
+    const makeRace = session.day_type !== "race";
 
-  // ✅ AUTO CREATE PERFORMANCE
-  if (makeRace) {
-    if (
-      session.completed_at &&
-      session.total_time_seconds &&
-      session.total_distance_m
-    ) {
-      const payload = {
-        athlete_id: session.athlete_id,
-        performance_date: session.session_date,
-        distance_m: Math.round(Number(session.total_distance_m)),
-        time_seconds: Number(session.total_time_seconds),
-        event_name: session.title || null,
-        notes: session.notes || null,
-        is_pb: false,
-        context: "race",
-      };
+    const { error } = await supabase
+      .from("sessions")
+      .update({
+        day_type: makeRace ? "race" : "training",
+      })
+      .eq("id", sessionId);
 
-      const { error: perfError } = await supabase
-        .from("performances")
-        .insert(payload);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
 
-      if (!perfError) {
-        toast.success("Marked as race + result created ✅");
+    qc.invalidateQueries({ queryKey: ["session", sessionId] });
 
-        qc.invalidateQueries({ queryKey: ["races", session.athlete_id] });
-        qc.invalidateQueries({ queryKey: ["my-pbs", session.athlete_id] });
+    // ✅ AUTO CREATE PERFORMANCE
+    if (makeRace) {
+      if (session.completed_at && session.total_time_seconds && session.total_distance_m) {
+        const payload = {
+          athlete_id: session.athlete_id,
+          performance_date: session.session_date,
+          distance_m: Math.round(Number(session.total_distance_m)),
+          time_seconds: Number(session.total_time_seconds),
+          event_name: session.title || null,
+          notes: session.notes || null,
+          session_id: sessionId,
+          is_pb: false,
+          context: "race",
+        };
+
+        const { error: perfError } = await supabase.from("performances").insert(payload);
+
+        if (!perfError) {
+          toast.success("Marked as race + result created ✅");
+
+          qc.invalidateQueries({ queryKey: ["races", session.athlete_id] });
+          qc.invalidateQueries({ queryKey: ["my-pbs", session.athlete_id] });
+        } else {
+          toast.error(perfError.message);
+        }
       } else {
-        toast.error(perfError.message);
+        toast("Marked as race. Add totals to create result.");
       }
     } else {
-      toast("Marked as race. Add totals to create result.");
+      toast("Changed back to training");
     }
-  } else {
-    toast("Changed back to training");
   }
-}
-    
-useEffect(() => {
-  if (session?.title) {
-    setTitleValue(session.title);
-  }
-}, [session?.title]);
+
+  useEffect(() => {
+    if (session?.title) {
+      setTitleValue(session.title);
+    }
+  }, [session?.title]);
 
   if (isLoading)
     return (
@@ -344,37 +338,30 @@ useEffect(() => {
               </Button>
             )}
             <div className="flex items-center gap-2 flex-wrap">
+              {/* ✅ Mark as Race */}
+              <Button
+                size="sm"
+                variant={session.day_type === "race" ? "default" : "outline"}
+                onClick={toggleRaceStatus}
+              >
+                {session.day_type === "race" ? "Race ✅" : "Mark as Race"}
+              </Button>
 
-  {/* ✅ Mark as Race */}
-  <Button
-    size="sm"
-    variant={session.day_type === "race" ? "default" : "outline"}
-    onClick={toggleRaceStatus}
-  >
-    {session.day_type === "race" ? "Race ✅" : "Mark as Race"}
-  </Button>
+              {/* ✅ Existing analysis */}
+              {session.completed_at && (
+                <Button asChild size="sm" variant="outline">
+                  <Link to="/app/sessions/$sessionId/analysis" params={{ sessionId }}>
+                    <LineChart className="h-4 w-4 mr-1" />
+                    View analysis
+                  </Link>
+                </Button>
+              )}
 
-  {/* ✅ Existing analysis */}
-  {session.completed_at && (
-    <Button asChild size="sm" variant="outline">
-      <Link to="/app/sessions/$sessionId/analysis" params={{ sessionId }}>
-        <LineChart className="h-4 w-4 mr-1" />
-        View analysis
-      </Link>
-    </Button>
-  )}
-
-  {/* ✅ Future Race Analysis (disabled for now) */}
-  <Button
-    size="sm"
-    variant="outline"
-    disabled={session.day_type !== "race"}
-  >
-    Race analysis
-  </Button>
-
-
-</div>
+              {/* ✅ Future Race Analysis (disabled for now) */}
+              <Button size="sm" variant="outline" disabled={session.day_type !== "race"}>
+                Race analysis
+              </Button>
+            </div>
             <Button
               size="sm"
               variant="destructive"
@@ -1318,16 +1305,12 @@ function SessionSummary({
   // Derived stride length: prefer an explicit per-rep value, else compute from
   // session totals + average rep cadence. Returns null when not enough data.
   const derivedStride = (() => {
-    const explicit = results
-      .map((r: any) => Number(r?.stride_length_cm))
-      .filter((n) => Number.isFinite(n) && n > 0);
+    const explicit = results.map((r: any) => Number(r?.stride_length_cm)).filter((n) => Number.isFinite(n) && n > 0);
     if (explicit.length) {
       const avgCm = explicit.reduce((a, b) => a + b, 0) / explicit.length;
       return Number((avgCm / 100).toFixed(2));
     }
-    const cads = results
-      .map((r: any) => Number(r?.cadence))
-      .filter((n) => Number.isFinite(n) && n > 0);
+    const cads = results.map((r: any) => Number(r?.cadence)).filter((n) => Number.isFinite(n) && n > 0);
     const avgCad = cads.length ? cads.reduce((a, b) => a + b, 0) / cads.length : null;
     return computeStrideLengthM(session.total_distance_m, session.total_time_seconds, avgCad);
   })();
