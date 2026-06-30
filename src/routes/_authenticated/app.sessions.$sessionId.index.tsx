@@ -231,9 +231,16 @@ function SessionDetail() {
       return; // ✅ STOP HERE
     }
 
-    // ✅ CREATE RACE
+    
+// ✅ First mark as race (so validation doesn't treat it as training)
+await supabase
+  .from("sessions")
+  .update({ day_type: "race" })
+  .eq("id", sessionId);
 
-    if (session.completed_at && session.total_time_seconds && session.total_distance_m) {
+// ✅ Now handle race creation
+if (session.completed_at && session.total_time_seconds && session.total_distance_m) 
+
       // ✅ prevent duplicates
       const { data: existing } = await (supabase.from("performances") as any)
         .select("id")
