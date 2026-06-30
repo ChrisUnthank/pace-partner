@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -256,21 +257,15 @@ function RaceList({ athleteId }: { athleteId: string }) {
                     {/* RIGHT SIDE */}
                     <div className="flex items-center gap-2 shrink-0">
                       {(() => {
-                       const match = findMatchingSession(r);
+                        const match = findMatchingSession(r);
 
-return (
-  <Button
-    size="sm"
-    variant="outline"
-    onClick={() =>
-      match
-        ? (window.location.href = `/app/sessions/${match.id}/analysis`)
-        : (window.location.href = `/app/races/${r.id}/analysis`)
-    }
-  >
-    {match ? "Race Analysis" : "Analysis"}
-  </Button>
-);
+                        return (
+                          <Button asChild size="sm" variant="outline">
+                            <Link to="/_authenticated/app/races/$raceId/analysis" params={{ raceId: r.id }}>
+                              Race Analysis
+                            </Link>
+                          </Button>
+                        );
                       })()}
 
                       <Button variant="ghost" size="sm" onClick={() => remove(r.id)}>
