@@ -18,11 +18,7 @@ function RaceDetailPage() {
   const { data: race, isLoading } = useQuery({
     queryKey: ["race", raceId],
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
-        .from("performances")
-        .select("*")
-        .eq("id", raceId)
-        .maybeSingle();
+      const { data, error } = await (supabase as any).from("performances").select("*").eq("id", raceId).maybeSingle();
       if (error) throw error;
       return data as {
         id: string;
@@ -36,10 +32,7 @@ function RaceDetailPage() {
     },
   });
 
-  const avgPace =
-    race?.distance_m && race?.time_seconds
-      ? (race.time_seconds / race.distance_m) * 1000
-      : null;
+  const avgPace = race?.distance_m && race?.time_seconds ? (race.time_seconds / race.distance_m) * 1000 : null;
 
   function paceFmt(secPerKm: number | null) {
     if (!secPerKm) return "--";
@@ -56,9 +49,7 @@ function RaceDetailPage() {
             <Trophy className="h-5 w-5 text-[var(--accent-red)]" />
             <div>
               <h1 className="text-2xl font-bold">{race?.event_name || "Race"}</h1>
-              {race?.performance_date && (
-                <p className="text-sm text-muted-foreground">{race.performance_date}</p>
-              )}
+              {race?.performance_date && <p className="text-sm text-muted-foreground">{race.performance_date}</p>}
             </div>
           </div>
           <Button asChild variant="ghost" size="sm">
@@ -83,10 +74,7 @@ function RaceDetailPage() {
                 <Stat label="Distance" value={metersFmt(race.distance_m)} />
                 <Stat label="Time" value={secToClock(race.time_seconds)} />
                 <Stat label="Avg pace" value={paceFmt(avgPace)} />
-                <Stat
-                  label="Placing"
-                  value={race.overall_place ? String(race.overall_place) : "--"}
-                />
+                <Stat label="Placing" value={race.overall_place ? String(race.overall_place) : "--"} />
               </CardContent>
             </Card>
 
@@ -103,7 +91,7 @@ function RaceDetailPage() {
 
             <div>
               <Button asChild>
-                <Link to="/app/races/$raceId/analysis" params={{ raceId }}>
+                <Link to="/_authenticated/app/races/$raceId/analysis" params={{ raceId }}>
                   Race Analysis
                 </Link>
               </Button>
