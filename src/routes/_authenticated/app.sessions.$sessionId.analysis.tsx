@@ -1150,11 +1150,6 @@ function buildSamples(
   steps: any[],
   results: any[],
   rawPoints: any[],
-) {
-function buildSamples(
-  steps: any[],
-  results: any[],
-  rawPoints: any[],
 ): {
   samples: Sample[];
   bands: { kind: string; t1: number; t2: number; d1: number; d2: number }[];
