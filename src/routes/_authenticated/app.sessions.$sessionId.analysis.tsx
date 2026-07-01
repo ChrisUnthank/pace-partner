@@ -792,113 +792,127 @@ function SessionAnalysis() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
           {/* ✅ LEFT COLUMN */}
           <div className="lg:col-span-2 space-y-6">
-            <UnifiedSessionTable
-              points={
-                Array.isArray(rawPoints)
-                  ? rawPoints.filter((p: any) => p && (p.elapsed_s != null || p.distance_m != null))
-                  : []
-              }
-              results={safeResults}
-              steps={safeSteps}
-            />
-          </div>
+            {/* ✅ SEGMENTS FIRST (top priority) */}
+<UnifiedSessionTable
+  points={
+    Array.isArray(rawPoints)
+      ? rawPoints.filter((p: any) => p && (p.elapsed_s != null || p.distance_m != null))
+      : []
+  }
+  results={safeResults}
+  steps={safeSteps}
+/>
 
-          {/* ✅ RIGHT COLUMN */}
-          <div className="space-y-6">
-            <SessionInsightCard rows={insightRows} />
-            {showContinuousFatigueCard && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Run fatigue analysis</CardTitle>
-                  <CardDescription>Continuous-run drift analysis from uploaded trace data.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() =>
-                      computeFatigue({ data: { sessionId } })
-                        .then(() => window.location.reload())
-                        .catch((err) => console.error("recompute fatigue error:", err))
-                    }
-                  >
-                    Recompute run fatigue
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
+{/* ✅ 2-COLUMN LAYOUT */}
+<div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
 
-            {showIntervalFatigueHint && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Fatigue insight</CardTitle>
-                  <CardDescription>Based on interval performance (manual session)</CardDescription>
-                </CardHeader>
-                <CardContent className="text-sm text-muted-foreground">
-                  Continuous fatigue analysis requires uploaded activity data. Interval-based trends can still be
-                  reviewed using rep times, heart rate, and recovery metrics above.
-                </CardContent>
-              </Card>
-            )}
+  {/* ✅ LEFT COLUMN (visual + session content) */}
+  <div className="lg:col-span-2 space-y-6">
 
-            {continuousFatigue && !isIntervals && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Overall run fatigue</CardTitle>
-                  <CardDescription>Continuous drift method</CardDescription>
-                </CardHeader>
-                <CardContent className="text-sm space-y-1">
-                  <div className="flex justify-between border rounded px-3 py-2">
-                    <span className="font-medium">Efficiency score</span>
-                    <span className="tabular-nums">{continuousFatigue.efficiency_score ?? "—"}/100</span>
-                  </div>
-                  <div className="flex justify-between border rounded px-3 py-2 text-muted-foreground">
-                    <span>HR drift</span>
-                    <span>
-                      {continuousFatigue.hr_drift_bpm != null
-                        ? `${Number(continuousFatigue.hr_drift_bpm).toFixed(1)} bpm`
-                        : "—"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between border rounded px-3 py-2 text-muted-foreground">
-                    <span>Pace drift</span>
-                    <span>
-                      {continuousFatigue.pace_drift_pct != null
-                        ? `${Number(continuousFatigue.pace_drift_pct).toFixed(1)}%`
-                        : "—"}
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+    {modeType === "interval" && manualRows.length > 0 && (
+      <Card>
+        {/* keep your existing interval summary exactly */}
+      </Card>
+    )}
 
-            {repFatigue.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Per-step fatigue</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2 text-sm">
-                  {repFatigue.map((f: any) => {
-                    const step = safeSteps.find((s: any) => s.id === f.step_id);
-                    return (
-                      <div key={f.step_id} className="flex flex-wrap justify-between gap-2 border rounded px-3 py-2">
-                        <span className="font-medium capitalize">{step?.kind ?? "step"}</span>
-                        <span className="text-muted-foreground">
-                          eff {f.efficiency_score ?? "—"} · pace drift{" "}
-                          {f.pace_drift_pct != null ? `${Number(f.pace_drift_pct).toFixed(1)}%` : "—"} · HR drift{" "}
-                          {f.hr_drift_bpm != null ? `${Number(f.hr_drift_bpm).toFixed(0)} bpm` : "—"}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </CardContent>
-              </Card>
-            )}
+    {recoveryRows.length >= 2 && <RecoveryPanel rows={recoveryRows} />}
 
-            <ZonePanel rows={safeZoneTime.filter((r: any) => r.source === "pace")} title="Pace zones" />
-            <ZonePanel rows={safeZoneTime.filter((r: any) => r.source === "hr")} title="HR zones" />
-          </div>
+    {Array.isArray(gpsPoints) &&
+      gpsPoints.filter((p: any) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng)).length >= 2 && (
+        <MapPanel
+          points={gpsPoints.filter((p: any) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng))}
+        />
+      )}
+
+  </div>
+
+  {/* ✅ RIGHT COLUMN (meaning + summary) */}
+  <div className="space-y-6">
+
+    {/* ✅ Insight FIRST */}
+    <SessionInsightCard rows={insightRows} />
+
+    {/* ✅ Feedback */}
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle>Session feedback</CardTitle>
+      </CardHeader>
+      <CardContent className="grid grid-cols-2 gap-4">
+        <div>
+          <p className="text-xs text-muted-foreground">RPE</p>
+          <p className="font-semibold">{session.rpe ?? "—"}</p>
         </div>
+        <div>
+          <p className="text-xs text-muted-foreground">Completion</p>
+          <p className="font-semibold">
+            {session.completed_at ? "100%" : "Not completed"}
+          </p>
+        </div>
+      </CardContent>
+    </Card>
+
+    {/* ✅ Fatigue */}
+    {showContinuousFatigueCard && (
+      <Card>
+        <CardHeader>
+          <CardTitle>Run fatigue analysis</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() =>
+              computeFatigue({ data: { sessionId } })
+                .then(() => window.location.reload())
+                .catch((err) => console.error("recompute fatigue error:", err))
+            }
+          >
+            Recompute run fatigue
+          </Button>
+        </CardContent>
+      </Card>
+    )}
+
+    {continuousFatigue && !isIntervals && (
+      <Card>
+        <CardHeader>
+          <CardTitle>Overall run fatigue</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm space-y-1">
+          <div className="flex justify-between border rounded px-3 py-2">
+            <span>Efficiency</span>
+            <span>{continuousFatigue.efficiency_score ?? "—"}/100</span>
+          </div>
+        </CardContent>
+      </Card>
+    )}
+
+    {repFatigue.length > 0 && (
+      <Card>
+        <CardHeader>
+          <CardTitle>Per-step fatigue</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm space-y-2">
+          {repFatigue.map((f: any) => {
+            const step = safeSteps.find((s: any) => s.id === f.step_id);
+            return (
+              <div key={f.step_id} className="flex justify-between border rounded px-3 py-2">
+                <span className="capitalize">{step?.kind ?? "step"}</span>
+                <span>{f.efficiency_score ?? "—"}</span>
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
+    )}
+
+    {/* ✅ Zones */}
+    <ZonePanel rows={safeZoneTime.filter((r: any) => r.source === "pace")} title="Pace zones" />
+    <ZonePanel rows={safeZoneTime.filter((r: any) => r.source === "hr")} title="HR zones" />
+
+  </div>
+
+</div>
         {/* ✅ END 2-COLUMN LAYOUT */}
       </div>
     </AppShell>
