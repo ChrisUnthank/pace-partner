@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/app-shell";
@@ -65,7 +65,7 @@ function RaceAnalysisPage() {
         .from("raw_session_points")
         .select("*")
         .eq("session_id", race.session_id)
-        .order("time");
+        .order("elapsed_s");
 
       if (error) throw error;
       return data ?? [];
@@ -98,23 +98,23 @@ const autoSplits = useMemo(() => {
   const splits = [];
   let currentKm = 1;
 
-  let startTime = rawPoints[0]?.time ?? 0;
-  let startDistance = rawPoints[0]?.distance ?? 0;
+  let startTime = rawPoints[0]?.elapsed_s ?? 0;
+  let startDistance = rawPoints[0]?.distance_m ?? 0;
 
   for (let i = 0; i < rawPoints.length; i++) {
     const p = rawPoints[i];
-    if (!p?.distance || !p?.time) continue;
+    if (p?.distance_m == null || p?.elapsed_s == null) continue;
 
-    if (p.distance - startDistance >= 1000) {
-      const splitTime = p.time - startTime;
+    if (p.distance_m - startDistance >= 1000) {
+      const splitTime = p.elapsed_s - startTime;
 
       splits.push({
         km: currentKm,
         time: splitTime,
       });
 
-      startTime = p.time;
-      startDistance = p.distance;
+      startTime = p.elapsed_s;
+      startDistance = p.distance_m;
       currentKm++;
     }
   }
@@ -255,6 +255,8 @@ const isFitRace = !!race?.session_id && rawPoints.length > 0;
     </CardContent>
   </Card>
 )}
+          </>
+        )}
       </div>
     </AppShell>
   );
