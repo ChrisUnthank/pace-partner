@@ -1206,8 +1206,12 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
             session_date: sessionDate,
 
             title: (() => {
-              const date = new Date().toISOString().split("T")[0];
-              return `Run ${date}`;
+              const now = new Date();
+              const hour = now.getHours();
+
+              const timeLabel = hour < 11 ? "Morning" : hour < 16 ? "Afternoon" : "Evening";
+
+              return `${timeLabel} run`;
             })(),
 
             day_type: "training",
