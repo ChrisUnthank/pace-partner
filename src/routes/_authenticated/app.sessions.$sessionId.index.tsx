@@ -297,6 +297,22 @@ function SessionDetail() {
       toast("Add totals to create race");
     }
   }
+  async function saveTitle() {
+    if (!session?.id) return;
+
+    const { error } = await supabase.from("sessions").update({ title: titleValue }).eq("id", session.id);
+
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+
+    toast.success("Session name updated");
+
+    setEditingTitle(false);
+
+    qc.invalidateQueries({ queryKey: ["session", sessionId] });
+  }
 
   useEffect(() => {
     if (session?.title) {
