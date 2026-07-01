@@ -1,4 +1,4 @@
-import { createFileRoute, Outlet } from "@tanstack/react-router";
+import { Outlet, createFileRoute } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_authenticated/app/races/$raceId")({
   component: RaceLayout,
@@ -7,4 +7,3 @@ export const Route = createFileRoute("/_authenticated/app/races/$raceId")({
 function RaceLayout() {
   return <Outlet />;
 }
-
