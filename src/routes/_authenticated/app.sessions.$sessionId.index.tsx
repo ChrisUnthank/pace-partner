@@ -1351,16 +1351,14 @@ function SessionSummary({
     const { error } = await supabase
       .from("sessions")
       .update({
-        total_distance_m: totalDist === "" ? null : Number(totalDist),
-        total_time_seconds: clockToSec(totalTime as any),
-        avg_hr: avgHr === "" ? null : Number(avgHr),
         rpe,
         ...(wasAlreadyComplete ? {} : { completed_at: new Date().toISOString() }),
       })
       .eq("id", session.id);
 
-    if (error) toast.error(error.message);
-    else {
+    if (error) {
+      toast.error(error.message);
+    } else {
       toast.success(wasAlreadyComplete ? "Session updated" : "Session marked complete");
       onSaved();
       if (!wasAlreadyComplete) onCompleted?.();
