@@ -38,7 +38,10 @@ function RaceAnalysisPage() {
   const { data: rawPoints = [] } = useQuery({
     queryKey: ["raw-points", race?.session_id],
     enabled: !!race?.session_id,
+
     queryFn: async () => {
+      if (!race?.session_id) return [];
+
       const { data } = await supabase
         .from("raw_session_points")
         .select("*")
