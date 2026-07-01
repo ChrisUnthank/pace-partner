@@ -233,23 +233,22 @@ async function parseFIT(buffer: ArrayBuffer): Promise<ParsedFile> {
         const cadence = normalizeCadence(r.cadence);
 
         return {
-          return {
-  timestamp: r.timestamp ?? null,
-  elapsed_s:
-    r.elapsed_time ??
-    (r.timestamp ? (new Date(r.timestamp).getTime() - t0) / 1000 : 0),
-  distance_m: r.distance ?? null,
-  lat: r.position_lat ?? null,
-  lng: r.position_long ?? null,
-  elevation_m: r.enhanced_altitude ?? r.altitude ?? null,
-  hr: r.heart_rate ?? null,
-  cadence,
-  pace_sec_per_km: speed && speed > 0.1 ? 1000 / speed : null,
-  stride_length_m: speed && cadence ? speed / (cadence / 60) : null,
-  vertical_oscillation_cm: r.vertical_oscillation ?? r.vertical_oscillation_mm ?? null,
-  ground_contact_time_ms: r.stance_time ?? r.ground_contact_time ?? null,
-  temperature_c: r.temperature ?? null,
-};
+          timestamp: r.timestamp ?? null,
+          elapsed_s:
+            r.elapsed_time ??
+            (r.timestamp ? (new Date(r.timestamp).getTime() - t0) / 1000 : 0),
+          distance_m: r.distance ?? null,
+          lat: r.position_lat ?? null,
+          lng: r.position_long ?? null,
+          elevation_m: r.enhanced_altitude ?? r.altitude ?? null,
+          hr: r.heart_rate ?? null,
+          cadence,
+          pace_sec_per_km: speed && speed > 0.1 ? 1000 / speed : null,
+          stride_length_m: speed && cadence ? speed / (cadence / 60) : null,
+          vertical_oscillation_cm: r.vertical_oscillation ?? r.vertical_oscillation_mm ?? null,
+          ground_contact_time_ms: r.stance_time ?? r.ground_contact_time ?? null,
+          temperature_c: r.temperature ?? null,
+        };
       });
 
       const normalizedLaps: ParsedLap[] = laps.map((lap: any, i: number, arr: any[]) => {
