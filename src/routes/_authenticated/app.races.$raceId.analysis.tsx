@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/app-shell";
@@ -255,6 +255,8 @@ const isFitRace = !!race?.session_id && rawPoints.length > 0;
     </CardContent>
   </Card>
 )}
+          </>
+        )}
       </div>
     </AppShell>
   );
