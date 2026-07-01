@@ -680,61 +680,45 @@ function SessionAnalysis() {
           </CardContent>
         </Card>
 
-<div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mt-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mt-4">
+          <div className="p-3 rounded-lg bg-muted/40">
+            <p className="text-xs text-muted-foreground">Distance</p>
+            <p className="font-semibold">
+              {session.total_distance_m ? `${(session.total_distance_m / 1000).toFixed(2)} km` : "—"}
+            </p>
+          </div>
 
-  <div className="p-3 rounded-lg bg-muted/40">
-    <p className="text-xs text-muted-foreground">Distance</p>
-    <p className="font-semibold">
-      {session.total_distance_m
-        ? `${(session.total_distance_m / 1000).toFixed(2)} km`
-        : "—"}
-    </p>
-  </div>
+          <div className="p-3 rounded-lg bg-muted/40">
+            <p className="text-xs text-muted-foreground">Time</p>
+            <p className="font-semibold">{session.total_time_seconds ? secToClock(session.total_time_seconds) : "—"}</p>
+          </div>
 
-  <div className="p-3 rounded-lg bg-muted/40">
-    <p className="text-xs text-muted-foreground">Time</p>
-    <p className="font-semibold">
-      {session.total_time_seconds
-        ? secToClock(session.total_time_seconds)
-        : "—"}
-    </p>
-  </div>
+          <div className="p-3 rounded-lg bg-muted/40">
+            <p className="text-xs text-muted-foreground">Pace</p>
+            <p className="font-semibold">
+              {session.work_avg_pace_sec_per_km ? paceFmt(session.work_avg_pace_sec_per_km) : "—"}
+            </p>
+          </div>
 
-  <div className="p-3 rounded-lg bg-muted/40">
-    <p className="text-xs text-muted-foreground">Pace</p>
-    <p className="font-semibold">
-      {session.work_avg_pace_sec_per_km
-        ? paceFmt(session.work_avg_pace_sec_per_km)
-        : "—"}
-    </p>
-  </div>
+          <div className="p-3 rounded-lg bg-muted/40">
+            <p className="text-xs text-muted-foreground">HR</p>
+            <p className="font-semibold">{session.avg_hr ? `${session.avg_hr} bpm` : "—"}</p>
+          </div>
 
-  <div className="p-3 rounded-lg bg-muted/40">
-    <p className="text-xs text-muted-foreground">HR</p>
-    <p className="font-semibold">
-      {session.avg_hr ? `${session.avg_hr} bpm` : "—"}
-    </p>
-  </div>
+          <div className="p-3 rounded-lg bg-muted/40">
+            <p className="text-xs text-muted-foreground">Speed</p>
+            <p className="font-semibold">
+              {session.work_avg_pace_sec_per_km ? `${(3600 / session.work_avg_pace_sec_per_km).toFixed(1)} km/h` : "—"}
+            </p>
+          </div>
 
-  <div className="p-3 rounded-lg bg-muted/40">
-    <p className="text-xs text-muted-foreground">Speed</p>
-    <p className="font-semibold">
-      {session.work_avg_pace_sec_per_km
-        ? `${(3600 / session.work_avg_pace_sec_per_km).toFixed(1)} km/h`
-        : "—"}
-    </p>
-  </div>
-
-  <div className="p-3 rounded-lg bg-muted/40">
-    <p className="text-xs text-muted-foreground">Temp</p>
-    <p className="font-semibold">
-      {session.average_temp_c != null
-        ? `${session.average_temp_c.toFixed(1)}°C`
-        : "—"}
-    </p>
-  </div>
-
-</div>
+          <div className="p-3 rounded-lg bg-muted/40">
+            <p className="text-xs text-muted-foreground">Temp</p>
+            <p className="font-semibold">
+              {session.average_temp_c != null ? `${session.average_temp_c.toFixed(1)}°C` : "—"}
+            </p>
+          </div>
+        </div>
 
         {modeType === "interval" && manualRows.length > 0 && (
           <Card>
@@ -782,21 +766,19 @@ function SessionAnalysis() {
           )}
 
         <Card>
-          <CardHeader>
-            <CardTitle>Totals</CardTitle>
+          <CardHeader className="pb-2">
+            <CardTitle>Session feedback</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
-              <Stat label="Distance" value={metersFmt(session.total_distance_m)} />
-              <Stat label="Duration" value={secToClock(session.total_time_seconds)} />
-              <Stat label="Avg HR" value={session.avg_hr ? `${session.avg_hr} bpm` : "—"} />
-              <Stat label="RPE" value={session.rpe != null ? String(session.rpe) : "—"} />
-              <Stat label="Completion" value={session.completion_pct != null ? `${session.completion_pct}%` : "—"} />
 
-              <Stat
-                label="Avg temp"
-                value={session.average_temp_c != null ? `${Number(session.average_temp_c).toFixed(1)} °C` : "—"}
-              />
+          <CardContent className="grid grid-cols-2 gap-4">
+            <div>
+              <p className="text-xs text-muted-foreground">RPE</p>
+              <p className="font-semibold">{session.rpe != null ? session.rpe : "—"}</p>
+            </div>
+
+            <div>
+              <p className="text-xs text-muted-foreground">Completion</p>
+              <p className="font-semibold">{session.completion_pct != null ? `${session.completion_pct}%` : "—"}</p>
             </div>
           </CardContent>
         </Card>
