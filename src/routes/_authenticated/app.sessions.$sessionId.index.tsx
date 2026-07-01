@@ -1382,38 +1382,28 @@ function SessionSummary({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Session totals & RPE</CardTitle>
+        <CardTitle>Session feedback</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="grid sm:grid-cols-3 gap-3">
-          <div>
-            <Label>Total distance (m)</Label>
-            <Input type="number" value={totalDist} onChange={(e) => setTotalDist(e.target.value)} />
-          </div>
-          <div>
-            <Label>Total time (mm:ss)</Label>
-            <Input value={totalTime} onChange={(e) => setTotalTime(e.target.value)} />
-          </div>
-          <div>
-            <Label>Avg HR</Label>
-            <Input type="number" value={avgHr} onChange={(e) => setAvgHr(e.target.value)} />
-          </div>
-        </div>
-        <div className="grid sm:grid-cols-3 gap-3 text-sm">
-          <div className="rounded border px-3 py-2">
-            <div className="text-xs text-muted-foreground">Stride length</div>
-            <div className="font-medium tabular-nums">{formatStride(derivedStride)}</div>
-          </div>
-        </div>
+
+      <CardContent className="space-y-4">
+        {/* ✅ RPE */}
         <div>
           <Label>
             RPE (1–10): <span className="tabular-nums">{rpe}</span>
           </Label>
           <Slider min={1} max={10} step={1} value={[rpe]} onValueChange={(v) => setRpe(v[0])} className="mt-2" />
         </div>
+
+        {/* ✅ Completion */}
+        <div className="flex items-center justify-between text-sm border rounded px-3 py-2">
+          <span>Completion</span>
+          <span className="font-semibold">{session.completed_at ? "100%" : "Not completed"}</span>
+        </div>
+
+        {/* ✅ Submit */}
         <Button onClick={complete} className="w-full">
           <CheckCircle2 className="h-4 w-4 mr-1" />
-          {session.completed_at ? "Update totals & RPE" : "Mark complete"}
+          {session.completed_at ? "Update session" : "Mark complete"}
         </Button>
       </CardContent>
     </Card>
