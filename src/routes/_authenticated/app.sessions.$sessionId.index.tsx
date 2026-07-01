@@ -349,10 +349,28 @@ function SessionDetail() {
                 size="lg"
               />
               <div>
-                <h1 className="text-2xl font-bold flex items-center gap-2">
+                <div className="flex items-center gap-2">
                   <ActivityIcon session={session as any} size={22} className="text-muted-foreground" />
-                  {session.title}
-                </h1>
+
+                  {editingTitle ? (
+                    <input
+                      value={titleValue}
+                      onChange={(e) => setTitleValue(e.target.value)}
+                      onBlur={saveTitle}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      className="text-2xl font-bold bg-transparent outline-none w-full"
+                      autoFocus
+                    />
+                  ) : (
+                    <h1 className="text-2xl font-bold cursor-pointer" onClick={() => setEditingTitle(true)}>
+                      {session.title}
+                    </h1>
+                  )}
+                </div>
                 <p className="text-sm text-muted-foreground">
                   {session.session_date} · {session.athletes?.name} · {sessionClassificationLabel(session as any)}
                   {(session as any).applied_from_template_id && <span className="ml-2 italic">· from template</span>}
