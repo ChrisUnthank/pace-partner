@@ -1204,21 +1204,15 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
             athlete_id: data.athleteId,
             created_by: context.userId,
             session_date: sessionDate,
-
-            
-title: (() => {
-  const now = new Date();
-  const hour = now.getHours();
-
-  const timeLabel =
-    hour < 11 ? "Morning" :
-    hour < 16 ? "Afternoon" :
-    "Evening";
-
-  return `${timeLabel} session`;
-})()
-
-
+            title: (() => {
+              const now = new Date();
+              const hour = now.getHours();
+              const timeLabel =
+                hour < 11 ? "Morning" :
+                hour < 16 ? "Afternoon" :
+                "Evening";
+              return `${timeLabel} session`;
+            })(),
             day_type: "training",
             intent: "aerobic",
             structure: "continuous",
