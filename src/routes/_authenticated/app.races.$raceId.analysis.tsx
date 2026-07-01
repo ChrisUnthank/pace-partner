@@ -108,10 +108,18 @@ function RaceAnalysisPage() {
 
   const isFitRace = autoSplits.length > 0;
 
-  if (!race) {
+  if (isLoading) {
     return (
       <AppShell>
         <p>Loading race...</p>
+      </AppShell>
+    );
+  }
+
+  if (!race) {
+    return (
+      <AppShell>
+        <p>Race not found.</p>
       </AppShell>
     );
   }
