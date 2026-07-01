@@ -679,6 +679,63 @@ function SessionAnalysis() {
             </div>
           </CardContent>
         </Card>
+        </Card>   
+
+<div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mt-4">
+
+  <div className="p-3 rounded-lg bg-muted/40">
+    <p className="text-xs text-muted-foreground">Distance</p>
+    <p className="font-semibold">
+      {session.total_distance_m
+        ? `${(session.total_distance_m / 1000).toFixed(2)} km`
+        : "—"}
+    </p>
+  </div>
+
+  <div className="p-3 rounded-lg bg-muted/40">
+    <p className="text-xs text-muted-foreground">Time</p>
+    <p className="font-semibold">
+      {session.total_time_seconds
+        ? formatTime(session.total_time_seconds)
+        : "—"}
+    </p>
+  </div>
+
+  <div className="p-3 rounded-lg bg-muted/40">
+    <p className="text-xs text-muted-foreground">Pace</p>
+    <p className="font-semibold">
+      {session.work_avg_pace_sec_per_km
+        ? formatPace(session.work_avg_pace_sec_per_km)
+        : "—"}
+    </p>
+  </div>
+
+  <div className="p-3 rounded-lg bg-muted/40">
+    <p className="text-xs text-muted-foreground">HR</p>
+    <p className="font-semibold">
+      {session.avg_hr ? `${session.avg_hr} bpm` : "—"}
+    </p>
+  </div>
+
+  <div className="p-3 rounded-lg bg-muted/40">
+    <p className="text-xs text-muted-foreground">Speed</p>
+    <p className="font-semibold">
+      {session.work_avg_pace_sec_per_km
+        ? `${(3600 / session.work_avg_pace_sec_per_km).toFixed(1)} km/h`
+        : "—"}
+    </p>
+  </div>
+
+  <div className="p-3 rounded-lg bg-muted/40">
+    <p className="text-xs text-muted-foreground">Temp</p>
+    <p className="font-semibold">
+      {session.average_temp_c != null
+        ? `${session.average_temp_c.toFixed(1)}°C`
+        : "—"}
+    </p>
+  </div>
+
+</div>
 
         {modeType === "interval" && manualRows.length > 0 && (
           <Card>
