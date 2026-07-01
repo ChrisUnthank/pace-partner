@@ -65,6 +65,7 @@ type ParsedPoint = {
   stride_length_m?: number | null;
   vertical_oscillation_cm?: number | null;
   ground_contact_time_ms?: number | null;
+  temperature_c?: number | null;
 };
 
 type ParsedLap = {
@@ -168,18 +169,19 @@ function parseGPX(xml: string): ParsedFile {
     }
 
     return {
-      timestamp: p.time ?? null,
-      elapsed_s: elapsed,
-      distance_m: totalDist,
-      lat: p.lat,
-      lng: p.lng,
-      elevation_m: p.ele ?? null,
-      hr: p.hr ?? null,
-      cadence: normalizeCadence(p.cad),
-      pace_sec_per_km: pace ?? null,
-      vertical_oscillation_cm: null,
-      ground_contact_time_ms: null,
-    };
+  timestamp: p.time ?? null,
+  elapsed_s: elapsed,
+  distance_m: totalDist,
+  lat: p.lat,
+  lng: p.lng,
+  elevation_m: p.ele ?? null,
+  hr: p.hr ?? null,
+  cadence: normalizeCadence(p.cad),
+  pace_sec_per_km: pace ?? null,
+  vertical_oscillation_cm: null,
+  ground_contact_time_ms: null,
+  temperature_c: null,
+};
   });
 
   const totalTime =
@@ -231,21 +233,23 @@ async function parseFIT(buffer: ArrayBuffer): Promise<ParsedFile> {
         const cadence = normalizeCadence(r.cadence);
 
         return {
-          timestamp: r.timestamp ?? null,
-          elapsed_s:
-            r.elapsed_time ??
-            (r.timestamp ? (new Date(r.timestamp).getTime() - t0) / 1000 : 0),
-          distance_m: r.distance ?? null,
-          lat: r.position_lat ?? null,
-          lng: r.position_long ?? null,
-          elevation_m: r.enhanced_altitude ?? r.altitude ?? null,
-          hr: r.heart_rate ?? null,
-          cadence,
-          pace_sec_per_km: speed && speed > 0.1 ? 1000 / speed : null,
-          stride_length_m: speed && cadence ? speed / (cadence / 60) : null,
-          vertical_oscillation_cm: r.vertical_oscillation ?? r.vertical_oscillation_mm ?? null,
-          ground_contact_time_ms: r.stance_time ?? r.ground_contact_time ?? null,
-        };
+          return {
+  timestamp: r.timestamp ?? null,
+  elapsed_s:
+    r.elapsed_time ??
+    (r.timestamp ? (new Date(r.timestamp).getTime() - t0) / 1000 : 0),
+  distance_m: r.distance ?? null,
+  lat: r.position_lat ?? null,
+  lng: r.position_long ?? null,
+  elevation_m: r.enhanced_altitude ?? r.altitude ?? null,
+  hr: r.heart_rate ?? null,
+  cadence,
+  pace_sec_per_km: speed && speed > 0.1 ? 1000 / speed : null,
+  stride_length_m: speed && cadence ? speed / (cadence / 60) : null,
+  vertical_oscillation_cm: r.vertical_oscillation ?? r.vertical_oscillation_mm ?? null,
+  ground_contact_time_ms: r.stance_time ?? r.ground_contact_time ?? null,
+  temperature_c: r.temperature ?? null,
+};
       });
 
       const normalizedLaps: ParsedLap[] = laps.map((lap: any, i: number, arr: any[]) => {
@@ -539,13 +543,18 @@ function summarizeImportedPoints(points: ParsedPoint[]) {
   const cads = points
     .map((p) => p.cadence)
     .filter((x): x is number => typeof x === "number" && x > 0);
+  const temps = points
+    .map((p) => p.temperature_c)
+    .filter((x): x is number => typeof x === "number");
 
   const avgHr = hrs.length ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null;
   const maxHr = hrs.length ? Math.max(...hrs) : null;
   const avgPace = paces.length ? Math.round(paces.reduce((a, b) => a + b, 0) / paces.length) : null;
   const avgCad = cads.length ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length) : null;
+  const avgTemp =
+    temps.length ? Number((temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(1)) : null;
 
-  return { avgHr, maxHr, avgPace, avgCad };
+  return { avgHr, maxHr, avgPace, avgCad, avgTemp };
 }
 
 function summarizeLapsMetrics(laps: ParsedLap[], points: MergedPoint[]) {
@@ -734,22 +743,23 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
 
   if (safeFiles.length === 0) {
     await sb
-      .from("sessions")
-      .update({
-        total_distance_m: null,
-        total_time_seconds: null,
-        work_distance_m: null,
-        work_time_s: null,
-        avg_hr: null,
-        max_hr: null,
-        work_avg_hr: null,
-        work_avg_pace_sec_per_km: null,
-        work_avg_cadence: null,
-        completion_pct: null,
-        structure: hasManualPlan ? sess.structure : "continuous",
-        needs_review: true,
-      } as any)
-      .eq("id", sessionId);
+  .from("sessions")
+  .update({
+    total_distance_m: null,
+    total_time_seconds: null,
+    work_distance_m: null,
+    work_time_s: null,
+    avg_hr: null,
+    max_hr: null,
+    average_temp_c: null,
+    work_avg_hr: null,
+    work_avg_pace_sec_per_km: null,
+    work_avg_cadence: null,
+    completion_pct: null,
+    structure: hasManualPlan ? sess.structure : "continuous",
+    needs_review: true,
+  } as any)
+  .eq("id", sessionId);
 
     return;
   }
@@ -831,24 +841,25 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
       ? Number(mergedPoints[mergedPoints.length - 1].elapsed_s ?? 0)
       : parsedFiles.reduce((s, p) => s + Number(p.parsed.totalTimeS ?? 0), 0);
 
-  const { avgHr, maxHr, avgPace, avgCad } = summarizeImportedPoints(mergedPoints);
+  const { avgHr, maxHr, avgPace, avgCad, avgTemp } = summarizeImportedPoints(mergedPoints);
 
   if (mergedPoints.length > 0) {
     const rows = mergedPoints.map((p) => ({
-      session_id: sessionId,
-      file_id: p.file_id,
-      segment_type: findLapKindForPoint(p.timestamp ?? null, classifiedLaps),
-      elapsed_s: p.elapsed_s,
-      distance_m: p.distance_m ?? null,
-      lat: p.lat ?? null,
-      lng: p.lng ?? null,
-      hr: p.hr ?? null,
-      pace_sec_per_km: p.pace_sec_per_km ?? null,
-      cadence: p.cadence ?? null,
-      elevation_m: p.elevation_m ?? null,
-      vertical_oscillation_cm: p.vertical_oscillation_cm ?? null,
-      ground_contact_time_ms: p.ground_contact_time_ms ?? null,
-    }));
+  session_id: sessionId,
+  file_id: p.file_id,
+  segment_type: findLapKindForPoint(p.timestamp ?? null, classifiedLaps),
+  elapsed_s: p.elapsed_s,
+  distance_m: p.distance_m ?? null,
+  lat: p.lat ?? null,
+  lng: p.lng ?? null,
+  hr: p.hr ?? null,
+  pace_sec_per_km: p.pace_sec_per_km ?? null,
+  cadence: p.cadence ?? null,
+  elevation_m: p.elevation_m ?? null,
+  vertical_oscillation_cm: p.vertical_oscillation_cm ?? null,
+  ground_contact_time_ms: p.ground_contact_time_ms ?? null,
+  temperature_c: p.temperature_c ?? null,
+}));
 
     for (let i = 0; i < rows.length; i += 500) {
       const { error } = await sb.from("raw_session_points").insert(rows.slice(i, i + 500) as any);
@@ -1190,22 +1201,23 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
     : totalTimeS;
 
   const { error: updErr } = await sb
-    .from("sessions")
-    .update({
-      total_distance_m: totalDistanceM || null,
-      total_time_seconds: totalTimeS || null,
-      avg_hr: avgHr,
-      max_hr: maxHr,
-      completion_pct: 100,
-      work_distance_m: workDistance || null,
-      work_time_s: workTime || null,
-      work_avg_hr: avgHr,
-      work_avg_pace_sec_per_km: avgPace,
-      work_avg_cadence: avgCad,
-      structure: isIntervals ? "intervals" : "continuous",
-      needs_review: isIntervals,
-    } as any)
-    .eq("id", sessionId);
+  .from("sessions")
+  .update({
+    total_distance_m: totalDistanceM || null,
+    total_time_seconds: totalTimeS || null,
+    avg_hr: avgHr,
+    max_hr: maxHr,
+    average_temp_c: avgTemp,
+    completion_pct: 100,
+    work_distance_m: workDistance || null,
+    work_time_s: workTime || null,
+    work_avg_hr: avgHr,
+    work_avg_pace_sec_per_km: avgPace,
+    work_avg_cadence: avgCad,
+    structure: isIntervals ? "intervals" : "continuous",
+    needs_review: isIntervals,
+  } as any)
+  .eq("id", sessionId);
 
   if (updErr) throw updErr;
 }
