@@ -725,18 +725,16 @@ function SessionAnalysis() {
             <p className="font-semibold">{session.total_time_seconds ? secToClock(session.total_time_seconds) : "—"}</p>
           </div>
 
-          
-<div className="p-3 rounded-lg bg-muted/40">
-  <p className="text-xs text-muted-foreground">Pace</p>
-  <p className="font-semibold">
-    {session.work_avg_pace_sec_per_km
-      ? speedMode === "pace"
-        ? paceFmt(session.work_avg_pace_sec_per_km)
-        : `${paceToSpeed(session.work_avg_pace_sec_per_km)?.toFixed(1)} km/h`
-      : "—"}
-  </p>
-</div>
-
+          <div className="p-3 rounded-lg bg-muted/40">
+            <p className="text-xs text-muted-foreground">Pace</p>
+            <p className="font-semibold">
+              {session.work_avg_pace_sec_per_km
+                ? speedMode === "pace"
+                  ? paceFmt(session.work_avg_pace_sec_per_km)
+                  : `${paceToSpeed(session.work_avg_pace_sec_per_km)?.toFixed(1)} km/h`
+                : "—"}
+            </p>
+          </div>
 
           <div className="p-3 rounded-lg bg-muted/40">
             <p className="text-xs text-muted-foreground">HR</p>
@@ -744,15 +742,13 @@ function SessionAnalysis() {
           </div>
 
           <div className="p-3 rounded-lg bg-muted/40">
-            
-<p className="font-semibold">
-  {session.work_avg_pace_sec_per_km
-    ? speedMode === "speed"
-      ? `${paceToSpeed(session.work_avg_pace_sec_per_km)?.toFixed(1)} km/h`
-      : paceFmt(session.work_avg_pace_sec_per_km)
-    : "—"}
-</p>
-
+            <p className="font-semibold">
+              {session.work_avg_pace_sec_per_km
+                ? speedMode === "speed"
+                  ? `${paceToSpeed(session.work_avg_pace_sec_per_km)?.toFixed(1)} km/h`
+                  : paceFmt(session.work_avg_pace_sec_per_km)
+                : "—"}
+            </p>
           </div>
 
           <div className="p-3 rounded-lg bg-muted/40">
@@ -805,7 +801,9 @@ function SessionAnalysis() {
         {recoveryRows.length >= 2 && <RecoveryPanel rows={recoveryRows} />}
 
         {/* ✅ SESSION SEGMENTS (FULL WIDTH — PRIMARY CONTENT) */}
+
         <UnifiedSessionTable
+          speedMode={speedMode}
           points={
             Array.isArray(rawPoints)
               ? rawPoints.filter((p: any) => p && (p.elapsed_s != null || p.distance_m != null))
