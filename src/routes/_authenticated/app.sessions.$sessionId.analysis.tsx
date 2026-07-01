@@ -1038,7 +1038,7 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
   const maxLng = Math.max(...lngs);
 
   const width = 800;
-  const height = "100%";
+  const height = 600;
   const pad = 20;
 
   const project = (lat: number, lng: number) => {
