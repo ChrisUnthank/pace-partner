@@ -226,7 +226,7 @@ function SessionDetail() {
       }
 
       // ✅ delete linked race
-      await supabase.from("performances").delete().eq("session_id", sessionId);
+      await (supabase.from("performances") as any).delete().eq("session_id", sessionId);
 
       // ✅ IMPORTANT: update React Query cache
       qc.setQueryData(["session", sessionId], updatedSession);
