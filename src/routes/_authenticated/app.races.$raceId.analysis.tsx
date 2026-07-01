@@ -155,6 +155,14 @@ function RaceAnalysisPage() {
     );
   }
 
+  if (isLoading) {
+    return (
+      <AppShell>
+        <p>Loading race...</p>
+      </AppShell>
+    );
+  }
+
   if (!race) {
     return (
       <AppShell>
