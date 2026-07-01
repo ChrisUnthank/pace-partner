@@ -268,19 +268,7 @@ if (session.completed_at && session.total_time_seconds && session.total_distance
         return;
       }
 
-      // update session
-      const { data: updatedSession, error: updateError } = await supabase
-        .from("sessions")
-        .update({ day_type: "race" })
-        .eq("id", sessionId)
-        .select()
-        .single();
-
-      if (updateError) {
-        toast.error(updateError.message);
-        return;
-      }
-
+    
       // ✅ FORCE CACHE UPDATE
       qc.setQueryData(["session", sessionId], updatedSession);
 
