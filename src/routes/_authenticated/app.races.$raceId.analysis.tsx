@@ -117,42 +117,64 @@ function RaceAnalysisPage() {
   const maxSplit = splitTimes.length > 0 ? Math.max(...splitTimes) : null;
   const minSplit = splitTimes.length > 0 ? Math.min(...splitTimes) : null;
 
-  // ✅ Analyze pacing
+  // ✅ Combined race insight system
   const pacingInsight = useMemo(() => {
-    if (!autoSplits || autoSplits.length < 3) return null;
+    if (!autoSplits || autoSplits.length < 2) return null;
 
     const times = autoSplits.map((s) => s.time);
 
-    const halfway = Math.floor(times.length / 2);
-
-    const firstHalf = times.slice(0, halfway);
-    const secondHalf = times.slice(halfway);
-
     const avg = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
 
-    const firstAvg = avg(firstHalf);
-    const secondAvg = avg(secondHalf);
+    const overallAvg = avg(times);
+    const firstSplit = times[0];
 
-    // ✅ comparison thresholds (~2%)
-    if (secondAvg < firstAvg * 0.98) {
-      return {
-        type: "negative",
-        message: "Negative split ✅ — strong finish",
-      };
+    // ✅ 1. Start analysis
+    const startDiff = firstSplit - overallAvg;
+    let startInsight = null;
+
+    if (startDiff < -3) {
+      startInsight = "⚠️ Went out too fast";
+    } else if (Math.abs(startDiff) <= 2) {
+      startInsight = "✅ Controlled start";
     }
 
-    if (secondAvg > firstAvg * 1.02) {
-      return {
-        type: "fade",
-        message: "Fade ⚠️ — slowed in second half",
-      };
+    // ✅ 2. Severe fade detection (matches your RED bars)
+    const severeFade = times.some((t) => t - overallAvg > 10);
+    let pacingSummary = null;
+
+    if (severeFade) {
+      pacingSummary = "🔴 Severe fade — major late race drop-off";
+    } else {
+      const halfway = Math.floor(times.length / 2);
+
+      const firstHalf = times.slice(0, halfway);
+      const secondHalf = times.slice(halfway);
+
+      const firstAvg = avg(firstHalf);
+      const secondAvg = avg(secondHalf);
+
+      if (secondAvg < firstAvg * 0.98) {
+        pacingSummary = "✅ Negative split — strong finish";
+      } else if (secondAvg > firstAvg * 1.02) {
+        pacingSummary = "⚠️ Fade — slowed in second half";
+      } else {
+        pacingSummary = "👍 Even pacing";
+      }
+    }
+
+    // ✅ 3. GPS data quality (basic check for now)
+    let gpsInsight = null;
+
+    if (rawPoints.length < 50) {
+      gpsInsight = "⚠️ GPS data low resolution — splits less reliable";
     }
 
     return {
-      type: "even",
-      message: "Even pacing 👍",
+      start: startInsight,
+      pacing: pacingSummary,
+      gps: gpsInsight,
     };
-  }, [autoSplits]);
+  }, [autoSplits, rawPoints]);
 
   if (isLoading) {
     return (
