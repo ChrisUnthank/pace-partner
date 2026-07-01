@@ -1080,7 +1080,7 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
           </div>
         </div>
 
-        <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height === "100%" ? 320 : height}`} className="border rounded bg-black">
+        <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} className="border rounded bg-black">
           <polyline
             points={path}
             fill="none"
