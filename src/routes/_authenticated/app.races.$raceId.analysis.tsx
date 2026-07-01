@@ -136,7 +136,7 @@ function RaceAnalysisPage() {
 
   // ✅ Detect FIT-based race
   const isFitRace = autoSplits.length > 0;
-
+  console.log("AUTO SPLITS:", autoSplits);
   console.log("DEBUG:", {
     session_id: race?.session_id,
     rawPointsCount: rawPoints.length,
