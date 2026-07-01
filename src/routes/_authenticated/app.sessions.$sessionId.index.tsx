@@ -213,22 +213,29 @@ function SessionDetail() {
 
     // ✅ REMOVE RACE
     if (isCurrentlyRace) {
-      const { error } = await supabase.from("sessions").update({ day_type: "training" }).eq("id", sessionId);
+      const { data: updatedSession, error } = await supabase
+        .from("sessions")
+        .update({ day_type: "training" })
+        .eq("id", sessionId)
+        .select()
+        .single();
 
       if (error) {
         toast.error(error.message);
         return;
       }
 
-      // delete linked race
-      await (supabase.from("performances") as any).delete().eq("session_id", sessionId);
+      // ✅ delete linked race
+      await supabase.from("performances").delete().eq("session_id", sessionId);
+
+      // ✅ IMPORTANT: update React Query cache
+      qc.setQueryData(["session", sessionId], updatedSession);
 
       toast("Race removed ✅");
 
-      qc.invalidateQueries({ queryKey: ["session", sessionId] });
       qc.invalidateQueries({ queryKey: ["races", session.athlete_id] });
 
-      return; // ✅ STOP HERE
+      return;
     }
 
     // ✅ Now handle race creation
