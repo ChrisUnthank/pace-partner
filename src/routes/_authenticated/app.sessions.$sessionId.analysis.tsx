@@ -679,7 +679,6 @@ function SessionAnalysis() {
             </div>
           </CardContent>
         </Card>
-        </Card>   
 
 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mt-4">
 
