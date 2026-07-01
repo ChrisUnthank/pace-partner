@@ -790,7 +790,8 @@ function SessionAnalysis() {
     points={gpsPoints.filter((p: any) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng))}
   />
 </div>
-
+              )}
+          </div>
 
           {/* ✅ RIGHT COLUMN (meaning + summary) */}
           <div className="space-y-6">
