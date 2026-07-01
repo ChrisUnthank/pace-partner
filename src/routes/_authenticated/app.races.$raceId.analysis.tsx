@@ -102,6 +102,9 @@ function RaceAnalysisPage() {
       loadSplits();
     }
   }, [raceId]);
+
+  console.log("RACE DATA:", race);
+
   return (
     <AppShell>
       <div className="space-y-6 max-w-3xl">
