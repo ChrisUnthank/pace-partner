@@ -679,7 +679,6 @@ function SessionAnalysis() {
             </div>
           </CardContent>
         </Card>
-        </Card>   
 
 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mt-4">
 
@@ -696,7 +695,7 @@ function SessionAnalysis() {
     <p className="text-xs text-muted-foreground">Time</p>
     <p className="font-semibold">
       {session.total_time_seconds
-        ? formatTime(session.total_time_seconds)
+        ? secToClock(session.total_time_seconds)
         : "—"}
     </p>
   </div>
@@ -705,7 +704,7 @@ function SessionAnalysis() {
     <p className="text-xs text-muted-foreground">Pace</p>
     <p className="font-semibold">
       {session.work_avg_pace_sec_per_km
-        ? formatPace(session.work_avg_pace_sec_per_km)
+        ? paceFmt(session.work_avg_pace_sec_per_km)
         : "—"}
     </p>
   </div>
