@@ -22,11 +22,9 @@ function newSplit(): Split {
 
 function RaceAnalysisPage() {
   
+  const { raceId } = Route.useParams();
 console.log("RaceAnalysisPage mounted");
 console.log("raceId:", raceId);
-
-  const { raceId } = Route.useParams();
-
   const { data: race, isLoading } = useQuery({
     queryKey: ["race", raceId],
     queryFn: async () => {
