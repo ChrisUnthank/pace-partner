@@ -1262,6 +1262,7 @@ export type Database = {
           segment_type: string | null
           session_id: string
           step_id: string | null
+          temperature_c: number | null
           vertical_oscillation_cm: number | null
         }
         Insert: {
@@ -1280,6 +1281,7 @@ export type Database = {
           segment_type?: string | null
           session_id: string
           step_id?: string | null
+          temperature_c?: number | null
           vertical_oscillation_cm?: number | null
         }
         Update: {
@@ -1298,6 +1300,7 @@ export type Database = {
           segment_type?: string | null
           session_id?: string
           step_id?: string | null
+          temperature_c?: number | null
           vertical_oscillation_cm?: number | null
         }
         Relationships: [
@@ -1841,6 +1844,7 @@ export type Database = {
           altitude_m: number | null
           applied_from_template_id: string | null
           athlete_id: string
+          average_temp_c: number | null
           avg_hr: number | null
           completed_at: string | null
           completion_pct: number | null
@@ -1881,6 +1885,7 @@ export type Database = {
           altitude_m?: number | null
           applied_from_template_id?: string | null
           athlete_id: string
+          average_temp_c?: number | null
           avg_hr?: number | null
           completed_at?: string | null
           completion_pct?: number | null
@@ -1921,6 +1926,7 @@ export type Database = {
           altitude_m?: number | null
           applied_from_template_id?: string | null
           athlete_id?: string
+          average_temp_c?: number | null
           avg_hr?: number | null
           completed_at?: string | null
           completion_pct?: number | null
