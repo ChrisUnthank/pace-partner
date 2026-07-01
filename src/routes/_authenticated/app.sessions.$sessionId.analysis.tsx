@@ -872,7 +872,6 @@ function SessionAnalysis() {
             </div>
             {/* ✅ END 2-COLUMN LAYOUT */}
           </div>
-      </div>
     </AppShell>
   );
 }
