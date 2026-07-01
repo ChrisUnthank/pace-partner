@@ -213,7 +213,6 @@ function RaceAnalysisPage() {
             </CardHeader>
             <CardContent className="space-y-2">
               {autoSplits.map((s) => {
-                // ✅ bar width calculation
                 let width = 100;
 
                 if (autoSplits.length > 1) {
@@ -226,7 +225,6 @@ function RaceAnalysisPage() {
                   }
                 }
 
-                // ✅ pacing colour logic
                 let color = "bg-blue-500";
 
                 if (race?.distance_m && race?.time_seconds) {
