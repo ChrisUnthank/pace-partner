@@ -1361,6 +1361,16 @@ function SessionSummary({
   async function complete() {
     const wasAlreadyComplete = !!session.completed_at;
 
+    // ✅ ADD THIS BLOCK
+    if (session.day_type === "training") {
+      const hasStructure = steps && steps.length > 0;
+
+      if (!hasStructure) {
+        toast.error("Training session require intent and structure");
+        return;
+      }
+    }
+
     const { error } = await supabase
       .from("sessions")
       .update({
@@ -1379,8 +1389,6 @@ function SessionSummary({
       if (!wasAlreadyComplete) onCompleted?.();
     }
   }
-  ``;
-
   return (
     <Card>
       <CardHeader>
