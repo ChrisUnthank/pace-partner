@@ -766,6 +766,17 @@ function SessionAnalysis() {
 
         {recoveryRows.length >= 2 && <RecoveryPanel rows={recoveryRows} />}
 
+        {/* ✅ SESSION SEGMENTS (FULL WIDTH — PRIMARY CONTENT) */}
+        <UnifiedSessionTable
+          points={
+            Array.isArray(rawPoints)
+              ? rawPoints.filter((p: any) => p && (p.elapsed_s != null || p.distance_m != null))
+              : []
+          }
+          results={safeResults}
+          steps={safeSteps}
+        />
+
         {/* ✅ START 2-COLUMN LAYOUT */}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
