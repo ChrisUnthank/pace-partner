@@ -734,6 +734,11 @@ function SessionAnalysis() {
               <Stat label="Avg HR" value={session.avg_hr ? `${session.avg_hr} bpm` : "—"} />
               <Stat label="RPE" value={session.rpe != null ? String(session.rpe) : "—"} />
               <Stat label="Completion" value={session.completion_pct != null ? `${session.completion_pct}%` : "—"} />
+
+              <Stat
+                label="Avg temp"
+                value={session.average_temp_c != null ? `${Number(session.average_temp_c).toFixed(1)} °C` : "—"}
+              />
             </div>
           </CardContent>
         </Card>
@@ -1043,12 +1048,7 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
           </div>
         </div>
 
-        <svg
-          width="100%"
-          height={height}
-          viewBox={`0 0 ${width} ${height}`}
-          className="border rounded bg-black"
-        >
+        <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} className="border rounded bg-black">
           <polyline
             points={path}
             fill="none"
@@ -1060,25 +1060,13 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
 
           {/* Start cue */}
           <circle cx={startX} cy={startY} r="5" fill="#22c55e" />
-          <text
-            x={startX + 8}
-            y={startY - 8}
-            fill="#22c55e"
-            fontSize="12"
-            fontWeight="600"
-          >
+          <text x={startX + 8} y={startY - 8} fill="#22c55e" fontSize="12" fontWeight="600">
             Start
           </text>
 
           {/* Finish cue */}
           <circle cx={endX} cy={endY} r="5" fill="#ef4444" />
-          <text
-            x={endX + 8}
-            y={endY - 8}
-            fill="#ef4444"
-            fontSize="12"
-            fontWeight="600"
-          >
+          <text x={endX + 8} y={endY - 8} fill="#ef4444" fontSize="12" fontWeight="600">
             Finish
           </text>
         </svg>
