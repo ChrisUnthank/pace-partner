@@ -903,7 +903,7 @@ function StepBlock({
         {isWork && <WorkFuelNote step={step} sessionId={session.id} />}
         {isWork && <LactateSummary results={results} />}
         {isWork && <StepFatiguePanel fatigue={fatigue} isLadder={step.is_ladder} reps={results.length} />}
-        /* ✅ Recovery trend */
+        {/* ✅ Recovery trend */}
         {isWork &&
           results &&
           results.length >= 3 &&
@@ -939,7 +939,7 @@ function StepBlock({
               </div>
             );
           })()}
-        /* ✅ Best / worst recovery */
+        {/* ✅ Best / worst recovery */}
         {isWork &&
           results &&
           (() => {
