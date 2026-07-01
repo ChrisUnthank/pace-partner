@@ -767,111 +767,100 @@ function SessionAnalysis() {
         {recoveryRows.length >= 2 && <RecoveryPanel rows={recoveryRows} />}
 
         {/* ✅ START 2-COLUMN LAYOUT */}
-       
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
-              
-               {/* ✅ LEFT COLUMN (visual + session content) */}
-              <div className="lg:col-span-2 space-y-6">
 
-                
-                {modeType === "interval" && manualRows.length > 0 && (
-                  <Card>{/* keep your existing interval summary exactly */}</Card>
-                )}
-
-                {recoveryRows.length >= 2 && <RecoveryPanel rows={recoveryRows} />}
-
-                {Array.isArray(gpsPoints) &&
-                  gpsPoints.filter((p: any) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng)).length >= 2 && (
-                    <MapPanel
-                      points={gpsPoints.filter((p: any) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng))}
-                    />
-                  )}
-              </div>
-
-              {/* ✅ RIGHT COLUMN (meaning + summary) */}
-              <div className="space-y-6">
-                {/* ✅ Insight FIRST */}
-                <SessionInsightCard rows={insightRows} />
-
-                {/* ✅ Feedback */}
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle>Session feedback</CardTitle>
-                  </CardHeader>
-                  <CardContent className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-xs text-muted-foreground">RPE</p>
-                      <p className="font-semibold">{session.rpe ?? "—"}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Completion</p>
-                      <p className="font-semibold">{session.completed_at ? "100%" : "Not completed"}</p>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* ✅ Fatigue */}
-                {showContinuousFatigueCard && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Run fatigue analysis</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          computeFatigue({ data: { sessionId } })
-                            .then(() => window.location.reload())
-                            .catch((err) => console.error("recompute fatigue error:", err))
-                        }
-                      >
-                        Recompute run fatigue
-                      </Button>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {continuousFatigue && !isIntervals && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Overall run fatigue</CardTitle>
-                    </CardHeader>
-                    <CardContent className="text-sm space-y-1">
-                      <div className="flex justify-between border rounded px-3 py-2">
-                        <span>Efficiency</span>
-                        <span>{continuousFatigue.efficiency_score ?? "—"}/100</span>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {repFatigue.length > 0 && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Per-step fatigue</CardTitle>
-                    </CardHeader>
-                    <CardContent className="text-sm space-y-2">
-                      {repFatigue.map((f: any) => {
-                        const step = safeSteps.find((s: any) => s.id === f.step_id);
-                        return (
-                          <div key={f.step_id} className="flex justify-between border rounded px-3 py-2">
-                            <span className="capitalize">{step?.kind ?? "step"}</span>
-                            <span>{f.efficiency_score ?? "—"}</span>
-                          </div>
-                        );
-                      })}
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* ✅ Zones */}
-                <ZonePanel rows={safeZoneTime.filter((r: any) => r.source === "pace")} title="Pace zones" />
-                <ZonePanel rows={safeZoneTime.filter((r: any) => r.source === "hr")} title="HR zones" />
-              </div>
-            </div>
-            {/* ✅ END 2-COLUMN LAYOUT */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
+          {/* ✅ LEFT COLUMN (visual + session content) */}
+          <div className="lg:col-span-2 space-y-6">
+            {Array.isArray(gpsPoints) &&
+              gpsPoints.filter((p: any) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng)).length >= 2 && (
+                <MapPanel points={gpsPoints.filter((p: any) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng))} />
+              )}
           </div>
+
+          {/* ✅ RIGHT COLUMN (meaning + summary) */}
+          <div className="space-y-6">
+            {/* ✅ Insight FIRST */}
+            <SessionInsightCard rows={insightRows} />
+
+            {/* ✅ Feedback */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle>Session feedback</CardTitle>
+              </CardHeader>
+              <CardContent className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-muted-foreground">RPE</p>
+                  <p className="font-semibold">{session.rpe ?? "—"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Completion</p>
+                  <p className="font-semibold">{session.completed_at ? "100%" : "Not completed"}</p>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* ✅ Fatigue */}
+            {showContinuousFatigueCard && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Run fatigue analysis</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      computeFatigue({ data: { sessionId } })
+                        .then(() => window.location.reload())
+                        .catch((err) => console.error("recompute fatigue error:", err))
+                    }
+                  >
+                    Recompute run fatigue
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+
+            {continuousFatigue && !isIntervals && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Overall run fatigue</CardTitle>
+                </CardHeader>
+                <CardContent className="text-sm space-y-1">
+                  <div className="flex justify-between border rounded px-3 py-2">
+                    <span>Efficiency</span>
+                    <span>{continuousFatigue.efficiency_score ?? "—"}/100</span>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {repFatigue.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Per-step fatigue</CardTitle>
+                </CardHeader>
+                <CardContent className="text-sm space-y-2">
+                  {repFatigue.map((f: any) => {
+                    const step = safeSteps.find((s: any) => s.id === f.step_id);
+                    return (
+                      <div key={f.step_id} className="flex justify-between border rounded px-3 py-2">
+                        <span className="capitalize">{step?.kind ?? "step"}</span>
+                        <span>{f.efficiency_score ?? "—"}</span>
+                      </div>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* ✅ Zones */}
+            <ZonePanel rows={safeZoneTime.filter((r: any) => r.source === "pace")} title="Pace zones" />
+            <ZonePanel rows={safeZoneTime.filter((r: any) => r.source === "hr")} title="HR zones" />
+          </div>
+        </div>
+        {/* ✅ END 2-COLUMN LAYOUT */}
+      </div>
     </AppShell>
   );
 }
@@ -1437,28 +1426,6 @@ function UnifiedSessionTable({ points, results, steps }: { points: any[]; result
             >
               Advanced
             </Button>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
-            <Stat label="Distance" value={metersFmt(totalDist)} />
-            <Stat label="Duration" value={secToClock(totalTime)} />
-            <Stat label="Avg pace" value={avgPace ? `${paceFmt(avgPace)} /km` : "—"} />
-            <Stat label="Avg HR" value={avgHr ? `${avgHr} bpm` : "—"} />
-            <Stat label="Max HR" value={maxHr ? `${maxHr} bpm` : "—"} />
-            <Stat label="Avg cadence" value={avgCad ? `${avgCad} spm` : "—"} />
-            {bestReps.length > 0 && (
-              <Stat
-                label="Best reps"
-                value={bestReps.map((r) => `${r.repLabel ?? `R${r.index}`} (${r.score})`).join(", ")}
-              />
-            )}
-            {detailMode === "advanced" && (
-              <>
-                <Stat label="Avg VO" value={avgVo != null ? `${avgVo} cm` : "—"} />
-                <Stat label="Avg GCT" value={avgGct != null ? `${avgGct} ms` : "—"} />
-                <Stat label="Stride length" value={avgStrideLength != null ? `${avgStrideLength} m` : "—"} />
-              </>
-            )}
           </div>
 
           <div className="overflow-x-auto">
