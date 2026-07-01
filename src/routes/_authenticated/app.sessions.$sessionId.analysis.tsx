@@ -784,9 +784,13 @@ function SessionAnalysis() {
           <div className="lg:col-span-2 flex flex-col">
             {Array.isArray(gpsPoints) &&
               gpsPoints.filter((p: any) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng)).length >= 2 && (
-                <MapPanel points={gpsPoints.filter((p: any) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng))} />
-              )}
-          </div>
+                
+<div className="flex-1">
+  <MapPanel
+    points={gpsPoints.filter((p: any) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng))}
+  />
+</div>
+
 
           {/* ✅ RIGHT COLUMN (meaning + summary) */}
           <div className="space-y-6">
