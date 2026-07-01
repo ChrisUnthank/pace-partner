@@ -299,13 +299,18 @@ function SessionAnalysis() {
       hrEnd: s.hrEnd ?? null,
       hrRec: s.hrRec ?? null,
       hrDrop: s.hrDrop ?? null,
-      pace: s.pace ?? null,
+      pace:
+        s.pace != null
+          ? speedMode === "speed"
+            ? 3600 / s.pace
+            : s.pace
+          : null,
       cadence: s.cadence ?? null,
       elev: s.elev ?? null,
       vo: s.vo ?? null,
       gct: s.gct ?? null,
     }));
-  }, [visibleSamples, xKey]);
+  }, [visibleSamples, xKey, speedMode]);
 
   const hasRaw = safeRawPoints.length > 0;
   const hasRepData = safeResults.length > 0;
@@ -530,10 +535,14 @@ function SessionAnalysis() {
                       yAxisId="pace"
                       orientation="right"
                       hide={!enabled.pace || !hasMetric.pace}
-                      reversed
+                      reversed={speedMode === "pace"}
                       tick={{ fontSize: 11 }}
                       width={48}
-                      tickFormatter={(v) => secToClock(Number(v))}
+                      tickFormatter={(v) =>
+                        speedMode === "speed"
+                          ? `${Number(v).toFixed(1)}`
+                          : secToClock(Number(v))
+                      }
                     />
                     <YAxis
                       yAxisId="cadence"
@@ -569,7 +578,10 @@ function SessionAnalysis() {
                       labelFormatter={(v) => (xKey === "t" ? secToClock(Number(v)) : metersFmt(Number(v)))}
                       formatter={(v: any, n: any) => {
                         if (v == null || Number.isNaN(Number(v))) return ["—", n];
-                        if (n === "pace") return [paceFmt(Number(v)), "Pace"];
+                        if (n === "pace")
+                          return speedMode === "speed"
+                            ? [`${Number(v).toFixed(1)} km/h`, "Speed"]
+                            : [`${paceFmt(Number(v))}/km`, "Pace"];
                         if (n === "hr") return [`${Math.round(Number(v))} bpm`, "HR"];
                         if (n === "cadence") return [`${Math.round(Number(v))} spm`, "Cadence"];
                         if (n === "elev") return [`${Math.round(Number(v))} m`, "Elevation"];
