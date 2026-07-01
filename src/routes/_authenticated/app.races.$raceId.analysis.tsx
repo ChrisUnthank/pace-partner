@@ -95,7 +95,7 @@ function RaceAnalysisPage() {
   const autoSplits = useMemo(() => {
     if (!rawPoints.length) return [];
 
-    const splits = [];
+    const splits: Array<{ km: number; time: number }> = [];
     let nextKmMark = 1000;
 
     for (let i = 1; i < rawPoints.length; i++) {
