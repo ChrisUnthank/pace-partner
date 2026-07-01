@@ -35,6 +35,7 @@ function RaceAnalysisPage() {
         event_name: string | null;
         performance_date: string | null;
         session_id: string | null;
+        race_type: string | null;
       } | null;
     },
   });

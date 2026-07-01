@@ -1109,6 +1109,7 @@ export type Database = {
           notes: string | null
           overall_place: number | null
           performance_date: string
+          race_type: string | null
           round: string | null
           session_id: string | null
           splits: Json | null
@@ -1130,6 +1131,7 @@ export type Database = {
           notes?: string | null
           overall_place?: number | null
           performance_date: string
+          race_type?: string | null
           round?: string | null
           session_id?: string | null
           splits?: Json | null
@@ -1151,6 +1153,7 @@ export type Database = {
           notes?: string | null
           overall_place?: number | null
           performance_date?: string
+          race_type?: string | null
           round?: string | null
           session_id?: string | null
           splits?: Json | null
