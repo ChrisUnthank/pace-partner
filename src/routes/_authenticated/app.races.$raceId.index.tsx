@@ -91,7 +91,7 @@ function RaceDetailPage() {
 
             <div>
               <Button asChild>
-                <Link to="/_authenticated/app/races/$raceId/analysis" params={{ raceId }}>
+                <Link to="/app/races/$raceId/analysis" params={{ raceId }}>
                   Race Analysis
                 </Link>
               </Button>
