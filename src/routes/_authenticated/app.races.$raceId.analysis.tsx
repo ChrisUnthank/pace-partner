@@ -219,10 +219,14 @@ function RaceAnalysisPage() {
         {pacingInsight && (
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Pacing Insight</CardTitle>
+              <CardTitle className="text-base">Race Insights</CardTitle>
             </CardHeader>
-            <CardContent>
-              <p className="text-sm">{pacingInsight.message}</p>
+            <CardContent className="space-y-2 text-sm">
+              {pacingInsight.start && <p>{pacingInsight.start}</p>}
+
+              {pacingInsight.pacing && <p>{pacingInsight.pacing}</p>}
+
+              {pacingInsight.gps && <p className="text-xs text-muted-foreground">{pacingInsight.gps}</p>}
             </CardContent>
           </Card>
         )}
