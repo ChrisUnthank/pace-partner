@@ -238,24 +238,22 @@ function SessionDetail() {
       return;
     }
 
-    // ✅ Now handle race creation
-    // ✅ ALWAYS switch to race first (fixes validation issue)// ✅ ALWAYS switch to race first (fixes validation issue } = await supabase
-  .from("sessions")
-  .update({ day_type: "race" })
-  .eq("id", sessionId)
-  .select()
-  .single();
+    // ✅ Now handle race creation — switch to race first
+    const { data: updatedSession, error: updateError } = await supabase
+      .from("sessions")
+      .update({ day_type: "race" })
+      .eq("id", sessionId)
+      .select()
+      .single();
 
-if (updateError) {
-  toast.error(updateError.message);
-  return;
-}
+    if (updateError) {
+      toast.error(updateError.message);
+      return;
+    }
 
-// ✅ update cache immediately
-qc.setQueryData(["session", sessionId], updatedSession);
+    qc.setQueryData(["session", sessionId], updatedSession);
 
-// ✅ THEN gate performance creation
-if (session.completed_at && session.total_time_seconds && session.total_distance_m) {
+    if (session.completed_at && session.total_time_seconds && session.total_distance_m) {
 
       // ✅ prevent duplicates
       const { data: existing } = await (supabase.from("performances") as any)
