@@ -301,14 +301,18 @@ function SessionDetail() {
   async function saveTitle() {
     if (!session?.id) return;
 
+    // ✅ start saving
+    setSavingTitle(true);
+
     const { error } = await supabase.from("sessions").update({ title: titleValue }).eq("id", session.id);
+
+    // ✅ stop saving
+    setSavingTitle(false);
 
     if (error) {
       toast.error(error.message);
       return;
     }
-
-    toast.success("Session name updated");
 
     setEditingTitle(false);
 
