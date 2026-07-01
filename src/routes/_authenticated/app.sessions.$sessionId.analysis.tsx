@@ -1064,12 +1064,12 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
   const [endX, endY] = project(Number(last.lat), Number(last.lng));
 
   return (
-    <Card>
+    <Card className="h-full flex flex-col">
       <CardHeader>
         <CardTitle>Route preview</CardTitle>
         <CardDescription>Static route preview from uploaded GPS trace.</CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex-1 flex flex-col">
         <div className="text-xs text-muted-foreground mb-2 space-y-1">
           <div>
             Start: {first.lat?.toFixed(5)}, {first.lng?.toFixed(5)}
@@ -1079,7 +1079,7 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
           </div>
         </div>
 
-        <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} className="border rounded bg-black">
+        <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height === "100%" ? 320 : height}`} className="border rounded bg-black">
           <polyline
             points={path}
             fill="none"
