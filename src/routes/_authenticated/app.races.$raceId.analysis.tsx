@@ -239,8 +239,10 @@ function RaceAnalysisPage() {
                     color = "bg-blue-500"; // ✅ faster
                   } else if (diff > 2 && diff <= 5) {
                     color = "bg-yellow-400"; // ✅ slightly slow
-                  } else if (diff > 5) {
-                    color = "bg-orange-500"; // ✅ well below
+                  } else if (diff > 5 && diff <= 10) {
+                    color = "bg-orange-500"; // ✅ moderate fade
+                  } else if (diff > 10) {
+                    color = "bg-red-500"; // 🔴 severe drop-off
                   }
                 }
 
