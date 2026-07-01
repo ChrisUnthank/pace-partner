@@ -767,24 +767,13 @@ function SessionAnalysis() {
         {recoveryRows.length >= 2 && <RecoveryPanel rows={recoveryRows} />}
 
         {/* ✅ START 2-COLUMN LAYOUT */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
-          {/* ✅ LEFT COLUMN */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* ✅ SEGMENTS FIRST (top priority) */}
-            <UnifiedSessionTable
-              points={
-                Array.isArray(rawPoints)
-                  ? rawPoints.filter((p: any) => p && (p.elapsed_s != null || p.distance_m != null))
-                  : []
-              }
-              results={safeResults}
-              steps={safeSteps}
-            />
-
-            {/* ✅ 2-COLUMN LAYOUT */}
+       
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
-              {/* ✅ LEFT COLUMN (visual + session content) */}
+              
+               {/* ✅ LEFT COLUMN (visual + session content) */}
               <div className="lg:col-span-2 space-y-6">
+
+                
                 {modeType === "interval" && manualRows.length > 0 && (
                   <Card>{/* keep your existing interval summary exactly */}</Card>
                 )}
