@@ -195,9 +195,11 @@ function SessionAnalysis() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("raw_session_points")
+
         .select(
-          "elapsed_s, distance_m, hr, pace_sec_per_km, cadence, elevation_m, lat, lng, segment_type, vertical_oscillation_cm, ground_contact_time_ms",
+          "elapsed_s, distance_m, hr, pace_sec_per_km, cadence, elevation_m, lat, lng, segment_type, vertical_oscillation_cm, ground_contact_time_ms, temperature_c",
         )
+
         .eq("session_id", sessionId)
         .order("elapsed_s", { ascending: true });
 
