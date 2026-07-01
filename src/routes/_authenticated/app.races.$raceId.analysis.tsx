@@ -107,6 +107,42 @@ function RaceAnalysisPage() {
   }, [rawPoints, splitDistance, race]);
 
   const isFitRace = autoSplits.length > 0;
+  // ✅ Analyze pacing
+  const pacingInsight = useMemo(() => {
+    if (!autoSplits || autoSplits.length < 3) return null;
+
+    const times = autoSplits.map((s) => s.time);
+
+    const halfway = Math.floor(times.length / 2);
+
+    const firstHalf = times.slice(0, halfway);
+    const secondHalf = times.slice(halfway);
+
+    const avg = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
+
+    const firstAvg = avg(firstHalf);
+    const secondAvg = avg(secondHalf);
+
+    // ✅ comparison thresholds (~2%)
+    if (secondAvg < firstAvg * 0.98) {
+      return {
+        type: "negative",
+        message: "Negative split ✅ — strong finish",
+      };
+    }
+
+    if (secondAvg > firstAvg * 1.02) {
+      return {
+        type: "fade",
+        message: "Fade ⚠️ — slowed in second half",
+      };
+    }
+
+    return {
+      type: "even",
+      message: "Even pacing 👍",
+    };
+  }, [autoSplits]);
 
   if (isLoading) {
     return (
@@ -147,6 +183,17 @@ function RaceAnalysisPage() {
             <Stat label="Avg pace" value={paceFmt(avgPace)} />
           </CardContent>
         </Card>
+
+        {pacingInsight && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Pacing Insight</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm">{pacingInsight.message}</p>
+            </CardContent>
+          </Card>
+        )}
 
         {isFitRace ? (
           <Card>
