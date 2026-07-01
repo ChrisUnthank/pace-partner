@@ -39,7 +39,37 @@ function RaceAnalysisPage() {
   });
 
   const [splits, setSplits] = useState<Split[]>([newSplit()]);
+  // ✅ Load linked session (for FIT races)
+  const { data: session } = useQuery({
+    queryKey: ["session-from-race", race?.session_id],
+    enabled: !!race?.session_id,
+    queryFn: async () => {
+      if (!race?.session_id) return null;
 
+      const { data, error } = await supabase.from("sessions").select("*").eq("id", race.session_id).single();
+
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  // ✅ Load raw FIT data (for auto splits)
+  const { data: rawPoints = [] } = useQuery({
+    queryKey: ["raw-points", race?.session_id],
+    enabled: !!race?.session_id,
+    queryFn: async () => {
+      if (!race?.session_id) return [];
+
+      const { data, error } = await supabase
+        .from("raw_session_points")
+        .select("*")
+        .eq("session_id", race.session_id)
+        .order("time");
+
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
   function update(id: string, patch: Partial<Split>) {
     setSplits((s) => s.map((x) => (x.id === id ? { ...x, ...patch } : x)));
   }
