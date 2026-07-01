@@ -725,12 +725,18 @@ function SessionAnalysis() {
             <p className="font-semibold">{session.total_time_seconds ? secToClock(session.total_time_seconds) : "—"}</p>
           </div>
 
-          <div className="p-3 rounded-lg bg-muted/40">
-            <p className="text-xs text-muted-foreground">Pace</p>
-            <p className="font-semibold">
-              {session.work_avg_pace_sec_per_km ? paceFmt(session.work_avg_pace_sec_per_km) : "—"}
-            </p>
-          </div>
+          
+<div className="p-3 rounded-lg bg-muted/40">
+  <p className="text-xs text-muted-foreground">Pace</p>
+  <p className="font-semibold">
+    {session.work_avg_pace_sec_per_km
+      ? speedMode === "pace"
+        ? paceFmt(session.work_avg_pace_sec_per_km)
+        : `${paceToSpeed(session.work_avg_pace_sec_per_km)?.toFixed(1)} km/h`
+      : "—"}
+  </p>
+</div>
+
 
           <div className="p-3 rounded-lg bg-muted/40">
             <p className="text-xs text-muted-foreground">HR</p>
@@ -738,10 +744,15 @@ function SessionAnalysis() {
           </div>
 
           <div className="p-3 rounded-lg bg-muted/40">
-            <p className="text-xs text-muted-foreground">Speed</p>
-            <p className="font-semibold">
-              {session.work_avg_pace_sec_per_km ? `${(3600 / session.work_avg_pace_sec_per_km).toFixed(1)} km/h` : "—"}
-            </p>
+            
+<p className="font-semibold">
+  {session.work_avg_pace_sec_per_km
+    ? speedMode === "speed"
+      ? `${paceToSpeed(session.work_avg_pace_sec_per_km)?.toFixed(1)} km/h`
+      : paceFmt(session.work_avg_pace_sec_per_km)
+    : "—"}
+</p>
+
           </div>
 
           <div className="p-3 rounded-lg bg-muted/40">
@@ -1130,7 +1141,16 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
     </Card>
   );
 }
+function paceToSpeed(paceSecPerKm?: number | null) {
+  if (!paceSecPerKm || paceSecPerKm <= 0) return null;
+  return 3600 / paceSecPerKm;
+}
 
+function buildSamples(
+  steps: any[],
+  results: any[],
+  rawPoints: any[],
+) {
 function buildSamples(
   steps: any[],
   results: any[],
