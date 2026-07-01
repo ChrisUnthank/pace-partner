@@ -180,11 +180,6 @@ console.log("raceId:", raceId);
             )}
           </div>
         </div>
-
-if (!race) {
-  return <AppShell><p>Loading race...</p></AppShell>;
-}
-
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : !race ? (
