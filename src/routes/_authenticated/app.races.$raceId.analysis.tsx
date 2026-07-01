@@ -21,85 +21,58 @@ function newSplit(): Split {
 }
 
 function RaceAnalysisPage() {
-  
   const { raceId } = Route.useParams();
-console.log("RaceAnalysisPage mounted");
-console.log("raceId:", raceId);
+
   const { data: race, isLoading } = useQuery({
     queryKey: ["race", raceId],
     queryFn: async () => {
       const { data, error } = await (supabase as any).from("performances").select("*").eq("id", raceId).maybeSingle();
+
       if (error) throw error;
-      return data as {
-        id: string;
-        distance_m: number | null;
-        time_seconds: number | null;
-        event_name: string | null;
-        performance_date: string | null;
-        session_id: string | null;
-        race_type: string | null;
-      } | null;
+      return data as any;
     },
   });
 
   const [splits, setSplits] = useState<Split[]>([newSplit()]);
-  // ✅ Load linked session (for FIT races)
-  const { data: session } = useQuery({
-    queryKey: ["session-from-race", race?.session_id],
-    enabled: !!race?.session_id,
-    queryFn: async () => {
-      if (!race?.session_id) return null;
 
-      const { data, error } = await supabase.from("sessions").select("*").eq("id", race.session_id).single();
-
-      if (error) throw error;
-      return data;
-    },
-  });
-
-  // ✅ Load raw FIT data (for auto splits)
   const { data: rawPoints = [] } = useQuery({
     queryKey: ["raw-points", race?.session_id],
     enabled: !!race?.session_id,
     queryFn: async () => {
-      if (!race?.session_id) return [];
-
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from("raw_session_points")
         .select("*")
         .eq("session_id", race.session_id)
         .order("elapsed_s");
 
-      if (error) throw error;
       return data ?? [];
     },
   });
+
   function update(id: string, patch: Partial<Split>) {
     setSplits((s) => s.map((x) => (x.id === id ? { ...x, ...patch } : x)));
   }
+
   function remove(id: string) {
     setSplits((s) => (s.length === 1 ? [newSplit()] : s.filter((x) => x.id !== id)));
   }
+
   function add() {
     setSplits((s) => [...s, newSplit()]);
   }
 
   const avgPace = race?.distance_m && race?.time_seconds ? (race.time_seconds / race.distance_m) * 1000 : null;
 
-  const computed = splits.map((s) => {
-    const d = s.distance ? Number(s.distance) : null;
-    const t = clockToSec(s.time);
-    const pace = d && t != null ? (t / d) * 1000 : null;
-    return { ...s, d, t, pace };
-  });
-  const validPaces = computed.map((s) => s.pace).filter((p): p is number => p !== null);
-  const maxPace = validPaces.length > 0 ? Math.max(...validPaces) : null;
-  // ✅ Build KM splits using correct field names
+  // ✅ Determine split type FIRST
+  const isTrackRace = race?.race_type === "track";
+  const splitDistance = isTrackRace ? 400 : 1000;
+
+  // ✅ Build splits
   const autoSplits = useMemo(() => {
-    if (!rawPoints || rawPoints.length === 0) return [];
+    if (!rawPoints || rawPoints.length === 0 || !race) return [];
 
     const splits: Array<{ km: number; time: number }> = [];
-    let nextKmMark = splitDistance;
+    let nextDistanceMark = splitDistance;
 
     for (let i = 1; i < rawPoints.length; i++) {
       const prev = rawPoints[i - 1];
@@ -108,63 +81,40 @@ console.log("raceId:", raceId);
       if (prev?.distance_m == null || curr?.distance_m == null || prev?.elapsed_s == null || curr?.elapsed_s == null)
         continue;
 
-      // ✅ detect crossing of km boundary
-      if (prev.distance_m < nextKmMark && curr.distance_m >= nextKmMark) {
-        // ✅ interpolate split time
+      if (prev.distance_m < nextDistanceMark && curr.distance_m >= nextDistanceMark) {
         const distanceDiff = curr.distance_m - prev.distance_m;
         const timeDiff = curr.elapsed_s - prev.elapsed_s;
 
-        const ratio = (nextKmMark - prev.distance_m) / distanceDiff;
+        const ratio = (nextDistanceMark - prev.distance_m) / distanceDiff;
         const interpolatedTime = prev.elapsed_s + ratio * timeDiff;
 
         splits.push({
-          km: nextKmMark / 1000,
+          km: splits.length + 1,
           time: interpolatedTime,
         });
 
-        nextKmMark += splitDistance;
+        nextDistanceMark += splitDistance;
       }
     }
 
-    // ✅ convert cumulative → per split
     return splits.map((s, i) => {
       const prevTime = i === 0 ? 0 : splits[i - 1].time;
-
       return {
         km: s.km,
         time: s.time - prevTime,
       };
     });
-  }, [rawPoints]);
+  }, [rawPoints, splitDistance, race]);
 
-  // ✅ Detect FIT-based race
   const isFitRace = autoSplits.length > 0;
 
-  // ✅ New: determine split type
-  const isTrackRace = race?.race_type === "track" || false;
-  const splitDistance = isTrackRace ? 400 : 1000;
-
-  console.log("AUTO SPLITS:", autoSplits);
-  console.log("DEBUG:", {
-    session_id: race?.session_id,
-    rawPointsCount: rawPoints.length,
-    isFitRace,
-  });
-
-  console.log("RAW POINT SAMPLE:", rawPoints[0]);
-  const minPace = validPaces.length > 0 ? Math.min(...validPaces) : null;
-  async function loadSplits() {
-    if (!raceId) return;
-    // performance_splits table not yet created — splits persist in component state only.
+  if (!race) {
+    return (
+      <AppShell>
+        <p>Loading race...</p>
+      </AppShell>
+    );
   }
-
-  useEffect(() => {
-    if (splits.length === 1 && splits[0].distance === "" && splits[0].time === "") {
-      loadSplits();
-    }
-  }, [raceId]);
-
-  console.log("RACE DATA:", race);
 
   return (
     <AppShell>
@@ -173,96 +123,48 @@ console.log("raceId:", raceId);
           <Trophy className="h-5 w-5 text-[var(--accent-red)]" />
           <div>
             <h1 className="text-2xl font-bold">Race Analysis</h1>
-            {race && (
-              <p className="text-sm text-muted-foreground">
-                {race.event_name || "Race"} · {race.performance_date}
-              </p>
-            )}
+            <p className="text-sm text-muted-foreground">
+              {race.event_name || "Race"} · {race.performance_date}
+            </p>
           </div>
         </div>
-        {isLoading ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
-        ) : !race ? (
-          <p className="text-sm text-muted-foreground">Race not found.</p>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Summary</CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-3 gap-4">
+            <Stat label="Distance" value={metersFmt(race.distance_m)} />
+            <Stat label="Time" value={secToClock(race.time_seconds)} />
+            <Stat label="Avg pace" value={paceFmt(avgPace)} />
+          </CardContent>
+        </Card>
+
+        {isFitRace ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Splits (Auto)</CardTitle>
+              <CardDescription>Generated from FIT data</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {autoSplits.map((s) => (
+                <div key={s.km} className="flex justify-between text-sm border rounded px-3 py-2">
+                  <span>{isTrackRace ? `Lap ${s.km}` : `Km ${s.km}`}</span>
+                  <span>{secToClock(s.time)}</span>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
         ) : (
-          <>
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Summary</CardTitle>
-              </CardHeader>
-              <CardContent className="grid grid-cols-3 gap-4">
-                <Stat label="Distance" value={metersFmt(race.distance_m)} />
-                <Stat label="Time" value={secToClock(race.time_seconds)} />
-                <Stat label="Avg pace" value={paceFmt(avgPace)} />
-              </CardContent>
-            </Card>
-
-            {isFitRace ? (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Splits (Auto)</CardTitle>
-                  <CardDescription>Generated from FIT data</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {autoSplits.map((s: any) => (
-                    <div key={s.km} className="flex justify-between text-sm border rounded px-3 py-2">
-                      <span>{isTrackRace ? `Lap ${s.km}` : `Km ${s.km}`}</span>
-                      <span>{secToClock(s.time)}</span>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-            ) : (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Splits</CardTitle>
-                  <CardDescription>Enter distance and time per split. Pace is computed live.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="grid grid-cols-[40px_1fr_1fr_110px_40px] gap-2 text-xs text-muted-foreground px-1">
-                    <div>#</div>
-                    <div>Distance (m)</div>
-                    <div>Time (mm:ss)</div>
-                    <div>Pace</div>
-                    <div></div>
-                  </div>
-
-                  {computed.map((s, i) => (
-                    <div key={s.id} style={{ marginBottom: 12 }}>
-                      <div className="grid grid-cols-[40px_1fr_1fr_110px_40px] gap-2 items-center">
-                        <div className="text-sm text-muted-foreground tabular-nums">{i + 1}</div>
-
-                        <Input
-                          type="number"
-                          placeholder="1000"
-                          value={s.distance}
-                          onChange={(e) => update(s.id, { distance: e.target.value })}
-                        />
-
-                        <Input
-                          placeholder="3:00"
-                          value={s.time}
-                          onChange={(e) => update(s.id, { time: e.target.value })}
-                        />
-
-                        <div className="tabular-nums text-sm">
-                          {s.d ? (s.d >= 1000 ? `${(s.d / 1000).toFixed(1)} km` : `${s.d} m`) : "--"}
-                        </div>
-
-                        <Button variant="ghost" size="icon-sm" onClick={() => remove(s.id)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-
-                  <Button variant="outline" size="sm" onClick={add}>
-                    <Plus className="h-4 w-4" /> Add split
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
-          </>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Splits</CardTitle>
+              <CardDescription>Manual input</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p>No FIT data available</p>
+            </CardContent>
+          </Card>
         )}
       </div>
     </AppShell>
