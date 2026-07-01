@@ -245,7 +245,20 @@ function SessionDetail() {
       }
 
       // update session
-      await supabase.from("sessions").update({ day_type: "race" }).eq("id", sessionId);
+      const { data: updatedSession, error: updateError } = await supabase
+        .from("sessions")
+        .update({ day_type: "race" })
+        .eq("id", sessionId)
+        .select()
+        .single();
+
+      if (updateError) {
+        toast.error(updateError.message);
+        return;
+      }
+
+      // ✅ FORCE CACHE UPDATE
+      qc.setQueryData(["session", sessionId], updatedSession);
 
       // create performance
       const payload = {
