@@ -96,7 +96,7 @@ function RaceAnalysisPage() {
     if (!rawPoints.length) return [];
 
     const splits: Array<{ km: number; time: number }> = [];
-    let nextKmMark = 1000;
+    let nextKmMark = splitDistance;
 
     for (let i = 1; i < rawPoints.length; i++) {
       const prev = rawPoints[i - 1];
@@ -119,7 +119,7 @@ function RaceAnalysisPage() {
           time: interpolatedTime,
         });
 
-        nextKmMark += 1000;
+        nextKmMark += splitDistance;
       }
     }
 
@@ -136,6 +136,11 @@ function RaceAnalysisPage() {
 
   // ✅ Detect FIT-based race
   const isFitRace = autoSplits.length > 0;
+
+  // ✅ New: determine split type
+  const isTrackRace = race?.race_type === "track";
+  const splitDistance = isTrackRace ? 400 : 1000;
+
   console.log("AUTO SPLITS:", autoSplits);
   console.log("DEBUG:", {
     session_id: race?.session_id,
@@ -199,7 +204,7 @@ function RaceAnalysisPage() {
                 <CardContent className="space-y-2">
                   {autoSplits.map((s: any) => (
                     <div key={s.km} className="flex justify-between text-sm border rounded px-3 py-2">
-                      <span>Km {s.km}</span>
+                      <span>{isTrackRace ? `Lap ${s.km}` : `Km ${s.km}`}</span>
                       <span>{secToClock(s.time)}</span>
                     </div>
                   ))}
