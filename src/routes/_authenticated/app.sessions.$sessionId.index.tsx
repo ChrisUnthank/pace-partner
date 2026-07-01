@@ -239,7 +239,24 @@ function SessionDetail() {
     }
 
     // ✅ Now handle race creation
-    if (session.completed_at && session.total_time_seconds && session.total_distance_m) {
+    // ✅ ALWAYS switch to race first (fixes validation issue)// ✅ ALWAYS switch to race first (fixes validation issue } = await supabase
+  .from("sessions")
+  .update({ day_type: "race" })
+  .eq("id", sessionId)
+  .select()
+  .single();
+
+if (updateError) {
+  toast.error(updateError.message);
+  return;
+}
+
+// ✅ update cache immediately
+qc.setQueryData(["session", sessionId], updatedSession);
+
+// ✅ THEN gate performance creation
+if (session.completed_at && session.total_time_seconds && session.total_distance_m) {
+
       // ✅ prevent duplicates
       const { data: existing } = await (supabase.from("performances") as any)
         .select("id")
