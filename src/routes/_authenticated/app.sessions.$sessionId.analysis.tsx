@@ -1567,8 +1567,24 @@ function UnifiedSessionTable({
                       <td className="py-1 pr-2 text-right tabular-nums">
                         {r.durationS > 0 ? secToClock(r.durationS) : "—"}
                       </td>
-                      <td className="py-1 pr-2 text-right tabular-nums">{r.avgPace ? paceFmt(r.avgPace) : "—"}</td>
-                      <td className="py-1 pr-2 text-right tabular-nums">{r.maxPace ? paceFmt(r.maxPace) : "—"}</td>
+                   
+<td className="py-1 pr-2 text-right tabular-nums">
+  {r.avgPace
+    ? speedMode === "pace"
+      ? paceFmt(r.avgPace)
+      : `${paceToSpeed(r.avgPace)?.toFixed(1)} km/h`
+    : "—"}
+</td>
+
+                      
+<td className="py-1 pr-2 text-right tabular-nums">
+  {r.maxPace
+    ? speedMode === "pace"
+      ? paceFmt(r.maxPace)
+      : `${paceToSpeed(r.maxPace)?.toFixed(1)} km/h`
+    : "—"}
+</td
+
                       <td className="py-1 pr-2 text-right tabular-nums">{r.avgHr ?? "—"}</td>
                       <td className="py-1 pr-2 text-right tabular-nums">{r.maxHr ?? "—"}</td>
 
