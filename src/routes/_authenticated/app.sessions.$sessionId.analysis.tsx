@@ -217,6 +217,11 @@ function SessionAnalysis() {
   const safeZoneTime = Array.isArray(zoneTime) ? zoneTime : [];
   const safeFatigue = Array.isArray(fatigue) ? fatigue : [];
   const safeRawPoints = Array.isArray(rawPoints) ? rawPoints : [];
+  const insightRows = buildSplits(
+    Array.isArray(rawPoints) ? rawPoints.filter((p: any) => p && (p.elapsed_s != null || p.distance_m != null)) : [],
+    safeResults,
+    safeSteps,
+  );
 
   const computeFatigue = useServerFn(computeContinuousFatigue);
 
@@ -800,13 +805,7 @@ function SessionAnalysis() {
 
           {/* ✅ RIGHT COLUMN */}
           <div className="space-y-6">
-            <SessionInsightCard
-              rows={
-                Array.isArray(rawPoints)
-                  ? [] // keep safe for now
-                  : []
-              }
-            />
+            <SessionInsightCard rows={insightRows} />
             {showContinuousFatigueCard && (
               <Card>
                 <CardHeader>
