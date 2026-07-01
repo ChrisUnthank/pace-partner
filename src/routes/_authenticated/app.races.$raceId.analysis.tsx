@@ -21,6 +21,10 @@ function newSplit(): Split {
 }
 
 function RaceAnalysisPage() {
+  
+console.log("RaceAnalysisPage mounted");
+console.log("raceId:", raceId);
+
   const { raceId } = Route.useParams();
 
   const { data: race, isLoading } = useQuery({
@@ -94,7 +98,7 @@ function RaceAnalysisPage() {
   const maxPace = validPaces.length > 0 ? Math.max(...validPaces) : null;
   // ✅ Build KM splits using correct field names
   const autoSplits = useMemo(() => {
-    if (!rawPoints.length) return [];
+    if (!rawPoints || rawPoints.length === 0) return [];
 
     const splits: Array<{ km: number; time: number }> = [];
     let nextKmMark = splitDistance;
@@ -139,7 +143,7 @@ function RaceAnalysisPage() {
   const isFitRace = autoSplits.length > 0;
 
   // ✅ New: determine split type
-  const isTrackRace = race?.race_type === "track";
+  const isTrackRace = race?.race_type === "track" || false;
   const splitDistance = isTrackRace ? 400 : 1000;
 
   console.log("AUTO SPLITS:", autoSplits);
@@ -178,6 +182,10 @@ function RaceAnalysisPage() {
             )}
           </div>
         </div>
+
+if (!race) {
+  return <AppShell><p>Loading race...</p></AppShell>;
+}
 
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
