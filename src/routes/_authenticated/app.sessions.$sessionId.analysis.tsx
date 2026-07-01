@@ -381,7 +381,7 @@ function SessionAnalysis() {
 
   return (
     <AppShell>
-      <div className="space-y-6 max-w-5xl">
+      <div className="space-y-6 max-w-6xl">
         <div>
           <Link
             to="/app/sessions/$sessionId"
@@ -780,111 +780,127 @@ function SessionAnalysis() {
               <p className="text-xs text-muted-foreground">Completion</p>
               <p className="font-semibold">{session.completion_pct != null ? `${session.completion_pct}%` : "—"}</p>
             </div>
-          </CardContent>
+            </CardContent>
         </Card>
 
-        <UnifiedSessionTable
-          points={
-            Array.isArray(rawPoints)
-              ? rawPoints.filter((p: any) => p && (p.elapsed_s != null || p.distance_m != null))
-              : []
-          }
-          results={safeResults}
-          steps={safeSteps}
-        />
+        {/* ✅ START 2-COLUMN LAYOUT */}
+<div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
 
-        {showContinuousFatigueCard && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Run fatigue analysis</CardTitle>
-              <CardDescription>Continuous-run drift analysis from uploaded trace data.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() =>
-                  computeFatigue({ data: { sessionId } })
-                    .then(() => window.location.reload())
-                    .catch((err) => console.error("recompute fatigue error:", err))
-                }
-              >
-                Recompute run fatigue
-              </Button>
-            </CardContent>
-          </Card>
-        )}
+  {/* ✅ LEFT COLUMN */}
+  <div className="lg:col-span-2 space-y-6">
 
-        {showIntervalFatigueHint && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Fatigue insight</CardTitle>
-              <CardDescription>Based on interval performance (manual session)</CardDescription>
-            </CardHeader>
-            <CardContent className="text-sm text-muted-foreground">
-              Continuous fatigue analysis requires uploaded activity data. Interval-based trends can still be reviewed
-              using rep times, heart rate, and recovery metrics above.
-            </CardContent>
-          </Card>
-        )}
+    <UnifiedSessionTable
+      points={
+        Array.isArray(rawPoints)
+          ? rawPoints.filter((p: any) => p && (p.elapsed_s != null || p.distance_m != null))
+          : []
+      }
+      results={safeResults}
+      steps={safeSteps}
+    />
 
-        {continuousFatigue && !isIntervals && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Overall run fatigue</CardTitle>
-              <CardDescription>Continuous drift method</CardDescription>
-            </CardHeader>
-            <CardContent className="text-sm space-y-1">
-              <div className="flex justify-between border rounded px-3 py-2">
-                <span className="font-medium">Efficiency score</span>
-                <span className="tabular-nums">{continuousFatigue.efficiency_score ?? "—"}/100</span>
-              </div>
-              <div className="flex justify-between border rounded px-3 py-2 text-muted-foreground">
-                <span>HR drift</span>
-                <span>
-                  {continuousFatigue.hr_drift_bpm != null
-                    ? `${Number(continuousFatigue.hr_drift_bpm).toFixed(1)} bpm`
-                    : "—"}
+  </div>
+
+  {/* ✅ RIGHT COLUMN */}
+  <div className="space-y-6">
+
+    {showContinuousFatigueCard && (
+      <Card>
+        <CardHeader>
+          <CardTitle>Run fatigue analysis</CardTitle>
+          <CardDescription>Continuous-run drift analysis from uploaded trace data.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() =>
+              computeFatigue({ data: { sessionId } })
+                .then(() => window.location.reload())
+                .catch((err) => console.error("recompute fatigue error:", err))
+            }
+          >
+            Recompute run fatigue
+          </Button>
+        </CardContent>
+      </Card>
+    )}
+
+    {showIntervalFatigueHint && (
+      <Card>
+        <CardHeader>
+          <CardTitle>Fatigue insight</CardTitle>
+          <CardDescription>Based on interval performance (manual session)</CardDescription>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground">
+          Continuous fatigue analysis requires uploaded activity data. Interval-based trends can still be reviewed
+          using rep times, heart rate, and recovery metrics above.
+        </CardContent>
+      </Card>
+    )}
+
+    {continuousFatigue && !isIntervals && (
+      <Card>
+        <CardHeader>
+          <CardTitle>Overall run fatigue</CardTitle>
+          <CardDescription>Continuous drift method</CardDescription>
+        </CardHeader>
+        <CardContent className="text-sm space-y-1">
+          <div className="flex justify-between border rounded px-3 py-2">
+            <span className="font-medium">Efficiency score</span>
+            <span className="tabular-nums">{continuousFatigue.efficiency_score ?? "—"}/100</span>
+          </div>
+          <div className="flex justify-between border rounded px-3 py-2 text-muted-foreground">
+            <span>HR drift</span>
+            <span>
+              {continuousFatigue.hr_drift_bpm != null
+                ? `${Number(continuousFatigue.hr_drift_bpm).toFixed(1)} bpm`
+                : "—"}
+            </span>
+          </div>
+          <div className="flex justify-between border rounded px-3 py-2 text-muted-foreground">
+            <span>Pace drift</span>
+            <span>
+              {continuousFatigue.pace_drift_pct != null
+                ? `${Number(continuousFatigue.pace_drift_pct).toFixed(1)}%`
+                : "—"}
+            </span>
+          </div>
+        </CardContent>
+      </Card>
+    )}
+
+    {repFatigue.length > 0 && (
+      <Card>
+        <CardHeader>
+          <CardTitle>Per-step fatigue</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          {repFatigue.map((f: any) => {
+            const step = safeSteps.find((s: any) => s.id === f.step_id);
+            return (
+              <div key={f.step_id} className="flex flex-wrap justify-between gap-2 border rounded px-3 py-2">
+                <span className="font-medium capitalize">{step?.kind ?? "step"}</span>
+                <span className="text-muted-foreground">
+                  eff {f.efficiency_score ?? "—"} · pace drift{" "}
+                  {f.pace_drift_pct != null ? `${Number(f.pace_drift_pct).toFixed(1)}%` : "—"} · HR drift{" "}
+                  {f.hr_drift_bpm != null ? `${Number(f.hr_drift_bpm).toFixed(0)} bpm` : "—"}
                 </span>
               </div>
-              <div className="flex justify-between border rounded px-3 py-2 text-muted-foreground">
-                <span>Pace drift</span>
-                <span>
-                  {continuousFatigue.pace_drift_pct != null
-                    ? `${Number(continuousFatigue.pace_drift_pct).toFixed(1)}%`
-                    : "—"}
-                </span>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+            );
+          })}
+        </CardContent>
+      </Card>
+    )}
 
-        {repFatigue.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Per-step fatigue</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              {repFatigue.map((f: any) => {
-                const step = safeSteps.find((s: any) => s.id === f.step_id);
-                return (
-                  <div key={f.step_id} className="flex flex-wrap justify-between gap-2 border rounded px-3 py-2">
-                    <span className="font-medium capitalize">{step?.kind ?? "step"}</span>
-                    <span className="text-muted-foreground">
-                      eff {f.efficiency_score ?? "—"} · pace drift{" "}
-                      {f.pace_drift_pct != null ? `${Number(f.pace_drift_pct).toFixed(1)}%` : "—"} · HR drift{" "}
-                      {f.hr_drift_bpm != null ? `${Number(f.hr_drift_bpm).toFixed(0)} bpm` : "—"}
-                    </span>
-                  </div>
-                );
-              })}
-            </CardContent>
-          </Card>
-        )}
+    <ZonePanel rows={safeZoneTime.filter((r: any) => r.source === "pace")} title="Pace zones" />
+    <ZonePanel rows={safeZoneTime.filter((r: any) => r.source === "hr")} title="HR zones" />
 
-        <ZonePanel rows={safeZoneTime.filter((r: any) => r.source === "pace")} title="Pace zones" />
-        <ZonePanel rows={safeZoneTime.filter((r: any) => r.source === "hr")} title="HR zones" />
-      </div>
+  </div>
+
+</div>
+{/* ✅ END 2-COLUMN LAYOUT */}
+
     </AppShell>
   );
 }
