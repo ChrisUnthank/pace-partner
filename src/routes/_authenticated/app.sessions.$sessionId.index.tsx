@@ -382,8 +382,12 @@ function SessionDetail() {
                       autoFocus
                     />
                   ) : (
-                    <h1 className="text-2xl font-bold cursor-pointer" onClick={() => setEditingTitle(true)}>
+                    <h1
+                      className="text-2xl font-bold cursor-pointer flex items-center gap-2"
+                      onClick={() => setEditingTitle(true)}
+                    >
                       {session.title}
+                      {savingTitle && <span className="text-xs text-muted-foreground">Saving…</span>}
                     </h1>
                   )}
                 </div>
