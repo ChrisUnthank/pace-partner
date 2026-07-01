@@ -53,6 +53,7 @@ function SessionDetail() {
   const [insightOpen, setInsightOpen] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleValue, setTitleValue] = useState("");
+  const [savingTitle, setSavingTitle] = useState(false);
 
   // ✅ FIT upload setup
   const uploadFile = useServerFn(uploadAndParseSessionFile);
