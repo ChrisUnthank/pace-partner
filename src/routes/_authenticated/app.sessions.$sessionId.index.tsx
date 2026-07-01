@@ -254,7 +254,6 @@ function SessionDetail() {
     qc.setQueryData(["session", sessionId], updatedSession);
 
     if (session.completed_at && session.total_time_seconds && session.total_distance_m) {
-
       // ✅ prevent duplicates
       const { data: existing } = await (supabase.from("performances") as any)
         .select("id")
@@ -266,7 +265,6 @@ function SessionDetail() {
         return;
       }
 
-    
       // ✅ FORCE CACHE UPDATE
       qc.setQueryData(["session", sessionId], updatedSession);
 
@@ -1362,6 +1360,17 @@ function SessionSummary({
 
   async function complete() {
     const wasAlreadyComplete = !!session.completed_at;
+
+    // ✅ ADD THIS BLOCK
+    if (session.day_type === "training") {
+      const hasStructure = steps && steps.length > 0;
+
+      if (!hasStructure) {
+        toast.error("Training session require intent and structure");
+        return;
+      }
+    }
+
     const { error } = await supabase
       .from("sessions")
       .update({
@@ -1372,6 +1381,7 @@ function SessionSummary({
         ...(wasAlreadyComplete ? {} : { completed_at: new Date().toISOString() }),
       })
       .eq("id", session.id);
+
     if (error) toast.error(error.message);
     else {
       toast.success(wasAlreadyComplete ? "Session updated" : "Session marked complete");
@@ -1379,6 +1389,7 @@ function SessionSummary({
       if (!wasAlreadyComplete) onCompleted?.();
     }
   }
+  ``;
 
   return (
     <Card>
