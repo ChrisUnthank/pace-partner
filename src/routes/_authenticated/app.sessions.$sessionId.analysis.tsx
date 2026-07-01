@@ -299,13 +299,18 @@ function SessionAnalysis() {
       hrEnd: s.hrEnd ?? null,
       hrRec: s.hrRec ?? null,
       hrDrop: s.hrDrop ?? null,
-      pace: s.pace ?? null,
+      pace:
+        s.pace != null
+          ? speedMode === "speed"
+            ? 3600 / s.pace
+            : s.pace
+          : null,
       cadence: s.cadence ?? null,
       elev: s.elev ?? null,
       vo: s.vo ?? null,
       gct: s.gct ?? null,
     }));
-  }, [visibleSamples, xKey]);
+  }, [visibleSamples, xKey, speedMode]);
 
   const hasRaw = safeRawPoints.length > 0;
   const hasRepData = safeResults.length > 0;
