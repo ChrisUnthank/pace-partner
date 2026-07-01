@@ -124,6 +124,13 @@ function RaceAnalysisPage() {
 
   // ✅ Detect FIT-based race
   const isFitRace = !!race?.session_id && rawPoints.length > 0;
+
+  console.log("DEBUG:", {
+    session_id: race?.session_id,
+    rawPointsCount: rawPoints.length,
+    isFitRace,
+  });
+
   console.log("RAW POINT SAMPLE:", rawPoints[0]);
   const minPace = validPaces.length > 0 ? Math.min(...validPaces) : null;
   async function loadSplits() {
