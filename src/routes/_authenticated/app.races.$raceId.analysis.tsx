@@ -135,7 +135,7 @@ function RaceAnalysisPage() {
   }, [rawPoints]);
 
   // ✅ Detect FIT-based race
-  const isFitRace = !!race?.session_id && rawPoints.length > 0;
+  const isFitRace = autoSplits.length > 0;
 
   console.log("DEBUG:", {
     session_id: race?.session_id,
