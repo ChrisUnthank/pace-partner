@@ -92,39 +92,39 @@ function RaceAnalysisPage() {
   const validPaces = computed.map((s) => s.pace).filter((p): p is number => p !== null);
   const maxPace = validPaces.length > 0 ? Math.max(...validPaces) : null;
   // ✅ Build auto KM splits from raw FIT data
-const autoSplits = useMemo(() => {
-  if (!rawPoints.length) return [];
+  const autoSplits = useMemo(() => {
+    if (!rawPoints.length) return [];
 
-  const splits = [];
-  let currentKm = 1;
+    const splits = [];
+    let currentKm = 1;
 
-  let startTime = rawPoints[0]?.elapsed_s ?? 0;
-  let startDistance = rawPoints[0]?.distance_m ?? 0;
+    let startTime = rawPoints[0]?.elapsed_s ?? 0;
+    let startDistance = rawPoints[0]?.distance_m ?? 0;
 
-  for (let i = 0; i < rawPoints.length; i++) {
-    const p = rawPoints[i];
-    if (p?.distance_m == null || p?.elapsed_s == null) continue;
+    for (let i = 0; i < rawPoints.length; i++) {
+      const p = rawPoints[i];
+      if (p?.distance_m == null || p?.elapsed_s == null) continue;
 
-    if (p.distance_m - startDistance >= 1000) {
-      const splitTime = p.elapsed_s - startTime;
+      if (p.distance_m - startDistance >= 1000) {
+        const splitTime = p.elapsed_s - startTime;
 
-      splits.push({
-        km: currentKm,
-        time: splitTime,
-      });
+        splits.push({
+          km: currentKm,
+          time: splitTime,
+        });
 
-      startTime = p.elapsed_s;
-      startDistance = p.distance_m;
-      currentKm++;
+        startTime = p.elapsed_s;
+        startDistance = p.distance_m;
+        currentKm++;
+      }
     }
-  }
 
-  return splits;
-}, [rawPoints]);
+    return splits;
+  }, [rawPoints]);
 
-// ✅ Detect FIT-based race
-const isFitRace = !!race?.session_id && rawPoints.length > 0;
-
+  // ✅ Detect FIT-based race
+  const isFitRace = !!race?.session_id && rawPoints.length > 0;
+  console.log("RAW POINT SAMPLE:", rawPoints[0]);
   const minPace = validPaces.length > 0 ? Math.min(...validPaces) : null;
   async function loadSplits() {
     if (!raceId) return;
@@ -172,89 +172,70 @@ const isFitRace = !!race?.session_id && rawPoints.length > 0;
             </Card>
 
             {isFitRace ? (
-  <Card>
-    <CardHeader>
-      <CardTitle className="text-base">Splits (Auto)</CardTitle>
-      <CardDescription>Generated from FIT data</CardDescription>
-    </CardHeader>
-    <CardContent className="space-y-2">
-      {autoSplits.map((s: any) => (
-        <div
-          key={s.km}
-          className="flex justify-between text-sm border rounded px-3 py-2"
-        >
-          <span>Km {s.km}</span>
-          <span>{secToClock(s.time)}</span>
-        </div>
-      ))}
-    </CardContent>
-  </Card>
-) : (
-  <Card>
-    <CardHeader>
-      <CardTitle className="text-base">Splits</CardTitle>
-      <CardDescription>
-        Enter distance and time per split. Pace is computed live.
-      </CardDescription>
-    </CardHeader>
-    <CardContent className="space-y-3">
-      <div className="grid grid-cols-[40px_1fr_1fr_110px_40px] gap-2 text-xs text-muted-foreground px-1">
-        <div>#</div>
-        <div>Distance (m)</div>
-        <div>Time (mm:ss)</div>
-        <div>Pace</div>
-        <div></div>
-      </div>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Splits (Auto)</CardTitle>
+                  <CardDescription>Generated from FIT data</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {autoSplits.map((s: any) => (
+                    <div key={s.km} className="flex justify-between text-sm border rounded px-3 py-2">
+                      <span>Km {s.km}</span>
+                      <span>{secToClock(s.time)}</span>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            ) : (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Splits</CardTitle>
+                  <CardDescription>Enter distance and time per split. Pace is computed live.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="grid grid-cols-[40px_1fr_1fr_110px_40px] gap-2 text-xs text-muted-foreground px-1">
+                    <div>#</div>
+                    <div>Distance (m)</div>
+                    <div>Time (mm:ss)</div>
+                    <div>Pace</div>
+                    <div></div>
+                  </div>
 
-      {computed.map((s, i) => (
-        <div key={s.id} style={{ marginBottom: 12 }}>
-          <div className="grid grid-cols-[40px_1fr_1fr_110px_40px] gap-2 items-center">
-            <div className="text-sm text-muted-foreground tabular-nums">
-              {i + 1}
-            </div>
+                  {computed.map((s, i) => (
+                    <div key={s.id} style={{ marginBottom: 12 }}>
+                      <div className="grid grid-cols-[40px_1fr_1fr_110px_40px] gap-2 items-center">
+                        <div className="text-sm text-muted-foreground tabular-nums">{i + 1}</div>
 
-            <Input
-              type="number"
-              placeholder="1000"
-              value={s.distance}
-              onChange={(e) =>
-                update(s.id, { distance: e.target.value })
-              }
-            />
+                        <Input
+                          type="number"
+                          placeholder="1000"
+                          value={s.distance}
+                          onChange={(e) => update(s.id, { distance: e.target.value })}
+                        />
 
-            <Input
-              placeholder="3:00"
-              value={s.time}
-              onChange={(e) =>
-                update(s.id, { time: e.target.value })
-              }
-            />
+                        <Input
+                          placeholder="3:00"
+                          value={s.time}
+                          onChange={(e) => update(s.id, { time: e.target.value })}
+                        />
 
-            <div className="tabular-nums text-sm">
-              {s.d
-                ? s.d >= 1000
-                  ? `${(s.d / 1000).toFixed(1)} km`
-                  : `${s.d} m`
-                : "--"}
-            </div>
+                        <div className="tabular-nums text-sm">
+                          {s.d ? (s.d >= 1000 ? `${(s.d / 1000).toFixed(1)} km` : `${s.d} m`) : "--"}
+                        </div>
 
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => remove(s.id)}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      ))}
+                        <Button variant="ghost" size="icon-sm" onClick={() => remove(s.id)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
 
-      <Button variant="outline" size="sm" onClick={add}>
-        <Plus className="h-4 w-4" /> Add split
-      </Button>
-    </CardContent>
-  </Card>
-)}
+                  <Button variant="outline" size="sm" onClick={add}>
+                    <Plus className="h-4 w-4" /> Add split
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
           </>
         )}
       </div>
