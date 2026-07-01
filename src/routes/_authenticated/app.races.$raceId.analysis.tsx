@@ -259,7 +259,6 @@ function RaceAnalysisPage() {
                   </div>
                 );
               })}
-              // ✅ bar width calculation let width = 100;
             </CardContent>
           </Card>
         ) : (
