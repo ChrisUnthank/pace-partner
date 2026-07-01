@@ -65,7 +65,7 @@ function RaceAnalysisPage() {
         .from("raw_session_points")
         .select("*")
         .eq("session_id", race.session_id)
-        .order("time");
+        .order("elapsed_s");
 
       if (error) throw error;
       return data ?? [];
