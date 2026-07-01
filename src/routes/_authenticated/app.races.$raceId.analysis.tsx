@@ -91,35 +91,47 @@ function RaceAnalysisPage() {
   });
   const validPaces = computed.map((s) => s.pace).filter((p): p is number => p !== null);
   const maxPace = validPaces.length > 0 ? Math.max(...validPaces) : null;
-  // ✅ Build auto KM splits from raw FIT data
+  // ✅ Build KM splits using correct field names
   const autoSplits = useMemo(() => {
     if (!rawPoints.length) return [];
 
     const splits = [];
-    let currentKm = 1;
+    let nextKmMark = 1000;
 
-    let startTime = rawPoints[0]?.elapsed_s ?? 0;
-    let startDistance = rawPoints[0]?.distance_m ?? 0;
+    for (let i = 1; i < rawPoints.length; i++) {
+      const prev = rawPoints[i - 1];
+      const curr = rawPoints[i];
 
-    for (let i = 0; i < rawPoints.length; i++) {
-      const p = rawPoints[i];
-      if (p?.distance_m == null || p?.elapsed_s == null) continue;
+      if (prev?.distance_m == null || curr?.distance_m == null || prev?.elapsed_s == null || curr?.elapsed_s == null)
+        continue;
 
-      if (p.distance_m - startDistance >= 1000) {
-        const splitTime = p.elapsed_s - startTime;
+      // ✅ detect crossing of km boundary
+      if (prev.distance_m < nextKmMark && curr.distance_m >= nextKmMark) {
+        // ✅ interpolate split time
+        const distanceDiff = curr.distance_m - prev.distance_m;
+        const timeDiff = curr.elapsed_s - prev.elapsed_s;
+
+        const ratio = (nextKmMark - prev.distance_m) / distanceDiff;
+        const interpolatedTime = prev.elapsed_s + ratio * timeDiff;
 
         splits.push({
-          km: currentKm,
-          time: splitTime,
+          km: nextKmMark / 1000,
+          time: interpolatedTime,
         });
 
-        startTime = p.elapsed_s;
-        startDistance = p.distance_m;
-        currentKm++;
+        nextKmMark += 1000;
       }
     }
 
-    return splits;
+    // ✅ convert cumulative → per split
+    return splits.map((s, i) => {
+      const prevTime = i === 0 ? 0 : splits[i - 1].time;
+
+      return {
+        km: s.km,
+        time: s.time - prevTime,
+      };
+    });
   }, [rawPoints]);
 
   // ✅ Detect FIT-based race
