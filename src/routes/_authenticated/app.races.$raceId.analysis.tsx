@@ -110,6 +110,13 @@ function RaceAnalysisPage() {
   }, [rawPoints, splitDistance, race]);
 
   const isFitRace = autoSplits.length > 0;
+
+  // ✅ Split range for bar scaling
+  const splitTimes = autoSplits.map((s) => s.time);
+
+  const maxSplit = splitTimes.length > 0 ? Math.max(...splitTimes) : null;
+  const minSplit = splitTimes.length > 0 ? Math.min(...splitTimes) : null;
+
   // ✅ Analyze pacing
   const pacingInsight = useMemo(() => {
     if (!autoSplits || autoSplits.length < 3) return null;
@@ -213,12 +220,56 @@ function RaceAnalysisPage() {
               <CardDescription>Generated from FIT data</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
-              {autoSplits.map((s) => (
-                <div key={s.km} className="flex justify-between text-sm border rounded px-3 py-2">
-                  <span>{isTrackRace ? `Lap ${s.km}` : `Km ${s.km}`}</span>
-                  <span>{secToClock(s.time)}</span>
-                </div>
-              ))}
+              {autoSplits.map((s) => {
+                // ✅ bar width calculation
+                let width = 100;
+
+                if (autoSplits.length > 1) {
+                  const times = autoSplits.map((x) => x.time);
+                  const max = Math.max(...times);
+                  const min = Math.min(...times);
+
+                  if (max !== min) {
+                    width = ((max - s.time) / (max - min)) * 100;
+                  }
+                }
+
+                // ✅ pacing colour logic
+                let color = "bg-blue-500";
+
+                if (race?.distance_m && race?.time_seconds) {
+                  const avgPace = (race.time_seconds / race.distance_m) * 1000;
+                  const targetSplitTime = (avgPace / 1000) * splitDistance;
+
+                  const diff = s.time - targetSplitTime;
+
+                  if (Math.abs(diff) <= 2) {
+                    color = "bg-green-500"; // ✅ on pace
+                  } else if (diff < -2) {
+                    color = "bg-blue-500"; // ✅ faster
+                  } else if (diff > 2 && diff <= 5) {
+                    color = "bg-yellow-400"; // ✅ slightly slow
+                  } else if (diff > 5) {
+                    color = "bg-orange-500"; // ✅ well below
+                  }
+                }
+
+                return (
+                  <div key={s.km} className="space-y-1">
+                    {/* ✅ label + time */}
+                    <div className="flex justify-between text-sm border rounded px-3 py-2">
+                      <span>{isTrackRace ? `Lap ${s.km}` : `Km ${s.km}`}</span>
+                      <span>{secToClock(s.time)}</span>
+                    </div>
+
+                    {/* ✅ coloured bar */}
+                    <div className="h-2 bg-gray-200 rounded">
+                      <div className={`h-2 rounded ${color}`} style={{ width: `${width}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+              // ✅ bar width calculation let width = 100;
             </CardContent>
           </Card>
         ) : (
