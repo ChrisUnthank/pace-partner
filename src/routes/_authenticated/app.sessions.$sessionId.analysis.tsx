@@ -106,6 +106,7 @@ function SessionAnalysis() {
   });
 
   const [xMode, setXMode] = useState<"time" | "distance">("time");
+  const [speedMode, setSpeedMode] = useState<"pace" | "speed">("pace");
   const [scope, setScope] = useState<ScopeKey>("full");
 
   const { data: session, isLoading: sessionLoading } = useQuery({
@@ -417,18 +418,44 @@ function SessionAnalysis() {
                         : "No data available for analysis"}
                 </CardDescription>
               </div>
-              <div className="flex gap-1">
-                <Button size="sm" variant={xKey === "t" ? "default" : "outline"} onClick={() => setXMode("time")}>
-                  Time
-                </Button>
-                <Button
-                  size="sm"
-                  variant={xKey === "d" ? "default" : "outline"}
-                  disabled={!xCanUseDistance}
-                  onClick={() => setXMode("distance")}
-                >
-                  Distance
-                </Button>
+              <div className="flex items-center gap-2">
+                {/* ✅ Time / Distance */}
+                <div className="flex gap-1">
+                  <Button size="sm" variant={xKey === "t" ? "default" : "outline"} onClick={() => setXMode("time")}>
+                    Time
+                  </Button>
+
+                  <Button
+                    size="sm"
+                    variant={xKey === "d" ? "default" : "outline"}
+                    disabled={!xCanUseDistance}
+                    onClick={() => setXMode("distance")}
+                  >
+                    Distance
+                  </Button>
+                </div>
+
+                {/* ✅ Divider (nice visual separation) */}
+                <div className="w-px h-5 bg-border mx-1" />
+
+                {/* ✅ NEW: Pace / Speed toggle */}
+                <div className="flex gap-1">
+                  <Button
+                    size="sm"
+                    variant={speedMode === "pace" ? "default" : "outline"}
+                    onClick={() => setSpeedMode("pace")}
+                  >
+                    Pace
+                  </Button>
+
+                  <Button
+                    size="sm"
+                    variant={speedMode === "speed" ? "default" : "outline"}
+                    onClick={() => setSpeedMode("speed")}
+                  >
+                    km/h
+                  </Button>
+                </div>
               </div>
             </div>
 
@@ -784,12 +811,9 @@ function SessionAnalysis() {
           <div className="lg:col-span-2 flex flex-col">
             {Array.isArray(gpsPoints) &&
               gpsPoints.filter((p: any) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng)).length >= 2 && (
-                
-<div className="flex-1">
-  <MapPanel
-    points={gpsPoints.filter((p: any) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng))}
-  />
-</div>
+                <div className="flex-1">
+                  <MapPanel points={gpsPoints.filter((p: any) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng))} />
+                </div>
               )}
           </div>
 
