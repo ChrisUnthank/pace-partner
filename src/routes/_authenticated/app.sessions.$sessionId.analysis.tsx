@@ -1376,7 +1376,17 @@ function SessionInsightCard({ rows }: { rows: SplitRow[] }) {
   );
 }
 
-function UnifiedSessionTable({ points, results, steps }: { points: any[]; results: any[]; steps: any[] }) {
+function UnifiedSessionTable({
+  points,
+  results,
+  steps,
+  speedMode,
+}: {
+  points: any[];
+  results: any[];
+  steps: any[];
+  speedMode: "pace" | "speed";
+}) {
   const [segmentFilter, setSegmentFilter] = useState<ScopeKey>("full");
   const [detailMode, setDetailMode] = useState<"basic" | "advanced">("basic");
 
