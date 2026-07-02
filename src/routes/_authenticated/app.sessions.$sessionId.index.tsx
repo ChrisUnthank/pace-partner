@@ -1005,12 +1005,12 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
   // ✅ ADD THIS RIGHT HERE
   function getDropColor(drop: number) {
     if (drop >= 20) {
-      return "h-9 flex items-center justify-center rounded border text-sm font-medium bg-emerald-500/15 text-emerald-700 border-emerald-300";
+      return "h-9 flex items-center justify-center rounded border text-base font-semibold tabular-nums bg-emerald-500/15 text-emerald-700 border-emerald-300";
     }
     if (drop >= 10) {
-      return "h-9 flex items-center justify-center rounded border text-sm font-medium bg-amber-500/15 text-amber-700 border-amber-300";
+      return "h-9 flex items-center justify-center rounded border text-base font-semibold tabular-nums bg-amber-500/15 text-amber-700 border-amber-300";
     }
-    return "h-9 flex items-center justify-center rounded border text-sm font-medium bg-red-500/15 text-red-700 border-red-300";
+    return "h-9 flex items-center justify-center rounded border text-base font-semibold tabular-nums bg-red-500/15 text-red-700 border-red-300";
   }
 
   return (
