@@ -995,17 +995,17 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
           <Label className="text-xs">Time</Label>
           <Input placeholder="mm:ss" value={time} onChange={(e) => setTime(e.target.value)} onBlur={commit} />
         </div>
-        <div className="col-span-4 sm:col-span-3">
+        <div className="col-span-2 md:col-span-1">
           <Label className="text-xs">Dist (m)</Label>
           <Input type="number" value={dist} onChange={(e) => setDist(e.target.value)} onBlur={commit} />
         </div>
         {!isRecovery && (
-          <div className="col-span-4 sm:col-span-2">
+          <div className="col-span-2 md:col-span-1">
             <Label className="text-xs">HR avg</Label>
             <Input type="number" value={hrAvg} onChange={(e) => setHrAvg(e.target.value)} onBlur={commit} />
           </div>
         )}
-        <div className="col-span-4 sm:col-span-2">
+        <div className="col-span-2 md:col-span-1">
           <Label className="text-xs">{isRecovery ? "HR rec" : "HR end"}</Label>
           <Input
             type="number"
@@ -1017,7 +1017,7 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
 
         {/* ✅ NEW BLOCK */}
         {!isRecovery && result?.hr_end && result?.hr_end_recovery && (
-          <div className="col-span-4 sm:col-span-2">
+          <div className="col-span-2 md:col-span-1">
             <Label className="text-xs">HR drop</Label>
 
             <div
@@ -1036,11 +1036,11 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
         )}
         {!isRecovery && (
           <>
-            <div className="col-span-4 sm:col-span-2">
+            <div className="col-span-2 md:col-span-1">
               <Label className="text-xs">Cadence</Label>
               <Input type="number" value={cadence} onChange={(e) => setCadence(e.target.value)} onBlur={commit} />
             </div>
-            <div className="col-span-4 sm:col-span-2">
+            <div className="col-span-2 md:col-span-1">
               <Label className="text-xs">Stride (cm)</Label>
               <Input type="number" value={stride} onChange={(e) => setStride(e.target.value)} onBlur={commit} />
             </div>
