@@ -790,16 +790,16 @@ function StepBlock({
 
   const reps = Array.from({ length: step.reps || 1 }, (_, i) => i + 1);
   const sets = Array.from({ length: setCount }, (_, i) => i + 1);
-const [openSets, setOpenSets] = useState<Record<number, boolean>>({
-  1: true, // ✅ first set open
-});
-  
-function toggleSet(setN: number) {
-  setOpenSets((prev) => ({
-    ...prev,
-    [setN]: !prev[setN],
-  }));
-}
+  const [openSets, setOpenSets] = useState<Record<number, boolean>>({
+    1: true, // ✅ first set open
+  });
+
+  function toggleSet(setN: number) {
+    setOpenSets((prev) => ({
+      ...prev,
+      [setN]: !prev[setN],
+    }));
+  }
 
   return (
     <Card>
@@ -876,27 +876,39 @@ function toggleSet(setN: number) {
       <CardContent>
         {(isWork || isStrides) && (
           <div className="space-y-3">
-            {sets.map((setN) => (
-              <div key={setN} className="space-y-2">
-                {setCount > 1 && (
-                  <div className="text-xs font-semibold text-muted-foreground border-b pb-1">
-                    Set {setN} of {setCount}
-                  </div>
-                )}
-                {reps.map((rep) => {
-                  const r = results.find((x) => x.rep_number === rep && (x.set_number ?? 1) === setN);
-                  return (
-                    <RepRow
-                      key={`${setN}-${rep}`}
-                      step={step}
-                      rep={rep}
-                      result={r}
-                      onSave={(p) => saveRep(setN, rep, p)}
-                    />
-                  );
-                })}
-              </div>
-            ))}
+            {sets.map((setN) => {
+              const isOpen = openSets[setN];
+
+              return (
+                <div key={setN} className="border rounded-lg p-2">
+                  {/* ✅ Clickable set header */}
+                  {setCount > 1 && (
+                    <div className="flex items-center justify-between cursor-pointer" onClick={() => toggleSet(setN)}>
+                      <div className="text-xs text-muted-foreground">{isOpen ? "▼" : "▶"}</div>
+                    </div>
+                  )}
+
+                  {/* ✅ Collapsible rep list */}
+                  {isOpen && (
+                    <div className="space-y-2 mt-2">
+                      {reps.map((rep) => {
+                        const r = results.find((x) => x.rep_number === rep && (x.set_number ?? 1) === setN);
+
+                        return (
+                          <RepRow
+                            key={`${setN}-${rep}`}
+                            step={step}
+                            rep={rep}
+                            result={r}
+                            onSave={(p) => saveRep(setN, rep, p)}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
         {isRecovery && (
@@ -1189,54 +1201,57 @@ function StepFatiguePanel({ fatigue, isLadder, reps }: { fatigue?: any; isLadder
           {score ?? "—"} · {label}
         </div>
       </div>
-      
-<div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-  <DriftChip label="Pace" value={fatigue.pace_drift_pct} suffix="%" worseHigh />
-  <DriftChip label="HR" value={fatigue.hr_drift_bpm} suffix=" bpm" worseHigh />
-  <DriftChip label="Stride" value={fatigue.stride_drift_pct} suffix="%" worseHigh />
-  <DriftChip label="Cadence" value={fatigue.cadence_drift_pct} suffix="%" worseHigh />
-</div>
 
-        {/* ✅ Recovery insights */}
-{fatigue?.rep_count >= 3 && fatigue?.hr_drop_series?.length >= 3 && (() => {
-  const drops = fatigue.hr_drop_series;
-
-  const first = drops[0];
-  const last = drops[drops.length - 1];
-  const change = last - first;
-
-  const best = Math.max(...drops);
-  const worst = Math.min(...drops);
-
-  let trendLabel = "Stable";
-  let color = "text-muted-foreground";
-
-  if (change <= -5) {
-    trendLabel = "Recovery worsening";
-    color = "text-red-600";
-  } else if (change >= 5) {
-    trendLabel = "Recovery improving";
-    color = "text-emerald-600";
-  }
-
-  return (
-    <div className="pt-2 border-t space-y-1 text-xs">
-      <div className="flex justify-between">
-        <span className="text-muted-foreground">Recovery trend</span>
-        <span className={`font-medium ${color}`}>
-          {trendLabel} ({change > 0 ? "+" : ""}{change})
-        </span>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+        <DriftChip label="Pace" value={fatigue.pace_drift_pct} suffix="%" worseHigh />
+        <DriftChip label="HR" value={fatigue.hr_drift_bpm} suffix=" bpm" worseHigh />
+        <DriftChip label="Stride" value={fatigue.stride_drift_pct} suffix="%" worseHigh />
+        <DriftChip label="Cadence" value={fatigue.cadence_drift_pct} suffix="%" worseHigh />
       </div>
 
-      <div className="flex justify-between">
-        <span className="text-muted-foreground">Best / Worst</span>
-        <span className="font-medium">
-          {best} / {worst} bpm
-        </span>
-      </div>
-    </div>
-  );
-})()}
+      {/* ✅ Recovery insights */}
+      {fatigue?.rep_count >= 3 &&
+        fatigue?.hr_drop_series?.length >= 3 &&
+        (() => {
+          const drops = fatigue.hr_drop_series;
+
+          const first = drops[0];
+          const last = drops[drops.length - 1];
+          const change = last - first;
+
+          const best = Math.max(...drops);
+          const worst = Math.min(...drops);
+
+          let trendLabel = "Stable";
+          let color = "text-muted-foreground";
+
+          if (change <= -5) {
+            trendLabel = "Recovery worsening";
+            color = "text-red-600";
+          } else if (change >= 5) {
+            trendLabel = "Recovery improving";
+            color = "text-emerald-600";
+          }
+
+          return (
+            <div className="pt-2 border-t space-y-1 text-xs">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Recovery trend</span>
+                <span className={`font-medium ${color}`}>
+                  {trendLabel} ({change > 0 ? "+" : ""}
+                  {change})
+                </span>
+              </div>
+
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Best / Worst</span>
+                <span className="font-medium">
+                  {best} / {worst} bpm
+                </span>
+              </div>
+            </div>
+          );
+        })()}
     </div>
   );
 }
