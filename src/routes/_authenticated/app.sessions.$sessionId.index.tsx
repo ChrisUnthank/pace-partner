@@ -756,3 +756,691 @@ function zoneBarClass(zone: string) {
 function zoneDotClass(zone: string) {
   return zoneBarClass(zone);
 }
+function StepBlock({
+  session,
+  step,
+  results,
+  fatigue,
+  fuelEvents,
+}: {
+  session: any;
+  step: any;
+  results: any[];
+  fatigue?: any;
+  fuelEvents: any[];
+}) {
+  const qc = useQueryClient();
+
+  const isWork = step.kind === "work";
+  const isRecovery = step.kind === "recovery";
+  const isStrides = step.kind === "strides";
+
+  const setCount = Math.max(1, step.set_count ?? 1);
+
+  // ✅ NEW: collapsed state
+  const [open, setOpen] = useState(step.kind === "work");
+
+  const reps = Array.from({ length: step.reps || 1 }, (_, i) => i + 1);
+  const sets = Array.from({ length: setCount }, (_, i) => i + 1);
+
+  const [openSets, setOpenSets] = useState<Record<number, boolean>>({
+    1: true,
+  });
+
+  function toggleSet(setN: number) {
+    setOpenSets((prev) => ({
+      ...prev,
+      [setN]: !prev[setN],
+    }));
+  }
+
+  async function saveRep(setNumber: number, repNumber: number, patch: any) {
+    const row = { step_id: step.id, set_number: setNumber, rep_number: repNumber, ...patch };
+
+    const { error } = await supabase
+      .from("interval_results")
+      .upsert(row, { onConflict: "step_id,set_number,rep_number" });
+
+    if (error) {
+      toast.error(`Save failed: ${error.message}`);
+      return;
+    }
+
+    invalidateSession(qc, session.id, session.athlete_id);
+  }
+
+  return (
+    <Card>
+      {/* ✅ COLLAPSIBLE HEADER */}
+      <CardHeader className="pb-2 cursor-pointer" onClick={() => setOpen((v) => !v)}>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base capitalize flex items-center gap-2">
+            {step.kind === "recovery" ? "Recovery" : step.kind}
+
+            {isWork &&
+              step.target_kind === "distance" &&
+              ` · ${setCount > 1 ? `${setCount}×` : ""}${step.reps}×${metersFmt(step.target_distance_m)}`}
+
+            {isWork && step.target_kind === "time" && ` · ${step.reps}×${secToClock(step.target_time_seconds)}`}
+
+            {isStrides && ` · ${step.reps}×${metersFmt(step.target_distance_m)}`}
+
+            {step.is_ladder && (
+              <Badge variant="outline" className="ml-2 text-[10px]">
+                Ladder
+              </Badge>
+            )}
+          </CardTitle>
+
+          <div className="text-sm text-muted-foreground">{open ? "▼" : "▶"}</div>
+        </div>
+
+        {step.target_pace_sec_per_km && (
+          <CardDescription>Target pace {secToClock(step.target_pace_sec_per_km)} /km</CardDescription>
+        )}
+      </CardHeader>
+
+      {/* ✅ COLLAPSIBLE CONTENT */}
+      {open && (
+        <CardContent>
+          {(isWork || isStrides) && (
+            <div className="space-y-3">
+              {sets.map((setN) => {
+                const isOpen = openSets[setN];
+
+                return (
+                  <div key={setN} className="border rounded-lg p-2">
+                    {setCount > 1 && (
+                      <div
+                        className="flex items-center justify-between cursor-pointer"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleSet(setN);
+                        }}
+                      >
+                        <div className="text-xs font-semibold text-muted-foreground">
+                          Set {setN} of {setCount}
+                        </div>
+                        <div className="text-xs text-muted-foreground">{isOpen ? "▼" : "▶"}</div>
+                      </div>
+                    )}
+
+                    {isOpen && (
+                      <div className="space-y-2 mt-2">
+                        {reps.map((rep) => {
+                          const r = results.find((x) => x.rep_number === rep && (x.set_number ?? 1) === setN);
+
+                          return (
+                            <RepRow
+                              key={`${setN}-${rep}`}
+                              step={step}
+                              rep={rep}
+                              result={r}
+                              onSave={(p) => saveRep(setN, rep, p)}
+                            />
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {isRecovery && (
+            <div className="space-y-2">
+              {reps.map((rep) => {
+                const r = results.find((x) => x.rep_number === rep);
+                return <RepRow key={rep} step={step} rep={rep} result={r} onSave={(p) => saveRep(1, rep, p)} />;
+              })}
+            </div>
+          )}
+
+          {(step.kind === "warmup" || step.kind === "cooldown") && (
+            <RepRow step={step} rep={1} result={results[0]} onSave={(p) => saveRep(1, 1, p)} />
+          )}
+
+          {isWork && <WorkFuelNote step={step} sessionId={session.id} />}
+          {isWork && <LactateSummary results={results} />}
+          {isWork && <StepFatiguePanel fatigue={fatigue} isLadder={step.is_ladder} reps={results.length} />}
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?: any; onSave: (patch: any) => void }) {
+  const isRecovery = step.kind === "recovery";
+  const isWorkOrStride = step.kind === "work" || step.kind === "strides";
+
+  const [time, setTime] = useState("");
+  const [dist, setDist] = useState<string | number>("");
+  const [hrEnd, setHrEnd] = useState<string | number>("");
+  const [hrRec, setHrRec] = useState<string | number>("");
+  const [hrAvg, setHrAvg] = useState<string | number>("");
+  const [cadence, setCadence] = useState<string | number>("");
+  const [stride, setStride] = useState<string | number>("");
+
+  const [adjustmentNote, setAdjustmentNote] = useState<string>("");
+
+  const [lactateTaken, setLactateTaken] = useState<boolean>(false);
+  const [lactateMmol, setLactateMmol] = useState<string | number>("");
+  const [lactateTiming, setLactateTiming] = useState<string>("end_of_rep");
+
+  const [showNote, setShowNote] = useState(false);
+
+  // ✅ Derived stride
+  const distanceM = Number(dist);
+  const timeSec =
+    typeof time === "string" && time.includes(":")
+      ? time.split(":").reduce((acc, part, i) => acc + Number(part) * (i === 0 ? 60 : 1), 0)
+      : Number(time);
+
+  const computedStride =
+    distanceM > 0 && timeSec > 0 && Number(cadence) > 0 ? (distanceM / ((timeSec / 60) * Number(cadence))) * 100 : null;
+
+  const resultKey = result?.id ?? "none";
+
+  useEffect(() => {
+    setTime(result?.actual_time_seconds ? secToClock(result.actual_time_seconds) : "");
+    setDist(result?.actual_distance_m ?? "");
+    setHrEnd(result?.hr_end ?? "");
+    setHrRec(result?.hr_end_recovery ?? "");
+    setHrAvg(result?.hr_avg ?? "");
+    setCadence(result?.cadence ?? "");
+    setStride(result?.stride_length_cm ?? "");
+    setAdjustmentNote(result?.adjustment_note ?? "");
+    setLactateTaken(!!result?.lactate_taken);
+    setLactateMmol(result?.lactate_mmol ?? "");
+    setLactateTiming(result?.lactate_timing ?? "end_of_rep");
+  }, [resultKey]);
+
+  function commit() {
+    const patch: any = {
+      actual_time_seconds: clockToSec(time as any),
+      actual_distance_m: dist === "" ? null : Number(dist),
+      hr_end: hrEnd === "" ? null : Number(hrEnd),
+      hr_end_recovery: hrRec === "" ? null : Number(hrRec),
+      hr_avg: hrAvg === "" ? null : Number(hrAvg),
+      cadence: cadence === "" ? null : Number(cadence),
+      stride_length_cm: stride === "" ? null : Number(stride),
+      adjustment_note: adjustmentNote.trim() || null,
+      lactate_taken: lactateTaken,
+      lactate_mmol: lactateMmol === "" ? null : Number(lactateMmol),
+      lactate_timing: lactateTaken ? lactateTiming : null,
+    };
+
+    if (patch.actual_time_seconds && patch.actual_distance_m) {
+      patch.actual_pace_sec_per_km = (patch.actual_time_seconds / patch.actual_distance_m) * 1000;
+    }
+
+    onSave(patch);
+  }
+
+  // ✅ ADD THIS RIGHT HERE
+  function getDropColor(drop: number) {
+    if (drop >= 20) {
+      return "h-9 flex items-center justify-center rounded border text-base font-semibold tabular-nums bg-emerald-500/15 text-emerald-700 border-emerald-300";
+    }
+    if (drop >= 10) {
+      return "h-9 flex items-center justify-center rounded border text-base font-semibold tabular-nums bg-amber-500/15 text-amber-700 border-amber-300";
+    }
+    return "h-9 flex items-center justify-center rounded border text-base font-semibold tabular-nums bg-red-500/15 text-red-700 border-red-300";
+  }
+
+  return (
+    <div className="space-y-2 border-l-2 pl-2">
+      <div className="text-xs text-muted-foreground">Rep {rep}</div>
+
+      {/* ✅ ROW 1 — CORE METRICS */}
+      <div className="grid grid-cols-8 gap-2 text-sm items-end">
+        <div>
+          <Label className="text-xs">Time</Label>
+          <Input value={time} onChange={(e) => setTime(e.target.value)} onBlur={commit} />
+        </div>
+
+        <div className="col-span-2">
+          <Label className="text-xs">Dist</Label>
+
+          <Input type="number" value={dist} onChange={(e) => setDist(e.target.value)} onBlur={commit} />
+        </div>
+
+        {!isRecovery && (
+          <div>
+            <Label className="text-xs">HR avg</Label>
+
+            <Input
+              type="number"
+              className={Number(hrAvg) > 180 ? "border-red-400" : ""}
+              value={hrAvg}
+              onChange={(e) => setHrAvg(e.target.value)}
+              onBlur={commit}
+            />
+          </div>
+        )}
+
+        <div>
+          <Label className="text-xs">{isRecovery ? "HR rec" : "HR end"}</Label>
+          <Input
+            type="number"
+            value={isRecovery ? hrRec : hrEnd}
+            onChange={(e) => (isRecovery ? setHrRec(e.target.value) : setHrEnd(e.target.value))}
+            onBlur={commit}
+          />
+        </div>
+
+        {!isRecovery && Number(hrEnd) > 0 && Number(hrRec) >= 0 && (
+          <div>
+            <Label className="text-xs">Drop</Label>
+            <div className={getDropColor(Number(hrEnd) - Number(hrRec))}>{Number(hrEnd) - Number(hrRec)}</div>
+          </div>
+        )}
+
+        {!isRecovery && (
+          <>
+            <div>
+              <Label className="text-xs">Cad</Label>
+
+              <Input
+                type="number"
+                className={Number(cadence) < 165 ? "border-amber-400" : ""}
+                value={cadence}
+                onChange={(e) => setCadence(e.target.value)}
+                onBlur={commit}
+              />
+            </div>
+
+            <div className="col-span-1">
+              <Label className="text-xs">Stride</Label>
+              <Input
+                type="number"
+                value={stride !== "" ? stride : computedStride ? Math.round(computedStride) : ""}
+                onChange={(e) => setStride(e.target.value)}
+                onBlur={commit}
+              />
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* ✅ ROW 2 — TOGGLES */}
+      {isWorkOrStride && (
+        <div className="flex items-center gap-4 text-xs mt-1">
+          <button type="button" className="text-muted-foreground underline" onClick={() => setShowNote((v) => !v)}>
+            Note
+          </button>
+
+          <label className="flex items-center gap-1.5">
+            <Switch
+              checked={lactateTaken}
+              onCheckedChange={(v) => {
+                setLactateTaken(v);
+                setTimeout(commit, 0);
+              }}
+            />
+            <span className="text-muted-foreground">Lactate</span>
+          </label>
+        </div>
+      )}
+
+      {/* ✅ ROW 3 — EXPANDED DETAILS */}
+      {(showNote || lactateTaken) && (
+        <div className="flex flex-wrap gap-2 mt-2 text-xs">
+          {showNote && (
+            <Input
+              className="h-7 flex-1 min-w-[200px]"
+              placeholder="Adjustment note..."
+              value={adjustmentNote}
+              onChange={(e) => setAdjustmentNote(e.target.value)}
+              onBlur={commit}
+            />
+          )}
+
+          {lactateTaken && (
+            <>
+              <Input
+                className="h-7 w-20"
+                type="number"
+                step="0.1"
+                value={lactateMmol}
+                onChange={(e) => setLactateMmol(e.target.value)}
+                onBlur={commit}
+              />
+
+              <Select
+                value={lactateTiming}
+                onValueChange={(v) => {
+                  setLactateTiming(v);
+                  setTimeout(commit, 0);
+                }}
+              >
+                <SelectTrigger className="h-7 w-[150px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="end_of_rep">End of rep</SelectItem>
+                  <SelectItem value="end_of_recovery">End of recovery</SelectItem>
+                </SelectContent>
+              </Select>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WorkFuelNote({ step, sessionId }: { step: any; sessionId: string }) {
+  const qc = useQueryClient();
+  const [note, setNote] = useState<string>(step.fuel_note ?? "");
+  useEffect(() => {
+    setNote(step.fuel_note ?? "");
+  }, [step.id, step.fuel_note]);
+  async function save() {
+    const { error } = await supabase
+      .from("steps")
+      .update({ fuel_note: note.trim() || null })
+      .eq("id", step.id);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    qc.invalidateQueries({ queryKey: ["steps", sessionId] });
+    toast.success("Fueling note saved");
+  }
+  return (
+    <div className="mt-3 border-t pt-3 space-y-1.5">
+      <Label className="text-xs flex items-center gap-1">
+        <Apple className="h-3 w-3" /> Fueling note (this work block)
+      </Label>
+      <Textarea
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="e.g. gel before rep 4, sips of water between sets"
+        className="text-sm"
+        rows={2}
+      />
+      <Button size="sm" variant="outline" onClick={save}>
+        Save fueling note
+      </Button>
+    </div>
+  );
+}
+
+function LactateSummary({ results }: { results: any[] }) {
+  const rows = results.filter((r) => r.lactate_taken && r.lactate_mmol != null);
+  if (rows.length === 0) return null;
+  return (
+    <div className="mt-3 border-t pt-3">
+      <div className="text-xs font-semibold text-muted-foreground mb-1.5">Lactate readings</div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+        {rows.map((r) => (
+          <div key={r.id} className="border rounded px-2 py-1 flex justify-between">
+            <span className="text-muted-foreground">
+              {(r.set_number ?? 1) > 1 ? `S${r.set_number} ` : ""}Rep {r.rep_number}
+              {r.lactate_timing === "end_of_recovery" ? " · rec" : ""}
+            </span>
+            <span className="tabular-nums font-medium">{Number(r.lactate_mmol).toFixed(1)} mmol</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StepFatiguePanel({ fatigue, isLadder, reps }: { fatigue?: any; isLadder?: boolean; reps: number }) {
+  if (isLadder) {
+    return (
+      <div className="mt-3 text-xs text-muted-foreground border-t pt-2">
+        Ladder step — fatigue score suppressed. Per-rep target support coming in a follow-up.
+      </div>
+    );
+  }
+
+  if (!fatigue) {
+    if (reps < 3) {
+      return (
+        <div className="mt-3 border-t pt-2 text-xs">
+          <div className="text-muted-foreground">Not enough reps for fatigue analysis</div>
+        </div>
+      );
+    }
+    return null;
+  }
+
+  const score = fatigue.efficiency_score;
+  const label = score == null ? "—" : score >= 85 ? "Held form" : score >= 65 ? "Moderate fade" : "Heavy fade";
+  const tone =
+    score == null
+      ? "bg-muted"
+      : score >= 85
+        ? "bg-emerald-500/15 text-emerald-700"
+        : score >= 65
+          ? "bg-amber-500/15 text-amber-700"
+          : "bg-red-500/15 text-red-700";
+  return (
+    <div className="mt-3 border-t pt-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="text-xs text-muted-foreground">
+          Within-session fatigue ({fatigue.method.replace("_", " ")}, {fatigue.rep_count} reps)
+        </div>
+        <div className={`px-2 py-0.5 rounded text-sm font-semibold ${tone}`}>
+          {score ?? "—"} · {label}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+        <DriftChip label="Pace" value={fatigue.pace_drift_pct} suffix="%" worseHigh />
+        <DriftChip label="HR" value={fatigue.hr_drift_bpm} suffix=" bpm" worseHigh />
+        <DriftChip label="Stride" value={fatigue.stride_drift_pct} suffix="%" worseHigh />
+        <DriftChip label="Cadence" value={fatigue.cadence_drift_pct} suffix="%" worseHigh />
+      </div>
+
+      {/* ✅ Recovery insights */}
+      {fatigue?.rep_count >= 3 &&
+        fatigue?.hr_drop_series?.length >= 3 &&
+        (() => {
+          const drops = fatigue.hr_drop_series;
+
+          const first = drops[0];
+          const last = drops[drops.length - 1];
+          const change = last - first;
+
+          const best = Math.max(...drops);
+          const worst = Math.min(...drops);
+
+          let trendLabel = "Stable";
+          let color = "text-muted-foreground";
+
+          if (change <= -5) {
+            trendLabel = "Recovery worsening";
+            color = "text-red-600";
+          } else if (change >= 5) {
+            trendLabel = "Recovery improving";
+            color = "text-emerald-600";
+          }
+
+          return (
+            <div className="pt-2 border-t space-y-1 text-xs">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Recovery trend</span>
+                <span className={`font-medium ${color}`}>
+                  {trendLabel} ({change > 0 ? "+" : ""}
+                  {change})
+                </span>
+              </div>
+
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Best / Worst</span>
+                <span className="font-medium">
+                  {best} / {worst} bpm
+                </span>
+              </div>
+            </div>
+          );
+        })()}
+    </div>
+  );
+}
+
+function DriftChip({
+  label,
+  value,
+  suffix,
+  worseHigh,
+}: {
+  label: string;
+  value: number | null;
+  suffix: string;
+  worseHigh?: boolean;
+}) {
+  if (value == null) return <div className="border rounded px-2 py-1 text-muted-foreground">{label}: —</div>;
+  const bad = worseHigh ? value > 2 : value < -2;
+  return (
+    <div className={`border rounded px-2 py-1 ${bad ? "text-red-600 border-red-300" : ""}`}>
+      {label}: {value > 0 ? "+" : ""}
+      {value}
+      {suffix}
+    </div>
+  );
+}
+
+function SessionAvgFatigue({ rows }: { rows: any[] }) {
+  const scored = rows.filter((r) => r.efficiency_score != null && r.duration_seconds);
+  if (scored.length === 0) return null;
+  const totalDur = scored.reduce((a, r) => a + Number(r.duration_seconds), 0);
+  const weighted = scored.reduce((a, r) => a + Number(r.efficiency_score) * Number(r.duration_seconds), 0) / totalDur;
+  const avg = Math.round(weighted);
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Within-session fatigue · Session avg</CardTitle>
+        <CardDescription>
+          Duration-weighted across {scored.length} scored step{scored.length === 1 ? "" : "s"}. Different from daily
+          readiness.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="text-3xl font-bold tabular-nums">
+          {avg}
+          <span className="text-base font-normal text-muted-foreground"> / 100</span>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function FuelingPanel({ session }: { session: any }) {
+  const qc = useQueryClient();
+  const [notes, setNotes] = useState(session.fueling_notes ?? "");
+  async function save() {
+    const { error } = await supabase
+      .from("sessions")
+      .update({ fueling_notes: notes || null })
+      .eq("id", session.id);
+    if (error) toast.error(error.message);
+    else {
+      toast.success("Fueling notes saved");
+      qc.invalidateQueries({ queryKey: ["session", session.id] });
+    }
+  }
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Fueling notes (session)</CardTitle>
+        <CardDescription>Pre-session, mid-session, post-session — anything food/drink related.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <Textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="e.g. oats + banana 2h before, gel at rep 4"
+        />
+        <Button variant="outline" size="sm" onClick={save}>
+          Save notes
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function SessionSummary({
+  session,
+  results = [],
+  onSaved,
+  onCompleted,
+}: {
+  session: any;
+  results?: any[];
+  onSaved: () => void;
+  onCompleted?: () => void;
+}) {
+  const [rpe, setRpe] = useState<number>(5);
+  // Re-sync whenever the underlying session row changes (after server-side recompute).
+  useEffect(() => {
+    setRpe(session.rpe ?? 5);
+  }, [session.rpe]);
+
+  // Derived stride length: prefer an explicit per-rep value, else compute from
+  // session totals + average rep cadence. Returns null when not enough data.
+  const derivedStride = (() => {
+    const explicit = results.map((r: any) => Number(r?.stride_length_cm)).filter((n) => Number.isFinite(n) && n > 0);
+    if (explicit.length) {
+      const avgCm = explicit.reduce((a, b) => a + b, 0) / explicit.length;
+      return Number((avgCm / 100).toFixed(2));
+    }
+    const cads = results.map((r: any) => Number(r?.cadence)).filter((n) => Number.isFinite(n) && n > 0);
+    const avgCad = cads.length ? cads.reduce((a, b) => a + b, 0) / cads.length : null;
+    return computeStrideLengthM(session.total_distance_m, session.total_time_seconds, avgCad);
+  })();
+
+  async function complete() {
+    const wasAlreadyComplete = !!session.completed_at;
+
+    const { error } = await supabase
+      .from("sessions")
+      .update({
+        rpe,
+        ...(wasAlreadyComplete ? {} : { completed_at: new Date().toISOString() }),
+      })
+      .eq("id", session.id);
+
+    if (error) {
+      toast.error(error.message);
+    } else {
+      toast.success(wasAlreadyComplete ? "Session updated" : "Session marked complete");
+      onSaved();
+      if (!wasAlreadyComplete) onCompleted?.();
+    }
+  }
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Session feedback</CardTitle>
+      </CardHeader>
+
+      <CardContent className="space-y-4">
+        {/* ✅ RPE */}
+        <div>
+          <Label>
+            RPE (1–10): <span className="tabular-nums">{rpe}</span>
+          </Label>
+          <Slider min={1} max={10} step={1} value={[rpe]} onValueChange={(v) => setRpe(v[0])} className="mt-2" />
+        </div>
+
+        {/* ✅ Completion */}
+        <div className="flex items-center justify-between text-sm border rounded px-3 py-2">
+          <span>Completion</span>
+          <span className="font-semibold">{session.completed_at ? "100%" : "Not completed"}</span>
+        </div>
+
+        {/* ✅ Submit */}
+        <Button onClick={complete} className="w-full">
+          <CheckCircle2 className="h-4 w-4 mr-1" />
+          {session.completed_at ? "Update session" : "Mark complete"}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
