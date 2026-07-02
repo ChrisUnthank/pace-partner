@@ -948,6 +948,17 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
   const [lactateTaken, setLactateTaken] = useState<boolean>(false);
   const [lactateMmol, setLactateMmol] = useState<string | number>("");
   const [lactateTiming, setLactateTiming] = useState<string>("end_of_rep");
+
+  // ✅ Auto-calculate stride (cm) from distance, time, cadence
+  const distanceM = Number(dist);
+  const timeSec =
+    typeof time === "string" && time.includes(":")
+      ? time.split(":").reduce((acc, part, i) => acc + Number(part) * (i === 0 ? 60 : 1), 0)
+      : Number(time);
+
+  const computedStride =
+    distanceM > 0 && timeSec > 0 && Number(cadence) > 0 ? (distanceM / ((timeSec / 60) * Number(cadence))) * 100 : null;
+
   // Hydrate / re-hydrate from the loaded result whenever it changes.
   const resultKey = result?.id ?? "none";
   useEffect(() => {
@@ -1042,7 +1053,12 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
             </div>
             <div className="col-span-1">
               <Label className="text-xs">Stride (cm)</Label>
-              <Input type="number" value={stride} onChange={(e) => setStride(e.target.value)} onBlur={commit} />
+              <Input
+                type="number"
+                value={stride !== "" ? stride : computedStride ? Math.round(computedStride) : ""}
+                onChange={(e) => setStride(e.target.value)}
+                onBlur={commit}
+              />
             </div>
           </>
         )}
