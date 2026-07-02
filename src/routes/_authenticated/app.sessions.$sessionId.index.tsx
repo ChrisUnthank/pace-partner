@@ -913,8 +913,6 @@ function toggleSet(setN: number) {
         {isWork && <WorkFuelNote step={step} sessionId={session.id} />}
         {isWork && <LactateSummary results={results} />}
         {isWork && <StepFatiguePanel fatigue={fatigue} isLadder={step.is_ladder} reps={results.length} />}
-                  
-          })()}
       </CardContent>
     </Card>
   );
@@ -1239,12 +1237,6 @@ function StepFatiguePanel({ fatigue, isLadder, reps }: { fatigue?: any; isLadder
     </div>
   );
 })()}
-
-        <DriftChip label="Pace" value={fatigue.pace_drift_pct} suffix="%" worseHigh />
-        <DriftChip label="HR" value={fatigue.hr_drift_bpm} suffix=" bpm" worseHigh />
-        <DriftChip label="Stride" value={fatigue.stride_drift_pct} suffix="%" worseHigh />
-        <DriftChip label="Cadence" value={fatigue.cadence_drift_pct} suffix="%" worseHigh />
-      </div>
     </div>
   );
 }
