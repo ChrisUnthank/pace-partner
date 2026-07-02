@@ -787,13 +787,12 @@ function StepBlock({
     1: true,
   });
 
-  
-function toggleSet(setN: number) {
-  setOpenSets((prev) => ({
-    ...prev,
-    [setN]: !prev[setN], ✅ FIXED
-  }));
-}
+  function toggleSet(setN: number) {
+    setOpenSets((prev) => ({
+      ...prev,
+      [setN]: !prev[setN],
+    }));
+  }
 
 
   async function saveRep(setNumber: number, repNumber: number, patch: any) {
@@ -843,14 +842,12 @@ function toggleSet(setN: number) {
       </CardHeader>
 
       {/* ✅ COLLAPSIBLE CONTENT */}
-      
-    <div
-      className={`overflow-hidden transition-all duration-300 ${
+      <div
+        className={`overflow-hidden transition-all duration-300 ${
           open ? "max-h-[2000px] opacity-100" : "max-h-0 opacity-0"
-      }`}
+        }`}
       >
         <CardContent>
-      </div>
           {(isWork || isStrides) && (
             <div className="space-y-3">
               {sets.map((setN) => {
@@ -913,7 +910,7 @@ function toggleSet(setN: number) {
           {isWork && <LactateSummary results={results} />}
           {isWork && <StepFatiguePanel fatigue={fatigue} isLadder={step.is_ladder} reps={results.length} />}
         </CardContent>
-      )}
+      </div>
     </Card>
   );
 }
