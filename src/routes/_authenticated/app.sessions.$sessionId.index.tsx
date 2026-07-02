@@ -937,6 +937,7 @@ function StepBlock({
 function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?: any; onSave: (patch: any) => void }) {
   const isRecovery = step.kind === "recovery";
   const isWorkOrStride = step.kind === "work" || step.kind === "strides";
+
   const [time, setTime] = useState("");
   const [dist, setDist] = useState<string | number>("");
   const [hrEnd, setHrEnd] = useState<string | number>("");
@@ -944,12 +945,16 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
   const [hrAvg, setHrAvg] = useState<string | number>("");
   const [cadence, setCadence] = useState<string | number>("");
   const [stride, setStride] = useState<string | number>("");
+
   const [adjustmentNote, setAdjustmentNote] = useState<string>("");
+
   const [lactateTaken, setLactateTaken] = useState<boolean>(false);
   const [lactateMmol, setLactateMmol] = useState<string | number>("");
   const [lactateTiming, setLactateTiming] = useState<string>("end_of_rep");
 
-  // ✅ Auto-calculate stride (cm) from distance, time, cadence
+  const [showNote, setShowNote] = useState(false);
+
+  // ✅ Derived stride
   const distanceM = Number(dist);
   const timeSec =
     typeof time === "string" && time.includes(":")
@@ -959,8 +964,8 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
   const computedStride =
     distanceM > 0 && timeSec > 0 && Number(cadence) > 0 ? (distanceM / ((timeSec / 60) * Number(cadence))) * 100 : null;
 
-  // Hydrate / re-hydrate from the loaded result whenever it changes.
   const resultKey = result?.id ?? "none";
+
   useEffect(() => {
     setTime(result?.actual_time_seconds ? secToClock(result.actual_time_seconds) : "");
     setDist(result?.actual_distance_m ?? "");
@@ -973,7 +978,6 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
     setLactateTaken(!!result?.lactate_taken);
     setLactateMmol(result?.lactate_mmol ?? "");
     setLactateTiming(result?.lactate_timing ?? "end_of_rep");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resultKey]);
 
   function commit() {
@@ -985,38 +989,43 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
       hr_avg: hrAvg === "" ? null : Number(hrAvg),
       cadence: cadence === "" ? null : Number(cadence),
       stride_length_cm: stride === "" ? null : Number(stride),
-      adjustment_note: adjustmentNote.trim() === "" ? null : adjustmentNote.trim(),
+      adjustment_note: adjustmentNote.trim() || null,
       lactate_taken: lactateTaken,
       lactate_mmol: lactateMmol === "" ? null : Number(lactateMmol),
       lactate_timing: lactateTaken ? lactateTiming : null,
     };
+
     if (patch.actual_time_seconds && patch.actual_distance_m) {
       patch.actual_pace_sec_per_km = (patch.actual_time_seconds / patch.actual_distance_m) * 1000;
     }
+
     onSave(patch);
   }
 
   return (
     <div className="space-y-2 border-l-2 pl-2">
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span>Rep {rep}</span>
-      </div>
-      <div className="grid grid-cols-12 gap-2 items-end text-sm">
-        <div className="col-span-1">
+      <div className="text-xs text-muted-foreground">Rep {rep}</div>
+
+      {/* ✅ ROW 1 — CORE METRICS */}
+      <div className="grid grid-cols-8 gap-2 text-sm items-end">
+        <div>
           <Label className="text-xs">Time</Label>
-          <Input placeholder="mm:ss" value={time} onChange={(e) => setTime(e.target.value)} onBlur={commit} />
+          <Input value={time} onChange={(e) => setTime(e.target.value)} onBlur={commit} />
         </div>
-        <div className="col-span-1">
-          <Label className="text-xs">Dist (m)</Label>
+
+        <div>
+          <Label className="text-xs">Dist</Label>
           <Input type="number" value={dist} onChange={(e) => setDist(e.target.value)} onBlur={commit} />
         </div>
+
         {!isRecovery && (
-          <div className="col-span-1">
+          <div>
             <Label className="text-xs">HR avg</Label>
             <Input type="number" value={hrAvg} onChange={(e) => setHrAvg(e.target.value)} onBlur={commit} />
           </div>
         )}
-        <div className="col-span-1">
+
+        <div>
           <Label className="text-xs">{isRecovery ? "HR rec" : "HR end"}</Label>
           <Input
             type="number"
@@ -1026,33 +1035,24 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
           />
         </div>
 
-        {/* ✅ NEW BLOCK */}
         {!isRecovery && result?.hr_end && result?.hr_end_recovery && (
-          <div className="col-span-1">
-            <Label className="text-xs">HR drop</Label>
-
-            <div
-              className={
-                "h-9 flex items-center justify-center rounded border text-sm font-medium " +
-                (result.hr_end - result.hr_end_recovery >= 20
-                  ? "bg-emerald-500/15 text-emerald-700 border-emerald-300"
-                  : result.hr_end - result.hr_end_recovery >= 10
-                    ? "bg-amber-500/15 text-amber-700 border-amber-300"
-                    : "bg-red-500/15 text-red-700 border-red-300")
-              }
-            >
+          <div>
+            <Label className="text-xs">Drop</Label>
+            <div className="h-9 flex items-center justify-center border rounded text-sm">
               {result.hr_end - result.hr_end_recovery}
             </div>
           </div>
         )}
+
         {!isRecovery && (
           <>
-            <div className="col-span-1">
-              <Label className="text-xs">Cadence</Label>
+            <div>
+              <Label className="text-xs">Cad</Label>
               <Input type="number" value={cadence} onChange={(e) => setCadence(e.target.value)} onBlur={commit} />
             </div>
-            <div className="col-span-1">
-              <Label className="text-xs">Stride (cm)</Label>
+
+            <div className="col-span-2">
+              <Label className="text-xs">Stride</Label>
               <Input
                 type="number"
                 value={stride !== "" ? stride : computedStride ? Math.round(computedStride) : ""}
@@ -1060,35 +1060,73 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
                 onBlur={commit}
               />
             </div>
-            {/* ✅ NOTE */}
-{!isRecovery && (
-  <div className="col-span-5">
-    <Label className="text-xs">Note</Label>
-    <Input
-      className="h-7 text-xs"
-      placeholder="Adjustment note..."
-      value={adjustmentNote}
-      onChange={(e) => setAdjustmentNote(e.target.value)}
-      onBlur={commit}
-    />
-  </div>
-)}
-
-{/* ✅ LACTATE */}
-{isWorkOrStride && (
-  <div className="col-span-1 flex items-end justify-center">
-    <Switch
-      checked={lactateTaken}
-      onCheckedChange={(v) => {
-        setLactateTaken(v);
-        setTimeout(commit, 0);
-      }}
-    />
-  </div>
-)}
           </>
         )}
       </div>
+
+      {/* ✅ ROW 2 — TOGGLES */}
+      {isWorkOrStride && (
+        <div className="flex items-center gap-4 text-xs mt-1">
+          <button type="button" className="text-muted-foreground underline" onClick={() => setShowNote((v) => !v)}>
+            Note
+          </button>
+
+          <label className="flex items-center gap-1.5">
+            <Switch
+              checked={lactateTaken}
+              onCheckedChange={(v) => {
+                setLactateTaken(v);
+                setTimeout(commit, 0);
+              }}
+            />
+            <span className="text-muted-foreground">Lactate</span>
+          </label>
+        </div>
+      )}
+
+      {/* ✅ ROW 3 — EXPANDED DETAILS */}
+      {(showNote || lactateTaken) && (
+        <div className="flex flex-wrap gap-2 mt-2 text-xs">
+          {showNote && (
+            <Input
+              className="h-7 flex-1 min-w-[200px]"
+              placeholder="Adjustment note..."
+              value={adjustmentNote}
+              onChange={(e) => setAdjustmentNote(e.target.value)}
+              onBlur={commit}
+            />
+          )}
+
+          {lactateTaken && (
+            <>
+              <Input
+                className="h-7 w-20"
+                type="number"
+                step="0.1"
+                value={lactateMmol}
+                onChange={(e) => setLactateMmol(e.target.value)}
+                onBlur={commit}
+              />
+
+              <Select
+                value={lactateTiming}
+                onValueChange={(v) => {
+                  setLactateTiming(v);
+                  setTimeout(commit, 0);
+                }}
+              >
+                <SelectTrigger className="h-7 w-[150px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="end_of_rep">End of rep</SelectItem>
+                  <SelectItem value="end_of_recovery">End of recovery</SelectItem>
+                </SelectContent>
+              </Select>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
