@@ -1047,7 +1047,7 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
           />
         </div>
 
-        {!isRecovery && hrEnd !== "" && hrRec !== "" && (
+        {!isRecovery && hrEnd !== "" && hrRec !== "" && !isNaN(Number(hrEnd)) && !isNaN(Number(hrRec)) && (
           <div>
             <Label className="text-xs">Drop</Label>
             <div className={getDropColor(Number(hrEnd) - Number(hrRec))}>{Number(hrEnd) - Number(hrRec)}</div>
