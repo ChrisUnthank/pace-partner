@@ -1063,15 +1063,6 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
           </>
         )}
       </div>
-      {!isRecovery && (
-        <Input
-          className="h-7 text-xs"
-          placeholder="Adjustment note (e.g. eased off, switched to spikes)"
-          value={adjustmentNote}
-          onChange={(e) => setAdjustmentNote(e.target.value)}
-          onBlur={commit}
-        />
-      )}
       {isWorkOrStride && (
         <div className="flex flex-wrap items-end gap-2 text-xs pt-1">
           <label className="flex items-center gap-1.5">
