@@ -1001,7 +1001,7 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <span>Rep {rep}</span>
       </div>
-      <div className="grid grid-cols-6 md:grid-cols-8 gap-2 items-end text-sm">
+      <div className="grid grid-cols-12 gap-2 items-end text-sm">
         <div className="col-span-1">
           <Label className="text-xs">Time</Label>
           <Input placeholder="mm:ss" value={time} onChange={(e) => setTime(e.target.value)} onBlur={commit} />
@@ -1060,54 +1060,36 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
                 onBlur={commit}
               />
             </div>
+            {/* ✅ NOTE */}
+{!isRecovery && (
+  <div className="col-span-5">
+    <Label className="text-xs">Note</Label>
+    <Input
+      className="h-7 text-xs"
+      placeholder="Adjustment note..."
+      value={adjustmentNote}
+      onChange={(e) => setAdjustmentNote(e.target.value)}
+      onBlur={commit}
+    />
+  </div>
+)}
+
+{/* ✅ LACTATE */}
+{isWorkOrStride && (
+  <div className="col-span-1 flex items-end justify-center">
+    <Switch
+      checked={lactateTaken}
+      onCheckedChange={(v) => {
+        setLactateTaken(v);
+        setTimeout(commit, 0);
+      }}
+    />
+  </div>
+)}
           </>
         )}
       </div>
-      {isWorkOrStride && (
-        <div className="flex flex-wrap items-end gap-2 text-xs pt-1">
-          <label className="flex items-center gap-1.5">
-            <Switch
-              checked={lactateTaken}
-              onCheckedChange={(v) => {
-                setLactateTaken(v);
-                setTimeout(commit, 0);
-              }}
-            />
-            <span className="text-muted-foreground">Lactate</span>
-          </label>
-          {lactateTaken && (
-            <>
-              <div>
-                <Label className="text-[10px]">mmol/L</Label>
-                <Input
-                  className="h-7 w-20"
-                  type="number"
-                  step="0.1"
-                  value={lactateMmol}
-                  onChange={(e) => setLactateMmol(e.target.value)}
-                  onBlur={commit}
-                />
-              </div>
-              <div className="min-w-[140px]">
-                <Label className="text-[10px]">Timing</Label>
-                <Select
-                  value={lactateTiming}
-                  onValueChange={(v) => {
-                    setLactateTiming(v);
-                    setTimeout(commit, 0);
-                  }}
-                >
-                  <SelectTrigger className="h-7">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="end_of_rep">End of rep</SelectItem>
-                    <SelectItem value="end_of_recovery">End of recovery</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </>
-          )}
+      
         </div>
       )}
     </div>
