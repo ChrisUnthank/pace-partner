@@ -1033,7 +1033,14 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
         {!isRecovery && (
           <div>
             <Label className="text-xs">HR avg</Label>
-            <Input type="number" value={hrAvg} onChange={(e) => setHrAvg(e.target.value)} onBlur={commit} />
+
+            <Input
+              type="number"
+              className={Number(hrAvg) > 180 ? "border-red-400" : ""}
+              value={hrAvg}
+              onChange={(e) => setHrAvg(e.target.value)}
+              onBlur={commit}
+            />
           </div>
         )}
 
@@ -1058,7 +1065,14 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
           <>
             <div>
               <Label className="text-xs">Cad</Label>
-              <Input type="number" value={cadence} onChange={(e) => setCadence(e.target.value)} onBlur={commit} />
+
+              <Input
+                type="number"
+                className={Number(cadence) < 165 ? "border-amber-400" : ""}
+                value={cadence}
+                onChange={(e) => setCadence(e.target.value)}
+                onBlur={commit}
+              />
             </div>
 
             <div className="col-span-1">
