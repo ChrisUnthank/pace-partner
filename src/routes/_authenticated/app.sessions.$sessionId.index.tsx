@@ -1052,7 +1052,7 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
               <Input type="number" value={cadence} onChange={(e) => setCadence(e.target.value)} onBlur={commit} />
             </div>
 
-            <div className="col-span-2">
+            <div className="col-span-1">
               <Label className="text-xs">Stride</Label>
               <Input
                 type="number"
