@@ -1013,8 +1013,9 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
           <Input value={time} onChange={(e) => setTime(e.target.value)} onBlur={commit} />
         </div>
 
-        <div>
+        <div className="col-span-2">
           <Label className="text-xs">Dist</Label>
+
           <Input type="number" value={dist} onChange={(e) => setDist(e.target.value)} onBlur={commit} />
         </div>
 
@@ -1035,7 +1036,7 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
           />
         </div>
 
-        {!isRecovery && result?.hr_end && result?.hr_end_recovery && (
+        {!isRecovery && result?.hr_end != null && result?.hr_end_recovery != null && (
           <div>
             <Label className="text-xs">Drop</Label>
             <div className="h-9 flex items-center justify-center border rounded text-sm">
