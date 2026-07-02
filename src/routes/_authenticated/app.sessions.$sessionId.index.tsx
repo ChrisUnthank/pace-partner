@@ -903,96 +903,7 @@ function StepBlock({
         {isWork && <WorkFuelNote step={step} sessionId={session.id} />}
         {isWork && <LactateSummary results={results} />}
         {isWork && <StepFatiguePanel fatigue={fatigue} isLadder={step.is_ladder} reps={results.length} />}
-        {/* ✅ Recovery trend */}
-        {isWork &&
-          results &&
-          results.length >= 3 &&
-          (() => {
-            const drops = results
-              .filter((r) => r.hr_end != null && r.hr_end_recovery != null)
-              .map((r) => r.hr_end - r.hr_end_recovery);
-
-            if (drops.length < 3) return null;
-
-            const first = drops[0];
-            const last = drops[drops.length - 1];
-            const change = last - first;
-
-            let label = "Stable";
-            let color = "text-muted-foreground";
-
-            if (change <= -5) {
-              label = "Recovery worsening";
-              color = "text-red-600";
-            } else if (change >= 5) {
-              label = "Recovery improving";
-              color = "text-emerald-600";
-            }
-
-            return (
-              <div className="mt-3 border-t pt-2 text-xs flex items-center justify-between">
-                <span className="text-muted-foreground">Recovery trend</span>
-                <span className={`font-medium ${color}`}>
-                  {label} ({change > 0 ? "+" : ""}
-                  {change})
-                </span>
-              </div>
-            );
-          })()}
-        {/* ✅ Best / worst recovery */}
-        {isWork &&
-          results &&
-          (() => {
-            const drops = results
-              .filter((r) => r.hr_end != null && r.hr_end_recovery != null)
-              .map((r) => r.hr_end - r.hr_end_recovery);
-
-            if (drops.length < 2) return null;
-
-            const best = Math.max(...drops);
-            const worst = Math.min(...drops);
-
-            return (
-              <div className="text-xs text-muted-foreground flex justify-between">
-                <span>Best: {best}</span>
-                <span>Worst: {worst}</span>
-              </div>
-            );
-          })()}
-        {isWork &&
-          results &&
-          results.length >= 3 &&
-          (() => {
-            const drops = results
-              .filter((r) => r.hr_end != null && r.hr_end_recovery != null)
-              .map((r) => r.hr_end - r.hr_end_recovery);
-
-            if (drops.length < 3) return null;
-
-            const first = drops[0];
-            const last = drops[drops.length - 1];
-            const change = last - first;
-
-            let label = "Stable";
-            let color = "text-muted-foreground";
-
-            if (change <= -5) {
-              label = "Recovery worsening";
-              color = "text-red-600";
-            } else if (change >= 5) {
-              label = "Recovery improving";
-              color = "text-emerald-600";
-            }
-
-            return (
-              <div className="mt-3 border-t pt-2 text-xs flex items-center justify-between">
-                <span className="text-muted-foreground">Recovery trend</span>
-                <span className={`font-medium ${color}`}>
-                  {label} ({change > 0 ? "+" : ""}
-                  {change})
-                </span>
-              </div>
-            );
+                  
           })()}
       </CardContent>
     </Card>
@@ -1270,7 +1181,55 @@ function StepFatiguePanel({ fatigue, isLadder, reps }: { fatigue?: any; isLadder
           {score ?? "—"} · {label}
         </div>
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+      
+<div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+  <DriftChip label="Pace" value={fatigue.pace_drift_pct} suffix="%" worseHigh />
+  <DriftChip label="HR" value={fatigue.hr_drift_bpm} suffix=" bpm" worseHigh />
+  <DriftChip label="Stride" value={fatigue.stride_drift_pct} suffix="%" worseHigh />
+  <DriftChip label="Cadence" value={fatigue.cadence_drift_pct} suffix="%" worseHigh />
+</div>
+
+        {/* ✅ Recovery insights */}
+{fatigue?.rep_count >= 3 && fatigue?.hr_drop_series?.length >= 3 && (() => {
+  const drops = fatigue.hr_drop_series;
+
+  const first = drops[0];
+  const last = drops[drops.length - 1];
+  const change = last - first;
+
+  const best = Math.max(...drops);
+  const worst = Math.min(...drops);
+
+  let trendLabel = "Stable";
+  let color = "text-muted-foreground";
+
+  if (change <= -5) {
+    trendLabel = "Recovery worsening";
+    color = "text-red-600";
+  } else if (change >= 5) {
+    trendLabel = "Recovery improving";
+    color = "text-emerald-600";
+  }
+
+  return (
+    <div className="pt-2 border-t space-y-1 text-xs">
+      <div className="flex justify-between">
+        <span className="text-muted-foreground">Recovery trend</span>
+        <span className={`font-medium ${color}`}>
+          {trendLabel} ({change > 0 ? "+" : ""}{change})
+        </span>
+      </div>
+
+      <div className="flex justify-between">
+        <span className="text-muted-foreground">Best / Worst</span>
+        <span className="font-medium">
+          {best} / {worst} bpm
+        </span>
+      </div>
+    </div>
+  );
+})()}
+
         <DriftChip label="Pace" value={fatigue.pace_drift_pct} suffix="%" worseHigh />
         <DriftChip label="HR" value={fatigue.hr_drift_bpm} suffix=" bpm" worseHigh />
         <DriftChip label="Stride" value={fatigue.stride_drift_pct} suffix="%" worseHigh />
