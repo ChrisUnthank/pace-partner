@@ -787,12 +787,14 @@ function StepBlock({
     1: true,
   });
 
-  function toggleSet(setN: number) {
-    setOpenSets((prev) => ({
-      ...prev,
-      [setN]: !prev[setN],
-    }));
-  }
+  
+function toggleSet(setN: number) {
+  setOpenSets((prev) => ({
+    ...prev,
+    [setN]: !prev[setN], ✅ FIXED
+  }));
+}
+
 
   async function saveRep(setNumber: number, repNumber: number, patch: any) {
     const row = { step_id: step.id, set_number: setNumber, rep_number: repNumber, ...patch };
