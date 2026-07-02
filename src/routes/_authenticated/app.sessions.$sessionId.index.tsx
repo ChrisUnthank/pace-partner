@@ -790,6 +790,16 @@ function StepBlock({
 
   const reps = Array.from({ length: step.reps || 1 }, (_, i) => i + 1);
   const sets = Array.from({ length: setCount }, (_, i) => i + 1);
+const [openSets, setOpenSets] = useState<Record<number, boolean>>({
+  1: true, // ✅ first set open
+});
+  
+function toggleSet(setN: number) {
+  setOpenSets((prev) => ({
+    ...prev,
+    [setN]: !prev[setN],
+  }));
+}
 
   return (
     <Card>
