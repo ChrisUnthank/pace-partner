@@ -1089,9 +1089,6 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
           </>
         )}
       </div>
-      
-        </div>
-      )}
     </div>
   );
 }
