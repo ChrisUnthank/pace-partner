@@ -883,20 +883,13 @@ function StepBlock({
                 <div key={setN} className="border rounded-lg p-2">
                   {/* ✅ Clickable set header */}
                   {setCount > 1 && (
-                    
-<div
-  className="flex items-center justify-between cursor-pointer"
-  onClick={() => toggleSet(setN)}
->
-  <div className="text-xs font-semibold text-muted-foreground">
-    Set {setN} of {setCount}
-  </div>
+                    <div className="flex items-center justify-between cursor-pointer" onClick={() => toggleSet(setN)}>
+                      <div className="text-xs font-semibold text-muted-foreground">
+                        Set {setN} of {setCount}
+                      </div>
 
-  <div className="text-xs text-muted-foreground">
-    {isOpen ? "▼" : "▶"}
-  </div>
-</div>
-
+                      <div className="text-xs text-muted-foreground">{isOpen ? "▼" : "▶"}</div>
+                    </div>
                   )}
 
                   {/* ✅ Collapsible rep list */}
@@ -997,8 +990,8 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <span>Rep {rep}</span>
       </div>
-      <div className="grid grid-cols-12 gap-2 items-end text-sm">
-        <div className="col-span-4 sm:col-span-3">
+      <div className="grid grid-cols-6 md:grid-cols-8 gap-2 items-end text-sm">
+        <div className="col-span-2 md:col-span-1">
           <Label className="text-xs">Time</Label>
           <Input placeholder="mm:ss" value={time} onChange={(e) => setTime(e.target.value)} onBlur={commit} />
         </div>
