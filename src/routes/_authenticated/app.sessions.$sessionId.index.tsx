@@ -843,8 +843,14 @@ function toggleSet(setN: number) {
       </CardHeader>
 
       {/* ✅ COLLAPSIBLE CONTENT */}
-      {open && (
+      
+    <div
+      className={`overflow-hidden transition-all duration-300 ${
+          open ? "max-h-[2000px] opacity-100" : "max-h-0 opacity-0"
+      }`}
+      >
         <CardContent>
+      </div>
           {(isWork || isStrides) && (
             <div className="space-y-3">
               {sets.map((setN) => {
