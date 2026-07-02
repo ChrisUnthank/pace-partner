@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";{(isWork || isStrides) && (
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/app-shell";
@@ -883,9 +883,20 @@ function StepBlock({
                 <div key={setN} className="border rounded-lg p-2">
                   {/* ✅ Clickable set header */}
                   {setCount > 1 && (
-                    <div className="flex items-center justify-between cursor-pointer" onClick={() => toggleSet(setN)}>
-                      <div className="text-xs text-muted-foreground">{isOpen ? "▼" : "▶"}</div>
-                    </div>
+                    
+<div
+  className="flex items-center justify-between cursor-pointer"
+  onClick={() => toggleSet(setN)}
+>
+  <div className="text-xs font-semibold text-muted-foreground">
+    Set {setN} of {setCount}
+  </div>
+
+  <div className="text-xs text-muted-foreground">
+    {isOpen ? "▼" : "▶"}
+  </div>
+</div>
+
                   )}
 
                   {/* ✅ Collapsible rep list */}
