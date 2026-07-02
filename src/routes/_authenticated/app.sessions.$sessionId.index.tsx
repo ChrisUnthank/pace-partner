@@ -1002,6 +1002,17 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
     onSave(patch);
   }
 
+  // ✅ ADD THIS RIGHT HERE
+  function getDropColor(drop: number) {
+    if (drop >= 20) {
+      return "h-9 flex items-center justify-center rounded border text-sm font-medium bg-emerald-500/15 text-emerald-700 border-emerald-300";
+    }
+    if (drop >= 10) {
+      return "h-9 flex items-center justify-center rounded border text-sm font-medium bg-amber-500/15 text-amber-700 border-amber-300";
+    }
+    return "h-9 flex items-center justify-center rounded border text-sm font-medium bg-red-500/15 text-red-700 border-red-300";
+  }
+
   return (
     <div className="space-y-2 border-l-2 pl-2">
       <div className="text-xs text-muted-foreground">Rep {rep}</div>
@@ -1036,12 +1047,10 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
           />
         </div>
 
-        {!isRecovery && result?.hr_end != null && result?.hr_end_recovery != null && (
+        {!isRecovery && hrEnd !== "" && hrRec !== "" && (
           <div>
             <Label className="text-xs">Drop</Label>
-            <div className="h-9 flex items-center justify-center border rounded text-sm">
-              {result.hr_end - result.hr_end_recovery}
-            </div>
+            <div className={getDropColor(Number(hrEnd) - Number(hrRec))}>{Number(hrEnd) - Number(hrRec)}</div>
           </div>
         )}
 
