@@ -502,7 +502,7 @@ function SessionDetail() {
             <input type="file" accept=".fit,.gpx" disabled={uploading} onChange={handleFileUpload} />
           </CardContent>
         </Card>
-        ``
+
         {isCoach && (
           <AttendanceCard
             sessionId={sessionId}
