@@ -1238,15 +1238,18 @@ function StepFatiguePanel({ fatigue, isLadder, reps }: { fatigue?: any; isLadder
       </div>
     );
   }
+
   if (!fatigue) {
-    if (reps < 3)
+    if (reps < 3) {
       return (
-        <div className="mt-3 text-xs text-muted-foreground border-t pt-2">
-          Fatigue score needs at least 3 completed reps.
+        <div className="mt-3 border-t pt-2 text-xs">
+          <div className="text-muted-foreground">Not enough reps for fatigue analysis</div>
         </div>
       );
+    }
     return null;
   }
+
   const score = fatigue.efficiency_score;
   const label = score == null ? "—" : score >= 85 ? "Held form" : score >= 65 ? "Moderate fade" : "Heavy fade";
   const tone =
