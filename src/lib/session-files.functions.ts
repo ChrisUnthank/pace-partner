@@ -1182,7 +1182,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
       weatherWind = weather.wind;
 
       // ✅ ADD THIS
-      locationName = "TEST LOCATION";
+      locationName = await fetchLocationName(firstPoint.lat, firstPoint.lng);
     }
   }
 
