@@ -1176,20 +1176,37 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
 
   const workTime = isIntervals ? workLaps.reduce((s, l) => s + Number(l.total_elapsed_time ?? 0), 0) : totalTimeS;
   let weatherTemp: number | null = null;
-  let weatherWind: number | null = null;
-  let locationName: string | null = null;
+let weatherWind: number | null = null;
+let locationName: string | null = null;
 
-  if (mergedPoints.length > 0) {
-    const firstPoint = mergedPoints.find((p) => p.lat != null && p.lng != null) || mergedPoints[0];
+if (mergedPoints.length > 0) {
+  const firstPoint =
+    mergedPoints.find((p) => p.lat != null && p.lng != null) ||
+    mergedPoints[0];
 
-    if (
-      firstPoint &&
-      firstPoint.lat != null &&
-      firstPoint.lng != null &&
-      Math.abs(firstPoint.lat) < 90 &&
-      Math.abs(firstPoint.lng) < 180 &&
-      parsedFiles[0]?.parsed?.startedAt
-    ) {
+  console.log("GPS used:", firstPoint);
+
+  if (
+    firstPoint &&
+    firstPoint.lat != null &&
+    firstPoint.lng != null &&
+    Math.abs(firstPoint.lat) > 1 &&   // ✅ reject (0,0)
+    Math.abs(firstPoint.lng) > 1 &&
+    parsedFiles[0]?.parsed?.startedAt
+  ) {
+    const weather = await fetchWeather(
+      firstPoint.lat,
+      firstPoint.lng,
+      parsedFiles[0].parsed.startedAt
+    );
+
+    weatherTemp = weather.temp;
+    weatherWind = weather.wind;
+
+    locationName = await fetchLocationName(firstPoint.lat, firstPoint.lng);
+  }
+}
+
       const weather = await fetchWeather(firstPoint.lat, firstPoint.lng, parsedFiles[0].parsed.startedAt);
 
       weatherTemp = weather.temp;
