@@ -512,7 +512,7 @@ function SessionDetail() {
   results={(results ?? []).filter((r: any) => r.step_id === step.id)}
   fatigue={(fatigue ?? []).find((f: any) => f.step_id === step.id)}
   fuelEvents={(fuelEvents ?? []).filter((f: any) => f.step_id === step.id)}
-  forceOpen={allOpen}   ✅ ADD THIS LINE
+  forceOpen={allOpen}
 />
 
             ))
