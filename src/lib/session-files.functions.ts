@@ -1167,7 +1167,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   if (mergedPoints.length > 0) {
     const firstPoint = mergedPoints.find((p) => p.lat != null && p.lng != null);
 
-    if (firstPoint && parsedFiles[0]?.parsed?.startedAt) {
+    if (firstPoint && firstPoint.lat != null && firstPoint.lng != null && parsedFiles[0]?.parsed?.startedAt) {
       const weather = await fetchWeather(firstPoint.lat, firstPoint.lng, parsedFiles[0].parsed.startedAt);
 
       weatherTemp = weather.temp;
