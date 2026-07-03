@@ -1207,15 +1207,6 @@ if (mergedPoints.length > 0) {
   }
 }
 
-      const weather = await fetchWeather(firstPoint.lat, firstPoint.lng, parsedFiles[0].parsed.startedAt);
-
-      weatherTemp = weather.temp;
-      weatherWind = weather.wind;
-
-      locationName = await fetchLocationName(firstPoint.lat, firstPoint.lng);
-    }
-  }
-
   const { error: updErr } = await sb
     .from("sessions")
     .update({
