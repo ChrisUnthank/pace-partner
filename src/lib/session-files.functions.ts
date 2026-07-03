@@ -21,7 +21,24 @@ async function fetchWeather(lat: number, lon: number, timestamp: string) {
     return { temp: null, wind: null };
   }
 }
+async function fetchLocationName(lat: number, lon: number) {
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`;
 
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "run-app", // required by Nominatim
+      },
+    });
+
+    const data = await res.json();
+
+    return data?.address?.city || data?.address?.town || data?.address?.suburb || data?.address?.county || null;
+  } catch (err) {
+    console.error("Location fetch failed", err);
+    return null;
+  }
+}
 function mapFitSport(sport: string | null | undefined): string {
   const s = (sport ?? "").toLowerCase();
   if (s.includes("swim")) return "swim";
@@ -1145,15 +1162,19 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   const workTime = isIntervals ? workLaps.reduce((s, l) => s + Number(l.total_elapsed_time ?? 0), 0) : totalTimeS;
   let weatherTemp: number | null = null;
   let weatherWind: number | null = null;
+  let locationName: string | null = null;
 
   if (mergedPoints.length > 0) {
     const firstPoint = mergedPoints.find((p) => p.lat != null && p.lng != null);
 
-    if (firstPoint && firstPoint.lat != null && firstPoint.lng != null && parsedFiles[0]?.parsed?.startedAt) {
+    if (firstPoint && parsedFiles[0]?.parsed?.startedAt) {
       const weather = await fetchWeather(firstPoint.lat, firstPoint.lng, parsedFiles[0].parsed.startedAt);
 
       weatherTemp = weather.temp;
       weatherWind = weather.wind;
+
+      // ✅ ADD THIS
+      locationName = await fetchLocationName(firstPoint.lat, firstPoint.lng);
     }
   }
 
@@ -1166,6 +1187,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
       max_hr: maxHr,
       average_temp_c: weatherTemp ?? avgTemp,
       wind_kph: weatherWind ?? null,
+      location: locationName ?? null,
       completion_pct: 100,
       work_distance_m: workDistance || null,
       work_time_s: workTime || null,
