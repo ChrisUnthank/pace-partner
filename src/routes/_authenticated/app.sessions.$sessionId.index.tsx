@@ -74,7 +74,7 @@ function SessionDetail() {
           `
   *,
   athletes(name, profile_image_url),
-  locations(name)
+  training_locations(name)
 `,
         )
 
