@@ -777,8 +777,8 @@ function StepBlock({
 
   const setCount = Math.max(1, step.set_count ?? 1);
 
-  // ✅ NEW: collapsed state
-  const [open, setOpen] = useState(step.kind === "work");
+  // ✅ START CLOSED (cleaner UX)
+  const [open, setOpen] = useState(false);
 
   const reps = Array.from({ length: step.reps || 1 }, (_, i) => i + 1);
   const sets = Array.from({ length: setCount }, (_, i) => i + 1);
@@ -791,9 +791,7 @@ function StepBlock({
     setOpenSets((prev) => ({
       ...prev,
       [setN]: !prev[setN],
-    }));
-  }
-
+   }
 
   async function saveRep(setNumber: number, repNumber: number, patch: any) {
     const row = { step_id: step.id, set_number: setNumber, rep_number: repNumber, ...patch };
@@ -812,68 +810,72 @@ function StepBlock({
 
   return (
     <Card>
-      {/* ✅ COLLAPSIBLE HEADER */}
-      <CardHeader className="pb-2 cursor-pointer" onClick={() => setOpen((v) => !v)}>
-        <div className="flex items-center justify-between">
+
+      {/* ✅ HEADER */}
+      <CardHeader
+        className="cursor-pointer"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <div className="flex items-center justify-between bg-muted/40 rounded px-2 py-1">
           <CardTitle className="text-base capitalize flex items-center gap-2">
+
             {step.kind === "recovery" ? "Recovery" : step.kind}
 
-            {isWork &&
-              step.target_kind === "distance" &&
+            {isWork && step.target_kind === "distance" &&
               ` · ${setCount > 1 ? `${setCount}×` : ""}${step.reps}×${metersFmt(step.target_distance_m)}`}
 
-            {isWork && step.target_kind === "time" && ` · ${step.reps}×${secToClock(step.target_time_seconds)}`}
+            {isWork && step.target_kind === "time" &&
+              ` · ${step.reps}×${secToClock(step.target_time_seconds)}`}
 
-            {isStrides && ` · ${step.reps}×${metersFmt(step.target_distance_m)}`}
+            {isStrides &&
+              ` · ${step.reps}×${metersFmt(step.target_distance_m)}`}
 
-            {step.is_ladder && (
-              <Badge variant="outline" className="ml-2 text-[10px]">
-                Ladder
-              </Badge>
-            )}
           </CardTitle>
 
-          <div className="text-sm text-muted-foreground">{open ? "▼" : "▶"}</div>
+          <div className="text-sm text-muted-foreground">
+            {open ? "▼" : "▶"}
+          </div>
         </div>
-
-        {step.target_pace_sec_per_km && (
-          <CardDescription>Target pace {secToClock(step.target_pace_sec_per_km)} /km</CardDescription>
-        )}
       </CardHeader>
 
-      {/* ✅ COLLAPSIBLE CONTENT */}
+      {/* ✅ SMOOTH COLLAPSE */}
       <div
-        className={`overflow-hidden transition-all duration-300 ${
+        className={`transition-all duration-300 overflow-hidden ${
           open ? "max-h-[2000px] opacity-100" : "max-h-0 opacity-0"
         }`}
       >
         <CardContent>
+
           {(isWork || isStrides) && (
             <div className="space-y-3">
+
               {sets.map((setN) => {
                 const isOpen = openSets[setN];
 
                 return (
                   <div key={setN} className="border rounded-lg p-2">
+
                     {setCount > 1 && (
                       <div
-                        className="flex items-center justify-between cursor-pointer"
+                        className="flex items-center justify-between text-xs opacity-80 cursor-pointer"
                         onClick={(e) => {
                           e.stopPropagation();
                           toggleSet(setN);
                         }}
                       >
-                        <div className="text-xs font-semibold text-muted-foreground">
-                          Set {setN} of {setCount}
-                        </div>
-                        <div className="text-xs text-muted-foreground">{isOpen ? "▼" : "▶"}</div>
+                        <div>Set {setN}</div>
+                        <div>{isOpen ? "▼" : "▶"}</div>
                       </div>
                     )}
 
                     {isOpen && (
                       <div className="space-y-2 mt-2">
                         {reps.map((rep) => {
-                          const r = results.find((x) => x.rep_number === rep && (x.set_number ?? 1) === setN);
+                          const r = results.find(
+                            (x) =>
+                              x.rep_number === rep &&
+                              (x.set_number ?? 1) === setN
+                          );
 
                           return (
                             <RepRow
@@ -887,6 +889,7 @@ function StepBlock({
                         })}
                       </div>
                     )}
+
                   </div>
                 );
               })}
@@ -897,18 +900,38 @@ function StepBlock({
             <div className="space-y-2">
               {reps.map((rep) => {
                 const r = results.find((x) => x.rep_number === rep);
-                return <RepRow key={rep} step={step} rep={rep} result={r} onSave={(p) => saveRep(1, rep, p)} />;
+                return (
+                  <RepRow
+                    key={rep}
+                    step={step}
+                    rep={rep}
+                    result={r}
+                    onSave={(p) => saveRep(1, rep, p)}
+                  />
+                );
               })}
             </div>
           )}
 
           {(step.kind === "warmup" || step.kind === "cooldown") && (
-            <RepRow step={step} rep={1} result={results[0]} onSave={(p) => saveRep(1, 1, p)} />
+            <RepRow
+              step={step}
+              rep={1}
+              result={results[0]}
+              onSave={(p) => saveRep(1, 1, p)}
+            />
           )}
 
           {isWork && <WorkFuelNote step={step} sessionId={session.id} />}
           {isWork && <LactateSummary results={results} />}
-          {isWork && <StepFatiguePanel fatigue={fatigue} isLadder={step.is_ladder} reps={results.length} />}
+          {isWork && (
+            <StepFatiguePanel
+              fatigue={fatigue}
+              isLadder={step.is_ladder}
+              reps={results.length}
+            />
+          )}
+
         </CardContent>
       </div>
     </Card>
