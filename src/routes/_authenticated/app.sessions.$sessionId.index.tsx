@@ -498,8 +498,8 @@ function SessionDetail() {
             {(session.location || session.terrain || session.average_temp_c != null || session.wind_kph != null) && (
               <div className="text-sm text-muted-foreground">
                 {[
-                  session.location, // ✅ FIXED HERE
-                  session.terrain,
+                  session.location, // ✅ FIXED (was training_locations)
+                  session.terrain ? session.terrain.charAt(0).toUpperCase() + session.terrain.slice(1) : null, // ✅ FIX: nicer display
                   session.average_temp_c != null ? `${session.average_temp_c}°C` : null,
                   session.wind_kph != null ? `Wind ${session.wind_kph} km/h` : null,
                 ]
