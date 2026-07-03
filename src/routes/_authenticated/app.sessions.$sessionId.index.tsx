@@ -920,9 +920,7 @@ function StepBlock({
           )}
 
           {isWork && <WorkFuelNote step={step} sessionId={session.id} />}
-          {isWork && <LactateSummary results={results} />}
-          {isWork && <StepFatiguePanel fatigue={fatigue} isLadder={step.is_ladder} reps={results.length} />}
-        </CardContent>
+          <Card>/CardContent>
       </div>
     </Card>
   );
