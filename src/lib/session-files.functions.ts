@@ -23,17 +23,24 @@ async function fetchWeather(lat: number, lon: number, timestamp: string) {
 
 async function fetchLocationName(lat: number, lon: number) {
   try {
-    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`;
+    const url = `https://geocode.maps.co/reverse?lat=${lat}&lon=${lon}`;
 
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent": "run-app",
-      },
-    });
+    const res = await fetch(url);
+
+    if (!res.ok) {
+      console.error("Location fetch failed:", res.status);
+      return null;
+    }
 
     const data = await res.json();
 
-    return data?.address?.city || data?.address?.town || data?.address?.suburb || data?.address?.county || null;
+    return (
+      data?.address?.city ||
+      data?.address?.town ||
+      data?.address?.state ||
+      data?.display_name?.split(",")[0] || // ✅ fallback
+      null
+    );
   } catch (err) {
     console.error("Location fetch failed", err);
     return null;
@@ -1175,7 +1182,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
       weatherWind = weather.wind;
 
       // ✅ ADD THIS
-      locationName = await fetchLocationName(firstPoint.lat, firstPoint.lng);
+      locationName = "TEST LOCATION";
     }
   }
 
