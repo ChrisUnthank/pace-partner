@@ -785,12 +785,14 @@ function StepBlock({
   results,
   fatigue,
   fuelEvents,
+  forceOpen,
 }: {
   session: any;
   step: any;
   results: any[];
   fatigue?: any;
   fuelEvents: any[];
+  forceOpen?: boolean;
 }) {
   const qc = useQueryClient();
 
@@ -801,7 +803,8 @@ function StepBlock({
   const setCount = Math.max(1, step.set_count ?? 1);
 
   // ✅ START CLOSED (cleaner UX)
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(!!forceOpen);
+  useEffect(() => { setOpen(!!forceOpen); }, [forceOpen]);
 
   const reps = Array.from({ length: step.reps || 1 }, (_, i) => i + 1);
   const sets = Array.from({ length: setCount }, (_, i) => i + 1);
