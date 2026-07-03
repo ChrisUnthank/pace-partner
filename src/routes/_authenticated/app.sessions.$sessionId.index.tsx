@@ -487,38 +487,7 @@ function SessionDetail() {
             </Button>
           </div>
         </div>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle>Session snapshot</CardTitle>
-            <CardDescription>Key metrics</CardDescription>
-          </CardHeader>
 
-          <CardContent className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-            <div className="border rounded px-2 py-1">
-              <div className="text-xs text-muted-foreground">Time</div>
-              <div className="font-semibold">{secToClock(session.total_time_seconds || 0)}</div>
-            </div>
-
-            <div className="border rounded px-2 py-1">
-              <div className="text-xs text-muted-foreground">Distance</div>
-              <div className="font-semibold">{metersFmt(session.total_distance_m || 0)}</div>
-            </div>
-
-            <div className="border rounded px-2 py-1">
-              <div className="text-xs text-muted-foreground">Pace</div>
-              <div className="font-semibold">
-                {session.total_time_seconds && session.total_distance_m
-                  ? secToClock((session.total_time_seconds / session.total_distance_m) * 1000)
-                  : "—"}
-              </div>
-            </div>
-
-            <div className="border rounded px-2 py-1">
-              <div className="text-xs text-muted-foreground">RPE</div>
-              <div className="font-semibold">{session.rpe ?? "—"}</div>
-            </div>
-          </CardContent>
-        </Card>
         <Card>
           <CardHeader className="pb-2">
             <CardTitle>Session snapshot</CardTitle>
