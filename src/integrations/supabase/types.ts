@@ -1873,6 +1873,7 @@ export type Database = {
           total_time_seconds: number | null
           updated_at: string
           weather: string | null
+          wind_kph: number | null
           work_avg_cadence: number | null
           work_avg_hr: number | null
           work_avg_pace_sec_per_km: number | null
@@ -1914,6 +1915,7 @@ export type Database = {
           total_time_seconds?: number | null
           updated_at?: string
           weather?: string | null
+          wind_kph?: number | null
           work_avg_cadence?: number | null
           work_avg_hr?: number | null
           work_avg_pace_sec_per_km?: number | null
@@ -1955,6 +1957,7 @@ export type Database = {
           total_time_seconds?: number | null
           updated_at?: string
           weather?: string | null
+          wind_kph?: number | null
           work_avg_cadence?: number | null
           work_avg_hr?: number | null
           work_avg_pace_sec_per_km?: number | null

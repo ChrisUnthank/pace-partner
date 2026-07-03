@@ -73,8 +73,8 @@ function SessionDetail() {
         .select(
           `
   *,
-  athletes(nam*, profile_image_url),
-  locations(*ame)
+  athletes(name, profile_image_url),
+  training_locations(name)
 `,
         )
 
@@ -526,13 +526,13 @@ function SessionDetail() {
 
           <CardContent className="space-y-2">
             {/* ✅ Context line: location + terrain + weather */}
-            {(session.locations?.name ||
+            {(session.training_locations?.name ||
               session.terrain ||
               session.average_temp_c != null ||
               session.wind_kph != null) && (
               <div className="text-sm text-muted-foreground">
                 {[
-                  session.locations?.name,
+                  session.training_locations?.name,
                   session.terrain,
                   session.average_temp_c != null ? `${session.average_temp_c}°C` : null,
                   session.wind_kph != null ? `Wind ${session.wind_kph} km/h` : null,
