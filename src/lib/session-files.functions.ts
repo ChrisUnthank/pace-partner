@@ -3,11 +3,10 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 async function fetchWeather(lat: number, lon: number, timestamp: string) {
   try {
-    // convert timestamp to ISO date/time
     const date = new Date(timestamp);
-    const iso = date.toISOString().slice(0, 13) + ":00"; // hourly resolution
+    const day = date.toISOString().slice(0, 10); // YYYY-MM-DD
 
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=temperature_2m,wind_speed_10m&start=${iso}&end=${iso}`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=temperature_2m,wind_speed_10m&start_date=${day}&end_date=${day}&timezone=auto`;
 
     const res = await fetch(url);
     const data = await res.json();
@@ -21,24 +20,7 @@ async function fetchWeather(lat: number, lon: number, timestamp: string) {
     return { temp: null, wind: null };
   }
 }
-async function fetchLocationName(lat: number, lon: number) {
-  try {
-    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`;
 
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent": "run-app", // required by Nominatim
-      },
-    });
-
-    const data = await res.json();
-
-    return data?.address?.city || data?.address?.town || data?.address?.suburb || data?.address?.county || null;
-  } catch (err) {
-    console.error("Location fetch failed", err);
-    return null;
-  }
-}
 function mapFitSport(sport: string | null | undefined): string {
   const s = (sport ?? "").toLowerCase();
   if (s.includes("swim")) return "swim";
