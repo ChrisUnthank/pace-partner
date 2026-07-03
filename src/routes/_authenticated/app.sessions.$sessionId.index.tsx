@@ -920,7 +920,7 @@ function StepBlock({
           )}
 
           {isWork && <WorkFuelNote step={step} sessionId={session.id} />}
-          <Card>/CardContent>
+        </CardContent>
       </div>
     </Card>
   );
