@@ -1,6 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
+function toDegrees(sc: number | null | undefined): number | null {
+  if (sc == null) return null;
+  return (sc * 180) / Math.pow(2, 31);
+}
+
 async function fetchWeather(lat: number, lon: number, timestamp: string) {
   try {
     const date = new Date(timestamp);
@@ -273,8 +278,10 @@ async function parseFIT(buffer: ArrayBuffer): Promise<ParsedFile> {
           timestamp: r.timestamp ?? null,
           elapsed_s: r.elapsed_time ?? (r.timestamp ? (new Date(r.timestamp).getTime() - t0) / 1000 : 0),
           distance_m: r.distance ?? null,
-          lat: r.position_lat ?? null,
-          lng: r.position_long ?? null,
+
+          lat: toDegrees(r.position_lat),
+          lng: toDegrees(r.position_long),
+
           elevation_m: r.enhanced_altitude ?? r.altitude ?? null,
           hr: r.heart_rate ?? null,
           cadence,
@@ -1173,15 +1180,21 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   let locationName: string | null = null;
 
   if (mergedPoints.length > 0) {
-    const firstPoint = mergedPoints.find((p) => p.lat != null && p.lng != null);
+    const firstPoint = mergedPoints.find((p) => p.lat != null && p.lng != null) || mergedPoints[0];
 
-    if (firstPoint && firstPoint.lat != null && firstPoint.lng != null && parsedFiles[0]?.parsed?.startedAt) {
+    if (
+      firstPoint &&
+      firstPoint.lat != null &&
+      firstPoint.lng != null &&
+      Math.abs(firstPoint.lat) < 90 &&
+      Math.abs(firstPoint.lng) < 180 &&
+      parsedFiles[0]?.parsed?.startedAt
+    ) {
       const weather = await fetchWeather(firstPoint.lat, firstPoint.lng, parsedFiles[0].parsed.startedAt);
 
       weatherTemp = weather.temp;
       weatherWind = weather.wind;
 
-      // ✅ ADD THIS
       locationName = await fetchLocationName(firstPoint.lat, firstPoint.lng);
     }
   }
