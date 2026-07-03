@@ -396,13 +396,38 @@ function SessionDetail() {
                       autoFocus
                     />
                   ) : (
-                    <h1
-                      className="text-2xl font-bold cursor-pointer flex items-center gap-2"
-                      onClick={() => setEditingTitle(true)}
-                    >
-                      {session.title}
-                      {savingTitle && <span className="text-xs text-muted-foreground">Saving…</span>}
-                    </h1>
+                    <div className="flex items-center gap-3">
+                      <h1
+                        className="text-2xl font-bold cursor-pointer flex items-center gap-2"
+                        onClick={() => setEditingTitle(true)}
+                      >
+                        {session.title}
+                        {savingTitle && <span className="text-xs text-muted-foreground">Saving…</span>}
+                      </h1>
+
+                      <Select
+                        value={session.terrain || ""}
+                        onValueChange={async (value) => {
+                          await supabase.from("sessions").update({ terrain: value }).eq("id", session.id);
+
+                          // ✅ refresh UI immediately
+                          qc.invalidateQueries({ queryKey: ["session", session.id] });
+                        }}
+                      >
+                        <SelectTrigger className="w-[120px] h-8 text-xs">
+                          <SelectValue placeholder="Surface" />
+                        </SelectTrigger>
+
+                        <SelectContent>
+                          <SelectItem value="track">Track</SelectItem>
+                          <SelectItem value="road">Road</SelectItem>
+                          <SelectItem value="trail">Trail</SelectItem>
+                          <SelectItem value="grass">Grass</SelectItem>
+                          <SelectItem value="treadmill">Treadmill</SelectItem>
+                          <SelectItem value="mixed">Mixed</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                   )}
                 </div>
                 <p className="text-sm text-muted-foreground">
