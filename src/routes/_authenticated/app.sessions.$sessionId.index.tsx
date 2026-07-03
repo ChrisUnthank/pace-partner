@@ -415,6 +415,9 @@ function SessionDetail() {
                           await supabase.from("sessions").update({ terrain: value }).eq("id", session.id);
 
                           // ✅ refresh UI immediately
+
+                          await supabase.from("sessions").update({ terrain: value }).eq("id", session.id);
+
                           qc.invalidateQueries({ queryKey: ["session", sessionId] });
                         }}
                       >
