@@ -1858,6 +1858,7 @@ export type Database = {
           intent: Database["public"]["Enums"]["session_intent"] | null
           is_long_run: boolean
           is_planned: boolean
+          location: string | null
           location_id: string | null
           max_hr: number | null
           needs_review: boolean | null
@@ -1900,6 +1901,7 @@ export type Database = {
           intent?: Database["public"]["Enums"]["session_intent"] | null
           is_long_run?: boolean
           is_planned?: boolean
+          location?: string | null
           location_id?: string | null
           max_hr?: number | null
           needs_review?: boolean | null
@@ -1942,6 +1944,7 @@ export type Database = {
           intent?: Database["public"]["Enums"]["session_intent"] | null
           is_long_run?: boolean
           is_planned?: boolean
+          location?: string | null
           location_id?: string | null
           max_hr?: number | null
           needs_review?: boolean | null
