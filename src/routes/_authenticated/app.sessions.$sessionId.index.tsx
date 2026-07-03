@@ -366,7 +366,7 @@ function SessionDetail() {
 
   return (
     <AppShell>
-      <div className="space-y-6 max-w-3xl">
+      <div className="space-y-6 max-w-5xl mx-auto">
         <div>
           <Link to="/app/sessions" className="text-sm text-muted-foreground underline">
             ← Sessions
