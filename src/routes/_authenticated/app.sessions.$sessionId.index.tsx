@@ -479,45 +479,71 @@ function SessionDetail() {
             </Button>
           </div>
         </div>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle>Session snapshot</CardTitle>
+            <CardDescription>Key metrics</CardDescription>
+          </CardHeader>
+
+          <CardContent className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+            <div className="border rounded px-2 py-1">
+              <div className="text-xs text-muted-foreground">Time</div>
+              <div className="font-semibold">{secToClock(session.total_time_seconds || 0)}</div>
+            </div>
+
+            <div className="border rounded px-2 py-1">
+              <div className="text-xs text-muted-foreground">Distance</div>
+              <div className="font-semibold">{metersFmt(session.total_distance_m || 0)}</div>
+            </div>
+
+            <div className="border rounded px-2 py-1">
+              <div className="text-xs text-muted-foreground">Pace</div>
+              <div className="font-semibold">
+                {session.total_time_seconds && session.total_distance_m
+                  ? secToClock((session.total_time_seconds / session.total_distance_m) * 1000)
+                  : "—"}
+              </div>
+            </div>
+
+            <div className="border rounded px-2 py-1">
+              <div className="text-xs text-muted-foreground">RPE</div>
+              <div className="font-semibold">{session.rpe ?? "—"}</div>
+            </div>
+          </CardContent>
+        </Card>
         {session.notes && (
           <Card>
             <CardContent className="pt-4 text-sm">{session.notes}</CardContent>
           </Card>
         )}
-        
-<div>
-  {/* ✅ Expand / Collapse ALL */}
-  <div className="flex justify-end mb-2">
-    <Button
-      size="sm"
-      variant="ghost"
-      onClick={() => setAllOpen((v) => !v)}
-    >
-      {allOpen ? "Collapse all" : "Expand all"}
-    </Button>
-  </div>
 
-        <div className="space-y-3">
-          {stepIds.length > 0 && resultsLoading && !results ? (
-            <Card>
-              <CardContent className="pt-4 text-sm text-muted-foreground">Loading session data…</CardContent>
-            </Card>
-          ) : (
-            (steps ?? []).map((step: any) => (
-              
-<StepBlock
-  key={step.id}
-  session={session}
-  step={step}
-  results={(results ?? []).filter((r: any) => r.step_id === step.id)}
-  fatigue={(fatigue ?? []).find((f: any) => f.step_id === step.id)}
-  fuelEvents={(fuelEvents ?? []).filter((f: any) => f.step_id === step.id)}
-  forceOpen={allOpen}
-/>
+        <div>
+          {/* ✅ Expand / Collapse ALL */}
+          <div className="flex justify-end mb-2">
+            <Button size="sm" variant="ghost" onClick={() => setAllOpen((v) => !v)}>
+              {allOpen ? "Collapse all" : "Expand all"}
+            </Button>
+          </div>
 
-            ))
-          )}
-        </div>
+          <div className="space-y-3">
+            {stepIds.length > 0 && resultsLoading && !results ? (
+              <Card>
+                <CardContent className="pt-4 text-sm text-muted-foreground">Loading session data…</CardContent>
+              </Card>
+            ) : (
+              (steps ?? []).map((step: any) => (
+                <StepBlock
+                  key={step.id}
+                  session={session}
+                  step={step}
+                  results={(results ?? []).filter((r: any) => r.step_id === step.id)}
+                  fatigue={(fatigue ?? []).find((f: any) => f.step_id === step.id)}
+                  fuelEvents={(fuelEvents ?? []).filter((f: any) => f.step_id === step.id)}
+                  forceOpen={allOpen}
+                />
+              ))
+            )}
+          </div>
         </div>
         <SessionSummary
           session={session}
@@ -568,17 +594,7 @@ function SessionDetail() {
             </CardContent>
           </Card>
         )}
-        <SessionAvgFatigue rows={fatigue ?? []} />
-        <ZoneTimePanel
-          rows={(zoneTime ?? []).filter((r: any) => r.source === "pace")}
-          title="Time in pace zones"
-          subtitle="Pace-based"
-        />
-        <ZoneTimePanel
-          rows={(zoneTime ?? []).filter((r: any) => r.source === "hr")}
-          title="Time in HR zones"
-          subtitle="HR-based"
-        />
+
         <FuelingPanel session={session} />
       </div>
 
@@ -804,7 +820,9 @@ function StepBlock({
 
   // ✅ START CLOSED (cleaner UX)
   const [open, setOpen] = useState(!!forceOpen);
-  useEffect(() => { setOpen(!!forceOpen); }, [forceOpen]);
+  useEffect(() => {
+    setOpen(!!forceOpen);
+  }, [forceOpen]);
 
   const reps = Array.from({ length: step.reps || 1 }, (_, i) => i + 1);
   const sets = Array.from({ length: setCount }, (_, i) => i + 1);
