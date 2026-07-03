@@ -69,7 +69,15 @@ function SessionDetail() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sessions")
-        .select("*, athletes(name, profile_image_url)")
+
+        .select(
+          `
+  *,
+  athletes(nam*, profile_image_url),
+  locations(*ame)
+`,
+        )
+
         .eq("id", sessionId)
         .single();
 
@@ -508,6 +516,57 @@ function SessionDetail() {
             <div className="border rounded px-2 py-1">
               <div className="text-xs text-muted-foreground">RPE</div>
               <div className="font-semibold">{session.rpe ?? "—"}</div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle>Session snapshot</CardTitle>
+          </CardHeader>
+
+          <CardContent className="space-y-2">
+            {/* ✅ Context line: location + terrain + weather */}
+            {(session.locations?.name ||
+              session.terrain ||
+              session.average_temp_c != null ||
+              session.wind_kph != null) && (
+              <div className="text-sm text-muted-foreground">
+                {[
+                  session.locations?.name,
+                  session.terrain,
+                  session.average_temp_c != null ? `${session.average_temp_c}°C` : null,
+                  session.wind_kph != null ? `Wind ${session.wind_kph} km/h` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </div>
+            )}
+
+            {/* ✅ Core metrics */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+              <div className="border rounded px-2 py-1">
+                <div className="text-xs text-muted-foreground">Time</div>
+                <div className="font-semibold">{secToClock(session.total_time_seconds || 0)}</div>
+              </div>
+
+              <div className="border rounded px-2 py-1">
+                <div className="text-xs text-muted-foreground">Distance</div>
+                <div className="font-semibold">{metersFmt(session.total_distance_m || 0)}</div>
+              </div>
+
+              <div className="border rounded px-2 py-1">
+                <div className="text-xs text-muted-foreground">Pace</div>
+                <div className="font-semibold">
+                  {session.total_time_seconds && session.total_distance_m
+                    ? secToClock((session.total_time_seconds / session.total_distance_m) * 1000)
+                    : "—"}
+                </div>
+              </div>
+
+              <div className="border rounded px-2 py-1">
+                <div className="text-xs text-muted-foreground">RPE</div>
+                <div className="font-semibold">{session.rpe ?? "—"}</div>
+              </div>
             </div>
           </CardContent>
         </Card>
