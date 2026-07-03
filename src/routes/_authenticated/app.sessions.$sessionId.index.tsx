@@ -1381,18 +1381,21 @@ function FuelingPanel({ session }: { session: any }) {
   }
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Fueling notes (session)</CardTitle>
-        <CardDescription>Pre-session, mid-session, post-session — anything food/drink related.</CardDescription>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Fueling</CardTitle>
       </CardHeader>
+
       <CardContent className="space-y-2">
         <Textarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          placeholder="e.g. oats + banana 2h before, gel at rep 4"
+          placeholder="e.g. gel before rep 4"
+          rows={2}
+          className="text-sm"
         />
-        <Button variant="outline" size="sm" onClick={save}>
-          Save notes
+
+        <Button size="sm" variant="outline" onClick={save}>
+          Save
         </Button>
       </CardContent>
     </Card>
