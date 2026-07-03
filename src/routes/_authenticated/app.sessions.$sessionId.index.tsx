@@ -73,8 +73,8 @@ function SessionDetail() {
         .select(
           `
   *,
-  athletes(nam*, profile_image_url),
-  locations(*ame)
+  athletes(name, profile_image_url),
+  locations(name)
 `,
         )
 
