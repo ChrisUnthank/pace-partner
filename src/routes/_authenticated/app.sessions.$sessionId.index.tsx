@@ -1454,25 +1454,15 @@ function SessionSummary({
         <CardTitle>Session feedback</CardTitle>
       </CardHeader>
 
-      <CardContent className="space-y-4">
-        {/* ✅ RPE */}
-        <div>
-          <Label>
-            RPE (1–10): <span className="tabular-nums">{rpe}</span>
-          </Label>
-          <Slider min={1} max={10} step={1} value={[rpe]} onValueChange={(v) => setRpe(v[0])} className="mt-2" />
+      <CardContent className="flex items-center gap-4">
+        <div className="flex-1">
+          <Label className="text-xs">RPE ({rpe})</Label>
+
+          <Slider min={1} max={10} step={1} value={[rpe]} onValueChange={(v) => setRpe(v[0])} />
         </div>
 
-        {/* ✅ Completion */}
-        <div className="flex items-center justify-between text-sm border rounded px-3 py-2">
-          <span>Completion</span>
-          <span className="font-semibold">{session.completed_at ? "100%" : "Not completed"}</span>
-        </div>
-
-        {/* ✅ Submit */}
-        <Button onClick={complete} className="w-full">
-          <CheckCircle2 className="h-4 w-4 mr-1" />
-          {session.completed_at ? "Update session" : "Mark complete"}
+        <Button onClick={complete} size="sm">
+          {session.completed_at ? "Update" : "Complete"}
         </Button>
       </CardContent>
     </Card>
