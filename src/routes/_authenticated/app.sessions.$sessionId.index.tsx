@@ -72,9 +72,13 @@ function SessionDetail() {
 
         .select(
           `
+  id,
+  location,
+  terrain,
+  average_temp_c,
+  wind_kph,
   *,
-  athletes(name, profile_image_url),
-  training_locations(name)
+  athletes(name, profile_image_url)
 `,
         )
 
