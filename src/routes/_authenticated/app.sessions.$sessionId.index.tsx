@@ -791,7 +791,8 @@ function StepBlock({
     setOpenSets((prev) => ({
       ...prev,
       [setN]: !prev[setN],
-   }
+    }));
+  }
 
   async function saveRep(setNumber: number, repNumber: number, patch: any) {
     const row = { step_id: step.id, set_number: setNumber, rep_number: repNumber, ...patch };
