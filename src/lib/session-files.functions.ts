@@ -1,6 +1,27 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
+async function fetchWeather(lat: number, lon: number, timestamp: string) {
+  try {
+    // convert timestamp to ISO date/time
+    const date = new Date(timestamp);
+    const iso = date.toISOString().slice(0, 13) + ":00"; // hourly resolution
+
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=temperature_2m,wind_speed_10m&start=${iso}&end=${iso}`;
+
+    const res = await fetch(url);
+    const data = await res.json();
+
+    return {
+      temp: data?.hourly?.temperature_2m?.[0] ?? null,
+      wind: data?.hourly?.wind_speed_10m?.[0] ?? null,
+    };
+  } catch (err) {
+    console.error("Weather fetch failed", err);
+    return { temp: null, wind: null };
+  }
+}
+
 function mapFitSport(sport: string | null | undefined): string {
   const s = (sport ?? "").toLowerCase();
   if (s.includes("swim")) return "swim";
@@ -1122,6 +1143,19 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   const workDistance = isIntervals ? workLaps.reduce((s, l) => s + Number(l.total_distance ?? 0), 0) : totalDistanceM;
 
   const workTime = isIntervals ? workLaps.reduce((s, l) => s + Number(l.total_elapsed_time ?? 0), 0) : totalTimeS;
+  let weatherTemp: number | null = null;
+  let weatherWind: number | null = null;
+
+  if (mergedPoints.length > 0) {
+    const firstPoint = mergedPoints.find((p) => p.lat != null && p.lng != null);
+
+    if (firstPoint && parsedFiles[0]?.parsed?.startedAt) {
+      const weather = await fetchWeather(firstPoint.lat, firstPoint.lng, parsedFiles[0].parsed.startedAt);
+
+      weatherTemp = weather.temp;
+      weatherWind = weather.wind;
+    }
+  }
 
   const { error: updErr } = await sb
     .from("sessions")
@@ -1130,7 +1164,8 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
       total_time_seconds: totalTimeS || null,
       avg_hr: avgHr,
       max_hr: maxHr,
-      average_temp_c: avgTemp,
+      average_temp_c: weatherTemp ?? avgTemp,
+      wind_kph: weatherWind ?? null,
       completion_pct: 100,
       work_distance_m: workDistance || null,
       work_time_s: workTime || null,
@@ -1207,10 +1242,7 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
             title: (() => {
               const now = new Date();
               const hour = now.getHours();
-              const timeLabel =
-                hour < 11 ? "Morning" :
-                hour < 16 ? "Afternoon" :
-                "Evening";
+              const timeLabel = hour < 11 ? "Morning" : hour < 16 ? "Afternoon" : "Evening";
               return `${timeLabel} session`;
             })(),
             day_type: "training",
