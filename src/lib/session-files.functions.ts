@@ -21,6 +21,25 @@ async function fetchWeather(lat: number, lon: number, timestamp: string) {
   }
 }
 
+async function fetchLocationName(lat: number, lon: number) {
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`;
+
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "run-app",
+      },
+    });
+
+    const data = await res.json();
+
+    return data?.address?.city || data?.address?.town || data?.address?.suburb || data?.address?.county || null;
+  } catch (err) {
+    console.error("Location fetch failed", err);
+    return null;
+  }
+}
+
 function mapFitSport(sport: string | null | undefined): string {
   const s = (sport ?? "").toLowerCase();
   if (s.includes("swim")) return "swim";
