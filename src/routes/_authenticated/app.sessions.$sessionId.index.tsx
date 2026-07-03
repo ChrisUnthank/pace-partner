@@ -54,6 +54,7 @@ function SessionDetail() {
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleValue, setTitleValue] = useState("");
   const [savingTitle, setSavingTitle] = useState(false);
+  const [allOpen, setAllOpen] = useState(false);
 
   // ✅ FIT upload setup
   const uploadFile = useServerFn(uploadAndParseSessionFile);
@@ -483,6 +484,19 @@ function SessionDetail() {
             <CardContent className="pt-4 text-sm">{session.notes}</CardContent>
           </Card>
         )}
+        
+<div>
+  {/* ✅ Expand / Collapse ALL */}
+  <div className="flex justify-end mb-2">
+    <Button
+      size="sm"
+      variant="ghost"
+      onClick={() => setAllOpen((v) => !v)}
+    >
+      {allOpen ? "Collapse all" : "Expand all"}
+    </Button>
+  </div>
+
         <div className="space-y-3">
           {stepIds.length > 0 && resultsLoading && !results ? (
             <Card>
