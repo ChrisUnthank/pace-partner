@@ -518,6 +518,7 @@ function SessionDetail() {
             ))
           )}
         </div>
+        </div>
         <SessionSummary
           session={session}
           results={results ?? []}
