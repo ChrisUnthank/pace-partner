@@ -415,7 +415,7 @@ function SessionDetail() {
                           await supabase.from("sessions").update({ terrain: value }).eq("id", session.id);
 
                           // ✅ refresh UI immediately
-                          qc.invalidateQueries({ queryKey: ["session", session.id] });
+                          qc.invalidateQueries({ queryKey: ["session", sessionId] });
                         }}
                       >
                         <SelectTrigger className="w-[120px] h-8 text-xs">
