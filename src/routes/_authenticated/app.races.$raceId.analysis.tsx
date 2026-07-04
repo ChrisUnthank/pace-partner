@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Trash2, Plus, Trophy } from "lucide-react";
+import { Trash2, Plus, Trophy, Heart } from "lucide-react";
 import { metersFmt, secToClock, clockToSec, paceFmt } from "@/lib/format";
 
 export const Route = createFileRoute("/_authenticated/app/races/$raceId/analysis")({
@@ -113,6 +113,9 @@ function RaceAnalysisPage() {
 
       // ✅ calculate avg HR
       let avgHr: number | null = null;
+      const hrSeries = pointsInSplit
+        .map((p) => p.hr)
+        .filter((hr): hr is number => hr != null);
 
       if (pointsInSplit.length > 0) {
         const total = pointsInSplit.reduce((sum, p) => sum + (p.hr ?? 0), 0);
@@ -124,6 +127,7 @@ function RaceAnalysisPage() {
         km: s.km,
         time: s.time - prevTime,
         avgHr,
+        hrSeries,
       };
     });
   }, [rawPoints, splitDistance, race]);
@@ -158,21 +162,17 @@ function RaceAnalysisPage() {
     const overallAvg = avg(validTimes);
 
     // ✅ 1. Start analysis
-    const startDiff = firstSplit - overallAvg;
     let startInsight = null;
 
-    
-let startInsight = null;
+    if (!unreliableStart) {
+      const startDiff = firstSplit - overallAvg;
 
-if (!unreliableStart) {
-  const startDiff = firstSplit - overallAvg;
-
-  if (startDiff < -3) {
-    startInsight = "⚠️ Went out too fast";
-  } else if (Math.abs(startDiff) <= 2) {
-    startInsight = "✅ Controlled start";
-  }
-}
+      if (startDiff < -3) {
+        startInsight = "⚠️ Went out too fast";
+      } else if (Math.abs(startDiff) <= 2) {
+        startInsight = "✅ Controlled start";
+      }
+    }
 
 
     // ✅ 2. Severe fade detection (matches your RED bars)
@@ -329,55 +329,44 @@ const severeFade = lastAvg - overallAvg > 8;
                     </div>
 
                     {/* ✅ coloured bar with HR line */}
-<div className="relative h-2 bg-gray-200 rounded overflow-hidden">
-  {/* ✅ Pace bar */}
-  <div
-    className={`absolute left-0 top-0 h-full rounded ${color}`}
-    style={{ width: `${width}%` }}
-  />
+                    <div className="relative h-2 bg-gray-200 rounded overflow-hidden">
+                      {/* ✅ Pace bar */}
+                      <div className={`absolute left-0 top-0 h-full rounded ${color}`} style={{ width: `${width}%` }} />
 
-  {/* ✅ HR LINE (replaces dot) */}
-  {s.hrSeries && s.hrSeries.length > 2 && (
-    <svg className="absolute inset-0 w-full h-full">
-      <polyline
-        points={s.hrSeries
-          .map((hr, i) => {
-            const x = (i / (s.hrSeries.length - 1)) * 100;
+                      {/* ✅ HR LINE (replaces dot) */}
+                      {s.hrSeries.length > 2 && (
+                        <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+                          <polyline
+                            points={s.hrSeries
+                              .map((hr, i) => {
+                                const x = (i / (s.hrSeries.length - 1)) * 100;
+                                const minHr = 120;
+                                const maxHr = 190;
+                                const y = 100 - ((hr - minHr) / (maxHr - minHr)) * 100;
 
-            const minHr = 120;
-            const maxHr = 190;
+                                return `${x},${y}`;
+                              })
+                              .join(" ")}
+                            fill="none"
+                            stroke="var(--accent-red)"
+                            strokeWidth="1.5"
+                            strokeDasharray="3 3"
+                            opacity="0.8"
+                          />
+                        </svg>
+                      )}
 
-            const y =
-              100 -
-              ((hr - minHr) / (maxHr - minHr)) * 100;
-
-            return `${x},${y}`;
-          })
-          .join(" ")}
-        fill="none"
-        stroke="var(--accent-red)"
-        strokeWidth="1.5"
-        strokeDasharray="3 3"
-        opacity="0.8"
-      />
-    </svg>
-  )}
-
-  {/* ✅ FALLBACK: heart if no hrSeries yet */}
-  {!s.hrSeries && s.avgHr && (
-    <div
-      className="absolute top-1/2 -translate-y-1/2"
-      style={{
-        left: `${Math.min(
-          Math.max((s.avgHr - 120) / (190 - 120), 0),
-          1
-        ) * 100}%`,
-      }}
-    >
-      <Heart className="h-3 w-3 text-[var(--accent-red)] fill-[var(--accent-red)]" />
-    </div>
-  )}
-</div>
+                      {/* ✅ FALLBACK: heart if no hrSeries yet */}
+                      {s.hrSeries.length === 0 && s.avgHr && (
+                        <div
+                          className="absolute top-1/2 -translate-y-1/2"
+                          style={{
+                            left: `${Math.min(Math.max((s.avgHr - 120) / (190 - 120), 0), 1) * 100}%`,
+                          }}
+                        >
+                          <Heart className="h-3 w-3 text-[var(--accent-red)] fill-[var(--accent-red)]" />
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
