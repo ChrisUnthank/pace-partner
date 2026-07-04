@@ -14,11 +14,31 @@ async function fetchWeather(lat: number, lon: number, timestamp: string) {
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=temperature_2m,wind_speed_10m&start_date=${day}&end_date=${day}&timezone=auto`;
 
     const res = await fetch(url);
+    if (!res.ok) {
+      console.error("Weather fetch failed:", res.status);
+      return { temp: null, wind: null };
+    }
     const data = await res.json();
 
+    const times: string[] = data?.hourly?.time ?? [];
+    const temps: (number | null)[] = data?.hourly?.temperature_2m ?? [];
+    const winds: (number | null)[] = data?.hourly?.wind_speed_10m ?? [];
+    if (!times.length) return { temp: null, wind: null };
+
+    const target = date.getTime();
+    let bestIdx = 0;
+    let bestDelta = Infinity;
+    for (let i = 0; i < times.length; i++) {
+      const d = Math.abs(new Date(times[i]).getTime() - target);
+      if (d < bestDelta) {
+        bestDelta = d;
+        bestIdx = i;
+      }
+    }
+
     return {
-      temp: data?.hourly?.temperature_2m?.[0] ?? null,
-      wind: data?.hourly?.wind_speed_10m?.[0] ?? null,
+      temp: temps[bestIdx] ?? null,
+      wind: winds[bestIdx] ?? null,
     };
   } catch (err) {
     console.error("Weather fetch failed", err);
@@ -1180,16 +1200,24 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   let locationName: string | null = null;
 
   if (mergedPoints.length > 0) {
-    const firstPoint = mergedPoints.find((p) => p.lat != null && p.lng != null);
-    console.log("FIRST POINT DEBUG:", firstPoint);
+    const firstPoint = mergedPoints.find(
+      (p) =>
+        p.lat != null &&
+        p.lng != null &&
+        Math.abs(p.lat) > 0.01 &&
+        Math.abs(p.lng) > 0.01 &&
+        Math.abs(p.lat) <= 90 &&
+        Math.abs(p.lng) <= 180,
+    );
 
-    if (firstPoint && firstPoint.lat != null && firstPoint.lng != null && parsedFiles[0]?.parsed?.startedAt) {
-      const weather = await fetchWeather(firstPoint.lat, firstPoint.lng, parsedFiles[0].parsed.startedAt);
-
+    if (firstPoint && parsedFiles[0]?.parsed?.startedAt) {
+      const lat = firstPoint.lat as number;
+      const lng = firstPoint.lng as number;
+      const weather = await fetchWeather(lat, lng, parsedFiles[0].parsed.startedAt);
       weatherTemp = weather.temp;
       weatherWind = weather.wind;
 
-      locationName = await fetchLocationName(firstPoint.lat, firstPoint.lng);
+      locationName = await fetchLocationName(lat, lng);
     }
   }
 
