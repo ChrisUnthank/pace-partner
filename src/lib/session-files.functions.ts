@@ -279,8 +279,8 @@ async function parseFIT(buffer: ArrayBuffer): Promise<ParsedFile> {
           elapsed_s: r.elapsed_time ?? (r.timestamp ? (new Date(r.timestamp).getTime() - t0) / 1000 : 0),
           distance_m: r.distance ?? null,
 
-          lat: toDegrees(r.position_lat),
-          lng: toDegrees(r.position_long),
+          lat: semicirclesToDegrees(r.position_lat),
+          lng: semicirclesToDegrees(r.position_long),
 
           elevation_m: r.enhanced_altitude ?? r.altitude ?? null,
           hr: r.heart_rate ?? null,
