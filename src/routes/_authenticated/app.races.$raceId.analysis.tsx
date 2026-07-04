@@ -280,7 +280,7 @@ function RaceAnalysisPage() {
 
                       <div className="flex items-center gap-3">
                         {/* ✅ NEW: HR (temporary placeholder for now) */}
-                        <span className="text-xs text-blue-400">{s.avgHr ? `${Math.round(s.avgHr)} bpm` : "--"}</span>
+                        <span className="text-xs text-blue-400">--</span>
 
                         {/* ✅ existing pace */}
                         <span className="font-medium">{secToClock(s.time)}</span>
