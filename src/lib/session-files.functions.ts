@@ -1200,26 +1200,33 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   let locationName: string | null = null;
 
   if (mergedPoints.length > 0) {
-    const firstPoint = mergedPoints.find(
-      (p) =>
-        p.lat != null &&
-        p.lng != null &&
-        Math.abs(p.lat) > 0.01 &&
-        Math.abs(p.lng) > 0.01 &&
-        Math.abs(p.lat) <= 90 &&
-        Math.abs(p.lng) <= 180,
-    );
+  const firstPoint =
+    mergedPoints.find(p => p.lat != null && p.lng != null) || null;
 
-    if (firstPoint && parsedFiles[0]?.parsed?.startedAt) {
-      const lat = firstPoint.lat as number;
-      const lng = firstPoint.lng as number;
-      const weather = await fetchWeather(lat, lng, parsedFiles[0].parsed.startedAt);
-      weatherTemp = weather.temp;
-      weatherWind = weather.wind;
+  console.log("GPS DEBUG:", firstPoint);
 
-      locationName = await fetchLocationName(lat, lng);
-    }
+  if (
+    firstPoint &&
+    typeof firstPoint.lat === "number" &&
+    typeof firstPoint.lng === "number" &&
+    firstPoint.lat !== 0 &&
+    firstPoint.lng !== 0 &&
+    parsedFiles[0]?.parsed?.startedAt
+  ) {
+    const lat = firstPoint.lat;
+    const lng = firstPoint.lng;
+
+    const weather = await fetchWeather(lat, lng, parsedFiles[0].parsed.startedAt);
+
+    weatherTemp = weather.temp;
+    weatherWind = weather.wind;
+
+    locationName = await fetchLocationName(lat, lng);
+  } else {
+    console.log("No usable GPS point");
   }
+}
+`
 
   const { error: updErr } = await sb
     .from("sessions")
