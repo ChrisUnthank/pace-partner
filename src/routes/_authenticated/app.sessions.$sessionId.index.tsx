@@ -290,7 +290,7 @@ function SessionDetail() {
       toast("Add totals to create race");
     }
   }
-    async function saveTitle() {
+  async function saveTitle() {
     if (!session?.id) return;
 
     // ✅ start saving
@@ -470,7 +470,6 @@ function SessionDetail() {
                     Save as template
                   </Button>
                 )}
-
                 <label className="cursor-pointer">
                   <Button size="sm" variant="outline" disabled={uploading}>
                     {uploading ? "Uploading…" : "Upload activity"}
@@ -483,7 +482,6 @@ function SessionDetail() {
                     onChange={handleFileUpload}
                   />
                 </label>
-
                 <Button
                   size="sm"
                   variant={session.day_type === "race" ? "destructive" : "outline"}
@@ -491,7 +489,6 @@ function SessionDetail() {
                 >
                   {session.day_type === "race" ? "Remove race" : "Mark as race"}
                 </Button>
-
                 {session.completed_at && (
                   <Button asChild size="sm" variant="outline">
                     <Link to="/app/sessions/$sessionId/analysis" params={{ sessionId }}>
@@ -500,7 +497,14 @@ function SessionDetail() {
                     </Link>
                   </Button>
                 )}
-
+                // ✅ ✅ ADD THIS RIGHT HERE
+                {session.day_type === "race" && session.completed_at && race?.id && (
+                  <Button asChild size="sm" variant="outline">
+                    <Link to="/app/races/$raceId" params={{ raceId: race.id }}>
+                      🏁 Race analysis
+                    </Link>
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="destructive"
