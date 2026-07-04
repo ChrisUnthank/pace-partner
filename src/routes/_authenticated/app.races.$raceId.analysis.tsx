@@ -120,10 +120,36 @@ function RaceAnalysisPage() {
 
         avgHr = total / pointsInSplit.length;
       }
+const totalAdjustment = race?.distance_adjustment_m ?? 0;
+const mode = race?.distance_adjustment_mode ?? "uniform";
+
+const avgPacePerMeter =
+  (race?.time_seconds ?? 0) / (race?.distance_m ?? 1);
+
+let adjustedTime = s.time;
+
+if (totalAdjustment !== 0 && splits.length > 0) {
+  if (mode === "uniform") {
+    const perSplit = totalAdjustment / splits.length;
+    adjustedTime += perSplit * avgPacePerMeter;
+  }
+
+  if (mode === "start" && i < 2) {
+    const splitsAffected = Math.min(2, splits.length);
+    const perSplit = totalAdjustment / splitsAffected;
+    adjustedTime += perSplit * avgPacePerMeter;
+  }
+
+  if (mode === "end" && i >= splits.length - 2) {
+    const splitsAffected = Math.min(2, splits.length);
+    const perSplit = totalAdjustment / splitsAffected;
+    adjustedTime += perSplit * avgPacePerMeter;
+  }
+}
 
       return {
         km: s.km,
-        time: s.time - prevTime,
+        time: adjustedTime - prevTime,
         avgHr,
         hrSeries,
       };
@@ -145,7 +171,7 @@ function RaceAnalysisPage() {
     const times = autoSplits.map((s) => s.time);
 
     const avg = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
-
+ 
     const firstSplit = times[0];
     const secondSplit = times[1];
 
@@ -208,11 +234,27 @@ function RaceAnalysisPage() {
       gpsInsight = "⚠️ GPS data low resolution — splits less reliable";
     }
 
-    return {
+
+  if (mode === "start" && i < 2) {
+    const splitsAffected = Math.min(2, autoSplits.length);
+    const perSplit = totalAdjustment / splitsAffected;
+
+    adjustedTime += perSplit * avgPacePerMeter;
+  }
+
+  if (mode === "end" && i >= autoSplits.length - 2) {
+    const splitsAffected = Math.min(2, autoSplits.length);
+    const perSplit = totalAdjustment / splitsAffected;
+
+    adjustedTime += perSplit * avgPacePerMeter;
+  }
+}
+return {
       start: startInsight,
       pacing: pacingSummary,
       gps: gpsInsight,
     };
+   
   }, [autoSplits, rawPoints]);
 
   if (isLoading) {
