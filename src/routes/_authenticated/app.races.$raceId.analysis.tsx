@@ -332,15 +332,91 @@ function RaceAnalysisPage() {
             <Stat label="Time" value={secToClock(race.time_seconds)} />
             <Stat label="Avg pace" value={paceFmt(avgPace)} />
 
+            {/* ✅ GPS summary (keep this first) */}
             {session?.distance_adjustment_m > 0 && (
               <div className="col-span-3">
                 <p className="text-xs text-muted-foreground">
                   GPS: {metersFmt(session.total_distance_m)} · Adjusted:{" "}
-                  {metersFmt((session.total_distance_m ?? 0) + (session.distance_adjustment_m ?? 0))} (+
-                  {session.distance_adjustment_m}m, {session.distance_adjustment_mode})
+                  {metersFmt((session.total_distance_m ?? 0) + (session.distance_adjustment_m ?? 0))}
+                  (+{session.distance_adjustment_m}m, {session.distance_adjustment_mode})
                 </p>
               </div>
             )}
+
+            {/* ✅ ✅ SPLIT CORRECTIONS (PROPERLY SEPARATED) */}
+            <div className="col-span-3 border-t pt-3 space-y-2">
+              <Label className="text-xs text-muted-foreground">Split corrections</Label>
+
+              {localAdjustments.map((adj: any, i: number) => (
+                <div key={i} className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    placeholder="Km"
+                    className="w-16"
+                    value={adj.split_km ?? ""}
+                    onChange={(e) => {
+                      const updated = [...localAdjustments];
+                      updated[i].split_km = e.target.value === "" ? "" : Number(e.target.value);
+                      setLocalAdjustments(updated);
+                    }}
+                    onBlur={async () => {
+                      await supabase
+                        .from("sessions")
+                        .update({ distance_adjustments: localAdjustments })
+                        .eq("id", session.id);
+                    }}
+                  />
+
+                  <Input
+                    type="number"
+                    placeholder="+m"
+                    className="w-20"
+                    value={adj.meters ?? ""}
+                    onChange={(e) => {
+                      const updated = [...localAdjustments];
+                      updated[i].meters = e.target.value === "" ? "" : Number(e.target.value);
+                      setLocalAdjustments(updated);
+                    }}
+                    onBlur={async () => {
+                      await supabase
+                        .from("sessions")
+                        .update({ distance_adjustments: localAdjustments })
+                        .eq("id", session.id);
+                    }}
+                  />
+
+                  <span className="text-xs text-muted-foreground">m</span>
+
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={async () => {
+                      const updated = localAdjustments.filter((_: any, idx: number) => idx !== i);
+
+                      setLocalAdjustments(updated);
+
+                      await supabase.from("sessions").update({ distance_adjustments: updated }).eq("id", session.id);
+                    }}
+                  >
+                    ✕
+                  </Button>
+                </div>
+              ))}
+
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={async () => {
+                  const updated = [...localAdjustments, { split_km: "", meters: "" }];
+
+                  setLocalAdjustments(updated);
+
+                  await supabase.from("sessions").update({ distance_adjustments: updated }).eq("id", session.id);
+                }}
+              >
+                + Add correction
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
