@@ -161,14 +161,27 @@ function RaceAnalysisPage() {
     const startDiff = firstSplit - overallAvg;
     let startInsight = null;
 
-    if (startDiff < -3) {
-      startInsight = "⚠️ Went out too fast";
-    } else if (Math.abs(startDiff) <= 2) {
-      startInsight = "✅ Controlled start";
-    }
+    
+let startInsight = null;
+
+if (!unreliableStart) {
+  const startDiff = firstSplit - overallAvg;
+
+  if (startDiff < -3) {
+    startInsight = "⚠️ Went out too fast";
+  } else if (Math.abs(startDiff) <= 2) {
+    startInsight = "✅ Controlled start";
+  }
+}
+
 
     // ✅ 2. Severe fade detection (matches your RED bars)
-    const severeFade = times.some((t) => t - overallAvg > 10);
+    
+const lastTwo = validTimes.slice(-2);
+const lastAvg = avg(lastTwo);
+
+const severeFade = lastAvg - overallAvg > 8;
+
     let pacingSummary = null;
 
     if (severeFade) {
@@ -315,20 +328,56 @@ function RaceAnalysisPage() {
                       </div>
                     </div>
 
-                    {/* ✅ coloured bar */}
-                    <div className="relative h-2 bg-gray-200 rounded overflow-hidden">
-                      {/* Pace bar */}
-                      <div className={`absolute left-0 top-0 h-full rounded ${color}`} style={{ width: `${width}%` }} />
+                    {/* ✅ coloured bar with HR line */}
+<div className="relative h-2 bg-gray-200 rounded overflow-hidden">
+  {/* ✅ Pace bar */}
+  <div
+    className={`absolute left-0 top-0 h-full rounded ${color}`}
+    style={{ width: `${width}%` }}
+  />
 
-                      {/* HR marker */}
-                      {s.avgHr && (
-                        <div
-                          className="absolute top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-[var(--accent-red)] shadow"
-                          style={{
-                            left: `${Math.min(Math.max((s.avgHr - 120) / (190 - 120), 0), 1) * 100}%`,
-                          }}
-                        />
-                      )}
+  {/* ✅ HR LINE (replaces dot) */}
+  {s.hrSeries && s.hrSeries.length > 2 && (
+    <svg className="absolute inset-0 w-full h-full">
+      <polyline
+        points={s.hrSeries
+          .map((hr, i) => {
+            const x = (i / (s.hrSeries.length - 1)) * 100;
+
+            const minHr = 120;
+            const maxHr = 190;
+
+            const y =
+              100 -
+              ((hr - minHr) / (maxHr - minHr)) * 100;
+
+            return `${x},${y}`;
+          })
+          .join(" ")}
+        fill="none"
+        stroke="var(--accent-red)"
+        strokeWidth="1.5"
+        strokeDasharray="3 3"
+        opacity="0.8"
+      />
+    </svg>
+  )}
+
+  {/* ✅ FALLBACK: heart if no hrSeries yet */}
+  {!s.hrSeries && s.avgHr && (
+    <div
+      className="absolute top-1/2 -translate-y-1/2"
+      style={{
+        left: `${Math.min(
+          Math.max((s.avgHr - 120) / (190 - 120), 0),
+          1
+        ) * 100}%`,
+      }}
+    >
+      <Heart className="h-3 w-3 text-[var(--accent-red)] fill-[var(--accent-red)]" />
+    </div>
+  )}
+</div>
                     </div>
                   </div>
                 );
