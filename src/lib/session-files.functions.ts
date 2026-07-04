@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-function toDegrees(sc: number | null | undefined): number | null {
+function semicirclesToDegrees(sc: number | null | undefined): number | null {
   if (sc == null) return null;
   return (sc * 180) / Math.pow(2, 31);
 }
