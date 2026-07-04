@@ -681,7 +681,7 @@ function SessionDetail() {
         Split corrections
       </Label>
 
-      {(session.distance_adjustments ?? []).map((adj: any, i: number) => (
+      {((session.distance_adjustments as any[] | null) ?? []).map((adj: any, i: number) => (
         <div key={i} className="flex items-center gap-2">
           
           <Input
@@ -690,7 +690,7 @@ function SessionDetail() {
             placeholder="Km"
             className="w-16"
             onChange={async (e) => {
-              const updated = [...(session.distance_adjustments ?? [])];
+              const updated = [...((session.distance_adjustments as any[] | null) ?? [])];
               updated[i].split_km = Number(e.target.value);
 
               await supabase
@@ -708,7 +708,7 @@ function SessionDetail() {
             placeholder="+m"
             className="w-20"
             onChange={async (e) => {
-              const updated = [...(session.distance_adjustments ?? [])];
+              const updated = [...((session.distance_adjustments as any[] | null) ?? [])];
               updated[i].meters = Number(e.target.value);
 
               await supabase
@@ -728,7 +728,7 @@ function SessionDetail() {
             size="sm"
             variant="ghost"
             onClick={async () => {
-              const updated = (session.distance_adjustments ?? []).filter(
+              const updated = ((session.distance_adjustments as any[] | null) ?? []).filter(
                 (_: any, idx: number) => idx !== i
               );
 
@@ -750,7 +750,7 @@ function SessionDetail() {
         variant="outline"
         onClick={async () => {
           const updated = [
-            ...(session.distance_adjustments ?? []),
+            ...((session.distance_adjustments as any[] | null) ?? []),
             { split_km: 1, meters: 50 },
           ];
 
@@ -767,7 +767,7 @@ function SessionDetail() {
     </div>
   </div>
 </CardContent>
-<Card>
+</Card>
         {session.notes && (
           <Card>
             <CardContent className="pt-4 text-sm">{session.notes}</CardContent>
