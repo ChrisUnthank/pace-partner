@@ -48,6 +48,7 @@ async function fetchWeather(lat: number, lon: number, timestamp: string) {
 
 async function fetchLocationName(lat: number, lon: number) {
   try {
+    console.log("GEOCODE RESPONSE:", data);
     const url = `https://geocode.maps.co/reverse?lat=${lat}&lon=${lon}`;
 
     const res = await fetch(url);
@@ -62,9 +63,11 @@ async function fetchLocationName(lat: number, lon: number) {
     return (
       data?.address?.city ||
       data?.address?.town ||
+      data?.address?.suburb ||
+      data?.address?.village ||
+      data?.address?.county ||
       data?.address?.state ||
-      data?.display_name?.split(",")[0] || // ✅ fallback
-      null
+      (data?.display_name ? data.display_name.split(",")[0] : "Unknown location")
     );
   } catch (err) {
     console.error("Location fetch failed", err);
