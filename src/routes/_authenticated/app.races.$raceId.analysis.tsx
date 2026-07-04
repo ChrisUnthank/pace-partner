@@ -346,8 +346,9 @@ function RaceAnalysisPage() {
 
                 let color = "bg-blue-500";
 
-                if (race?.distance_m && race?.time_seconds) {
+                if (adjustedDistance && race?.time_seconds) {
                   const avgPace = (race.time_seconds / adjustedDistance) * 1000;
+
                   const targetSplitTime = (avgPace / 1000) * splitDistance;
 
                   const diff = s.time - targetSplitTime;
