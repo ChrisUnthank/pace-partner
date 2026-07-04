@@ -34,6 +34,7 @@ function RaceAnalysisPage() {
   });
 
   const [splits, setSplits] = useState<Split[]>([newSplit()]);
+  const [localAdjustments, setLocalAdjustments] = useState<any[]>([]);
   const { data: session } = useQuery({
     queryKey: ["session", race?.session_id],
     enabled: !!race?.session_id,
@@ -47,6 +48,9 @@ function RaceAnalysisPage() {
       return data as any;
     },
   });
+  useEffect(() => {
+    setLocalAdjustments(session?.distance_adjustments ?? []);
+  }, [session?.distance_adjustments]);
   const { data: rawPoints = [] } = useQuery({
     queryKey: ["raw-points", race?.session_id],
     enabled: !!race?.session_id,
