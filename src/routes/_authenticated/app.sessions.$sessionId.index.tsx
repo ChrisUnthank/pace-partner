@@ -132,25 +132,6 @@ function SessionDetail() {
     },
   });
 
-  const { data: zoneTime } = useQuery({
-    queryKey: ["zone-time", sessionId],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("session_zone_time")
-        .select("zone, seconds, source")
-        .eq("session_id", sessionId);
-      return data ?? [];
-    },
-  });
-
-  const { data: fatigue } = useQuery({
-    queryKey: ["fatigue", sessionId],
-    queryFn: async () => {
-      const { data } = await supabase.from("session_fatigue").select("*").eq("session_id", sessionId);
-      return data ?? [];
-    },
-  });
-
   const { data: fuelEvents } = useQuery({
     queryKey: ["fuel-events", sessionId],
     queryFn: async () => {
@@ -207,8 +188,6 @@ function SessionDetail() {
         qc.invalidateQueries({ queryKey: ["steps", sessionId] });
         qc.invalidateQueries({ queryKey: ["results", sessionId] });
         qc.invalidateQueries({ queryKey: ["raw-points", sessionId] });
-        qc.invalidateQueries({ queryKey: ["zone-time", sessionId] });
-        qc.invalidateQueries({ queryKey: ["fatigue", sessionId] });
       } catch (err: any) {
         console.error("FIT upload error:", err);
         toast.error(err.message);
@@ -368,170 +347,196 @@ function SessionDetail() {
 
   const canSaveAsTemplate = isCoach && (session as any).day_type === "training";
 
+  // "Monday, 26 May 2026" - parsed as a plain calendar date (no timezone shift)
+  const formattedDate = session.session_date
+    ? new Date(`${session.session_date}T00:00:00`).toLocaleDateString("en-AU", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      })
+    : null;
+
   return (
     <AppShell>
       <div className="space-y-6 max-w-5xl mx-auto">
-        <div>
-          <Link to="/app/sessions" className="text-sm text-muted-foreground underline">
-            ← Sessions
-          </Link>
-          <div className="flex items-start justify-between gap-3 mt-2">
-            <div className="flex items-start gap-3">
-              <UserAvatar
-                name={session.athletes?.name}
-                imageUrl={(session.athletes as any)?.profile_image_url}
-                size="lg"
-              />
-              <div>
-                <div className="flex items-center gap-2">
-                  <ActivityIcon session={session as any} size={22} className="text-muted-foreground" />
+        <Link to="/app/sessions" className="text-sm text-muted-foreground underline">
+          ← Sessions
+        </Link>
 
-                  {editingTitle ? (
-                    <input
-                      value={titleValue}
-                      onChange={(e) => setTitleValue(e.target.value)}
-                      onBlur={saveTitle}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.currentTarget.blur();
-                        }
-                      }}
-                      className="text-2xl font-bold bg-transparent outline-none w-full"
-                      autoFocus
-                    />
-                  ) : (
-                    <div className="flex items-center gap-3">
+        {/* ───────────────── Header card: who / what / when + primary actions ───────────────── */}
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div className="flex items-start gap-3 min-w-0">
+                <UserAvatar
+                  name={session.athletes?.name}
+                  imageUrl={(session.athletes as any)?.profile_image_url}
+                  size="lg"
+                />
+
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <ActivityIcon session={session as any} size={22} className="text-muted-foreground shrink-0" />
+
+                    {editingTitle ? (
+                      <input
+                        value={titleValue}
+                        onChange={(e) => setTitleValue(e.target.value)}
+                        onBlur={saveTitle}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.currentTarget.blur();
+                          }
+                        }}
+                        className="text-2xl font-bold bg-transparent outline-none w-full"
+                        autoFocus
+                      />
+                    ) : (
                       <h1
-                        className="text-2xl font-bold cursor-pointer flex items-center gap-2"
+                        className="text-2xl font-bold cursor-pointer"
                         onClick={() => setEditingTitle(true)}
+                        title="Click to rename"
                       >
                         {session.title}
-                        {savingTitle && <span className="text-xs text-muted-foreground">Saving…</span>}
+                        {savingTitle && <span className="text-xs font-normal text-muted-foreground ml-2">Saving…</span>}
                       </h1>
+                    )}
 
-                      <Select
-                        value={session.terrain || ""}
-                        onValueChange={async (value) => {
-                          await supabase.from("sessions").update({ terrain: value }).eq("id", session.id);
+                    <Select
+                      value={session.terrain || ""}
+                      onValueChange={async (value) => {
+                        await supabase.from("sessions").update({ terrain: value }).eq("id", session.id);
+                        qc.invalidateQueries({ queryKey: ["session", sessionId] });
+                      }}
+                    >
+                      <SelectTrigger className="w-[110px] h-7 text-xs">
+                        <SelectValue placeholder="Surface" />
+                      </SelectTrigger>
 
-                          // ✅ refresh UI immediately
+                      <SelectContent>
+                        <SelectItem value="track">Track</SelectItem>
+                        <SelectItem value="road">Road</SelectItem>
+                        <SelectItem value="trail">Trail</SelectItem>
+                        <SelectItem value="grass">Grass</SelectItem>
+                        <SelectItem value="treadmill">Treadmill</SelectItem>
+                        <SelectItem value="mixed">Mixed</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-                          await supabase.from("sessions").update({ terrain: value }).eq("id", session.id);
+                  {/* Day, date, athlete, classification, and status badges */}
+                  <div className="flex items-center gap-2 flex-wrap text-sm text-muted-foreground mt-1">
+                    <span className="font-medium text-foreground">{formattedDate ?? session.session_date}</span>
+                    <span>·</span>
+                    <span>{session.athletes?.name}</span>
+                    <span>·</span>
+                    <span>{sessionClassificationLabel(session as any)}</span>
 
-                          qc.invalidateQueries({ queryKey: ["session", sessionId] });
-                        }}
-                      >
-                        <SelectTrigger className="w-[120px] h-8 text-xs">
-                          <SelectValue placeholder="Surface" />
-                        </SelectTrigger>
+                    {(session as any).applied_from_template_id && (
+                      <Badge variant="outline" className="font-normal">
+                        From template
+                      </Badge>
+                    )}
 
-                        <SelectContent>
-                          <SelectItem value="track">Track</SelectItem>
-                          <SelectItem value="road">Road</SelectItem>
-                          <SelectItem value="trail">Trail</SelectItem>
-                          <SelectItem value="grass">Grass</SelectItem>
-                          <SelectItem value="treadmill">Treadmill</SelectItem>
-                          <SelectItem value="mixed">Mixed</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
+                    {session.completed_at && (
+                      <Badge className="bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/15 font-normal gap-1">
+                        <CheckCircle2 className="h-3 w-3" />
+                        Completed
+                      </Badge>
+                    )}
+
+                    {session.completed_at && session.rpe != null && (
+                      <Badge variant="outline" className="font-normal">
+                        RPE {session.rpe}/10
+                      </Badge>
+                    )}
+                  </div>
                 </div>
-                <p className="text-sm text-muted-foreground">
-                  {session.session_date} · {session.athletes?.name} · {sessionClassificationLabel(session as any)}
-                  {(session as any).applied_from_template_id && <span className="ml-2 italic">· from template</span>}
-                  {session.completed_at && <span className="ml-2 text-emerald-600">Completed</span>}
-                  {session.completed_at && session.rpe != null && (
-                    <span className="ml-2">
-                      · RPE <span className="tabular-nums font-medium">{session.rpe}</span>/10
-                    </span>
-                  )}
-                </p>
+              </div>
+
+              {/* Actions, grouped together on the right */}
+              <div className="flex items-center gap-2 flex-wrap justify-end">
+                {canSaveAsTemplate && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setTplName(session.title ?? "");
+                      setSaveTplOpen(true);
+                    }}
+                  >
+                    <BookmarkPlus className="h-4 w-4 mr-1" />
+                    Save as template
+                  </Button>
+                )}
+
+                <label className="cursor-pointer">
+                  <Button size="sm" variant="outline" disabled={uploading}>
+                    {uploading ? "Uploading…" : "Upload activity"}
+                  </Button>
+                  <input
+                    type="file"
+                    accept=".fit,.gpx"
+                    className="hidden"
+                    disabled={uploading}
+                    onChange={handleFileUpload}
+                  />
+                </label>
+
+                <Button
+                  size="sm"
+                  variant={session.day_type === "race" ? "destructive" : "outline"}
+                  onClick={toggleRaceStatus}
+                >
+                  {session.day_type === "race" ? "Remove race" : "Mark as race"}
+                </Button>
+
+                {session.completed_at && (
+                  <Button asChild size="sm" variant="outline">
+                    <Link to="/app/sessions/$sessionId/analysis" params={{ sessionId }}>
+                      <LineChart className="h-4 w-4 mr-1" />
+                      View analysis
+                    </Link>
+                  </Button>
+                )}
+
+                {session.day_type === "race" && session.completed_at && (
+                  <Button asChild size="sm" variant="outline">
+                    <Link to="/app/races">Race analysis</Link>
+                  </Button>
+                )}
+
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => {
+                    if (!confirm("Delete this session? This cannot be undone.")) return;
+
+                    removeSession({ data: { sessionId } }).then(() => {
+                      window.location.href = "/app/sessions";
+                    });
+                  }}
+                >
+                  Delete
+                </Button>
               </div>
             </div>
-            {canSaveAsTemplate && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  setTplName(session.title ?? "");
-                  setSaveTplOpen(true);
-                }}
-              >
-                <BookmarkPlus className="h-4 w-4 mr-1" />
-                Save as template
-              </Button>
-            )}
-            <div className="flex items-center gap-2 flex-wrap">
-              {/* Upload Fit File */}
+          </CardContent>
+        </Card>
 
-              <label className="cursor-pointer">
-                <Button size="sm" variant="outline">
-                  Upload activity
-                </Button>
-                <input
-                  type="file"
-                  accept=".fit,.gpx"
-                  className="hidden"
-                  disabled={uploading}
-                  onChange={handleFileUpload}
-                />
-              </label>
-
-              {/* ✅ Mark as Race */}
-
-              <Button
-                size="sm"
-                variant={session.day_type === "race" ? "destructive" : "outline"}
-                onClick={toggleRaceStatus}
-              >
-                {session.day_type === "race" ? "Remove Race" : "Mark as Race"}
-              </Button>
-
-              {/* ✅ Existing analysis */}
-              {session.completed_at && (
-                <Button asChild size="sm" variant="outline">
-                  <Link to="/app/sessions/$sessionId/analysis" params={{ sessionId }}>
-                    <LineChart className="h-4 w-4 mr-1" />
-                    View analysis
-                  </Link>
-                </Button>
-              )}
-
-              {session.day_type === "race" && session.completed_at && (
-                <Button asChild size="sm" variant="outline">
-                  <Link to="/app/races">Race Analysis</Link>
-                </Button>
-              )}
-            </div>
-            <Button
-              size="sm"
-              variant="destructive"
-              onClick={() => {
-                if (!confirm("Delete this session? This cannot be undone.")) return;
-
-                removeSession({ data: { sessionId } }).then(() => {
-                  window.location.href = "/app/sessions";
-                });
-              }}
-            >
-              Delete
-            </Button>
-          </div>
-        </div>
-
+        {/* ───────────────── Overview card: the four headline numbers + context ───────────────── */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle>Session snapshot</CardTitle>
+            <CardTitle>Overview</CardTitle>
           </CardHeader>
 
-          <CardContent className="space-y-2">
-            {/* ✅ Context line: location + terrain + weather */}
+          <CardContent className="space-y-3">
             {(session.location || session.terrain || session.average_temp_c != null || session.wind_kph != null) && (
               <div className="text-sm text-muted-foreground">
                 {[
-                  session.location, // ✅ FIXED (was training_locations)
-                  session.terrain ? session.terrain.charAt(0).toUpperCase() + session.terrain.slice(1) : null, // ✅ FIX: nicer display
+                  session.location,
+                  session.terrain ? session.terrain.charAt(0).toUpperCase() + session.terrain.slice(1) : null,
                   session.average_temp_c != null ? `${session.average_temp_c}°C` : null,
                   session.wind_kph != null ? `Wind ${session.wind_kph} km/h` : null,
                 ]
@@ -540,34 +545,34 @@ function SessionDetail() {
               </div>
             )}
 
-            {/* ✅ Core metrics */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-              <div className="border rounded px-2 py-1">
+              <div className="border rounded-lg px-3 py-2">
                 <div className="text-xs text-muted-foreground">Time</div>
-                <div className="font-semibold">{secToClock(session.total_time_seconds || 0)}</div>
+                <div className="text-lg font-semibold tabular-nums">{secToClock(session.total_time_seconds || 0)}</div>
               </div>
 
-              <div className="border rounded px-2 py-1">
+              <div className="border rounded-lg px-3 py-2">
                 <div className="text-xs text-muted-foreground">Distance</div>
-                <div className="font-semibold">{metersFmt(session.total_distance_m || 0)}</div>
+                <div className="text-lg font-semibold tabular-nums">{metersFmt(session.total_distance_m || 0)}</div>
               </div>
 
-              <div className="border rounded px-2 py-1">
+              <div className="border rounded-lg px-3 py-2">
                 <div className="text-xs text-muted-foreground">Pace</div>
-                <div className="font-semibold">
+                <div className="text-lg font-semibold tabular-nums">
                   {session.total_time_seconds && session.total_distance_m
                     ? secToClock((session.total_time_seconds / session.total_distance_m) * 1000)
                     : "—"}
                 </div>
               </div>
 
-              <div className="border rounded px-2 py-1">
+              <div className="border rounded-lg px-3 py-2">
                 <div className="text-xs text-muted-foreground">RPE</div>
-                <div className="font-semibold">{session.rpe ?? "—"}</div>
+                <div className="text-lg font-semibold tabular-nums">{session.rpe ?? "—"}</div>
               </div>
             </div>
           </CardContent>
         </Card>
+
         {session.notes && (
           <Card>
             <CardContent className="pt-4 text-sm">{session.notes}</CardContent>
@@ -575,8 +580,8 @@ function SessionDetail() {
         )}
 
         <div>
-          {/* ✅ Expand / Collapse ALL */}
-          <div className="flex justify-end mb-2">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-lg font-semibold">Workout structure</h2>
             <Button size="sm" variant="ghost" onClick={() => setAllOpen((v) => !v)}>
               {allOpen ? "Collapse all" : "Expand all"}
             </Button>
@@ -594,7 +599,6 @@ function SessionDetail() {
                   session={session}
                   step={step}
                   results={(results ?? []).filter((r: any) => r.step_id === step.id)}
-                  fatigue={(fatigue ?? []).find((f: any) => f.step_id === step.id)}
                   fuelEvents={(fuelEvents ?? []).filter((f: any) => f.step_id === step.id)}
                   forceOpen={allOpen}
                 />
@@ -789,81 +793,16 @@ function SessionAINote({ sessionId, athleteId }: { sessionId: string; athleteId:
   );
 }
 
-const ZONE_ORDER = ["easy", "steady", "threshold", "vo2", "rep", "sprint", "recovery"] as const;
-
-function ZoneTimePanel({
-  rows,
-  title,
-  subtitle,
-}: {
-  rows: { zone: string; seconds: number; source: string }[];
-  title: string;
-  subtitle: string;
-}) {
-  if (rows.length === 0) {
-    return null;
-  }
-  const total = rows.reduce((a, r) => a + Number(r.seconds || 0), 0) || 1;
-  const sorted = [...rows].sort((a, b) => ZONE_ORDER.indexOf(a.zone as any) - ZONE_ORDER.indexOf(b.zone as any));
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>{subtitle}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-2">
-        <div className="flex h-3 w-full overflow-hidden rounded bg-muted">
-          {sorted.map((r) => (
-            <div
-              key={`${r.zone}-${r.source}`}
-              className={zoneBarClass(r.zone)}
-              style={{ width: `${(Number(r.seconds) / total) * 100}%` }}
-            />
-          ))}
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
-          {sorted.map((r) => (
-            <div key={`${r.zone}-${r.source}`} className="flex justify-between border rounded px-2 py-1">
-              <span className="capitalize flex items-center gap-2">
-                <span className={`h-2 w-2 rounded ${zoneDotClass(r.zone)}`} />
-                {r.zone}
-              </span>
-              <span className="tabular-nums">{secToClock(Number(r.seconds))}</span>
-            </div>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function zoneBarClass(zone: string) {
-  const m: Record<string, string> = {
-    easy: "bg-emerald-400",
-    steady: "bg-sky-400",
-    threshold: "bg-amber-400",
-    vo2: "bg-orange-500",
-    rep: "bg-red-500",
-    sprint: "bg-fuchsia-500",
-    recovery: "bg-slate-300",
-  };
-  return m[zone] ?? "bg-muted";
-}
-function zoneDotClass(zone: string) {
-  return zoneBarClass(zone);
-}
 function StepBlock({
   session,
   step,
   results,
-  fatigue,
   fuelEvents,
   forceOpen,
 }: {
   session: any;
   step: any;
   results: any[];
-  fatigue?: any;
   fuelEvents: any[];
   forceOpen?: boolean;
 }) {
@@ -994,6 +933,7 @@ function StepBlock({
             <RepRow step={step} rep={1} result={results[0]} onSave={(p) => saveRep(1, 1, p)} />
           )}
 
+          {(isWork || isStrides) && <LactateSummary results={results} />}
           {isWork && <WorkFuelNote step={step} sessionId={session.id} />}
         </CardContent>
       </div>
@@ -1277,148 +1217,6 @@ function LactateSummary({ results }: { results: any[] }) {
         ))}
       </div>
     </div>
-  );
-}
-
-function StepFatiguePanel({ fatigue, isLadder, reps }: { fatigue?: any; isLadder?: boolean; reps: number }) {
-  if (isLadder) {
-    return (
-      <div className="mt-3 text-xs text-muted-foreground border-t pt-2">
-        Ladder step — fatigue score suppressed. Per-rep target support coming in a follow-up.
-      </div>
-    );
-  }
-
-  if (!fatigue) {
-    if (reps < 3) {
-      return (
-        <div className="mt-3 border-t pt-2 text-xs">
-          <div className="text-muted-foreground">Not enough reps for fatigue analysis</div>
-        </div>
-      );
-    }
-    return null;
-  }
-
-  const score = fatigue.efficiency_score;
-  const label = score == null ? "—" : score >= 85 ? "Held form" : score >= 65 ? "Moderate fade" : "Heavy fade";
-  const tone =
-    score == null
-      ? "bg-muted"
-      : score >= 85
-        ? "bg-emerald-500/15 text-emerald-700"
-        : score >= 65
-          ? "bg-amber-500/15 text-amber-700"
-          : "bg-red-500/15 text-red-700";
-  return (
-    <div className="mt-3 border-t pt-3 space-y-2">
-      <div className="flex items-center justify-between">
-        <div className="text-xs text-muted-foreground">
-          Within-session fatigue ({fatigue.method.replace("_", " ")}, {fatigue.rep_count} reps)
-        </div>
-        <div className={`px-2 py-0.5 rounded text-sm font-semibold ${tone}`}>
-          {score ?? "—"} · {label}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-        <DriftChip label="Pace" value={fatigue.pace_drift_pct} suffix="%" worseHigh />
-        <DriftChip label="HR" value={fatigue.hr_drift_bpm} suffix=" bpm" worseHigh />
-        <DriftChip label="Stride" value={fatigue.stride_drift_pct} suffix="%" worseHigh />
-        <DriftChip label="Cadence" value={fatigue.cadence_drift_pct} suffix="%" worseHigh />
-      </div>
-
-      {/* ✅ Recovery insights */}
-      {fatigue?.rep_count >= 3 &&
-        fatigue?.hr_drop_series?.length >= 3 &&
-        (() => {
-          const drops = fatigue.hr_drop_series;
-
-          const first = drops[0];
-          const last = drops[drops.length - 1];
-          const change = last - first;
-
-          const best = Math.max(...drops);
-          const worst = Math.min(...drops);
-
-          let trendLabel = "Stable";
-          let color = "text-muted-foreground";
-
-          if (change <= -5) {
-            trendLabel = "Recovery worsening";
-            color = "text-red-600";
-          } else if (change >= 5) {
-            trendLabel = "Recovery improving";
-            color = "text-emerald-600";
-          }
-
-          return (
-            <div className="pt-2 border-t space-y-1 text-xs">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Recovery trend</span>
-                <span className={`font-medium ${color}`}>
-                  {trendLabel} ({change > 0 ? "+" : ""}
-                  {change})
-                </span>
-              </div>
-
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Best / Worst</span>
-                <span className="font-medium">
-                  {best} / {worst} bpm
-                </span>
-              </div>
-            </div>
-          );
-        })()}
-    </div>
-  );
-}
-
-function DriftChip({
-  label,
-  value,
-  suffix,
-  worseHigh,
-}: {
-  label: string;
-  value: number | null;
-  suffix: string;
-  worseHigh?: boolean;
-}) {
-  if (value == null) return <div className="border rounded px-2 py-1 text-muted-foreground">{label}: —</div>;
-  const bad = worseHigh ? value > 2 : value < -2;
-  return (
-    <div className={`border rounded px-2 py-1 ${bad ? "text-red-600 border-red-300" : ""}`}>
-      {label}: {value > 0 ? "+" : ""}
-      {value}
-      {suffix}
-    </div>
-  );
-}
-
-function SessionAvgFatigue({ rows }: { rows: any[] }) {
-  const scored = rows.filter((r) => r.efficiency_score != null && r.duration_seconds);
-  if (scored.length === 0) return null;
-  const totalDur = scored.reduce((a, r) => a + Number(r.duration_seconds), 0);
-  const weighted = scored.reduce((a, r) => a + Number(r.efficiency_score) * Number(r.duration_seconds), 0) / totalDur;
-  const avg = Math.round(weighted);
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">Within-session fatigue · Session avg</CardTitle>
-        <CardDescription>
-          Duration-weighted across {scored.length} scored step{scored.length === 1 ? "" : "s"}. Different from daily
-          readiness.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="text-3xl font-bold tabular-nums">
-          {avg}
-          <span className="text-base font-normal text-muted-foreground"> / 100</span>
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 
