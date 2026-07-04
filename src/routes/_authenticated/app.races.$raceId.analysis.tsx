@@ -108,8 +108,7 @@ function RaceAnalysisPage() {
 
       // ✅ get points within this split
       const pointsInSplit = rawPoints.filter(
-        (p) =>
-          p.distance_m != null && p.hr != null && p.distance_m >= startDistance && p.distance_m < endDistance,
+        (p) => p.distance_m != null && p.hr != null && p.distance_m >= startDistance && p.distance_m < endDistance,
       );
 
       // ✅ calculate avg HR
@@ -309,15 +308,12 @@ function RaceAnalysisPage() {
                     {/* ✅ coloured bar */}
                     <div className="relative h-2 bg-gray-200 rounded overflow-hidden">
                       {/* Pace bar */}
-                      <div
-                        className={`absolute left-0 top-0 h-full rounded ${color}`}
-                        style={{ width: `${width}%` }}
-                      />
+                      <div className={`absolute left-0 top-0 h-full rounded ${color}`} style={{ width: `${width}%` }} />
 
                       {/* HR marker */}
                       {s.avgHr && (
                         <div
-                          className="absolute top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-blue-400 shadow"
+                          className="absolute top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-[var(--accent-red)] shadow"
                           style={{
                             left: `${Math.min(Math.max((s.avgHr - 120) / (190 - 120), 0), 1) * 100}%`,
                           }}
