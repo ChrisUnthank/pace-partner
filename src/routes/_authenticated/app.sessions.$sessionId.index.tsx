@@ -544,134 +544,230 @@ function SessionDetail() {
           </CardHeader>
 
           <CardContent className="space-y-3">
-            {(session.location || session.terrain || session.average_temp_c != null || session.wind_kph != null) && (
-              <div className="text-sm text-muted-foreground">
-                {[
-                  session.location,
-                  session.terrain ? session.terrain.charAt(0).toUpperCase() + session.terrain.slice(1) : null,
-                  session.average_temp_c != null ? `${session.average_temp_c}°C` : null,
-                  session.wind_kph != null ? `Wind ${session.wind_kph} km/h` : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </div>
+  {(session.location || session.terrain || session.average_temp_c != null || session.wind_kph != null) && (
+    <div className="text-sm text-muted-foreground">
+      {[
+        session.location,
+        session.terrain ? session.terrain.charAt(0).toUpperCase() + session.terrain.slice(1) : null,
+        session.average_temp_c != null ? `${session.average_temp_c}°C` : null,
+        session.wind_kph != null ? `Wind ${session.wind_kph} km/h` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ")}
+    </div>
+  )}
+
+  {/* ✅ METRICS GRID */}
+  <div className="space-y-3">
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+      
+      {/* Time */}
+      <div className="border rounded-lg px-3 py-2">
+        <div className="text-xs text-muted-foreground">Time</div>
+        <div className="text-lg font-semibold tabular-nums">
+          {secToClock(session.total_time_seconds || 0)}
+        </div>
+      </div>
+
+      {/* Distance */}
+      <div className="border rounded-lg px-3 py-2">
+        <div className="text-xs text-muted-foreground">Distance</div>
+        <div className="text-lg font-semibold tabular-nums">
+          <>
+            {metersFmt(
+              (session.total_distance_m ?? 0) +
+              (session.distance_adjustment_m ?? 0)
             )}
+            {(session.distance_adjustment_m ?? 0) > 0 && (
+              <span className="text-xs text-muted-foreground ml-1">
+                (+{session.distance_adjustment_m}m)
+              </span>
+            )}
+          </>
+        </div>
+      </div>
 
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-                {/* Time */}
-                <div className="border rounded-lg px-3 py-2">
-                  <div className="text-xs text-muted-foreground">Time</div>
-                  <div className="text-lg font-semibold tabular-nums">
-                    {secToClock(session.total_time_seconds || 0)}
-                  </div>
-                </div>
+      {/* Pace */}
+      <div className="border rounded-lg px-3 py-2">
+        <div className="text-xs text-muted-foreground">Pace</div>
+        <div className="text-lg font-semibold tabular-nums">
+          {session.total_time_seconds &&
+          (session.total_distance_m ?? 0) +
+            (session.distance_adjustment_m ?? 0) >
+            0
+            ? secToClock(
+                (session.total_time_seconds /
+                  ((session.total_distance_m ?? 0) +
+                    (session.distance_adjustment_m ?? 0))) *
+                  1000
+              )
+            : "—"}
+        </div>
+      </div>
 
-                {/* Distance (✅ adjusted) */}
-                <div className="border rounded-lg px-3 py-2">
-                  <div className="text-xs text-muted-foreground">Distance</div>
-                  <div className="text-lg font-semibold tabular-nums">
-                    <>
-                      {metersFmt((session.total_distance_m ?? 0) + (session.distance_adjustment_m ?? 0))}
-                      {(session.distance_adjustment_m ?? 0) > 0 && (
-                        <span className="text-xs text-muted-foreground ml-1">(+{session.distance_adjustment_m}m)</span>
-                      )}
-                    </>
-                  </div>
-                </div>
-                {/* ✅ TEMP: Apply split-level correction (testing) */}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={async () => {
-                    const adjustments = [
-                      { split_km: 1, meters: 140 },
-                      { split_km: 4, meters: 70 },
-                    ];
+      {/* RPE */}
+      <div className="border rounded-lg px-3 py-2">
+        <div className="text-xs text-muted-foreground">RPE</div>
+        <div className="text-lg font-semibold tabular-nums">
+          {session.rpe ?? "—"}
+        </div>
+      </div>
+    </div>
 
-                    await supabase.from("sessions").update({ distance_adjustments: adjustments } as any).eq("id", session.id);
+    {/* ✅ DISTANCE CORRECTION (LEGACY) */}
+    <div className="border-t pt-3 space-y-2">
+      <Label className="text-xs text-muted-foreground">
+        Distance correction (m)
+      </Label>
 
-                    qc.invalidateQueries({ queryKey: ["session", sessionId] });
-                  }}
-                >
-                  Apply test split corrections
-                </Button>
-                {/* Pace (✅ adjusted) */}
-                <div className="border rounded-lg px-3 py-2">
-                  <div className="text-xs text-muted-foreground">Pace</div>
-                  <div className="text-lg font-semibold tabular-nums">
-                    {session.total_time_seconds &&
-                    (session.total_distance_m ?? 0) + (session.distance_adjustment_m ?? 0) > 0
-                      ? secToClock(
-                          (session.total_time_seconds /
-                            ((session.total_distance_m ?? 0) + (session.distance_adjustment_m ?? 0))) *
-                            1000,
-                        )
-                      : "—"}
-                  </div>
-                </div>
+      <Input
+        type="number"
+        placeholder="e.g. 210"
+        defaultValue={session.distance_adjustment_m ?? ""}
+        onBlur={async (e) => {
+          const val = Number(e.target.value) || 0;
 
-                {/* RPE */}
-                <div className="border rounded-lg px-3 py-2">
-                  <div className="text-xs text-muted-foreground">RPE</div>
-                  <div className="text-lg font-semibold tabular-nums">{session.rpe ?? "—"}</div>
-                </div>
-              </div>
+          await supabase
+            .from("sessions")
+            .update({ distance_adjustment_m: val })
+            .eq("id", session.id);
 
-              {/* ✅ DISTANCE CORRECTION BLOCK (OUTSIDE GRID) */}
-              <div className="border-t pt-3 space-y-2">
-                <Label className="text-xs text-muted-foreground">Distance correction (m)</Label>
+          qc.invalidateQueries({ queryKey: ["session", sessionId] });
+        }}
+      />
 
-                <Input
-                  type="number"
-                  placeholder="e.g. 210"
-                  defaultValue={session.distance_adjustment_m ?? ""}
-                  onBlur={async (e) => {
-                    const val = Number(e.target.value) || 0;
+      <div className="space-y-1">
+        <Label className="text-xs text-muted-foreground">
+          Correction method
+        </Label>
 
-                    await supabase.from("sessions").update({ distance_adjustment_m: val }).eq("id", session.id);
+        <Select
+          value={session.distance_adjustment_mode ?? "uniform"}
+          onValueChange={async (val) => {
+            await supabase
+              .from("sessions")
+              .update({ distance_adjustment_mode: val })
+              .eq("id", session.id);
 
-                    qc.invalidateQueries({ queryKey: ["session", sessionId] });
-                  }}
-                />
+            qc.invalidateQueries({ queryKey: ["session", sessionId] });
+          }}
+        >
+          <SelectTrigger className="w-full text-xs h-8">
+            <SelectValue />
+          </SelectTrigger>
 
-                {/* ✅ Correction method */}
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">Correction method</Label>
+          <SelectContent>
+            <SelectItem value="uniform">Spread evenly</SelectItem>
+            <SelectItem value="start">Start GPS delay</SelectItem>
+            <SelectItem value="end">Finish GPS error</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
 
-                  <Select
-                    value={session.distance_adjustment_mode ?? "uniform"}
-                    onValueChange={async (val) => {
-                      await supabase.from("sessions").update({ distance_adjustment_mode: val }).eq("id", session.id);
+      {(session.distance_adjustment_m ?? 0) > 0 && (
+        <p className="text-xs text-muted-foreground">
+          GPS: {metersFmt(session.total_distance_m)} → Adjusted:{" "}
+          {metersFmt(
+            (session.total_distance_m ?? 0) +
+              (session.distance_adjustment_m ?? 0)
+          )}
+        </p>
+      )}
+    </div>
 
-                      qc.invalidateQueries({ queryKey: ["session", sessionId] });
-                    }}
-                  >
-                    <SelectTrigger className="w-full text-xs h-8">
-                      <SelectValue />
-                    </SelectTrigger>
+    {/* ✅ ✅ NEW: SPLIT-LEVEL CORRECTIONS */}
+    <div className="border-t pt-3 space-y-2">
+      <Label className="text-xs text-muted-foreground">
+        Split corrections
+      </Label>
 
-                    <SelectContent>
-                      <SelectItem value="uniform">Spread evenly</SelectItem>
-                      <SelectItem value="start">Start GPS delay</SelectItem>
-                      <SelectItem value="end">Finish GPS error</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+      {(session.distance_adjustments ?? []).map((adj: any, i: number) => (
+        <div key={i} className="flex items-center gap-2">
+          
+          <Input
+            type="number"
+            value={adj.split_km}
+            placeholder="Km"
+            className="w-16"
+            onChange={async (e) => {
+              const updated = [...(session.distance_adjustments ?? [])];
+              updated[i].split_km = Number(e.target.value);
 
-                {/* ✅ Feedback */}
-                {(session.distance_adjustment_m ?? 0) > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    GPS: {metersFmt(session.total_distance_m)} → Adjusted:{" "}
-                    {metersFmt((session.total_distance_m ?? 0) + (session.distance_adjustment_m ?? 0))} (+
-                    {session.distance_adjustment_m}m, {session.distance_adjustment_mode})
-                  </p>
-                )}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+              await supabase
+                .from("sessions")
+                .update({ distance_adjustments: updated })
+                .eq("id", session.id);
 
+              qc.invalidateQueries({ queryKey: ["session", sessionId] });
+            }}
+          />
+
+          <Input
+            type="number"
+            value={adj.meters}
+            placeholder="+m"
+            className="w-20"
+            onChange={async (e) => {
+              const updated = [...(session.distance_adjustments ?? [])];
+              updated[i].meters = Number(e.target.value);
+
+              await supabase
+                .from("sessions")
+                .update({ distance_adjustments: updated })
+                .eq("id", session.id);
+
+              qc.invalidateQueries({ queryKey: ["session", sessionId] });
+            }}
+          />
+
+          <span className="text-xs text-muted-foreground">
+            m
+          </span>
+
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={async () => {
+              const updated = (session.distance_adjustments ?? []).filter(
+                (_: any, idx: number) => idx !== i
+              );
+
+              await supabase
+                .from("sessions")
+                .update({ distance_adjustments: updated })
+                .eq("id", session.id);
+
+              qc.invalidateQueries({ queryKey: ["session", sessionId] });
+            }}
+          >
+            ✕
+          </Button>
+        </div>
+      ))}
+
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={async () => {
+          const updated = [
+            ...(session.distance_adjustments ?? []),
+            { split_km: 1, meters: 50 },
+          ];
+
+          await supabase
+            .from("sessions")
+            .update({ distance_adjustments: updated })
+            .eq("id", session.id);
+
+          qc.invalidateQueries({ queryKey: ["session", sessionId] });
+        }}
+      >
+        + Add correction
+      </Button>
+    </div>
+  </div>
+</CardContent>
+<Card>
         {session.notes && (
           <Card>
             <CardContent className="pt-4 text-sm">{session.notes}</CardContent>
