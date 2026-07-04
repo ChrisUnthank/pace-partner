@@ -307,9 +307,25 @@ function RaceAnalysisPage() {
                     </div>
 
                     {/* ✅ coloured bar */}
-                    <div className="h-2 bg-gray-200 rounded">
-                      <div className={`h-2 rounded ${color}`} style={{ width: `${width}%` }} />
-                    </div>
+                    <div className="relative h-2 bg-gray-200 rounded overflow-hidden">
+  {/* ✅ Pace bar */}
+  <div
+    className={`absolute left-0 top-0 h-full rounded ${color}`}
+    style={{ width: `${width}%` }}
+  />
+
+  {/* ✅ NEW: HR marker (dot) */}
+  {s.avgHr && (
+    <div*      class*ame="absolute top*1/2*-translate-y-1/2 w*2 h-2 rounded*full bg-blue-400 shadow*
+      style={{
+        left* `${Math.min(
+          Math*max*(s.avgHr -*120) / (190*- 120), 0*,
+          1
+       *) * 100*%`,
+      }}
+    />
+  )}
+*/*iv>
                   </div>
                 );
               })}
