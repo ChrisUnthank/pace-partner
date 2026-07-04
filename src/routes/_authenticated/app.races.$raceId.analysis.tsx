@@ -234,27 +234,11 @@ if (totalAdjustment !== 0 && splits.length > 0) {
       gpsInsight = "⚠️ GPS data low resolution — splits less reliable";
     }
 
-
-  if (mode === "start" && i < 2) {
-    const splitsAffected = Math.min(2, autoSplits.length);
-    const perSplit = totalAdjustment / splitsAffected;
-
-    adjustedTime += perSplit * avgPacePerMeter;
-  }
-
-  if (mode === "end" && i >= autoSplits.length - 2) {
-    const splitsAffected = Math.min(2, autoSplits.length);
-    const perSplit = totalAdjustment / splitsAffected;
-
-    adjustedTime += perSplit * avgPacePerMeter;
-  }
-}
-return {
+    return {
       start: startInsight,
       pacing: pacingSummary,
       gps: gpsInsight,
     };
-   
   }, [autoSplits, rawPoints]);
 
   if (isLoading) {
