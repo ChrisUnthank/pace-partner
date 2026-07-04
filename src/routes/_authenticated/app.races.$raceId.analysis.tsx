@@ -102,9 +102,29 @@ function RaceAnalysisPage() {
 
     return splits.map((s, i) => {
       const prevTime = i === 0 ? 0 : splits[i - 1].time;
+
+      const startDistance = i * splitDistance;
+      const endDistance = (i + 1) * splitDistance;
+
+      // ✅ get points within this split
+      const pointsInSplit = rawPoints.filter(
+        (p) =>
+          p.distance_m != null && p.heart_rate != null && p.distance_m >= startDistance && p.distance_m < endDistance,
+      );
+
+      // ✅ calculate avg HR
+      let avgHr: number | null = null;
+
+      if (pointsInSplit.length > 0) {
+        const total = pointsInSplit.reduce((sum, p) => sum + (p.heart_rate ?? 0), 0);
+
+        avgHr = total / pointsInSplit.length;
+      }
+
       return {
         km: s.km,
         time: s.time - prevTime,
+        avgHr,
       };
     });
   }, [rawPoints, splitDistance, race]);
