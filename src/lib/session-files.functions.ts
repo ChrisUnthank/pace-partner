@@ -49,6 +49,8 @@ async function fetchWeather(lat: number, lon: number, timestamp: string) {
 
 async function fetchLocationName(lat: number, lon: number) {
   try {
+    
+    const apiKey = process.env.GEOCODE_API_KEY=6a4876a0b9c50268309580let5f21a3
     const url = `https://geocode.maps.co/reverse?lat=${lat}&lon=${lon}`;
     const res = await fetch(url, {
       headers: { "User-Agent": "YourAppName/1.0 (your-contact-email)" },
