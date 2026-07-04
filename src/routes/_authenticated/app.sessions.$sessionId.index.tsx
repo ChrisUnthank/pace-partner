@@ -618,7 +618,7 @@ function SessionDetail() {
                 </div>
 
                 {/* ✅ Feedback */}
-                {session.distance_adjustment_m > 0 && (
+                {(session.distance_adjustment_m ?? 0) > 0 && (
                   <p className="text-xs text-muted-foreground">
                     Applying +{session.distance_adjustment_m}m ({session.distance_adjustment_mode})
                   </p>
