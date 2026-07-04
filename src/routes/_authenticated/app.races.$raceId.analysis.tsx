@@ -109,14 +109,14 @@ function RaceAnalysisPage() {
       // ✅ get points within this split
       const pointsInSplit = rawPoints.filter(
         (p) =>
-          p.distance_m != null && p.heart_rate != null && p.distance_m >= startDistance && p.distance_m < endDistance,
+          p.distance_m != null && p.hr != null && p.distance_m >= startDistance && p.distance_m < endDistance,
       );
 
       // ✅ calculate avg HR
       let avgHr: number | null = null;
 
       if (pointsInSplit.length > 0) {
-        const total = pointsInSplit.reduce((sum, p) => sum + (p.heart_rate ?? 0), 0);
+        const total = pointsInSplit.reduce((sum, p) => sum + (p.hr ?? 0), 0);
 
         avgHr = total / pointsInSplit.length;
       }
