@@ -446,7 +446,28 @@ function SessionDetail() {
                         Completed
                       </Badge>
                     )}
+                    {session.day_type === "race" && session.completed_at && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={async () => {
+                          const { data } = await (supabase as any)
+                            .from("performances")
+                            .select("id")
+                            .eq("session_id", sessionId)
+                            .maybeSingle();
 
+                          if (!data?.id) {
+                            console.log("No race found yet");
+                            return;
+                          }
+
+                          window.location.href = `/app/races/${data.id}`;
+                        }}
+                      >
+                        🏁 Race analysis
+                      </Button>
+                    )}
                     {session.completed_at && session.rpe != null && (
                       <Badge variant="outline" className="font-normal">
                         RPE {session.rpe}/10
