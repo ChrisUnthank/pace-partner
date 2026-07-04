@@ -286,31 +286,26 @@ function RaceAnalysisPage() {
         </div>
 
         <Card>
-  <CardHeader>
-    <CardTitle className="text-base">Summary</CardTitle>
-  </CardHeader>
+          <CardHeader>
+            <CardTitle className="text-base">Summary</CardTitle>
+          </CardHeader>
 
-  <CardContent className="grid grid-cols-3 gap-4">
-    <Stat label="Distance" value={metersFmt(race.distance_m)} />
-    <Stat label="Time" value={secToClock(race.time_seconds)} />
-    <Stat label="Avg pace" value={paceFmt(avgPace)} />
+          <CardContent className="grid grid-cols-3 gap-4">
+            <Stat label="Distance" value={metersFmt(race.distance_m)} />
+            <Stat label="Time" value={secToClock(race.time_seconds)} />
+            <Stat label="Avg pace" value={paceFmt(avgPace)} />
 
-    {/* ✅ NEW: correction display */}
-    {session?.distance_adjustme*t_m > 0 && (
-      <div className=*col-span-3">
-        <p className=*text-xs text-muted-foreground">
-  *       GPS: {metersFmt(session.tot*l_distance_m)} · Adjusted:{" "}
-  *       {metersFmt(
-            (se*sion.total_distance_m ?? 0) +
-    *       (session.distance_adjustmen*_m ?? 0)
-          )}{" "}
-       *  (+{session.distance_adjustment_m*m,{" "}
-          {session.distanc*_adjustment_mode})
-        </p>
-  *   </div>
-    )}
-  </CardContent>
-*/Card>
+            {session?.distance_adjustment_m > 0 && (
+              <div className="col-span-3">
+                <p className="text-xs text-muted-foreground">
+                  GPS: {metersFmt(session.total_distance_m)} · Adjusted:{" "}
+                  {metersFmt((session.total_distance_m ?? 0) + (session.distance_adjustment_m ?? 0))}{" "}
+                  (+{session.distance_adjustment_m}m, {session.distance_adjustment_mode})
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {pacingInsight && (
           <Card>
@@ -379,20 +374,17 @@ function RaceAnalysisPage() {
                         <span className="text-xs text-blue-400">{s.avgHr ? `${Math.round(s.avgHr)} bpm` : "--"}</span>
 
                         
-<span*className="font-medium flex items-*enter gap-1">
-  {secToClock(s.time*}
-
-  {/* ✅ NEW: adjusted indicator**/}
-  {session?.distance_adjustmen*_m > 0 && (
-    <span
-      className="text-[10px] text-muted-foreground"
-      title="Time adjusted due to distance correction"
-    >
-      *
-    </span>
-  )}
-</span>
-
+                        <span className="font-medium flex items-center gap-1">
+                          {secToClock(s.time)}
+                          {session?.distance_adjustment_m > 0 && (
+                            <span
+                              className="text-[10px] text-muted-foreground"
+                              title="Time adjusted due to distance correction"
+                            >
+                              *
+                            </span>
+                          )}
+                        </span>
                       </div>
                     </div>
 
