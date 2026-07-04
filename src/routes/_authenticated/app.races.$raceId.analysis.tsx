@@ -156,32 +156,44 @@ function RaceAnalysisPage() {
       }
 
       // ✅ DISTANCE ADJUSTMENT ENGINE
-      const totalAdjustment = session?.distance_adjustment_m ?? 0;
-
-      const mode = session?.distance_adjustment_mode ?? "uniform";
-
       const baseDistance = race?.distance_m ?? 1;
 
       const avgPacePerMeter = baseDistance > 0 ? (race?.time_seconds ?? 0) / baseDistance : 0;
 
       let adjustedTime = s.time;
 
-      if (totalAdjustment !== 0 && splits.length > 0) {
-        if (mode === "uniform") {
-          const perSplit = totalAdjustment / splits.length;
-          adjustedTime += perSplit * avgPacePerMeter;
-        }
+      // ✅ NEW: split-level corrections
+      const splitAdjustments = session?.distance_adjustments ?? [];
 
-        if (mode === "start" && i < 2) {
-          const splitsAffected = Math.min(2, splits.length);
-          const perSplit = totalAdjustment / splitsAffected;
-          adjustedTime += perSplit * avgPacePerMeter;
+      // apply specific corrections
+      for (const adj of splitAdjustments) {
+        if (adj.split_km === s.km) {
+          adjustedTime += adj.meters * avgPacePerMeter;
         }
+      }
 
-        if (mode === "end" && i >= splits.length - 2) {
-          const splitsAffected = Math.min(2, splits.length);
-          const perSplit = totalAdjustment / splitsAffected;
-          adjustedTime += perSplit * avgPacePerMeter;
+      // ✅ FALLBACK (old system still works if no split adjustments)
+      if (splitAdjustments.length === 0) {
+        const totalAdjustment = session?.distance_adjustment_m ?? 0;
+        const mode = session?.distance_adjustment_mode ?? "uniform";
+
+        if (totalAdjustment !== 0 && splits.length > 0) {
+          if (mode === "uniform") {
+            const perSplit = totalAdjustment / splits.length;
+            adjustedTime += perSplit * avgPacePerMeter;
+          }
+
+          if (mode === "start" && i < 2) {
+            const splitsAffected = Math.min(2, splits.length);
+            const perSplit = totalAdjustment / splitsAffected;
+            adjustedTime += perSplit * avgPacePerMeter;
+          }
+
+          if (mode === "end" && i >= splits.length - 2) {
+            const splitsAffected = Math.min(2, splits.length);
+            const perSplit = totalAdjustment / splitsAffected;
+            adjustedTime += perSplit * avgPacePerMeter;
+          }
         }
       }
 
