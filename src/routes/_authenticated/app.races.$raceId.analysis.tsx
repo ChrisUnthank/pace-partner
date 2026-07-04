@@ -139,7 +139,7 @@ function RaceAnalysisPage() {
       const totalAdjustment = session?.distance_adjustment_m ?? 0;
       const mode = session?.distance_adjustment_mode ?? "uniform";
 
-      const avgPacePerMeter = (race?.time_seconds ?? 0) / (race?.distance_m ?? 1);
+      const baseDistance = race?.distance_m ?? 1;
 
       const avgPacePerMeter = baseDistance > 0 ? (race?.time_seconds ?? 0) / baseDistance : 0;
 
