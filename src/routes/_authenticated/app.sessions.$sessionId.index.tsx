@@ -576,7 +576,54 @@ function SessionDetail() {
                     : "—"}
                 </div>
               </div>
+              {/* ✅ Distance correction */}
+              <div className="border-t pt-3 space-y-2">
+                <Label className="text-xs text-muted-foreground">Distance correction (m)</Label>
 
+                <Input
+                  type="number"
+                  placeholder="e.g. 210"
+                  defaultValue={session.distance_adjustment_m ?? ""}
+                  onBlur={async (e) => {
+                    const val = Number(e.target.value) || 0;
+
+                    await supabase.from("sessions").update({ distance_adjustment_m: val }).eq("id", session.id);
+
+                    qc.invalidateQueries({ queryKey: ["session", sessionId] });
+                  }}
+                />
+
+                {/* ✅ Mode select */}
+                <div>
+                  <Label className="text-xs text-muted-foreground">Correction method</Label>
+
+                  <Select
+                    value={session.distance_adjustment_mode ?? "uniform"}
+                    onValueChange={async (val) => {
+                      await supabase.from("sessions").update({ distance_adjustment_mode: val }).eq("id", session.id);
+
+                      qc.invalidateQueries({ queryKey: ["session", sessionId] });
+                    }}
+                  >
+                    <SelectTrigger className="w-full text-xs h-8">
+                      <SelectValue />
+                    </SelectTrigger>
+
+                    <SelectContent>
+                      <SelectItem value="uniform">Spread evenly</SelectItem>
+                      <SelectItem value="start">Start GPS delay</SelectItem>
+                      <SelectItem value="end">Finish GPS error</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* ✅ Feedback */}
+                {session.distance_adjustment_m > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Applying +{session.distance_adjustment_m}m ({session.distance_adjustment_mode})
+                  </p>
+                )}
+              </div>
               <div className="border rounded-lg px-3 py-2">
                 <div className="text-xs text-muted-foreground">RPE</div>
                 <div className="text-lg font-semibold tabular-nums">{session.rpe ?? "—"}</div>
