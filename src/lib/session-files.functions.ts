@@ -1203,24 +1203,28 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   let locationName: string | null = null;
 
   if (mergedPoints.length > 0) {
-    // ✅ Find FIRST valid GPS point anywhere in the file
-    let firstPoint: { lat: number | null; lng: number | null } | null = null;
+    // ✅ Take a sample of early points instead of just first
+    const sample = mergedPoints.slice(0, 200);
 
-    for (const p of mergedPoints) {
-      if (
+    // ✅ Get ALL usable GPS points
+    const validPoints = sample.filter(
+      (p) =>
         typeof p.lat === "number" &&
         typeof p.lng === "number" &&
         p.lat !== 0 &&
         p.lng !== 0 &&
         Math.abs(p.lat) <= 90 &&
-        Math.abs(p.lng) <= 180
-      ) {
-        firstPoint = { lat: p.lat, lng: p.lng };
-        break; // ✅ stop at first valid
-      }
+        Math.abs(p.lng) <= 180,
+    );
+
+    // ✅ Use the MEDIAN point (more stable than first/middle)
+    let firstPoint = null;
+
+    if (validPoints.length > 0) {
+      firstPoint = validPoints[Math.floor(validPoints.length / 2)];
     }
 
-    console.log("GPS DEBUG:", firstPoint);
+    console.log("GPS DEBUG FINAL:", firstPoint);
 
     if (firstPoint && parsedFiles[0]?.parsed?.startedAt) {
       const lat = firstPoint.lat!;
@@ -1233,7 +1237,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
 
       locationName = await fetchLocationName(lat, lng);
     } else {
-      console.log("No valid GPS found in file");
+      console.log("No valid GPS point after sampling");
     }
   }
 
