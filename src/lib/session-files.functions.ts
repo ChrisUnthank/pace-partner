@@ -1226,7 +1226,6 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
     console.log("No usable GPS point");
   }
 }
-`
 
   const { error: updErr } = await sb
     .from("sessions")
