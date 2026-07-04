@@ -579,7 +579,23 @@ function SessionDetail() {
                     </>
                   </div>
                 </div>
+                {/* ✅ TEMP: Apply split-level correction (testing) */}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={async () => {
+                    const adjustments = [
+                      { split_km: 1, meters: 140 },
+                      { split_km: 4, meters: 70 },
+                    ];
 
+                    await supabase.from("sessions").update({ distance_adjustments: adjustments }).eq("id", session.id);
+
+                    qc.invalidateQueries({ queryKey: ["session", sessionId] });
+                  }}
+                >
+                  Apply test split corrections
+                </Button>
                 {/* Pace (✅ adjusted) */}
                 <div className="border rounded-lg px-3 py-2">
                   <div className="text-xs text-muted-foreground">Pace</div>

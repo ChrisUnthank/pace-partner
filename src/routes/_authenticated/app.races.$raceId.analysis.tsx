@@ -162,10 +162,8 @@ function RaceAnalysisPage() {
 
       let adjustedTime = s.time;
 
-      // ✅ NEW: split-level corrections
       const splitAdjustments = session?.distance_adjustments ?? [];
 
-      // apply specific corrections
       for (const adj of splitAdjustments) {
         if (adj.split_km === s.km) {
           adjustedTime += adj.meters * avgPacePerMeter;
