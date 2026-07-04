@@ -279,10 +279,9 @@ function RaceAnalysisPage() {
                       <span className="text-muted-foreground">{isTrackRace ? `Lap ${s.km}` : `Km ${s.km}`}</span>
 
                       <div className="flex items-center gap-3">
-                        {/* ✅ NEW: HR (temporary placeholder for now) */}
-                        <span className="text-xs text-blue-400">--</span>
+                        {/* ✅ Placeholder for HR — will wire real data next */}
+                        <span className="text-xs text-blue-400">-- bpm</span>
 
-                        {/* ✅ existing pace */}
                         <span className="font-medium">{secToClock(s.time)}</span>
                       </div>
                     </div>
