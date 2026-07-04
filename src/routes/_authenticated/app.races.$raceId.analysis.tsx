@@ -34,7 +34,19 @@ function RaceAnalysisPage() {
   });
 
   const [splits, setSplits] = useState<Split[]>([newSplit()]);
+  const { data: session } = useQuery({
+    queryKey: ["session", race?.session_id],
+    enabled: !!race?.session_id,
+    queryFn: async () => {
+      if (!race?.session_id) return null;
 
+      const { data, error } = await supabase.from("sessions").select("*").eq("id", race.session_id).single();
+
+      if (error) throw error;
+
+      return data as any;
+    },
+  });
   const { data: rawPoints = [] } = useQuery({
     queryKey: ["raw-points", race?.session_id],
     enabled: !!race?.session_id,
@@ -64,7 +76,9 @@ function RaceAnalysisPage() {
     setSplits((s) => [...s, newSplit()]);
   }
 
-  const avgPace = race?.distance_m && race?.time_seconds ? (race.time_seconds / race.distance_m) * 1000 : null;
+  const adjustedDistance = (session?.total_distance_m ?? 0) + (session?.distance_adjustment_m ?? 0);
+
+  const avgPace = adjustedDistance && race?.time_seconds ? (race.time_seconds / adjustedDistance) * 1000 : null;
 
   // ✅ Determine split type FIRST
   const isTrackRace = race?.race_type === "track";
@@ -73,6 +87,7 @@ function RaceAnalysisPage() {
   // ✅ Build splits
   const autoSplits = useMemo(() => {
     if (!rawPoints || rawPoints.length === 0 || !race) return [];
+    if (!session) return [];
 
     const splits: Array<{ km: number; time: number }> = [];
     let nextDistanceMark = splitDistance;
@@ -120,32 +135,32 @@ function RaceAnalysisPage() {
 
         avgHr = total / pointsInSplit.length;
       }
-const totalAdjustment = race?.distance_adjustment_m ?? 0;
-const mode = race?.distance_adjustment_mode ?? "uniform";
 
-const avgPacePerMeter =
-  (race?.time_seconds ?? 0) / (race?.distance_m ?? 1);
+      const totalAdjustment = session?.distance_adjustment_m ?? 0;
+      const mode = session?.distance_adjustment_mode ?? "uniform";
 
-let adjustedTime = s.time;
+      const avgPacePerMeter = (race?.time_seconds ?? 0) / (race?.distance_m ?? 1);
 
-if (totalAdjustment !== 0 && splits.length > 0) {
-  if (mode === "uniform") {
-    const perSplit = totalAdjustment / splits.length;
-    adjustedTime += perSplit * avgPacePerMeter;
-  }
+      let adjustedTime = s.time;
 
-  if (mode === "start" && i < 2) {
-    const splitsAffected = Math.min(2, splits.length);
-    const perSplit = totalAdjustment / splitsAffected;
-    adjustedTime += perSplit * avgPacePerMeter;
-  }
+      if (totalAdjustment !== 0 && splits.length > 0) {
+        if (mode === "uniform") {
+          const perSplit = totalAdjustment / splits.length;
+          adjustedTime += perSplit * avgPacePerMeter;
+        }
 
-  if (mode === "end" && i >= splits.length - 2) {
-    const splitsAffected = Math.min(2, splits.length);
-    const perSplit = totalAdjustment / splitsAffected;
-    adjustedTime += perSplit * avgPacePerMeter;
-  }
-}
+        if (mode === "start" && i < 2) {
+          const splitsAffected = Math.min(2, splits.length);
+          const perSplit = totalAdjustment / splitsAffected;
+          adjustedTime += perSplit * avgPacePerMeter;
+        }
+
+        if (mode === "end" && i >= splits.length - 2) {
+          const splitsAffected = Math.min(2, splits.length);
+          const perSplit = totalAdjustment / splitsAffected;
+          adjustedTime += perSplit * avgPacePerMeter;
+        }
+      }
 
       return {
         km: s.km,
@@ -171,7 +186,7 @@ if (totalAdjustment !== 0 && splits.length > 0) {
     const times = autoSplits.map((s) => s.time);
 
     const avg = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
- 
+
     const firstSplit = times[0];
     const secondSplit = times[1];
 
