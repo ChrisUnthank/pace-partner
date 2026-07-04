@@ -49,9 +49,13 @@ async function fetchWeather(lat: number, lon: number, timestamp: string) {
 
 async function fetchLocationName(lat: number, lon: number) {
   try {
-    const url = `https://geocode.maps.co/reverse?lat=${lat}&lon=${lon}`;
+    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`;
+
     const res = await fetch(url, {
-      headers: { "User-Agent": "YourAppName/1.0 (your-contact-email)" },
+      headers: {
+        // Nominatim's usage policy requires a real identifying User-Agent - no key needed, just this.
+        "User-Agent": "PacePartner/1.0 (chris@unthank.me)",
+      },
     });
 
     if (!res.ok) {
@@ -60,6 +64,7 @@ async function fetchLocationName(lat: number, lon: number) {
     }
 
     const data = await res.json();
+
     return (
       data?.address?.city ||
       data?.address?.town ||
