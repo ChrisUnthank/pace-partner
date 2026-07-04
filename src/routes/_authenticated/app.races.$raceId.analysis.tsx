@@ -276,8 +276,15 @@ function RaceAnalysisPage() {
                   <div key={s.km} className="space-y-1">
                     {/* ✅ label + time */}
                     <div className="flex justify-between text-sm border rounded px-3 py-2">
-                      <span>{isTrackRace ? `Lap ${s.km}` : `Km ${s.km}`}</span>
-                      <span>{secToClock(s.time)}</span>
+                      <span className="text-muted-foreground">{isTrackRace ? `Lap ${s.km}` : `Km ${s.km}`}</span>
+
+                      <div className="flex items-center gap-3">
+                        {/* ✅ NEW: HR (temporary placeholder for now) */}
+                        <span className="text-xs text-blue-400">{s.avgHr ? `${Math.round(s.avgHr)} bpm` : "--"}</span>
+
+                        {/* ✅ existing pace */}
+                        <span className="font-medium">{secToClock(s.time)}</span>
+                      </div>
                     </div>
 
                     {/* ✅ coloured bar */}
