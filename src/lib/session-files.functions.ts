@@ -48,7 +48,6 @@ async function fetchWeather(lat: number, lon: number, timestamp: string) {
 
 async function fetchLocationName(lat: number, lon: number) {
   try {
-    console.log("GEOCODE RESPONSE:", data);
     const url = `https://geocode.maps.co/reverse?lat=${lat}&lon=${lon}`;
 
     const res = await fetch(url);
@@ -59,6 +58,7 @@ async function fetchLocationName(lat: number, lon: number) {
     }
 
     const data = await res.json();
+    console.log("GEOCODE RESPONSE:", data);
 
     return (
       data?.address?.city ||
