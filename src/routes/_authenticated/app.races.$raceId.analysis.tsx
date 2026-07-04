@@ -113,9 +113,7 @@ function RaceAnalysisPage() {
 
       // ✅ calculate avg HR
       let avgHr: number | null = null;
-      const hrSeries = pointsInSplit
-        .map((p) => p.hr)
-        .filter((hr): hr is number => hr != null);
+      const hrSeries = pointsInSplit.map((p) => p.hr).filter((hr): hr is number => hr != null);
 
       if (pointsInSplit.length > 0) {
         const total = pointsInSplit.reduce((sum, p) => sum + (p.hr ?? 0), 0);
@@ -174,13 +172,12 @@ function RaceAnalysisPage() {
       }
     }
 
-
     // ✅ 2. Severe fade detection (matches your RED bars)
-    
-const lastTwo = validTimes.slice(-2);
-const lastAvg = avg(lastTwo);
 
-const severeFade = lastAvg - overallAvg > 8;
+    const lastTwo = validTimes.slice(-2);
+    const lastAvg = avg(lastTwo);
+
+    const severeFade = lastAvg - overallAvg > 8;
 
     let pacingSummary = null;
 
@@ -330,42 +327,49 @@ const severeFade = lastAvg - overallAvg > 8;
 
                     {/* ✅ coloured bar with HR line */}
                     <div className="relative h-2 bg-gray-200 rounded overflow-hidden">
-                      {/* ✅ Pace bar */}
-                      <div className={`absolute left-0 top-0 h-full rounded ${color}`} style={{ width: `${width}%` }} />
+  {/* ✅ Pace bar */}
+  <div
+    className={`absolute left-0 top-0 h-full rounded ${color}`}
+    style={{ width: `${width}%` }}
+  />
 
-                      {/* ✅ HR LINE (replaces dot) */}
-                      {s.hrSeries.length > 2 && (
-                        <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
-                          <polyline
-                            points={s.hrSeries
-                              .map((hr, i) => {
-                                const x = (i / (s.hrSeries.length - 1)) * 100;
-                                const minHr = 120;
-                                const maxHr = 190;
-                                const y = 100 - ((hr - minHr) / (maxHr - minHr)) * 100;
-
-                                return `${x},${y}`;
-                              })
-                              .join(" ")}
-                            fill="none"
-                            stroke="var(--accent-red)"
-                            strokeWidth="1.5"
-                            strokeDasharray="3 3"
-                            opacity="0.8"
-                          />
-                        </svg>
-                      )}
-
-                      {/* ✅ FALLBACK: heart if no hrSeries yet */}
-                      {s.hrSeries.length === 0 && s.avgHr && (
-                        <div
-                          className="absolute top-1/2 -translate-y-1/2"
-                          style={{
-                            left: `${Math.min(Math.max((s.avgHr - 120) / (190 - 120), 0), 1) * 100}%`,
-                          }}
-                        >
-                          <Heart className="h-3 w-3 text-[var(--accent-red)] fill-[var(--accent-red)]" />
-                        </div>
+  {/* ✅ HR LINE (only if enough points) */}
+  {Array.isArray(s.hrSeries) && s.hrSeries.length >= 5 ? (
+    <svg
+      className="absolute inset-0 w-full h-full"
+      viewBox="0 0 100 100"
+      preserveAspectRatio="none"
+    >
+      <polyline
+        points={s.hrSeries
+          .map((hr, i) => {
+            const x = (i / (s.hrSeries.length - 1)) * 100;
+            const y = 100 - ((hr - 120) / (190 - 120)) * 100;
+            return `${x},${y}`;
+          })
+          .join(" ")}
+        fill="none"
+        stroke="var(--accent-red)"
+        strokeWidth="1.5"
+        strokeDasharray="3 3"
+        opacity="0.8"
+      />
+    </svg>
+  ) : s.avgHr ? (
+    /* ✅ FALLBACK: heart */
+    <div
+      className="absolute top-1/2 -translate-y-1/2"
+      style={{
+        left: `${Math.min(
+          Math.max((s.avgHr - 120) / (190 - 120), 0),
+          1
+        ) * 100}%`,
+      }}
+    >
+      <Heart className="h-3 w-3 text-[var(--accent-red)] fill-[var(--accent-red)]" />
+    </div>
+  ) : null}
+</div>
                       )}
                     </div>
                   </div>
