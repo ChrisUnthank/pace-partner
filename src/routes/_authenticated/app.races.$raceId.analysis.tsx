@@ -314,7 +314,7 @@ function RaceAnalysisPage() {
                 return (
                   <div key={s.km} className="space-y-1">
                     {/* ✅ label + time */}
-                    <div className="flex justify-between text-sm border rounded px-3 py-2">
+                    <div className="flex justify-between text-xs border rounded px-2 py-1">
                       <span className="text-muted-foreground">{isTrackRace ? `Lap ${s.km}` : `Km ${s.km}`}</span>
 
                       <div className="flex items-center gap-3">
@@ -346,10 +346,13 @@ function RaceAnalysisPage() {
                               })
                               .join(" ")}
                             fill="none"
-                            stroke="var(--accent-red)"
-                            strokeWidth="1.5"
-                            strokeDasharray="3 3"
-                            opacity="0.8"
+                            
+stroke="#ffffff"
+  strokeWidth="3"
+  strokeLinecap="round"
+  opacity="1"
+/>
+
                           />
                         </svg>
                       ) : s.avgHr ? (
