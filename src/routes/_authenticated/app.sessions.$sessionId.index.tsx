@@ -145,16 +145,31 @@ function SessionDetail() {
   });
 
   const { data: insight } = useQuery({
-    queryKey: ["session_insights", sessionId],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("session_insights" as any)
-        .select("*")
-        .eq("session_id", sessionId)
-        .maybeSingle();
-      return data as any;
-    },
-  });
+  queryKey: ["session_insights", sessionId],
+  queryFn: async () => {
+    const { data } = await supabase
+      .from("session_insights" as any)
+      .select("*")
+      .eq("session_id",*sessionId)
+      .maybeSingle();
+ *  return data as any;
+  },
+});
+
+//*✅ ✅ ADD THIS HERE
+const { data: ra*e } = useQuery({
+  queryKey: ["race-by-session", sessionId],
+  enable*: !!session && session.day_type ==* "race",
+  queryFn: async () => {
+*   const { data } = await (supabas* as any)
+      .from("performances*)
+      .select("id")
+      .eq("s*ssion_id", sessionId)
+      .maybe*ingle();
+
+    return data;
+  },
+})*
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -290,7 +305,7 @@ function SessionDetail() {
       toast("Add totals to create race");
     }
   }
-  async function saveTitle() {
+    async function saveTitle() {
     if (!session?.id) return;
 
     // ✅ start saving
