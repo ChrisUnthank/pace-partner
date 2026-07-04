@@ -171,7 +171,7 @@ function RaceAnalysisPage() {
         hrSeries,
       };
     });
-  }, [rawPoints, splitDistance, race]);
+  }, [rawPoints, splitDistance, race, session]);
 
   const isFitRace = autoSplits.length > 0;
 
