@@ -497,14 +497,6 @@ function SessionDetail() {
                     </Link>
                   </Button>
                 )}
-                // ✅ ✅ ADD THIS RIGHT HERE
-                {session.day_type === "race" && session.completed_at && race?.id && (
-                  <Button asChild size="sm" variant="outline">
-                    <Link to="/app/races/$raceId" params={{ raceId: race.id }}>
-                      🏁 Race analysis
-                    </Link>
-                  </Button>
-                )}
                 <Button
                   size="sm"
                   variant="destructive"
