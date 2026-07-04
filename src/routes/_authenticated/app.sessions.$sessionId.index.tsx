@@ -767,7 +767,7 @@ function SessionDetail() {
     </div>
   </div>
 </CardContent>
-<Card>
+</Card>
         {session.notes && (
           <Card>
             <CardContent className="pt-4 text-sm">{session.notes}</CardContent>
