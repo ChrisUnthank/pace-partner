@@ -557,26 +557,47 @@ function SessionDetail() {
               </div>
             )}
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-              <div className="border rounded-lg px-3 py-2">
-                <div className="text-xs text-muted-foreground">Time</div>
-                <div className="text-lg font-semibold tabular-nums">{secToClock(session.total_time_seconds || 0)}</div>
-              </div>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                {/* Time */}
+                <div className="border rounded-lg px-3 py-2">
+                  <div className="text-xs text-muted-foreground">Time</div>
+                  <div className="text-lg font-semibold tabular-nums">
+                    {secToClock(session.total_time_seconds || 0)}
+                  </div>
+                </div>
 
-              <div className="border rounded-lg px-3 py-2">
-                <div className="text-xs text-muted-foreground">Distance</div>
-                <div className="text-lg font-semibold tabular-nums">{metersFmt(session.total_distance_m || 0)}</div>
-              </div>
+                {/* Distance (✅ adjusted) */}
+                <div className="border rounded-lg px-3 py-2">
+                  <div className="text-xs text-muted-foreground">Distance</div>
+                  <div className="text-lg font-semibold tabular-nums">
+                    {metersFmt((session.total_distance_m ?? 0) + (session.distance_adjustment_m ?? 0))}
+                  </div>
+                </div>
 
-              <div className="border rounded-lg px-3 py-2">
-                <div className="text-xs text-muted-foreground">Pace</div>
-                <div className="text-lg font-semibold tabular-nums">
-                  {session.total_time_seconds && session.total_distance_m
-                    ? secToClock((session.total_time_seconds / session.total_distance_m) * 1000)
-                    : "—"}
+                {/* Pace (✅ adjusted) */}
+                <div className="border rounded-lg px-3 py-2">
+                  <div className="text-xs text-muted-foreground">Pace</div>
+                  <div className="text-lg font-semibold tabular-nums">
+                    {session.total_time_seconds &&
+                    (session.total_distance_m ?? 0) + (session.distance_adjustment_m ?? 0) > 0
+                      ? secToClock(
+                          (session.total_time_seconds /
+                            ((session.total_distance_m ?? 0) + (session.distance_adjustment_m ?? 0))) *
+                            1000,
+                        )
+                      : "—"}
+                  </div>
+                </div>
+
+                {/* RPE */}
+                <div className="border rounded-lg px-3 py-2">
+                  <div className="text-xs text-muted-foreground">RPE</div>
+                  <div className="text-lg font-semibold tabular-nums">{session.rpe ?? "—"}</div>
                 </div>
               </div>
-              {/* ✅ Distance correction */}
+
+              {/* ✅ DISTANCE CORRECTION BLOCK (OUTSIDE GRID) */}
               <div className="border-t pt-3 space-y-2">
                 <Label className="text-xs text-muted-foreground">Distance correction (m)</Label>
 
@@ -593,8 +614,8 @@ function SessionDetail() {
                   }}
                 />
 
-                {/* ✅ Mode select */}
-                <div>
+                {/* ✅ Correction method */}
+                <div className="space-y-1">
                   <Label className="text-xs text-muted-foreground">Correction method</Label>
 
                   <Select
@@ -618,15 +639,13 @@ function SessionDetail() {
                 </div>
 
                 {/* ✅ Feedback */}
-                {(session.distance_adjustment_m ?? 0) > 0 && (
+                {session.distance_adjustment_m > 0 && (
                   <p className="text-xs text-muted-foreground">
-                    Applying +{session.distance_adjustment_m}m ({session.distance_adjustment_mode})
+                    GPS: {metersFmt(session.total_distance_m)} → Adjusted:{" "}
+                    {metersFmt((session.total_distance_m ?? 0) + (session.distance_adjustment_m ?? 0))} (+
+                    {session.distance_adjustment_m}m, {session.distance_adjustment_mode})
                   </p>
                 )}
-              </div>
-              <div className="border rounded-lg px-3 py-2">
-                <div className="text-xs text-muted-foreground">RPE</div>
-                <div className="text-lg font-semibold tabular-nums">{session.rpe ?? "—"}</div>
               </div>
             </div>
           </CardContent>
