@@ -571,7 +571,12 @@ function SessionDetail() {
                 <div className="border rounded-lg px-3 py-2">
                   <div className="text-xs text-muted-foreground">Distance</div>
                   <div className="text-lg font-semibold tabular-nums">
-                    {metersFmt((session.total_distance_m ?? 0) + (session.distance_adjustment_m ?? 0))}
+                    <>
+                      {metersFmt((session.total_distance_m ?? 0) + (session.distance_adjustment_m ?? 0))}
+                      {session.distance_adjustment_m > 0 && (
+                        <span className="text-xs text-muted-foreground ml-1">(+{session.distance_adjustment_m}m)</span>
+                      )}
+                    </>
                   </div>
                 </div>
 
