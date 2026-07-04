@@ -346,13 +346,10 @@ function RaceAnalysisPage() {
                               })
                               .join(" ")}
                             fill="none"
-                            
-stroke="#ffffff"
-  strokeWidth="3"
-  strokeLinecap="round"
-  opacity="1"
-/>
-
+                            stroke="#ffffff"
+                            strokeWidth="3"
+                            strokeLinecap="round"
+                            opacity="1"
                           />
                         </svg>
                       ) : s.avgHr ? (
