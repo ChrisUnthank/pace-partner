@@ -589,7 +589,7 @@ function SessionDetail() {
                       { split_km: 4, meters: 70 },
                     ];
 
-                    await supabase.from("sessions").update({ distance_adjustments: adjustments }).eq("id", session.id);
+                    await supabase.from("sessions").update({ distance_adjustments: adjustments } as any).eq("id", session.id);
 
                     qc.invalidateQueries({ queryKey: ["session", sessionId] });
                   }}
