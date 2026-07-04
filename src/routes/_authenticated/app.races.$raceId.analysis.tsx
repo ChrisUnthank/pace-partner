@@ -233,7 +233,7 @@ function RaceAnalysisPage() {
 
   return (
     <AppShell>
-      <div className="space-y-6 max-w-3xl">
+      <div className="space-y-6 max-w-6xl">
         <div className="flex items-center gap-2">
           <Trophy className="h-5 w-5 text-[var(--accent-red)]" />
           <div>
@@ -327,50 +327,44 @@ function RaceAnalysisPage() {
 
                     {/* ✅ coloured bar with HR line */}
                     <div className="relative h-2 bg-gray-200 rounded overflow-hidden">
-  {/* ✅ Pace bar */}
-  <div
-    className={`absolute left-0 top-0 h-full rounded ${color}`}
-    style={{ width: `${width}%` }}
-  />
+                      {/* ✅ Pace bar */}
+                      <div className={`absolute left-0 top-0 h-full rounded ${color}`} style={{ width: `${width}%` }} />
 
-  {/* ✅ HR LINE (only if enough points) */}
-  {Array.isArray(s.hrSeries) && s.hrSeries.length >= 5 ? (
-    <svg
-      className="absolute inset-0 w-full h-full"
-      viewBox="0 0 100 100"
-      preserveAspectRatio="none"
-    >
-      <polyline
-        points={s.hrSeries
-          .map((hr, i) => {
-            const x = (i / (s.hrSeries.length - 1)) * 100;
-            const y = 100 - ((hr - 120) / (190 - 120)) * 100;
-            return `${x},${y}`;
-          })
-          .join(" ")}
-        fill="none"
-        stroke="var(--accent-red)"
-        strokeWidth="1.5"
-        strokeDasharray="3 3"
-        opacity="0.8"
-      />
-    </svg>
-  ) : s.avgHr ? (
-    /* ✅ FALLBACK: heart */
-    <div
-      className="absolute top-1/2 -translate-y-1/2"
-      style={{
-        left: `${Math.min(
-          Math.max((s.avgHr - 120) / (190 - 120), 0),
-          1
-        ) * 100}%`,
-      }}
-    >
-      <Heart className="h-3 w-3 text-[var(--accent-red)] fill-[var(--accent-red)]" />
-    </div>
-  ) : null}
-</div>
+                      {/* ✅ HR LINE (only if enough points) */}
+                      {Array.isArray(s.hrSeries) && s.hrSeries.length >= 5 ? (
+                        <svg
+                          className="absolute inset-0 w-full h-full"
+                          viewBox="0 0 100 100"
+                          preserveAspectRatio="none"
+                        >
+                          <polyline
+                            points={s.hrSeries
+                              .map((hr, i) => {
+                                const x = (i / (s.hrSeries.length - 1)) * 100;
+                                const y = 100 - ((hr - 120) / (190 - 120)) * 100;
+                                return `${x},${y}`;
+                              })
+                              .join(" ")}
+                            fill="none"
+                            stroke="var(--accent-red)"
+                            strokeWidth="1.5"
+                            strokeDasharray="3 3"
+                            opacity="0.8"
+                          />
+                        </svg>
+                      ) : s.avgHr ? (
+                        /* ✅ FALLBACK: heart */
+                        <div
+                          className="absolute top-1/2 -translate-y-1/2"
+                          style={{
+                            left: `${Math.min(Math.max((s.avgHr - 120) / (190 - 120), 0), 1) * 100}%`,
+                          }}
+                        >
+                          <Heart className="h-3 w-3 text-[var(--accent-red)] fill-[var(--accent-red)]" />
+                        </div>
+                      ) : null}
                     </div>
+                  </div>
                 );
               })}
             </CardContent>
