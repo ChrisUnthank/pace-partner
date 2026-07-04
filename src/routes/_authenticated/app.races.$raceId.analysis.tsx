@@ -370,9 +370,7 @@ function RaceAnalysisPage() {
     </div>
   ) : null}
 </div>
-                      )}
                     </div>
-                  </div>
                 );
               })}
             </CardContent>
