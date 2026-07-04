@@ -92,6 +92,7 @@ function RaceAnalysisPage() {
     const splits: Array<{ km: number; time: number }> = [];
     let nextDistanceMark = splitDistance;
 
+    // ✅ MAIN LOOP — build full splits
     for (let i = 1; i < rawPoints.length; i++) {
       const prev = rawPoints[i - 1];
       const curr = rawPoints[i];
@@ -103,7 +104,8 @@ function RaceAnalysisPage() {
         const distanceDiff = curr.distance_m - prev.distance_m;
         const timeDiff = curr.elapsed_s - prev.elapsed_s;
 
-        const ratio = (nextDistanceMark - prev.distance_m) / distanceDiff;
+        const ratio = distanceDiff > 0 ? (nextDistanceMark - prev.distance_m) / distanceDiff : 0;
+
         const interpolatedTime = prev.elapsed_s + ratio * timeDiff;
 
         splits.push({
@@ -115,19 +117,36 @@ function RaceAnalysisPage() {
       }
     }
 
+    // ✅ ✅ ADD FINAL PARTIAL SPLIT (FIXES YOUR 400m PROBLEM)
+    const lastPoint = rawPoints[rawPoints.length - 1];
+
+    if (lastPoint?.distance_m && lastPoint?.elapsed_s) {
+      const coveredDistance = splits.length * splitDistance;
+      const remainingDistance = lastPoint.distance_m - coveredDistance;
+
+      // ✅ avoid tiny GPS noise (e.g. <250m)
+      if (remainingDistance > splitDistance * 0.25) {
+        splits.push({
+          km: splits.length + 1,
+          time: lastPoint.elapsed_s,
+        });
+      }
+    }
+
+    // ✅ PROCESS SPLITS (HR + adjustments)
     return splits.map((s, i) => {
       const prevTime = i === 0 ? 0 : splits[i - 1].time;
 
       const startDistance = i * splitDistance;
       const endDistance = (i + 1) * splitDistance;
 
-      // ✅ get points within this split
+      // ✅ HR calculation
       const pointsInSplit = rawPoints.filter(
         (p) => p.distance_m != null && p.hr != null && p.distance_m >= startDistance && p.distance_m < endDistance,
       );
 
-      // ✅ calculate avg HR
       let avgHr: number | null = null;
+
       const hrSeries = pointsInSplit.map((p) => p.hr).filter((hr): hr is number => hr != null);
 
       if (pointsInSplit.length > 0) {
@@ -136,7 +155,9 @@ function RaceAnalysisPage() {
         avgHr = total / pointsInSplit.length;
       }
 
+      // ✅ DISTANCE ADJUSTMENT ENGINE
       const totalAdjustment = session?.distance_adjustment_m ?? 0;
+
       const mode = session?.distance_adjustment_mode ?? "uniform";
 
       const baseDistance = race?.distance_m ?? 1;
