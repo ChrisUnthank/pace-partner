@@ -379,7 +379,7 @@ function RaceAnalysisPage() {
                         <span className="font-medium flex items-center gap-1">
                           {secToClock(s.time)}
 
-                          {isSplitAdjusted(session, s, autoSplits) && (
+                          {(session?.distance_adjustment_m ?? 0) !== 0 && (
                             <span
                               className="text-[10px] text-muted-foreground"
                               title="Time adjusted due to distance correction"
