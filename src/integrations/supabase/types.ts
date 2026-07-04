@@ -1100,6 +1100,7 @@ export type Database = {
           conditions: Json | null
           context: string | null
           created_at: string
+          distance_adjustment_mode: string | null
           distance_m: number
           event_name: string | null
           field_size: number | null
@@ -1122,6 +1123,7 @@ export type Database = {
           conditions?: Json | null
           context?: string | null
           created_at?: string
+          distance_adjustment_mode?: string | null
           distance_m: number
           event_name?: string | null
           field_size?: number | null
@@ -1144,6 +1146,7 @@ export type Database = {
           conditions?: Json | null
           context?: string | null
           created_at?: string
+          distance_adjustment_mode?: string | null
           distance_m?: number
           event_name?: string | null
           field_size?: number | null
