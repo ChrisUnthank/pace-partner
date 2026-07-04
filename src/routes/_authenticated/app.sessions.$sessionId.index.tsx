@@ -462,7 +462,7 @@ function SessionDetail() {
                             return;
                           }
 
-                          window.location.href = `/app/races/${data.id}`;
+                          window.location.href = `/app/races/${data.id}/analysis`;
                         }}
                       >
                         🏁 Race analysis
