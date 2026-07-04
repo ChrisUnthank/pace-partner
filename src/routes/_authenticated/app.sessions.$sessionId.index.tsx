@@ -501,9 +501,11 @@ function SessionDetail() {
                   </Button>
                 )}
 
-                {session.day_type === "race" && session.completed_at && (
+                {session.day_type === "race" && session.completed_at && race?.id && (
                   <Button asChild size="sm" variant="outline">
-                    <Link to="/app/races">Race analysis</Link>
+                    <Link to="/app/races/$raceId" params={{ raceId: race.id }}>
+                      Race analysis
+                    </Link>
                   </Button>
                 )}
 
