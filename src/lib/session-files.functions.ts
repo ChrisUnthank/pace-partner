@@ -9,9 +9,14 @@ function semicirclesToDegrees(sc: number | null | undefined): number | null {
 async function fetchWeather(lat: number, lon: number, timestamp: string) {
   try {
     const date = new Date(timestamp);
-    const day = date.toISOString().slice(0, 10); // YYYY-MM-DD
+    const target = date.getTime();
+    const day = date.toISOString().slice(0, 10);
 
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=temperature_2m,wind_speed_10m&start_date=${day}&end_date=${day}&timezone=auto`;
+    const daysAgo = (Date.now() - target) / 86_400_000;
+    const base =
+      daysAgo > 5 ? "https://archive-api.open-meteo.com/v1/archive" : "https://api.open-meteo.com/v1/forecast";
+
+    const url = `${base}?latitude=${lat}&longitude=${lon}&hourly=temperature_2m,wind_speed_10m&start_date=${day}&end_date=${day}&timezone=UTC`;
 
     const res = await fetch(url);
     if (!res.ok) {
@@ -25,21 +30,17 @@ async function fetchWeather(lat: number, lon: number, timestamp: string) {
     const winds: (number | null)[] = data?.hourly?.wind_speed_10m ?? [];
     if (!times.length) return { temp: null, wind: null };
 
-    const target = date.getTime();
     let bestIdx = 0;
     let bestDelta = Infinity;
     for (let i = 0; i < times.length; i++) {
-      const d = Math.abs(new Date(times[i]).getTime() - target);
+      const d = Math.abs(new Date(times[i] + "Z").getTime() - target); // <-- append Z
       if (d < bestDelta) {
         bestDelta = d;
         bestIdx = i;
       }
     }
 
-    return {
-      temp: temps[bestIdx] ?? null,
-      wind: winds[bestIdx] ?? null,
-    };
+    return { temp: temps[bestIdx] ?? null, wind: winds[bestIdx] ?? null };
   } catch (err) {
     console.error("Weather fetch failed", err);
     return { temp: null, wind: null };
@@ -49,8 +50,9 @@ async function fetchWeather(lat: number, lon: number, timestamp: string) {
 async function fetchLocationName(lat: number, lon: number) {
   try {
     const url = `https://geocode.maps.co/reverse?lat=${lat}&lon=${lon}`;
-
-    const res = await fetch(url);
+    const res = await fetch(url, {
+      headers: { "User-Agent": "YourAppName/1.0 (your-contact-email)" },
+    });
 
     if (!res.ok) {
       console.error("Location fetch failed:", res.status);
@@ -58,8 +60,6 @@ async function fetchLocationName(lat: number, lon: number) {
     }
 
     const data = await res.json();
-    console.log("GEOCODE RESPONSE:", data);
-
     return (
       data?.address?.city ||
       data?.address?.town ||
@@ -1203,11 +1203,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   let locationName: string | null = null;
 
   if (mergedPoints.length > 0) {
-    // ✅ Take a sample of early points instead of just first
-    const sample = mergedPoints.slice(0, 200);
-
-    // ✅ Get ALL usable GPS points
-    const validPoints = sample.filter(
+    const withGps = mergedPoints.filter(
       (p) =>
         typeof p.lat === "number" &&
         typeof p.lng === "number" &&
@@ -1217,27 +1213,16 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
         Math.abs(p.lng) <= 180,
     );
 
-    // ✅ Use the MEDIAN point (more stable than first/middle)
-    let firstPoint = null;
-
-    if (validPoints.length > 0) {
-      firstPoint = validPoints[Math.floor(validPoints.length / 2)];
-    }
-
-    console.log("GPS DEBUG FINAL:", firstPoint);
+    // prefer a fix from early in the activity, but fall back to anywhere
+    const earlyWindow = withGps.filter((p) => p.elapsed_s <= 300);
+    const candidates = earlyWindow.length > 0 ? earlyWindow : withGps;
+    const firstPoint = candidates.length > 0 ? candidates[Math.floor(candidates.length / 2)] : null;
 
     if (firstPoint && parsedFiles[0]?.parsed?.startedAt) {
-      const lat = firstPoint.lat!;
-      const lng = firstPoint.lng!;
-
-      const weather = await fetchWeather(lat, lng, parsedFiles[0].parsed.startedAt);
-
+      const weather = await fetchWeather(firstPoint.lat!, firstPoint.lng!, parsedFiles[0].parsed.startedAt);
       weatherTemp = weather.temp;
       weatherWind = weather.wind;
-
-      locationName = await fetchLocationName(lat, lng);
-    } else {
-      console.log("No valid GPS point after sampling");
+      locationName = await fetchLocationName(firstPoint.lat!, firstPoint.lng!);
     }
   }
 
