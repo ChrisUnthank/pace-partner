@@ -141,6 +141,8 @@ function RaceAnalysisPage() {
 
       const avgPacePerMeter = (race?.time_seconds ?? 0) / (race?.distance_m ?? 1);
 
+      const avgPacePerMeter = baseDistance > 0 ? (race?.time_seconds ?? 0) / baseDistance : 0;
+
       let adjustedTime = s.time;
 
       if (totalAdjustment !== 0 && splits.length > 0) {
@@ -299,8 +301,8 @@ function RaceAnalysisPage() {
               <div className="col-span-3">
                 <p className="text-xs text-muted-foreground">
                   GPS: {metersFmt(session.total_distance_m)} · Adjusted:{" "}
-                  {metersFmt((session.total_distance_m ?? 0) + (session.distance_adjustment_m ?? 0))}{" "}
-                  (+{session.distance_adjustment_m}m, {session.distance_adjustment_mode})
+                  {metersFmt((session.total_distance_m ?? 0) + (session.distance_adjustment_m ?? 0))} (+
+                  {session.distance_adjustment_m}m, {session.distance_adjustment_mode})
                 </p>
               </div>
             )}
@@ -345,7 +347,7 @@ function RaceAnalysisPage() {
                 let color = "bg-blue-500";
 
                 if (race?.distance_m && race?.time_seconds) {
-                  const avgPace = (race.time_seconds / race.distance_m) * 1000;
+                  const avgPace = (race.time_seconds / adjustedDistance) * 1000;
                   const targetSplitTime = (avgPace / 1000) * splitDistance;
 
                   const diff = s.time - targetSplitTime;
@@ -373,7 +375,6 @@ function RaceAnalysisPage() {
                         {/* ✅ Placeholder for HR — will wire real data next */}
                         <span className="text-xs text-blue-400">{s.avgHr ? `${Math.round(s.avgHr)} bpm` : "--"}</span>
 
-                        
                         <span className="font-medium flex items-center gap-1">
                           {secToClock(s.time)}
                           {session?.distance_adjustment_m > 0 && (
@@ -430,16 +431,13 @@ function RaceAnalysisPage() {
                   </div>
                 );
               })}
-              
 
-{/* ✅ explanation */}
-{session?.distance_adjustment_m > 0 && (
-  <p className="text-xs text-muted-foreground mt-2">
-    * Split times adjusted to account for GPS distance error
-  </p>
-)}
-
-
+              {/* ✅ explanation */}
+              {session?.distance_adjustment_m > 0 && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  * Split times adjusted to account for GPS distance error
+                </p>
+              )}
             </CardContent>
           </Card>
         ) : (
