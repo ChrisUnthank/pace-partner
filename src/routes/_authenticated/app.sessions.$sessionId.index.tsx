@@ -283,10 +283,10 @@ function SessionDetail() {
 
       toast.success("Race created ✅");
 
-      qc.invalidateQueries({ queryKey: ["race-by-session", sessionId] });
       qc.invalidateQueries({ queryKey: ["session", sessionId] });
       qc.invalidateQueries({ queryKey: ["races", session.athlete_id] });
       qc.invalidateQueries({ queryKey: ["my-pbs", session.athlete_id] });
+      qc.invalidateQueries({ queryKey: ["race-by-session", sessionId] });
     } else {
       toast("Add totals to create race");
     }
