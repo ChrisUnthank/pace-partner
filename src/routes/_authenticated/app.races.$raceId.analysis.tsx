@@ -326,7 +326,7 @@ function RaceAnalysisPage() {
                     </div>
 
                     {/* ✅ coloured bar with HR line */}
-                    <div className="relative h-2 bg-gray-200 rounded overflow-hidden">
+                    <div className="relative h-6 bg-gray-800 rounded overflow-hidden">
                       {/* ✅ Pace bar */}
                       <div className={`absolute left-0 top-0 h-full rounded ${color}`} style={{ width: `${width}%` }} />
 
