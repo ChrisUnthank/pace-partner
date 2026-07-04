@@ -1212,7 +1212,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
         Math.abs(p.lat) <= 90 &&
         Math.abs(p.lng) <= 180
       ) {
-        firstPoint = p;
+        firstPoint = { lat: p.lat, lng: p.lng };
         break; // ✅ stop at first valid
       }
     }
