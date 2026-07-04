@@ -144,8 +144,18 @@ function RaceAnalysisPage() {
 
     const avg = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
 
-    const overallAvg = avg(times);
     const firstSplit = times[0];
+    const secondSplit = times[1];
+
+    // ✅ detect unreliable first split (GPS lag / HR lag)
+    const unreliableStart =
+      firstSplit > secondSplit + 8 ||
+      (autoSplits[0]?.avgHr != null && autoSplits[1]?.avgHr != null && autoSplits[0].avgHr < autoSplits[1].avgHr - 15);
+
+    // ✅ only exclude first split if unreliable
+    const validTimes = unreliableStart ? times.slice(1) : times;
+
+    const overallAvg = avg(validTimes);
 
     // ✅ 1. Start analysis
     const startDiff = firstSplit - overallAvg;
