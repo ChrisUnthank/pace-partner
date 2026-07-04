@@ -1855,6 +1855,8 @@ export type Database = {
           created_by: string
           data_source: string | null
           day_type: Database["public"]["Enums"]["session_day_type"]
+          distance_adjustment_m: number | null
+          distance_adjustment_mode: string | null
           fueling_notes: string | null
           hr_drift_pct: number | null
           id: string
@@ -1898,6 +1900,8 @@ export type Database = {
           created_by: string
           data_source?: string | null
           day_type?: Database["public"]["Enums"]["session_day_type"]
+          distance_adjustment_m?: number | null
+          distance_adjustment_mode?: string | null
           fueling_notes?: string | null
           hr_drift_pct?: number | null
           id?: string
@@ -1941,6 +1945,8 @@ export type Database = {
           created_by?: string
           data_source?: string | null
           day_type?: Database["public"]["Enums"]["session_day_type"]
+          distance_adjustment_m?: number | null
+          distance_adjustment_mode?: string | null
           fueling_notes?: string | null
           hr_drift_pct?: number | null
           id?: string
