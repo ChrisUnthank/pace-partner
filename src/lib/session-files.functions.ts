@@ -1212,8 +1212,8 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
       (p) =>
         typeof p.lat === "number" &&
         typeof p.lng === "number" &&
-        p.lat !== 0 &&
-        p.lng !== 0 &&
+        Math.abs(p.lat) > 0.001 && // reject null-island noise, not just exact 0
+        Math.abs(p.lng) > 0.001 &&
         Math.abs(p.lat) <= 90 &&
         Math.abs(p.lng) <= 180,
     );
