@@ -55,12 +55,7 @@ function SessionDetail() {
   const [titleValue, setTitleValue] = useState("");
   const [savingTitle, setSavingTitle] = useState(false);
   const [allOpen, setAllOpen] = useState(false);
-
-  useEffect(() => {
-    if (race?.distance_m != null) {
-      setDistanceInput(String(race.distance_m));
-    }
-  }, [race?.distance_m]);
+  const [distanceInput, setDistanceInput] = useState("");
 
   // ✅ FIT upload setup
   const uploadFile = useServerFn(uploadAndParseSessionFile);
