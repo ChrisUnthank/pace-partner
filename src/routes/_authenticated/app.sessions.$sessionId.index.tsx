@@ -622,7 +622,6 @@ const { data: race } = useQuery({
     </div>
   )}
 </div>
-                </div>
 
                 {/* Pace */}
                 <div className="border rounded-lg px-3 py-2">
