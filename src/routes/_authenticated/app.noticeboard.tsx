@@ -106,7 +106,7 @@ function Noticeboard() {
         {/* POSTS */}
         {visible.map((p:any)=>{
 
-          const meta = TYPE_META[p.post_type] || TYPE_META.announcement;
+          const meta = (TYPE_META as Record<string, { label: string; icon: any; cls: string }>)[p.post_type] || TYPE_META.announcement;
           const Icon = meta.icon;
 
           return (
