@@ -73,13 +73,6 @@ function Noticeboard() {
 
   const visible = filter === "all" ? posts : posts.filter((p: any) => p.post_type === filter);
 
-  const { data: media = [] } = useQuery({
-    queryKey: ["noticeboard-media"],
-    queryFn: async () => {
-      const { data } = await listMedia();
-      return data ?? [];
-    },
-  });
   return (
     <div className="space-y-4">
       {/* ✅ TOP ROW */}
