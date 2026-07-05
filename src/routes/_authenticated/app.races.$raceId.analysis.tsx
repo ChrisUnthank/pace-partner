@@ -479,7 +479,7 @@ function RaceAnalysisPage() {
                   const min = Math.min(...times);
 
                   if (max !== min) {
-                    width = ((max - s.time) / (max - min)) * 100;
+                    width = ((s.time - min) / (max - min)) * 100;
                   }
                 }
 
