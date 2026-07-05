@@ -15,15 +15,23 @@ export const Route = createFileRoute("/api/public/hooks/run-daily-reminders")({
 
         const { data: athletes } = await supabaseAdmin
           .from("athletes")
-          .select("id, user_id, name, reminder_morning_local, reminder_evening_local, reminders_enabled, profiles:profiles!athletes_user_id_fkey(timezone)")
+          .select("id, user_id, name, reminder_morning_local, reminder_evening_local, reminders_enabled")
           .eq("reminders_enabled", true)
           .not("user_id", "is", null);
+
+        const userIds = Array.from(new Set((athletes ?? []).map((a) => a.user_id).filter(Boolean) as string[]));
+        const tzByUser = new Map<string, string>();
+        if (userIds.length) {
+          const { data: profs } = await supabaseAdmin
+            .from("profiles").select("id, timezone").in("id", userIds);
+          for (const p of profs ?? []) tzByUser.set(p.id, (p as any).timezone || "UTC");
+        }
 
         let queued = 0;
         for (const a of athletes ?? []) {
           const morning = (a.reminder_morning_local ?? "08:00").slice(0, 5);
           const evening = (a.reminder_evening_local ?? "20:00").slice(0, 5);
-          const tz = (a as any).profiles?.timezone || "UTC";
+          const tz = tzByUser.get(a.user_id as string) || "UTC";
           const { hhmm, today } = localClock(now, tz);
           // morning reminder window: any time at or after morning, before 12:00
           if (hhmm >= morning && hhmm < "12:00") {
