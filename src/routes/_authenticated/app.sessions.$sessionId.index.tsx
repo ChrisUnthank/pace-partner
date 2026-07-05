@@ -597,7 +597,7 @@ const { data: race } = useQuery({
         value={race.distance_m ?? ""}
         className="h-7 text-sm"
         onChange={(e) => {
-          race.distance_m = e.target.value === "" ? "" : Number(e.target.value);
+          race.distance_m = e.target.value === "" ? 0 : Number(e.target.value);
         }}
         onBlur={async (e) => {
           const val = Number(e.target.value) || 0;
@@ -622,7 +622,6 @@ const { data: race } = useQuery({
     </div>
   )}
 </div>
-                </div>
 
                 {/* Pace */}
                 <div className="border rounded-lg px-3 py-2">
