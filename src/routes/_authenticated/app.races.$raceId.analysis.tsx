@@ -542,7 +542,7 @@ function RaceAnalysisPage() {
 
                               return smoothed
                                 .map((hr, i) => {
-                                  const x = (i / (smoothed.length - 1)) * 100;
+                                  const x = (i / (smoothed.length - 1)) * width;
 
                                   const minHr = 120;
                                   const maxHr = 190;
