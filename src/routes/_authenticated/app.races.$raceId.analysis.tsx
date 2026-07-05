@@ -130,6 +130,7 @@ function RaceAnalysisPage() {
       return {
         km: s.index,
         time: durationS,
+        rawTime: s.rawDurationS,
         avgHr: s.avgHr,
         hrSeries: s.hrSeries,
         isPartial: s.isPartial,
@@ -502,7 +503,7 @@ function RaceAnalysisPage() {
                           {s.hasAnomaly && (
                             <span
                               className="text-[10px] text-muted-foreground"
-                              title="Time adjusted due to GPS dropout/spike correction in this split"
+                              title={`Raw GPS would have shown ${secToClock(s.rawTime)} here — adjusted due to a detected GPS dropout/spike in this split`}
                             >
                               *
                             </span>
