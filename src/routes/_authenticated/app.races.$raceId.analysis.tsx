@@ -7,8 +7,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Trash2, Plus, Trophy, Heart } from "lucide-react";
+import { Trash2, Plus, Trophy, Heart, AlertTriangle } from "lucide-react";
 import { metersFmt, secToClock, clockToSec, paceFmt } from "@/lib/format";
+import { reconstructTrack, buildSplitsFromCorrectedPoints, smoothSeries } from "@/lib/gps-reconstruction";
 
 export const Route = createFileRoute("/_authenticated/app/races/$raceId/analysis")({
   component: RaceAnalysisPage,
@@ -52,27 +53,6 @@ function RaceAnalysisPage() {
     setLocalAdjustments(session?.distance_adjustments ?? []);
   }, [session?.distance_adjustments]);
 
-  function smoothHrSeries(series: number[], windowSize = 5) {
-    if (!series || series.length === 0) return series;
-
-    const result: number[] = [];
-
-    for (let i = 0; i < series.length; i++) {
-      let sum = 0;
-      let count = 0;
-
-      for (let j = i - Math.floor(windowSize / 2); j <= i + Math.floor(windowSize / 2); j++) {
-        if (j >= 0 && j < series.length) {
-          sum += series[j];
-          count++;
-        }
-      }
-
-      result.push(sum / count);
-    }
-
-    return result;
-  }
   const { data: rawPoints = [] } = useQuery({
     queryKey: ["raw-points", race?.session_id],
     enabled: !!race?.session_id,
@@ -89,57 +69,7 @@ function RaceAnalysisPage() {
       return data ?? [];
     },
   });
-  function estimateCorrectedDistance(points: any[]) {
-    const dropoutSegments: { index: number }[] = [];
-    if (!points || points.length < 2) return 0;
 
-    let totalDistance = 0;
-
-    for (let i = 1; i < points.length; i++) {
-      const prev = points[i - 1];
-      const curr = points[i];
-
-      if (prev?.distance_m == null || curr?.distance_m == null || prev?.elapsed_s == null || curr?.elapsed_s == null) {
-        continue;
-      }
-
-      const distDiff = curr.distance_m - prev.distance_m;
-      const timeDiff = curr.elapsed_s - prev.elapsed_s;
-
-      // ✅ NORMAL CASE
-      if (distDiff > 0 && timeDiff > 0) {
-        totalDistance += distDiff;
-      }
-
-      // ✅ DETECT GPS DROPOUT (distance stalls but time continues)
-      else if (timeDiff > 1 && distDiff < 5) {
-        // ✅ record dropout location
-        dropoutSegments.push({ index: i });
-
-        // estimate missing distance from pace before dropout
-        const lookback = Math.max(0, i - 5);
-        const prevPoint = points[lookback];
-
-        if (prevPoint && prevPoint.distance_m != null && prevPoint.elapsed_s != null) {
-          const paceDist = prev.distance_m - prevPoint.distance_m;
-
-          const paceTime = prev.elapsed_s - prevPoint.elapsed_s;
-
-          if (paceTime > 0) {
-            const speed = paceDist / paceTime;
-
-            // estimate missing distance
-            const estimated = speed * timeDiff;
-
-            totalDistance += estimated;
-          }
-        }
-      }
-    }
-
-    void dropoutSegments;
-    return totalDistance;
-  }
   function update(id: string, patch: Partial<Split>) {
     setSplits((s) => s.map((x) => (x.id === id ? { ...x, ...patch } : x)));
   }
@@ -152,31 +82,22 @@ function RaceAnalysisPage() {
     setSplits((s) => [...s, newSplit()]);
   }
 
-  // ✅ Use GPS distance only (split corrections affect TIME, not total distance)
-
-  const reconstructedResult = useMemo(() => {
-    const result = estimateCorrectedDistance(rawPoints);
-
-    console.log("🔍 Reconstruction:");
-    console.log("Total Distance:", result);
-
-    return result;
-  }, [rawPoints]);
-
-  // ✅ keep compatibility with your existing code
-  const reconstructedDistance = reconstructedResult ?? 0;
-
   const officialDistance = race?.distance_m ?? null;
 
-  // ✅ calculate smoothing factor (usually ~1.02–1.05)
-  let correctionFactor = 1;
+  // ✅ Core reconstruction — detects dropouts/spikes/jitter, estimates the
+  // distance lost or gained in each, and (if an official distance is known)
+  // reconciles the total against it using a start/finish/distributed anchor
+  // depending on where the GPS error actually occurred. See
+  // src/lib/gps-reconstruction.ts for the full algorithm + rationale.
+  const reconstruction = useMemo(() => {
+    return reconstructTrack(rawPoints as any, officialDistance);
+  }, [rawPoints, officialDistance]);
 
-  if (officialDistance && reconstructedDistance > 0) {
-    correctionFactor = officialDistance / reconstructedDistance;
-  }
+  const reconstructedDistance = reconstruction.reconstructedTotalDistanceM ?? 0;
 
-  // ✅ final adjusted distance (used everywhere)
-  const adjustedDistance = officialDistance || reconstructedDistance || session?.total_distance_m || 0;
+  // ✅ final adjusted distance (used everywhere) — official distance when known,
+  // otherwise the reconstructed (dropout-corrected) distance, otherwise raw GPS total.
+  const adjustedDistance = reconstruction.finalTotalDistanceM || session?.total_distance_m || 0;
 
   const avgPace = adjustedDistance && race?.time_seconds ? (race.time_seconds / adjustedDistance) * 1000 : null;
 
@@ -184,110 +105,40 @@ function RaceAnalysisPage() {
   const isTrackRace = race?.race_type === "track";
   const splitDistance = isTrackRace ? 400 : 1000;
 
-  // ✅ Build splits
+  // ✅ Build splits directly from the corrected per-point distance series,
+  // so split boundaries land on real distance marks (not raw GPS marks),
+  // and any remaining distance is always kept as a final partial split.
   const autoSplits = useMemo(() => {
-    if (!rawPoints || rawPoints.length === 0 || !race) return [];
-    if (!session) return [];
+    if (!reconstruction.points.length || !race || !session) return [];
 
-    // ✅ ✅ USE PRECOMPUTED DISTANCE (NO HOOKS HERE)
-    const adjustedDistance = officialDistance || reconstructedDistance || 0;
+    const rawSplits = buildSplitsFromCorrectedPoints(reconstruction.points, splitDistance);
+    const avgPacePerMeter = officialDistance && officialDistance > 0 ? (race?.time_seconds ?? 0) / officialDistance : 0;
+    const splitAdjustments = session?.distance_adjustments ?? [];
 
-    const splits: Array<{ km: number; time: number; isPartial?: boolean }> = [];
-
-    let nextDistanceMark = splitDistance;
-
-    // ✅ MAIN LOOP — build splits
-    for (let i = 1; i < rawPoints.length; i++) {
-      const prev = rawPoints[i - 1];
-      const curr = rawPoints[i];
-
-      if (prev?.distance_m == null || curr?.distance_m == null || prev?.elapsed_s == null || curr?.elapsed_s == null)
-        continue;
-
-      if (prev.distance_m < nextDistanceMark && curr.distance_m >= nextDistanceMark) {
-        const distanceDiff = curr.distance_m - prev.distance_m;
-        const timeDiff = curr.elapsed_s - prev.elapsed_s;
-
-        const ratio = distanceDiff > 0 ? (nextDistanceMark - prev.distance_m) / distanceDiff : 0;
-
-        const interpolatedTime = prev.elapsed_s + ratio * timeDiff;
-
-        splits.push({
-          km: splits.length + 1,
-          time: interpolatedTime,
-        });
-
-        nextDistanceMark += splitDistance;
-      }
-    }
-
-    // ✅ PARTIAL SPLIT
-    const coveredDistance = splits.length * splitDistance;
-
-    if (adjustedDistance > coveredDistance) {
-      const remaining = adjustedDistance - coveredDistance;
-
-      if (remaining > splitDistance * 0.2) {
-        const finalPoint = rawPoints[rawPoints.length - 1];
-
-        splits.push({
-          km: splits.length + 1,
-          time: finalPoint?.elapsed_s ?? 0,
-          isPartial: true,
-        });
-      }
-    }
-
-    // ✅ PROCESS SPLITS (HR + CLEAN ADJUSTMENTS)
-    return splits.map((s, i) => {
-      const prevTime = i === 0 ? 0 : splits[i - 1].time;
-
-      const startDistance = i * splitDistance;
-      const endDistance = (i + 1) * splitDistance;
-
-      const pointsInSplit = rawPoints.filter(
-        (p) => p.distance_m != null && p.hr != null && p.distance_m >= startDistance && p.distance_m < endDistance,
-      );
-
-      let avgHr: number | null = null;
-
-      const hrSeries = pointsInSplit.map((p) => p.hr).filter((hr): hr is number => hr != null);
-
-      if (pointsInSplit.length > 0) {
-        const total = pointsInSplit.reduce((sum, p) => sum + (p.hr ?? 0), 0);
-
-        avgHr = total / pointsInSplit.length;
-      }
-
-      // ✅ ✅ CORRECT SPLIT-LEVEL ADJUSTMENTS (ONLY SYSTEM NOW)
-      const baseDistance = race?.distance_m ?? 1;
-
-      const avgPacePerMeter = baseDistance > 0 ? (race?.time_seconds ?? 0) / baseDistance : 0;
-
-      // ✅ FIRST get real split time (CRITICAL)
-      let splitTime = s.time - prevTime;
-
-      // ✅ THEN apply smoothing factor
-      splitTime = splitTime * correctionFactor;
-
-      // ✅ THEN apply split corrections
-      const splitAdjustments = session?.distance_adjustments ?? [];
+    // ✅ Manual coach overrides (distance_adjustments) still apply on top of
+    // the automatic reconstruction — e.g. for known issues the algorithm
+    // can't infer from the track alone (course cut, watch paused, etc).
+    return rawSplits.map((s) => {
+      let durationS = s.durationS;
 
       for (const adj of splitAdjustments) {
-        if (Number(adj.split_km) === Number(s.km)) {
-          splitTime += adj.meters * avgPacePerMeter;
+        if (Number(adj.split_km) === Number(s.index)) {
+          durationS += adj.meters * avgPacePerMeter;
         }
       }
 
       return {
-        km: s.km,
-        time: splitTime,
-        avgHr,
-        hrSeries,
-        isPartial: (s as any).isPartial,
+        km: s.index,
+        time: durationS,
+        avgHr: s.avgHr,
+        hrSeries: s.hrSeries,
+        isPartial: s.isPartial,
+        hasAnomaly: s.hasAnomaly,
+        startDistanceM: s.startDistanceM,
+        endDistanceM: s.endDistanceM,
       };
     });
-  }, [rawPoints, splitDistance, race, session]);
+  }, [reconstruction.points, splitDistance, race, session, officialDistance]);
 
   const isFitRace = autoSplits.length > 0;
 
@@ -308,10 +159,10 @@ function RaceAnalysisPage() {
     const firstSplit = times[0];
     const secondSplit = times[1];
 
-    // ✅ detect unreliable first split (GPS lag / HR lag)
-    const unreliableStart =
-      firstSplit > secondSplit + 8 ||
-      (autoSplits[0]?.avgHr != null && autoSplits[1]?.avgHr != null && autoSplits[0].avgHr < autoSplits[1].avgHr - 15);
+    // ✅ An unreliable-first-split call is now grounded in the reconstruction
+    // itself (did we actually detect a dropout/spike touching this split?)
+    // rather than guessing from time/HR heuristics alone.
+    const unreliableStart = autoSplits[0]?.hasAnomaly === true;
 
     // ✅ only exclude first split if unreliable
     const validTimes = unreliableStart ? times.slice(1) : times;
@@ -329,6 +180,8 @@ function RaceAnalysisPage() {
       } else if (Math.abs(startDiff) <= 2) {
         startInsight = "✅ Controlled start";
       }
+    } else {
+      startInsight = "ℹ️ Start split affected by GPS acquisition — pacing there was estimated, not measured";
     }
 
     // ✅ 2. Severe fade detection (matches your RED bars)
@@ -360,11 +213,16 @@ function RaceAnalysisPage() {
       }
     }
 
-    // ✅ 3. GPS data quality (basic check for now)
+    // ✅ 3. GPS data quality
     let gpsInsight = null;
 
     if (rawPoints.length < 50) {
       gpsInsight = "⚠️ GPS data low resolution — splits less reliable";
+    } else if (reconstruction.anomalies.length > 0) {
+      const totalAdj = reconstruction.anomalies.reduce((sum, a) => sum + Math.abs(a.adjustmentM), 0);
+      gpsInsight = `⚠️ ${reconstruction.anomalies.length} GPS anomal${
+        reconstruction.anomalies.length === 1 ? "y" : "ies"
+      } detected and corrected (~${Math.round(totalAdj)}m)`;
     }
 
     return {
@@ -372,7 +230,7 @@ function RaceAnalysisPage() {
       pacing: pacingSummary,
       gps: gpsInsight,
     };
-  }, [autoSplits, rawPoints]);
+  }, [autoSplits, rawPoints, reconstruction.anomalies]);
 
   if (isLoading) {
     return (
@@ -419,12 +277,45 @@ function RaceAnalysisPage() {
               <p className="text-xs text-muted-foreground">
                 GPS: {metersFmt(session?.total_distance_m ?? 0)} · Reconstructed: {metersFmt(reconstructedDistance)} ·
                 Official: {metersFmt(race?.distance_m ?? 0)}
+                {reconstruction.anomalies.length > 0 && (
+                  <>
+                    {" "}
+                    · Anchor: <span className="font-medium">{reconstruction.anchor}</span>
+                  </>
+                )}
               </p>
             </div>
 
+            {/* ✅ Data quality panel — transparency into what was auto-corrected */}
+            {reconstruction.anomalies.length > 0 && (
+              <div className="col-span-3 border rounded p-2 space-y-1">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  GPS corrections applied
+                </div>
+                {reconstruction.anomalies.map((a, i) => (
+                  <div key={i} className="text-xs text-muted-foreground flex justify-between">
+                    <span>
+                      {secToClock(a.startElapsed)}–{secToClock(a.endElapsed)} · {a.type}
+                    </span>
+                    <span className="tabular-nums">
+                      {a.rawDeltaM.toFixed(0)}m → {a.correctedDeltaM.toFixed(0)}m ({a.adjustmentM >= 0 ? "+" : ""}
+                      {a.adjustmentM.toFixed(0)}m)
+                    </span>
+                  </div>
+                ))}
+                {reconstruction.genericSmoothingM !== 0 && (
+                  <div className="text-xs text-muted-foreground">
+                    General GPS-vs-course smoothing: {reconstruction.genericSmoothingM >= 0 ? "+" : ""}
+                    {reconstruction.genericSmoothingM.toFixed(0)}m distributed across the whole race
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* ✅ ✅ SPLIT CORRECTIONS (PROPERLY SEPARATED) */}
             <div className="col-span-3 border-t pt-3 space-y-2">
-              <Label className="text-xs text-muted-foreground">Split corrections</Label>
+              <Label className="text-xs text-muted-foreground">Manual split corrections</Label>
 
               {localAdjustments.map((adj: any, i: number) => (
                 <div key={i} className="flex items-center gap-2">
@@ -518,7 +409,7 @@ function RaceAnalysisPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Splits (Auto)</CardTitle>
-              <CardDescription>Generated from FIT data</CardDescription>
+              <CardDescription>Generated from FIT data, GPS-corrected</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
               {autoSplits.map((s) => {
@@ -541,12 +432,14 @@ function RaceAnalysisPage() {
                   width = Math.max(width, 8);
                 }
 
-                // ✅ colour logic (unchanged but cleaner block)
+                // ✅ colour logic — target time now scales to this split's actual
+                // distance, so partial splits are graded fairly instead of always
+                // reading as "fast" relative to a full-length target.
                 let color = "bg-blue-500";
+                const splitOwnDistance = s.endDistanceM - s.startDistanceM;
 
-                if (adjustedDistance && race?.time_seconds) {
-                  const avgPace = (race.time_seconds / adjustedDistance) * 1000;
-                  const targetSplitTime = (avgPace / 1000) * splitDistance;
+                if (avgPace && splitOwnDistance > 0) {
+                  const targetSplitTime = (avgPace / 1000) * splitOwnDistance;
 
                   const diff = s.time - targetSplitTime;
 
@@ -566,7 +459,7 @@ function RaceAnalysisPage() {
                 // ✅ PRECOMPUTE HR SERIES ONCE (IMPORTANT)
                 const hasHrSeries = Array.isArray(s.hrSeries) && s.hrSeries.length >= 5;
 
-                const smoothed = hasHrSeries ? smoothHrSeries(s.hrSeries, 3) : [];
+                const smoothed = hasHrSeries ? smoothSeries(s.hrSeries, 3) : [];
 
                 const points = hasHrSeries
                   ? smoothed
@@ -587,8 +480,18 @@ function RaceAnalysisPage() {
                   <div key={s.km} className="space-y-1">
                     {/* ✅ label row */}
                     <div className="flex justify-between text-xs border rounded px-2 py-1">
-                      <span className="text-muted-foreground">
-                        {(s as any).isPartial ? `Km ${s.km} (partial)` : isTrackRace ? `Lap ${s.km}` : `Km ${s.km}`}
+                      <span className="text-muted-foreground flex items-center gap-1">
+                        {s.isPartial
+                          ? `${isTrackRace ? "Lap" : "Km"} ${s.km} (partial, ${metersFmt(splitOwnDistance)})`
+                          : isTrackRace
+                            ? `Lap ${s.km}`
+                            : `Km ${s.km}`}
+                        {s.hasAnomaly && (
+                          <AlertTriangle
+                            className="h-3 w-3 text-amber-500"
+                            aria-label="GPS-corrected within this split"
+                          />
+                        )}
                       </span>
 
                       <div className="flex items-center gap-3">
@@ -596,10 +499,10 @@ function RaceAnalysisPage() {
 
                         <span className="font-medium flex items-center gap-1">
                           {secToClock(s.time)}
-                          {(session?.distance_adjustments ?? []).length > 0 && (
+                          {s.hasAnomaly && (
                             <span
                               className="text-[10px] text-muted-foreground"
-                              title="Time adjusted due to distance correction"
+                              title="Time adjusted due to GPS dropout/spike correction in this split"
                             >
                               *
                             </span>
@@ -655,13 +558,13 @@ function RaceAnalysisPage() {
                     </div>
                   </div>
                 );
-                ``;
               })}
 
               {/* ✅ explanation */}
-              {((session?.distance_adjustments ?? []).length > 0 || correctionFactor !== 1) && (
+              {((session?.distance_adjustments ?? []).length > 0 || reconstruction.anomalies.length > 0) && (
                 <p className="text-xs text-muted-foreground mt-2">
-                  * Splits adjusted using GPS reconstruction and distance smoothing
+                  * Splits marked here were adjusted using GPS dropout/spike correction or a manual override — see the
+                  corrections panel above for details.
                 </p>
               )}
             </CardContent>
