@@ -115,7 +115,7 @@ function RaceAnalysisPage() {
     if (!rawPoints || rawPoints.length === 0 || !race) return [];
     if (!session) return [];
 
-    const splits: Array<{ km: number; time: number }> = [];
+    const splits: Array<{ km: number; time: number; isPartial?: boolean }> = [];
     let nextDistanceMark = splitDistance;
 
     // ✅ MAIN LOOP — build full splits
