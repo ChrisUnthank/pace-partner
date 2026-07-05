@@ -478,48 +478,73 @@ function RaceAnalysisPage() {
                   const max = Math.max(...times);
                   const min = Math.min(...times);
 
-                  if (max !== min) {
-                    width = ((s.time - min) / (max - min)) * 100;
+                  const range = max - min;
+
+                  if (range > 0) {
+                    width = ((s.time - min) / range) * 100;
+                  } else {
+                    width = 100;
                   }
+
+                  // ✅ prevent tiny invisible bars
+                  width = Math.max(width, 8);
                 }
 
+                // ✅ colour logic (unchanged but cleaner block)
                 let color = "bg-blue-500";
 
                 if (adjustedDistance && race?.time_seconds) {
                   const avgPace = (race.time_seconds / adjustedDistance) * 1000;
-
                   const targetSplitTime = (avgPace / 1000) * splitDistance;
 
                   const diff = s.time - targetSplitTime;
 
                   if (Math.abs(diff) <= 2) {
-                    color = "bg-green-500"; // ✅ on pace
+                    color = "bg-green-500";
                   } else if (diff < -2) {
-                    color = "bg-blue-500"; // ✅ faster
+                    color = "bg-blue-500";
                   } else if (diff > 2 && diff <= 5) {
-                    color = "bg-yellow-400"; // ✅ slightly slow
+                    color = "bg-yellow-400";
                   } else if (diff > 5 && diff <= 10) {
-                    color = "bg-orange-500"; // ✅ moderate fade
+                    color = "bg-orange-500";
                   } else if (diff > 10) {
-                    color = "bg-red-500"; // 🔴 severe drop-off
+                    color = "bg-red-500";
                   }
                 }
 
+                // ✅ PRECOMPUTE HR SERIES ONCE (IMPORTANT)
+                const hasHrSeries = Array.isArray(s.hrSeries) && s.hrSeries.length >= 5;
+
+                const smoothed = hasHrSeries ? smoothHrSeries(s.hrSeries, 3) : [];
+
+                const points = hasHrSeries
+                  ? smoothed
+                      .map((hr, i) => {
+                        const x = (i / (smoothed.length - 1)) * 100;
+
+                        const minHr = 120;
+                        const maxHr = 190;
+
+                        const y = 100 - ((hr - minHr) / (maxHr - minHr)) * 100;
+
+                        return `${x},${y}`;
+                      })
+                      .join(" ")
+                  : null;
+
                 return (
                   <div key={s.km} className="space-y-1">
-                    {/* ✅ label + time */}
+                    {/* ✅ label row */}
                     <div className="flex justify-between text-xs border rounded px-2 py-1">
                       <span className="text-muted-foreground">
                         {(s as any).isPartial ? `Km ${s.km} (partial)` : isTrackRace ? `Lap ${s.km}` : `Km ${s.km}`}
                       </span>
 
                       <div className="flex items-center gap-3">
-                        {/* ✅ Placeholder for HR — will wire real data next */}
                         <span className="text-xs text-blue-400">{s.avgHr ? `${Math.round(s.avgHr)} bpm` : "--"}</span>
 
                         <span className="font-medium flex items-center gap-1">
                           {secToClock(s.time)}
-
                           {(session?.distance_adjustment_m ?? 0) !== 0 && (
                             <span
                               className="text-[10px] text-muted-foreground"
@@ -532,57 +557,38 @@ function RaceAnalysisPage() {
                       </div>
                     </div>
 
-                    {/* ✅ coloured bar with HR line */}
+                    {/* ✅ BAR + HR */}
                     <div className="relative h-6 bg-gray-800 rounded overflow-hidden">
                       {/* ✅ Pace bar */}
                       <div className={`absolute left-0 top-0 h-full rounded ${color}`} style={{ width: `${width}%` }} />
 
                       {/* ✅ HR LINE */}
-                      {Array.isArray(s.hrSeries) && s.hrSeries.length >= 5 ? (
+                      {hasHrSeries ? (
                         <div
                           className="absolute left-0 top-0 h-full"
                           style={{ width: `${width}%`, overflow: "hidden" }}
                         >
                           <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
-                            {(() => {
-                              const smoothed = smoothHrSeries(s.hrSeries, 3);
+                            <>
+                              {/* ✅ glow */}
+                              <polyline
+                                points={points}
+                                fill="none"
+                                stroke="#ffffff"
+                                strokeWidth="5"
+                                strokeOpacity="0.25"
+                              />
 
-                              const points = smoothed
-                                .map((hr, i) => {
-                                  const x = (i / (smoothed.length - 1)) * 100;
-
-                                  const minHr = 120;
-                                  const maxHr = 190;
-
-                                  const y = 100 - ((hr - minHr) / (maxHr - minHr)) * 100;
-
-                                  return `${x},${y}`;
-                                })
-                                .join(" ");
-
-                              return (
-                                <>
-                                  {/* ✅ glow underlay */}
-                                  <polyline
-                                    points={points}
-                                    fill="none"
-                                    stroke="#ffffff"
-                                    strokeWidth="5"
-                                    strokeOpacity="0.25"
-                                  />
-
-                                  {/* ✅ main line */}
-                                  <polyline
-                                    points={points}
-                                    fill="none"
-                                    stroke="#ffffff"
-                                    strokeWidth="4"
-                                    strokeOpacity="1"
-                                    strokeLinecap="round"
-                                  />
-                                </>
-                              );
-                            })()}
+                              {/* ✅ main line */}
+                              <polyline
+                                points={points}
+                                fill="none"
+                                stroke="#ffffff"
+                                strokeWidth="3"
+                                strokeOpacity="1"
+                                strokeLinecap="round"
+                              />
+                            </>
                           </svg>
                         </div>
                       ) : s.avgHr ? (
@@ -598,6 +604,7 @@ function RaceAnalysisPage() {
                     </div>
                   </div>
                 );
+                ``;
               })}
 
               {/* ✅ explanation */}
