@@ -106,7 +106,7 @@ function Noticeboard() {
         {/* POSTS */}
         {visible.map((p:any)=>{
 
-          const meta = TYPE_META[p.post_type] || TYPE_META.announcement;
+          const meta = (TYPE_META as Record<string, { label: string; icon: any; cls: string }>)[p.post_type] || TYPE_META.announcement;
           const Icon = meta.icon;
 
           return (
@@ -182,7 +182,12 @@ function Noticeboard() {
             <CardTitle className="text-base">Instagram</CardTitle>
           </CardHeader>
           <CardContent>
-            https://instagram.com/YOUR_ACCOUNT
+            <a
+              href="https://instagram.com/YOUR_ACCOUNT"
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm text-blue-500 underline"
+            >
               View Instagram →
             </a>
           </CardContent>
