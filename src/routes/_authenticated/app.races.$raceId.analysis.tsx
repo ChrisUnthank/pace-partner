@@ -530,7 +530,7 @@ function RaceAnalysisPage() {
                         return `${x},${y}`;
                       })
                       .join(" ")
-                  : null;
+                      : undefined;
 
                 return (
                   <div key={s.km} className="space-y-1">
