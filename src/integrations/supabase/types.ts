@@ -932,6 +932,27 @@ export type Database = {
         }
         Relationships: []
       }
+      noticeboard_media: {
+        Row: {
+          created_at: string | null
+          file_url: string
+          id: string
+          uploaded_by: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          file_url: string
+          id?: string
+          uploaded_by?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          file_url?: string
+          id?: string
+          uploaded_by?: string | null
+        }
+        Relationships: []
+      }
       noticeboard_posts: {
         Row: {
           author_id: string
