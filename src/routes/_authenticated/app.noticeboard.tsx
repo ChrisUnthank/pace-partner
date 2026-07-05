@@ -123,12 +123,14 @@ function InstagramPanel() {
           Follow team updates
         </p>
 
-        https://instagram.com/YOUR_ACCOUNT
+        <a
+          href="https://instagram.com/YOUR_ACCOUNT"
+          target="_blank"
+          rel="noreferrer"
+          className="text-blue-500 underline text-sm"
+        >
           Open Instagram →
         </a>
-
-        {/* OPTIONAL EMBED */}
-        https://www.instagram.com/p/CODE/embed
 
       </CardContent>
     </Card>
