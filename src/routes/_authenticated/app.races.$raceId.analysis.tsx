@@ -251,19 +251,24 @@ function RaceAnalysisPage() {
 
       const avgPacePerMeter = baseDistance > 0 ? (race?.time_seconds ?? 0) / baseDistance : 0;
 
-      let adjustedTime = s.time * correctionFactor;
+      // ✅ FIRST get real split time (CRITICAL)
+      let splitTime = s.time - prevTime;
 
+      // ✅ THEN apply smoothing factor
+      splitTime = splitTime * correctionFactor;
+
+      // ✅ THEN apply split corrections
       const splitAdjustments = session?.distance_adjustments ?? [];
 
       for (const adj of splitAdjustments) {
         if (Number(adj.split_km) === Number(s.km)) {
-          adjustedTime += adj.meters * avgPacePerMeter;
+          splitTime += adj.meters * avgPacePerMeter;
         }
       }
 
       return {
         km: s.km,
-        time: adjustedTime - prevTime,
+        time: splitTime,
         avgHr,
         hrSeries,
         isPartial: (s as any).isPartial,
@@ -396,14 +401,13 @@ function RaceAnalysisPage() {
             <Stat label="Avg pace" value={paceFmt(avgPace)} />
 
             {/* ✅ GPS summary (keep this first) */}
-            
-<div className="col-span-3">
-  <p className="text-xs text-muted-foreground">
-    GPS: {metersFmt(session?.total_distance_m ?? 0)} · 
-    Reconstructed: {metersFmt(reconstructedDistance)} · 
-    Official: {metersFmt(race?.distance_m ?? 0)}
-  </p>
-</div>
+
+            <div className="col-span-3">
+              <p className="text-xs text-muted-foreground">
+                GPS: {metersFmt(session?.total_distance_m ?? 0)} · Reconstructed: {metersFmt(reconstructedDistance)} ·
+                Official: {metersFmt(race?.distance_m ?? 0)}
+              </p>
+            </div>
 
             {/* ✅ ✅ SPLIT CORRECTIONS (PROPERLY SEPARATED) */}
             <div className="col-span-3 border-t pt-3 space-y-2">
