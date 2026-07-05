@@ -554,7 +554,7 @@ function RaceAnalysisPage() {
                                 .join(" ");
                             })()}
                             fill="none"
-                            stroke="#ffffff"
+                            stroke="#e6f0ff"
                             strokeWidth="2.5"
                             strokeOpacity="0.95"
                             filter="drop-shadow(0 0 2px rgba(255,255,255,0.6))"
