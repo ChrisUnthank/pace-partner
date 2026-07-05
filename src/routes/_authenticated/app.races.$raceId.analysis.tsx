@@ -102,7 +102,8 @@ function RaceAnalysisPage() {
     setSplits((s) => [...s, newSplit()]);
   }
 
-  const adjustedDistance = (session?.total_distance_m ?? 0) + (session?.distance_adjustment_m ?? 0);
+  // ✅ Use GPS distance only (split corrections affect TIME, not total distance)
+  const adjustedDistance = session?.total_distance_m ?? 0;
 
   const avgPace = adjustedDistance && race?.time_seconds ? (race.time_seconds / adjustedDistance) * 1000 : null;
 
@@ -338,9 +339,8 @@ function RaceAnalysisPage() {
             {session?.distance_adjustment_m > 0 && (
               <div className="col-span-3">
                 <p className="text-xs text-muted-foreground">
-                  GPS: {metersFmt(session.total_distance_m)} · Adjusted:{" "}
-                  {metersFmt((session.total_distance_m ?? 0) + (session.distance_adjustment_m ?? 0))}
-                  (+{session.distance_adjustment_m}m, {session.distance_adjustment_mode})
+                  GPS: {metersFmt(session.total_distance_m)} · Adjusted: {metersFmt(session.total_distance_m ?? 0)}
+                  (adjusted via split corrections)
                 </p>
               </div>
             )}
@@ -519,7 +519,7 @@ function RaceAnalysisPage() {
 
                         <span className="font-medium flex items-center gap-1">
                           {secToClock(s.time)}
-                          {(session?.distance_adjustment_m ?? 0) !== 0 && (
+                          {(session?.distance_adjustments ?? []).length > 0 && (
                             <span
                               className="text-[10px] text-muted-foreground"
                               title="Time adjusted due to distance correction"
@@ -584,7 +584,7 @@ function RaceAnalysisPage() {
               {/* ✅ explanation */}
               {(session?.distance_adjustment_m ?? 0) > 0 && (
                 <p className="text-xs text-muted-foreground mt-2">
-                  * Split times adjusted to account for GPS distance error
+                  * Split times adjusted using detected or manual distance corrections
                 </p>
               )}
             </CardContent>
