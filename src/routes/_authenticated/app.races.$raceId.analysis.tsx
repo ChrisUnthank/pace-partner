@@ -89,7 +89,52 @@ function RaceAnalysisPage() {
       return data ?? [];
     },
   });
+  function estimateCorrectedDistance(points: any[]) {
+    if (!points || points.length < 2) return 0;
 
+    let totalDistance = 0;
+
+    for (let i = 1; i < points.length; i++) {
+      const prev = points[i - 1];
+      const curr = points[i];
+
+      if (prev?.distance_m == null || curr?.distance_m == null || prev?.elapsed_s == null || curr?.elapsed_s == null) {
+        continue;
+      }
+
+      const distDiff = curr.distance_m - prev.distance_m;
+      const timeDiff = curr.elapsed_s - prev.elapsed_s;
+
+      // ✅ NORMAL CASE
+      if (distDiff > 0 && timeDiff > 0) {
+        totalDistance += distDiff;
+      }
+
+      // ✅ DETECT GPS DROPOUT (distance stalls but time continues)
+      else if (timeDiff > 2 && distDiff < 1) {
+        // estimate missing distance from pace before dropout
+        const lookback = Math.max(0, i - 5);
+        const prevPoint = points[lookback];
+
+        if (prevPoint && prevPoint.distance_m != null && prevPoint.elapsed_s != null) {
+          const paceDist = prev.distance_m - prevPoint.distance_m;
+
+          const paceTime = prev.elapsed_s - prevPoint.elapsed_s;
+
+          if (paceTime > 0) {
+            const speed = paceDist / paceTime;
+
+            // estimate missing distance
+            const estimated = speed * timeDiff;
+
+            totalDistance += estimated;
+          }
+        }
+      }
+    }
+
+    return totalDistance;
+  }
   function update(id: string, patch: Partial<Split>) {
     setSplits((s) => s.map((x) => (x.id === id ? { ...x, ...patch } : x)));
   }
@@ -103,7 +148,12 @@ function RaceAnalysisPage() {
   }
 
   // ✅ Use GPS distance only (split corrections affect TIME, not total distance)
-  const adjustedDistance = session?.total_distance_m ?? 0;
+
+  const reconstructedDistance = useMemo(() => {
+    return estimateCorrectedDistance(rawPoints);
+  }, [rawPoints]);
+
+  const adjustedDistance = reconstructedDistance || session?.total_distance_m || 0;
 
   const avgPace = adjustedDistance && race?.time_seconds ? (race.time_seconds / adjustedDistance) * 1000 : null;
 
@@ -117,7 +167,12 @@ function RaceAnalysisPage() {
     if (!session) return [];
 
     // ✅ ✅ ONLY USE GPS DISTANCE
-    const adjustedDistance = session?.total_distance_m ?? 0;
+
+    const reconstructedDistance = useMemo(() => {
+      return estimateCorrectedDistance(rawPoints);
+    }, [rawPoints]);
+
+    const adjustedDistance = reconstructedDistance || session?.total_distance_m || 0;
 
     const splits: Array<{ km: number; time: number; isPartial?: boolean }> = [];
 
