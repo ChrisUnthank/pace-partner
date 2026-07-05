@@ -396,13 +396,15 @@ function RaceAnalysisPage() {
             <Stat label="Avg pace" value={paceFmt(avgPace)} />
 
             {/* ✅ GPS summary (keep this first) */}
-            {session?.distance_adjustment_m > 0 && (
-              <div className="col-span-3">
-                <p className="text-xs text-muted-foreground">
-                  GPS: {metersFmt(session.total_distance_m)} · Adjusted: {metersFmt(session.total_distance_m ?? 0)}
-                  (adjusted via split corrections)
-                </p>
-              </div>
+            
+<div className="col-span-3">
+  <p className="text-xs text-muted-foreground">
+    GPS: {metersFmt(session?.total_distance_m ?? 0)} · 
+    Reconstructed: {metersFmt(reconstructedDistance)} · 
+    Official: {metersFmt(race?.distance_m ?? 0)}
+  </p>
+</div>
+
             )}
 
             {/* ✅ ✅ SPLIT CORRECTIONS (PROPERLY SEPARATED) */}
@@ -642,9 +644,9 @@ function RaceAnalysisPage() {
               })}
 
               {/* ✅ explanation */}
-              {(session?.distance_adjustment_m ?? 0) > 0 && (
+              {((session?.distance_adjustments ?? []).length > 0 || correctionFactor !== 1) && (
                 <p className="text-xs text-muted-foreground mt-2">
-                  * Split times adjusted using detected or manual distance corrections
+                  * Splits adjusted using GPS reconstruction and distance smoothing
                 </p>
               )}
             </CardContent>
