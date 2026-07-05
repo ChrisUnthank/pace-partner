@@ -602,18 +602,7 @@ function RaceAnalysisPage() {
   ) : null}
 
 </div>
-                        /* ✅ FALLBACK: heart */
-                        <div
-                          className="absolute top-1/2 -translate-y-1/2"
-                          style={{
-                            left: `${Math.min(Math.max((s.avgHr - 120) / (190 - 120), 0), 1) * 100}%`,
-                          }}
-                        >
-                          <Heart className="h-3 w-3 text-[var(--accent-red)] fill-[var(--accent-red)]" />
-                        </div>
-                      ) : null}
                     </div>
-                  </div>
                 );
               })}
 
