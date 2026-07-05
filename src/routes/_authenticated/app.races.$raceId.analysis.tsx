@@ -532,12 +532,9 @@ function RaceAnalysisPage() {
                       {/* ✅ HR LINE (only if enough points) */}
                       {Array.isArray(s.hrSeries) && s.hrSeries.length >= 5 ? (
                         <svg
-                          
-<svg
-  className="absolute left-0 top-0 h-full"
-  style={{ width: `${width}%` }}
-  viewBox="0 0 100 100
-
+                          className="absolute left-0 top-0 h-full"
+                          style={{ width: `${width}%` }}
+                          viewBox="0 0 100 100"
                           preserveAspectRatio="none"
                         >
                           <polyline
@@ -582,7 +579,7 @@ function RaceAnalysisPage() {
               })}
 
               {/* ✅ explanation */}
-              {session?.distance_adjustment_m > 0 && (
+              {(session?.distance_adjustment_m ?? 0) > 0 && (
                 <p className="text-xs text-muted-foreground mt-2">
                   * Split times adjusted to account for GPS distance error
                 </p>
