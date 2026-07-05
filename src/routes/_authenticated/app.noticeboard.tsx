@@ -37,10 +37,25 @@ const TYPE_META: Record<string, { label: string; icon: any; cls: string }> = {
 
 const EMOJIS = ["👍", "🔥", "👏", "💪", "🎉"];
 
-function uploadImage(supabase: any, file: File) {
+async function uploadImage(supabase: any, file: File) {
   const fileName = `${Date.now()}-${file.name}`;
 
-  return supabase.storage.from("noticeboard-media").upload(fileName, file);
+  // ✅ Upload file
+  const { error: uploadError } = await supabase.storage.from("noticeboard-media").upload(fileName, file);
+
+  if (uploadError) throw uploadError;
+
+  // ✅ Get signed URL (works with PRIVATE bucket)
+  const { data, error: urlError } = await supabase.storage
+    .from("noticeboard-media")
+    .createSignedUrl(fileName, 60 * 60 * 24); // 24 hours
+
+  if (urlError) throw urlError;
+
+  return {
+    file_path: fileName,
+    file_url: data?.signedUrl,
+  };
 }
 
 function Noticeboard() {
