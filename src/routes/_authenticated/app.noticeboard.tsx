@@ -1,242 +1,158 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useServerFn } from "@tanstack/react-start";
-import { AppShell } from "@/components/app-shell";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Pin, Trash2, ExternalLink, Megaphone, Trophy, CalendarDays, MapPin, BookOpen, Pencil } from "lucide-react";
-import { listPosts, createPost, deletePost, toggleReaction, updatePost } from "@/lib/noticeboard.functions";
-import { useMyRoles, useAuthUser } from "@/lib/use-auth";
-import { format } from "date-fns";
-import { toast } from "sonner";
-import { UserAvatar } from "@/components/user-avatar";
-
-export const Route = createFileRoute("/_authenticated/app/noticeboard")({
-  component: () => <AppShell><Noticeboard /></AppShell>,
-  errorComponent: ({ error }) => <AppShell><p className="text-sm text-destructive">{String(error)}</p></AppShell>,
-  notFoundComponent: () => <AppShell><p>Not found</p></AppShell>,
-});
-
-const TYPE_META: Record<string, { label: string; icon: any; cls: string }> = {
-  announcement:   { label: "Announcement", icon: Megaphone,    cls: "bg-blue-500/15 text-blue-400" },
-  result:         { label: "Result",       icon: Trophy,       cls: "bg-amber-500/15 text-amber-400" },
-  upcoming_race:  { label: "Upcoming race",icon: CalendarDays, cls: "bg-emerald-500/15 text-emerald-400" },
-  training_event: { label: "Training",     icon: MapPin,       cls: "bg-purple-500/15 text-purple-400" },
-  birthday:       { label: "Birthday",     icon: Trophy,       cls: "bg-pink-500/15 text-pink-400" },
-  resource:       { label: "Resource",     icon: BookOpen,     cls: "bg-slate-500/15 text-slate-300" },
-};
-
-const EMOJIS = ["👍", "🔥", "👏", "💪", "🎉"];
-
 function Noticeboard() {
   const list = useServerFn(listPosts);
   const create = useServerFn(createPost);
   const del = useServerFn(deletePost);
   const react = useServerFn(toggleReaction);
   const update = useServerFn(updatePost);
+
   const qc = useQueryClient();
   const { user } = useAuthUser();
   const { data: roles = [] } = useMyRoles();
   const isCoach = roles.includes("coach") || roles.includes("manager");
 
-  const { data: posts = [] } = useQuery({ queryKey: ["noticeboard"], queryFn: () => list() });
-  const [filter, setFilter] = useState<string>("all");
-  const [editing, setEditing] = useState<any | null>(null);
-
-  const reactM = useMutation({
-    mutationFn: (v: { post_id: string; emoji: string }) => react({ data: v }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["noticeboard"] }),
-  });
-  const delM = useMutation({
-    mutationFn: (id: string) => del({ data: { id } }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["noticeboard"] }); toast.success("Post removed"); },
+  const { data: posts = [] } = useQuery({
+    queryKey: ["noticeboard"],
+    queryFn: () => list(),
   });
 
-  const visible = filter === "all" ? posts : posts.filter((p: any) => p.post_type === filter);
+  const [filter, setFilter] = useState("all");
+
+  const visible =
+    filter === "all"
+      ? posts
+      : posts.filter((p: any) => p.post_type === filter);
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Noticeboard</h1>
-          <p className="text-sm text-muted-foreground">Squad announcements, results, and upcoming events.</p>
-        </div>
-        <Select value={filter} onValueChange={setFilter}>
-          <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All posts</SelectItem>
-            {Object.entries(TYPE_META).map(([k, m]) => (
-              <SelectItem key={k} value={k}>{m.label}</SelectItem>
+    <AppShell>
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+
+        {/* ✅ LEFT: POSTS */}
+        <div className="xl:col-span-2 space-y-4">
+
+          <h1 className="text-2xl font-bold">Noticeboard</h1>
+
+          {/* ✅ FILTER */}
+          <div className="flex gap-2 flex-wrap">
+            <Button size="sm" onClick={() => setFilter("all")}>
+              All
+            </Button>
+
+            {Object.entries(TYPE_META).map(([key, m]) => (
+              <Button
+                key={key}
+                size="sm"
+                variant={filter === key ? "default" : "outline"}
+                onClick={() => setFilter(key)}
+              >
+                {m.label}
+              </Button>
             ))}
-          </SelectContent>
-        </Select>
-      </div>
+          </div>
 
-      {isCoach && <Composer onCreated={() => qc.invalidateQueries({ queryKey: ["noticeboard"] })} createFn={create} />}
+          {/* ✅ COMPOSER */}
+          {isCoach && (
+            <Composer
+              onCreated={() =>
+                qc.invalidateQueries({ queryKey: ["noticeboard"] })
+              }
+              createFn={create}
+            />
+          )}
 
-      {editing && (
-        <Composer
-          key={editing.id}
-          initial={editing}
-          onCreated={() => { setEditing(null); qc.invalidateQueries({ queryKey: ["noticeboard"] }); }}
-          onCancel={() => setEditing(null)}
-          createFn={create}
-          updateFn={update}
-        />
-      )}
+          {/* ✅ POSTS */}
+          {visible.map((p: any) => (
+            <Card key={p.id}>
+              <CardContent className="pt-4 space-y-2">
 
-      <div className="space-y-3">
-        {visible.length === 0 && <p className="text-sm text-muted-foreground">No posts yet.</p>}
-        {visible.map((p: any) => {
-          const meta = TYPE_META[p.post_type] ?? TYPE_META.announcement;
-          const Icon = meta.icon;
-          const groupedReactions = (p.reactions ?? []).reduce((acc: any, r: any) => {
-            acc[r.emoji] = (acc[r.emoji] ?? 0) + 1;
-            return acc;
-          }, {} as Record<string, number>);
-          const myReactions = new Set((p.reactions ?? []).filter((r: any) => r.user_id === user?.id).map((r: any) => r.emoji));
-          return (
-            <Card key={p.id} className={p.pinned ? "border-[var(--accent-red)]/60" : ""}>
-              <CardHeader className="pb-2">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className={`h-7 w-7 rounded-md grid place-items-center ${meta.cls}`}>
-                      <Icon className="h-3.5 w-3.5" />
-                    </span>
-                    <div className="min-w-0">
-                      <CardTitle className="text-base truncate flex items-center gap-2">
-                        {p.pinned && <Pin className="h-3.5 w-3.5 text-[var(--accent-red)]" />}
-                        {p.title}
-                      </CardTitle>
-                      <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                        <UserAvatar name={p.author_name} imageUrl={p.author_image_url} size="xs" />
-                        <span>{p.author_name} · {format(new Date(p.created_at), "MMM d, h:mm a")}
-                        {p.event_date && ` · event ${format(new Date(p.event_date), "MMM d")}`}
-                        {p.edited_at && ` · edited ${format(new Date(p.edited_at), "MMM d, h:mm a")}`}
-                        </span>
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Badge variant="outline" className="text-[10px]">{meta.label}</Badge>
-                    {p.author_id === user?.id && (
-                      <>
-                        {p.post_type !== "birthday" && (
-                          <Button variant="ghost" size="icon" onClick={() => setEditing(p)} aria-label="Edit post">
-                            <Pencil className="h-4 w-4 text-muted-foreground" />
-                          </Button>
-                        )}
-                      <Button variant="ghost" size="icon" onClick={() => delM.mutate(p.id)}>
-                        <Trash2 className="h-4 w-4 text-muted-foreground" />
-                      </Button>
-                      </>
-                    )}
-                  </div>
+                <div className="flex justify-between">
+                  <div className="font-semibold">{p.title}</div>
+                  {p.pinned && (
+                    <span className="text-xs text-amber-500">Pinned</span>
+                  )}
                 </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {p.body && <p className="text-sm whitespace-pre-wrap">{p.body}</p>}
+
+                <div className="text-xs text-muted-foreground">
+                  {p.author_name}
+                </div>
+
+                {p.body && (
+                  <p className="text-sm text-muted-foreground">
+                    {p.body}
+                  </p>
+                )}
+
                 {p.link_url && (
-                  <a href={p.link_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm text-[var(--accent-red)] hover:underline">
-                    <ExternalLink className="h-3.5 w-3.5" /> {p.link_url}
+                  <a
+                    href={p.link_url}
+                    target="_blank"
+                    className="text-blue-500 underline text-sm"
+                  >
+                    Open link
                   </a>
                 )}
-                <div className="flex gap-1 flex-wrap">
-                  {EMOJIS.map((e) => (
-                    <button
-                      key={e}
-                      onClick={() => reactM.mutate({ post_id: p.id, emoji: e })}
-                      className={`text-xs px-2 py-1 rounded-full border transition ${
-                        myReactions.has(e) ? "bg-[var(--accent-red)]/15 border-[var(--accent-red)]/40" : "border-border hover:bg-muted/60"
-                      }`}
-                    >
-                      <span className="mr-1">{e}</span>
-                      {groupedReactions[e] ?? 0}
-                    </button>
-                  ))}
-                </div>
+
               </CardContent>
             </Card>
-          );
-        })}
+          ))}
+
+        </div>
+
+        {/* ✅ RIGHT SIDEBAR */}
+        <div className="space-y-4">
+
+          <InstagramPanel />
+
+          <MediaPanel />
+
+        </div>
+
       </div>
-    </div>
+    </AppShell>
   );
 }
-
-function Composer({ onCreated, onCancel, createFn, updateFn, initial }: { onCreated: () => void; onCancel?: () => void; createFn: any; updateFn?: any; initial?: any }) {
-  const isEdit = !!initial;
-  const [open, setOpen] = useState(isEdit);
-  const [postType, setPostType] = useState<any>(initial?.post_type ?? "announcement");
-  const [title, setTitle] = useState(initial?.title ?? "");
-  const [body, setBody] = useState(initial?.body ?? "");
-  const [link, setLink] = useState(initial?.link_url ?? "");
-  const [eventDate, setEventDate] = useState(initial?.event_date ?? "");
-  const [pinned, setPinned] = useState(!!initial?.pinned);
-
-  const m = useMutation({
-    mutationFn: () => isEdit
-      ? updateFn({ data: { id: initial.id, post_type: postType, title, body: body || null, link_url: link || null, event_date: eventDate || null, pinned } })
-      : createFn({ data: { post_type: postType, title, body: body || undefined, link_url: link || undefined, event_date: eventDate || undefined, pinned } }),
-    onSuccess: () => {
-      toast.success(isEdit ? "Post updated" : "Posted to noticeboard");
-      if (!isEdit) { setTitle(""); setBody(""); setLink(""); setEventDate(""); setPinned(false); setOpen(false); }
-      onCreated();
-    },
-    onError: (e: any) => toast.error(String(e?.message ?? e)),
-  });
-
-  if (!open) return (
-    <Card>
-      <CardContent className="py-3"><Button variant="outline" onClick={() => setOpen(true)}>New post</Button></CardContent>
-    </Card>
-  );
-
+function InstagramPanel() {
   return (
     <Card>
-      <CardHeader><CardTitle className="text-base">{isEdit ? "Edit post" : "New post"}</CardTitle></CardHeader>
+      <CardHeader>
+        <CardTitle className="text-base">Instagram</CardTitle>
+      </CardHeader>
+
       <CardContent className="space-y-3">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div>
-            <Label className="text-xs">Type</Label>
-            <Select value={postType} onValueChange={setPostType}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {Object.entries(TYPE_META).filter(([k]) => k !== "birthday").map(([k, m]) => (
-                  <SelectItem key={k} value={k}>{m.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label className="text-xs">Event date (optional)</Label>
-            <Input type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} />
-          </div>
-        </div>
-        <div>
-          <Label className="text-xs">Title</Label>
-          <Input value={title} onChange={(e) => setTitle(e.target.value)} />
-        </div>
-        <div>
-          <Label className="text-xs">Body</Label>
-          <Textarea rows={3} value={body} onChange={(e) => setBody(e.target.value)} />
-        </div>
-        <div>
-          <Label className="text-xs">Link (optional)</Label>
-          <Input placeholder="https://" value={link} onChange={(e) => setLink(e.target.value)} />
-        </div>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={pinned} onChange={(e) => setPinned(e.target.checked)} /> Pin to top
-        </label>
-        <div className="flex gap-2">
-          <Button onClick={() => m.mutate()} disabled={!title.trim() || m.isPending}>{isEdit ? "Save" : "Post"}</Button>
-          <Button variant="ghost" onClick={() => { setOpen(false); onCancel?.(); }}>Cancel</Button>
+
+        <p className="text-sm text-muted-foreground">
+          Follow team updates
+        </p>
+
+        https://instagram.com/YOUR_ACCOUNT
+          Open Instagram →
+        </a>
+
+        {/* OPTIONAL EMBED */}
+        https://www.instagram.com/p/CODE/embed
+
+      </CardContent>
+    </Card>
+  );
+}
+function MediaPanel() {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Team Media</CardTitle>
+      </CardHeader>
+
+      <CardContent>
+        <div className="grid grid-cols-3 gap-2">
+
+          {[1,2,3,4,5,6].map((i) => (
+            <div
+              key={i}
+              className="aspect-square bg-muted rounded flex items-center justify-center text-xs text-muted-foreground"
+            >
+              Img
+            </div>
+          ))}
+
         </div>
       </CardContent>
     </Card>
