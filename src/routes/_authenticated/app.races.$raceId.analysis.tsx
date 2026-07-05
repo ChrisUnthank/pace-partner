@@ -532,64 +532,60 @@ function RaceAnalysisPage() {
                       {/* ✅ HR LINE (only if enough points) */}
                       {Array.isArray(s.hrSeries) && s.hrSeries.length >= 5 ? (
                         <svg
-  className="absolute inset-0 w-full h-full"
-  viewBox="0 0 100 100"
-  preserveAspectRatio="none"
+                          className="absolute inset-0 w-full h-full"
+                          viewBox="0 0 100 100"
+                          preserveAspectRatio="none"
                         >
                           <g>
-  {/* ✅ GLOW UNDERLAY */}
-  <polyline
-    points={(() => {
-      const smoothed = smoothHrSeries(s.hrSeries);
+                            {/* ✅ GLOW UNDERLAY */}
+                            <polyline
+                              points={(() => {
+                                const smoothed = smoothHrSeries(s.hrSeries);
 
-      return smoothed
-        .map((hr, i) => {
-          const x = (i / (smoothed.length - 1)) * 100;
+                                return smoothed
+                                  .map((hr, i) => {
+                                    const x = (i / (smoothed.length - 1)) * width;
 
-          const minHr = 120;
-          const maxHr = 190;
+                                    const minHr = 120;
+                                    const maxHr = 190;
 
-          const y =
-            100 -
-            ((hr - minHr) / (maxHr - minHr)) * 100;
+                                    const y = 100 - ((hr - minHr) / (maxHr - minHr)) * 100;
 
-          return `${x},${y}`;
-        })
-        .join(" ");
-    })()}
-    fill="none"
-    stroke="#ffffff"
-    strokeWidth="5"
-    strokeOpacity="0.15"
-  />
+                                    return `${x},${y}`;
+                                  })
+                                  .join(" ");
+                              })()}
+                              fill="none"
+                              stroke="#ffffff"
+                              strokeWidth="5"
+                              strokeOpacity="0.15"
+                            />
 
-  {/* ✅ MAIN LINE */}
-  <polyline
-    points={(() => {
-      const smoothed = smoothHrSeries(s.hrSeries);
+                            {/* ✅ MAIN LINE */}
+                            <polyline
+                              points={(() => {
+                                const smoothed = smoothHrSeries(s.hrSeries);
 
-      return smoothed
-        .map((hr, i) => {
-          const x = (i / (smoothed.length - 1)) * 100;
+                                return smoothed
+                                  .map((hr, i) => {
+                                    const x = (i / (smoothed.length - 1)) * width;
 
-          const minHr = 120;
-          const maxHr = 190;
+                                    const minHr = 120;
+                                    const maxHr = 190;
 
-          const y =
-            100 -
-            ((hr - minHr) / (maxHr - minHr)) * 100;
+                                    const y = 100 - ((hr - minHr) / (maxHr - minHr)) * 100;
 
-          return `${x},${y}`;
-        })
-        .join(" ");
-    })()}
-    fill="none"
-    stroke="#ffffff"
-    strokeWidth="2.5"
-    strokeOpacity="1"
-    strokeLinecap="round"
-  />
-</g>
+                                    return `${x},${y}`;
+                                  })
+                                  .join(" ");
+                              })()}
+                              fill="none"
+                              stroke="#ffffff"
+                              strokeWidth="2.5"
+                              strokeOpacity="1"
+                              strokeLinecap="round"
+                            />
+                          </g>
                         </svg>
                       ) : s.avgHr ? (
                         /* ✅ FALLBACK: heart */
