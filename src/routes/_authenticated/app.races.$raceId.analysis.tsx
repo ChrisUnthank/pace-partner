@@ -532,8 +532,12 @@ function RaceAnalysisPage() {
                       {/* ✅ HR LINE (only if enough points) */}
                       {Array.isArray(s.hrSeries) && s.hrSeries.length >= 5 ? (
                         <svg
-                          className="absolute inset-0 w-full h-full"
-                          viewBox="0 0 100 100"
+                          
+<svg
+  className="absolute left-0 top-0 h-full"
+  style={{ width: `${width}%` }}
+  viewBox="0 0 100 100
+
                           preserveAspectRatio="none"
                         >
                           <polyline
