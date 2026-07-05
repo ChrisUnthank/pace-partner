@@ -51,6 +51,28 @@ function RaceAnalysisPage() {
   useEffect(() => {
     setLocalAdjustments(session?.distance_adjustments ?? []);
   }, [session?.distance_adjustments]);
+
+  function smoothHrSeries(series: number[], windowSize = 5) {
+    if (!series || series.length === 0) return series;
+
+    const result: number[] = [];
+
+    for (let i = 0; i < series.length; i++) {
+      let sum = 0;
+      let count = 0;
+
+      for (let j = i - Math.floor(windowSize / 2); j <= i + Math.floor(windowSize / 2); j++) {
+        if (j >= 0 && j < series.length) {
+          sum += series[j];
+          count++;
+        }
+      }
+
+      result.push(sum / count);
+    }
+
+    return result;
+  }
   const { data: rawPoints = [] } = useQuery({
     queryKey: ["raw-points", race?.session_id],
     enabled: !!race?.session_id,
@@ -515,18 +537,26 @@ function RaceAnalysisPage() {
                           preserveAspectRatio="none"
                         >
                           <polyline
-                            points={s.hrSeries
-                              .map((hr, i) => {
-                                const x = (i / (s.hrSeries.length - 1)) * 100;
-                                const y = 100 - ((hr - 120) / (190 - 120)) * 100;
-                                return `${x},${y}`;
-                              })
-                              .join(" ")}
+                            points={(() => {
+                              const smoothed = smoothHrSeries(s.hrSeries);
+
+                              return smoothed
+                                .map((hr, i) => {
+                                  const x = (i / (smoothed.length - 1)) * 100;
+
+                                  const minHr = 120;
+                                  const maxHr = 190;
+
+                                  const y = 100 - ((hr - minHr) / (maxHr - minHr)) * 100;
+
+                                  return `${x},${y}`;
+                                })
+                                .join(" ");
+                            })()}
                             fill="none"
                             stroke="#ffffff"
-                            strokeWidth="3"
+                            strokeWidth="2"
                             strokeLinecap="round"
-                            opacity="1"
                           />
                         </svg>
                       ) : s.avgHr ? (
