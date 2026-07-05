@@ -56,6 +56,12 @@ function SessionDetail() {
   const [savingTitle, setSavingTitle] = useState(false);
   const [allOpen, setAllOpen] = useState(false);
 
+  useEffect(() => {
+    if (race?.distance_m != null) {
+      setDistanceInput(String(race.distance_m));
+    }
+  }, [race?.distance_m]);
+
   // ✅ FIT upload setup
   const uploadFile = useServerFn(uploadAndParseSessionFile);
   const [uploading, setUploading] = useState(false);
@@ -95,20 +101,16 @@ function SessionDetail() {
     retry: false,
   });
 
-const { data: race } = useQuery({
-  queryKey: ["race-by-session", sessionId],
-  enabled: !!sessionId,
-  queryFn: async () => {
-    const { data, error } = await supabase
-      .from("performances")
-      .select("*")
-      .eq("session_id", sessionId)
-      .maybeSingle();
+  const { data: race } = useQuery({
+    queryKey: ["race-by-session", sessionId],
+    enabled: !!sessionId,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("performances").select("*").eq("session_id", sessionId).maybeSingle();
 
-    if (error) throw error;
-    return data;
-  },
-});
+      if (error) throw error;
+      return data;
+    },
+  });
 
   const { data: steps = [] } = useQuery({
     queryKey: ["steps", sessionId],
@@ -584,44 +586,41 @@ const { data: race } = useQuery({
                 </div>
 
                 {/* Distance */}
-<div className="border rounded-lg px-3 py-2">
-  <div className="text-xs text-muted-foreground">
-    {session.day_type === "race" ? "Official Distance (editable)" : "GPS Distance"}
-  </div>
+                <div className="border rounded-lg px-3 py-2">
+                  <div className="text-xs text-muted-foreground">
+                    {session.day_type === "race" ? "Official Distance (editable)" : "GPS Distance"}
+                  </div>
 
-  {/* ✅ MAIN VALUE */}
-  <div className="text-lg font-semibold tabular-nums">
-    {session.day_type === "race" && race ? (
-      <Input
-        type="number"
-        value={race.distance_m ?? ""}
-        className="h-7 text-sm"
-        onChange={(e) => {
-          race.distance_m = e.target.value === "" ? 0 : Number(e.target.value);
-        }}
-        onBlur={async (e) => {
-          const val = Number(e.target.value) || 0;
+                  {/* ✅ MAIN VALUE */}
+                  <div className="text-lg font-semibold tabular-nums">
+                    {session.day_type === "race" && race ? (
+                      <Input
+                        type="number"
+                        value={distanceInput}
+                        className="h-7 text-sm"
+                        onChange={(e) => {
+                          setDistanceInput(e.target.value); // ✅ this makes it editable
+                        }}
+                        onBlur={async () => {
+                          const val = Number(distanceInput) || 0;
 
-          await supabase
-            .from("performances")
-            .update({ distance_m: val })
-            .eq("id", race.id);
+                          await supabase.from("performances").update({ distance_m: val }).eq("id", race.id);
 
-          qc.invalidateQueries({ queryKey: ["race-by-session", sessionId] });
-        }}
-      />
-    ) : (
-      metersFmt(session.total_distance_m ?? 0)
-    )}
-  </div>
+                          qc.invalidateQueries({ queryKey: ["race-by-session", sessionId] });
+                        }}
+                      />
+                    ) : (
+                      metersFmt(session.total_distance_m ?? 0)
+                    )}
+                  </div>
 
-  {/* ✅ ✅ GPS REFERENCE LINE (THIS IS THE FIX) */}
-  {session.day_type === "race" && (
-    <div className="text-xs text-muted-foreground mt-1">
-      GPS: {metersFmt(session.total_distance_m ?? 0)}
-    </div>
-  )}
-</div>
+                  {/* ✅ ✅ GPS REFERENCE LINE (THIS IS THE FIX) */}
+                  {session.day_type === "race" && (
+                    <div className="text-xs text-muted-foreground mt-1">
+                      GPS: {metersFmt(session.total_distance_m ?? 0)}
+                    </div>
+                  )}
+                </div>
 
                 {/* Pace */}
                 <div className="border rounded-lg px-3 py-2">
