@@ -525,69 +525,83 @@ function RaceAnalysisPage() {
                     </div>
 
                     {/* ✅ coloured bar with HR line */}
-                    <div className="relative h-6 bg-gray-800 rounded overflow-hidden">
-                      {/* ✅ Pace bar */}
-                      <div className={`absolute left-0 top-0 h-full rounded ${color}`} style={{ width: `${width}%` }} />
+<div className="relative h-6 bg-gray-800 rounded overflow-hidden">
 
-                      {/* ✅ HR LINE (only if enough points) */}
-                      {Array.isArray(s.hrSeries) && s.hrSeries.length >= 5 ? (
-                        <svg
-                          className="absolute inset-0 w-full h-full"
-                          viewBox="0 0 100 100"
-                          preserveAspectRatio="none"
-                        >
-                          <g>
-                            {/* ✅ GLOW UNDERLAY */}
-                            <polyline
-                              points={(() => {
-                                const smoothed = smoothHrSeries(s.hrSeries);
+  {/* ✅ Pace bar */}
+  <div
+    className={`absolute left-0 top-0 h-full rounded ${color}`}
+    style={{ width: `${width}%` }}
+  />
 
-                                return smoothed
-                                  .map((hr, i) => {
-                                    const x = (i / (smoothed.length - 1)) * width;
+  {/* ✅ HR LINE */}
+  {Array.isArray(s.hrSeries) && s.hrSeries.length >= 5 ? (
+    <div
+      className="absolute left-0 top-0 h-full"
+      style={{ width: `${width}%`, overflow: "hidden" }}
+    >
+      <svg
+        className="w-full h-full"
+        viewBox="0 0 100 100"
+        preserveAspectRatio="none"
+      >
+        {(() => {
+          const smoothed = smoothHrSeries(s.hrSeries, 3);
 
-                                    const minHr = 120;
-                                    const maxHr = 190;
+          const points = smoothed
+            .map((hr, i) => {
+              const x = (i / (smoothed.length - 1)) * 100;
 
-                                    const y = 100 - ((hr - minHr) / (maxHr - minHr)) * 100;
+              const minHr = 120;
+              const maxHr = 190;
 
-                                    return `${x},${y}`;
-                                  })
-                                  .join(" ");
-                              })()}
-                              fill="none"
-                              stroke="#ffffff"
-                              strokeWidth="5"
-                              strokeOpacity="0.15"
-                            />
+              const y =
+                100 -
+                ((hr - minHr) / (maxHr - minHr)) * 100;
 
-                            {/* ✅ MAIN LINE */}
-                            <polyline
-                              points={(() => {
-                                const smoothed = smoothHrSeries(s.hrSeries);
+              return `${x},${y}`;
+            })
+            .join(" ");
 
-                                return smoothed
-                                  .map((hr, i) => {
-                                    const x = (i / (smoothed.length - 1)) * width;
+          return (
+            <>
+              {/* ✅ glow underlay */}
+              <polyline
+                points={points}
+                fill="none"
+                stroke="#ffffff"
+                strokeWidth="5"
+                strokeOpacity="0.25"
+              />
 
-                                    const minHr = 120;
-                                    const maxHr = 190;
+              {/* ✅ main line */}
+              <polyline
+                points={points}
+                fill="none"
+                stroke="#ffffff"
+                strokeWidth="3"
+                strokeOpacity="1"
+                strokeLinecap="round"
+              />
+            </>
+          );
+        })()}
+      </svg>
+    </div>
+  ) : s.avgHr ? (
+    <div
+      className="absolute top-1/2 -translate-y-1/2"
+      style={{
+        left: `${Math.min(
+          Math.max((s.avgHr - 120) / (190 - 120), 0),
+          1
+        ) * 100}%`,
+      }}
+    >
+      <Heart className="h-3 w-3 text-[var(--accent-red)] fill-[var(--accent-red)]" />
+    </div>
+  ) : null}
 
-                                    const y = 100 - ((hr - minHr) / (maxHr - minHr)) * 100;
-
-                                    return `${x},${y}`;
-                                  })
-                                  .join(" ");
-                              })()}
-                              fill="none"
-                              stroke="#ffffff"
-                              strokeWidth="2.5"
-                              strokeOpacity="1"
-                              strokeLinecap="round"
-                            />
-                          </g>
-                        </svg>
-                      ) : s.avgHr ? (
+</div>
                         /* ✅ FALLBACK: heart */
                         <div
                           className="absolute top-1/2 -translate-y-1/2"
