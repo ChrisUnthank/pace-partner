@@ -1,170 +1,162 @@
-import { useState } from "react";
-import { Link } from "@tanstack/react-router";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useServerFn } from "@tanstack/react-start";
+import { useQuery } from "@tanstack/react-query";
+import { useMyRoles } from "@/lib/use-auth";
+import { supabase } from "@/integrations/supabase/client";
+import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { DashboardAlertsPanel } from "@/components/dashboard-alerts-panel";
 import { UserAvatar } from "@/components/user-avatar";
-import {
-  listDashboardAlerts,
-  dismissAlert,
-  markSessionRestDay,
-  markSessionSkipped,
-  type DashAlert,
-} from "@/lib/dashboard-alerts.functions";
-import { AlertTriangle, X, ChevronDown, ChevronUp } from "lucide-react";
-import { toast } from "sonner";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { Link } from "@tanstack/react-router";
 
-const SEV_BORDER: Record<DashAlert["severity"], string> = {
-  critical: "border-l-[#EF4444]",
-  warning: "border-l-[#F59E0B]",
-  info: "border-l-[#38BDF8]",
-};
-const SEV_BADGE: Record<DashAlert["severity"], string> = {
-  critical: "bg-[#EF4444]/15 text-[#EF4444] border-[#EF4444]/30",
-  warning: "bg-[#F59E0B]/15 text-[#F59E0B] border-[#F59E0B]/30",
-  info: "bg-[#38BDF8]/15 text-[#38BDF8] border-[#38BDF8]/30",
-};
+export default function DashboardPage() {
+  const { data: roles = [] } = useMyRoles();
+  const isCoach = roles.includes("coach");
 
-export function DashboardAlertsPanel() {
-  const listFn = useServerFn(listDashboardAlerts);
-  const dismissFn = useServerFn(dismissAlert);
-  const restFn = useServerFn(markSessionRestDay);
-  const skipFn = useServerFn(markSessionSkipped);
-  const qc = useQueryClient();
-  const isMobile = useIsMobile();
-  const [collapsed, setCollapsed] = useState<boolean | null>(null);
-
-  const { data: alerts = [] as DashAlert[], isLoading } = useQuery({
-    queryKey: ["dashboard-alerts"],
-    queryFn: () => listFn(),
-  });
-
-  const dismissM = useMutation({
-    mutationFn: (v: { athleteId: string; alertType: string }) => dismissFn({ data: v }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["dashboard-alerts"] }),
-  });
-  const restM = useMutation({
-    mutationFn: (sessionId: string) => restFn({ data: { sessionId } }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["dashboard-alerts"] }); toast.success("Marked as rest day"); },
-    onError: (e: any) => toast.error(String(e?.message ?? e)),
-  });
-  const skipM = useMutation({
-    mutationFn: (sessionId: string) => skipFn({ data: { sessionId } }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["dashboard-alerts"] }); toast.success("Marked as skipped"); },
-    onError: (e: any) => toast.error(String(e?.message ?? e)),
-  });
-
-  if (isLoading) return null;
-
-  const isCollapsed = collapsed ?? !!isMobile;
-
-  if (!alerts.length) {
+  if (!isCoach) {
     return (
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <AlertTriangle className="h-4 w-4 text-muted-foreground" />
-            Needs Attention
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">All athletes on track today. ✨</p>
-        </CardContent>
-      </Card>
+      <AppShell>
+        <div className="text-sm text-muted-foreground">Athlete home (unchanged)</div>
+      </AppShell>
     );
   }
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <button
-          className="w-full flex items-center justify-between"
-          onClick={() => setCollapsed(!isCollapsed)}
-        >
-          <CardTitle className="flex items-center gap-2 text-base">
-            <AlertTriangle className="h-4 w-4 text-[#F59E0B]" />
-            Needs Attention
-            <Badge variant="secondary" className="ml-1">{alerts.length}</Badge>
-          </CardTitle>
-          {isCollapsed ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronUp className="h-4 w-4 text-muted-foreground" />}
-        </button>
-      </CardHeader>
-      {!isCollapsed && (
-        <CardContent className="space-y-2.5">
-          {(alerts as DashAlert[]).map((a) => (
-            <div
-              key={`${a.athlete_id}-${a.alert_type}`}
-              className={`border border-border border-l-4 ${SEV_BORDER[a.severity]} bg-card rounded-md p-3`}
-            >
-              <div className="flex items-start gap-3">
-                <UserAvatar name={a.athlete_name} imageUrl={a.athlete_image_url} size="sm" />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold text-sm">{a.athlete_name}</span>
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded border uppercase tracking-wide ${SEV_BADGE[a.severity]}`}>
-                          {a.severity}
-                        </span>
-                      </div>
-                      <p className="text-sm font-medium mt-0.5">{a.title}</p>
-                      <p className="text-xs text-muted-foreground">{a.trigger}</p>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 shrink-0"
-                      onClick={() => dismissM.mutate({ athleteId: a.athlete_id, alertType: a.alert_type })}
-                      aria-label="Dismiss alert"
+    <AppShell>
+      <CoachHome />
+    </AppShell>
+  );
+}
+
+function CoachHome() {
+  // ✅ athletes
+  const { data: athletes = [] } = useQuery({
+    queryKey: ["coach-athletes"],
+    queryFn: async () => {
+      const { data } = await supabase.from("athletes").select("id, name, profile_image_url");
+
+      return data ?? [];
+    },
+  });
+
+  // ✅ recent sessions
+  const { data: sessions = [] } = useQuery({
+    queryKey: ["coach-sessions"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("sessions")
+        .select("id, athlete_id, total_distance_m, total_time_seconds, rpe, completed_at, day_type")
+        .order("completed_at", { ascending: false });
+
+      return data ?? [];
+    },
+  });
+
+  // ✅ helper
+  function latestSession(athleteId: string) {
+    return sessions.find((s) => s.athlete_id === athleteId);
+  }
+
+  function getStatus(session: any) {
+    if (!session) return "none";
+    if (!session.completed_at) return "info";
+    if (session.rpe >= 8) return "warning";
+    return "good";
+  }
+
+  const totalSessions = sessions.length;
+  const flagged = sessions.filter((s) => s.rpe >= 8).length;
+
+  return (
+    <div className="space-y-4">
+      {/* ✅ HEADER */}
+      <div>
+        <h1 className="text-2xl font-bold">Welcome back, Coach</h1>
+        <p className="text-sm text-muted-foreground">Quick overview of your athletes</p>
+      </div>
+
+      {/* ✅ SUMMARY BAR */}
+      <div className="grid grid-cols-3 gap-3">
+        <Card>
+          <CardContent className="p-3 text-center">
+            <div className="text-xs text-muted-foreground">Sessions</div>
+            <div className="text-lg font-semibold">{totalSessions}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-3 text-center">
+            <div className="text-xs text-muted-foreground">Athletes</div>
+            <div className="text-lg font-semibold">{athletes.length}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-3 text-center">
+            <div className="text-xs text-muted-foreground">Flagged</div>
+            <div className="text-lg font-semibold text-amber-500">{flagged}</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ✅ ALERTS PANEL (kept but compact) */}
+      <DashboardAlertsPanel />
+
+      {/* ✅ ✅ ATHLETE GRID (BIG FIX) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {athletes.map((athlete) => {
+          const session = latestSession(athlete.id);
+          const status = getStatus(session);
+
+          return (
+            <Card key={athlete.id}>
+              <CardContent className="pt-4 space-y-3">
+                {/* ✅ HEADER */}
+                <div className="flex items-center gap-3">
+                  <UserAvatar name={athlete.name} imageUrl={athlete.profile_image_url} size="md" />
+
+                  <div>
+                    <div className="font-semibold">{athlete.name}</div>
+
+                    <div
+                      className={`text-xs ${
+                        status === "good"
+                          ? "text-emerald-500"
+                          : status === "warning"
+                            ? "text-amber-500"
+                            : "text-muted-foreground"
+                      }`}
                     >
-                      <X className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                  <p className="text-xs text-foreground/80 mt-1.5">{a.guidance}</p>
-                  {a.extra?.note && (
-                    <p className="text-xs italic text-muted-foreground mt-1.5 bg-muted/40 rounded px-2 py-1.5">
-                      "{a.extra.note}"
-                    </p>
-                  )}
-                  {a.actions.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      {a.actions.map((act: DashAlert["actions"][number], i: number) => {
-                        if (act.kind === "link" && act.target) {
-                          return (
-                            <Button key={i} asChild size="sm" variant="outline" className="h-7 text-xs">
-                              <Link to={act.target}>{act.label}</Link>
-                            </Button>
-                          );
-                        }
-                        if (act.kind === "rest_day" && act.sessionId) {
-                          return (
-                            <Button key={i} size="sm" variant="outline" className="h-7 text-xs"
-                              onClick={() => restM.mutate(act.sessionId!)}>
-                              {act.label}
-                            </Button>
-                          );
-                        }
-                        if (act.kind === "skip_session" && act.sessionId) {
-                          return (
-                            <Button key={i} size="sm" variant="outline" className="h-7 text-xs"
-                              onClick={() => skipM.mutate(act.sessionId!)}>
-                              {act.label}
-                            </Button>
-                          );
-                        }
-                        return null;
-                      })}
+                      {status === "good" && "On track ✅"}
+                      {status === "warning" && "High fatigue ⚠️"}
+                      {status === "info" && "No completed session"}
+                      {status === "none" && "No data"}
                     </div>
-                  )}
+                  </div>
                 </div>
-              </div>
-            </div>
-          ))}
-        </CardContent>
-      )}
-    </Card>
+
+                {/* ✅ MINI METRICS */}
+                {session && (
+                  <div className="text-sm text-muted-foreground space-y-1">
+                    <div>RPE: {session.rpe ?? "—"}</div>
+
+                    <div>Distance: {Math.round((session.total_distance_m ?? 0) / 1000)} km</div>
+                  </div>
+                )}
+
+                {/* ✅ ACTION */}
+                {session && (
+                  <Link
+                    to="/app/sessions/$sessionId"
+                    params={{ sessionId: session.id }}
+                    className="text-sm text-blue-500 underline"
+                  >
+                    View session
+                  </Link>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
   );
 }
