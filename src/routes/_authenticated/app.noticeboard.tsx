@@ -16,6 +16,8 @@ import { useMyRoles, useAuthUser } from "@/lib/use-auth";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { UserAvatar } from "@/components/user-avatar";
+import { supabase } from "@/integrations/supabase/client";
+import { listMedia } from "@/lib/noticeboard.functions";
 
 export const Route = createFileRoute("/_authenticated/app/noticeboard")({
   component: () => (
@@ -56,6 +58,11 @@ function Noticeboard() {
   const { data: posts = [] } = useQuery({
     queryKey: ["noticeboard"],
     queryFn: () => list(),
+  });
+
+  const { data: media = [] } = useQuery({
+    queryKey: ["noticeboard-media"],
+    queryFn: () => listMedia(),
   });
 
   const [filter, setFilter] = useState("all");
@@ -191,14 +198,47 @@ function Noticeboard() {
       {/* ✅ ✅ FULL WIDTH MEDIA ROW */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Team Media</CardTitle>
+          <CardTitle className="text-base flex justify-between items-center">
+            Team Media
+            {isCoach && (
+              <input
+                type="file"
+                accept="image/*"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+
+                  const fileName = `${Date.now()}-${file.name}`;
+
+                  const { error: uploadError } = await supabase.storage
+                    .from("noticeboard-media")
+                    .upload(fileName, file);
+
+                  if (uploadError) {
+                    alert(uploadError.message);
+                    return;
+                  }
+
+                  const { data } = supabase.storage.from("noticeboard-media").getPublicUrl(fileName);
+
+                  const file_url = data.publicUrl;
+
+                  await supabase.from("noticeboard_media").insert({
+                    file_url,
+                    uploaded_by: user?.id,
+                  });
+
+                  qc.invalidateQueries({ queryKey: ["noticeboard-media"] });
+                }}
+              />
+            )}
+          </CardTitle>
         </CardHeader>
+
         <CardContent>
           <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
-            {[1, 2, 3, 4, 5, 6].map((i) => (
-              <div key={i} className="aspect-square bg-muted rounded flex items-center justify-center text-xs">
-                Img
-              </div>
+            {media.map((m: any) => (
+              <img key={m.id} src={m.file_url} className="aspect-square object-cover rounded" />
             ))}
           </div>
         </CardContent>
@@ -208,8 +248,6 @@ function Noticeboard() {
 }
 
 /* ✅ COMPOSER UNCHANGED BELOW */
-
-/* ✅ KEEP YOUR EXISTING COMPOSER BELOW (UNCHANGED) */
 
 function Composer({
   onCreated,
