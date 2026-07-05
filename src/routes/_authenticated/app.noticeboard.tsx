@@ -1,4 +1,3 @@
-// ✅ SAME IMPORTS (UNCHANGED)
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -26,7 +25,6 @@ export const Route = createFileRoute("/_authenticated/app/noticeboard")({
   ),
 });
 
-// ✅ KEEP YOUR EXISTING META
 const TYPE_META = {
   announcement: { label: "Announcement", icon: Megaphone, cls: "bg-blue-500/15 text-blue-400" },
   result: { label: "Result", icon: Trophy, cls: "bg-amber-500/15 text-amber-400" },
@@ -70,141 +68,140 @@ function Noticeboard() {
   const visible = filter === "all" ? posts : posts.filter((p: any) => p.post_type === filter);
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-      {/* ✅ LEFT COLUMN (MAIN CONTENT) */}
-      <div className="xl:col-span-2 space-y-4">
-        {/* HEADER */}
-        <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-bold">Noticeboard</h1>
-            <p className="text-sm text-muted-foreground">Squad announcements and updates</p>
+    <div className="space-y-4">
+      {/* ✅ TOP ROW */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+        {/* ✅ LEFT CONTENT */}
+        <div className="xl:col-span-2 space-y-4">
+          {/* HEADER */}
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-2xl font-bold">Noticeboard</h1>
+              <p className="text-sm text-muted-foreground">Squad announcements and updates</p>
+            </div>
+
+            <Select value={filter} onValueChange={setFilter}>
+              <SelectTrigger className="w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                {Object.entries(TYPE_META).map(([k, m]) => (
+                  <SelectItem key={k} value={k}>
+                    {m.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
-          <Select value={filter} onValueChange={setFilter}>
-            <SelectTrigger className="w-44">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All</SelectItem>
-              {Object.entries(TYPE_META).map(([k, m]) => (
-                <SelectItem key={k} value={k}>
-                  {m.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+          {/* COMPOSER */}
+          {isCoach && (
+            <Composer onCreated={() => qc.invalidateQueries({ queryKey: ["noticeboard"] })} createFn={create} />
+          )}
 
-        {/* COMPOSER */}
-        {isCoach && (
-          <Composer onCreated={() => qc.invalidateQueries({ queryKey: ["noticeboard"] })} createFn={create} />
-        )}
+          {/* POSTS */}
+          {visible.map((p: any) => {
+            const meta = TYPE_META[p.post_type] || TYPE_META.announcement;
+            const Icon = meta.icon;
 
-        {/* POSTS */}
-        {visible.map((p: any) => {
-          const meta =
-            (TYPE_META as Record<string, { label: string; icon: any; cls: string }>)[p.post_type] ||
-            TYPE_META.announcement;
-          const Icon = meta.icon;
+            return (
+              <Card key={p.id}>
+                <CardHeader className="pb-2">
+                  <div className="flex justify-between">
+                    <div className="flex gap-2 items-center">
+                      <Icon className="h-4 w-4" />
+                      <h3 className="font-semibold">{p.title}</h3>
+                      {p.pinned && <Pin className="h-3 text-red-500" />}
+                    </div>
 
-          return (
-            <Card key={p.id}>
-              <CardHeader className="pb-2">
-                <div className="flex justify-between">
-                  <div className="flex gap-2 items-center">
-                    <Icon className="h-4 w-4" />
-                    <h3 className="font-semibold">{p.title}</h3>
-                    {p.pinned && <Pin className="h-3 text-red-500" />}
+                    {p.author_id === user?.id && (
+                      <div className="flex gap-2">
+                        <Button size="icon" variant="ghost" onClick={() => setEditing(p)}>
+                          <Pencil size={14} />
+                        </Button>
+                        <Button size="icon" variant="ghost" onClick={() => delM.mutate(p.id)}>
+                          <Trash2 size={14} />
+                        </Button>
+                      </div>
+                    )}
                   </div>
 
-                  {/* ACTIONS */}
-                  {p.author_id === user?.id && (
-                    <div className="flex gap-2">
-                      <Button size="icon" variant="ghost" onClick={() => setEditing(p)}>
-                        <Pencil size={14} />
-                      </Button>
-                      <Button size="icon" variant="ghost" onClick={() => delM.mutate(p.id)}>
-                        <Trash2 size={14} />
-                      </Button>
-                    </div>
-                  )}
-                </div>
+                  <p className="text-xs text-muted-foreground">
+                    {p.author_name} · {format(new Date(p.created_at), "MMM d")}
+                  </p>
+                </CardHeader>
 
-                <p className="text-xs text-muted-foreground">
-                  {p.author_name} · {format(new Date(p.created_at), "MMM d")}
-                </p>
-              </CardHeader>
+                <CardContent className="space-y-2">
+                  {p.body && <p className="text-sm">{p.body}</p>}
 
-              <CardContent className="space-y-2">
-                {p.body && <p className="text-sm">{p.body}</p>}
-
-                {p.link_url && (
-                  <a
-                    href={p.link_url}
-                    target="_blank"
-                    className="text-sm text-blue-500 underline flex items-center gap-1"
-                  >
-                    <ExternalLink size={12} />
-                    Link
-                  </a>
-                )}
-
-                {/* REACTIONS */}
-                <div className="flex gap-1 flex-wrap">
-                  {EMOJIS.map((e) => (
-                    <button
-                      key={e}
-                      onClick={() => reactM.mutate({ post_id: p.id, emoji: e })}
-                      className="text-xs px-2 py-1 border rounded"
+                  {p.link_url && (
+                    <a
+                      href={p.link_url}
+                      target="_blank"
+                      className="text-sm text-blue-500 underline flex items-center gap-1"
                     >
-                      {e}
-                    </button>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
+                      <ExternalLink size={12} /> Link
+                    </a>
+                  )}
+
+                  <div className="flex gap-1 flex-wrap">
+                    {EMOJIS.map((e) => (
+                      <button
+                        key={e}
+                        onClick={() => reactM.mutate({ post_id: p.id, emoji: e })}
+                        className="text-xs px-2 py-1 border rounded"
+                      >
+                        {e}
+                      </button>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+
+        {/* ✅ RIGHT PANEL */}
+        <div className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Instagram</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <a
+                href="https://instagram.com/YOUR_ACCOUNT"
+                target="_blank"
+                rel="noreferrer"
+                className="text-sm text-blue-500 underline"
+              >
+                View Instagram →
+              </a>
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
-      {/* ✅ RIGHT SIDEBAR */}
-      <div className="space-y-4">
-        {/* INSTAGRAM */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Instagram</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <a
-              href="https://instagram.com/YOUR_ACCOUNT"
-              target="_blank"
-              rel="noreferrer"
-              className="text-sm text-blue-500 underline"
-            >
-              View Instagram →
-            </a>
-          </CardContent>
-        </Card>
-
-        {/* MEDIA */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Team Media</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-3 gap-2">
-              {[1, 2, 3, 4, 5, 6].map((i) => (
-                <div key={i} className="aspect-square bg-muted rounded flex items-center justify-center text-xs">
-                  Img
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      {/* ✅ ✅ FULL WIDTH MEDIA ROW */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Team Media</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <div key={i} className="aspect-square bg-muted rounded flex items-center justify-center text-xs">
+                Img
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
+
+/* ✅ COMPOSER UNCHANGED BELOW */
 
 /* ✅ KEEP YOUR EXISTING COMPOSER BELOW (UNCHANGED) */
 
