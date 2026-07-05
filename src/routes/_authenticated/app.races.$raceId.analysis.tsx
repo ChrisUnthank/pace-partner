@@ -405,8 +405,6 @@ function RaceAnalysisPage() {
   </p>
 </div>
 
-            )}
-
             {/* ✅ ✅ SPLIT CORRECTIONS (PROPERLY SEPARATED) */}
             <div className="col-span-3 border-t pt-3 space-y-2">
               <Label className="text-xs text-muted-foreground">Split corrections</Label>
