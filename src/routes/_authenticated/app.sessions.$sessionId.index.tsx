@@ -107,6 +107,12 @@ function SessionDetail() {
     },
   });
 
+  useEffect(() => {
+    if (race?.distance_m != null) {
+      setDistanceInput(String(race.distance_m));
+    }
+  }, [race?.distance_m]);
+
   const { data: steps = [] } = useQuery({
     queryKey: ["steps", sessionId],
     queryFn: async () => {
