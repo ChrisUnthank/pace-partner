@@ -95,6 +95,21 @@ function SessionDetail() {
     retry: false,
   });
 
+const { data: race } = useQuery({
+  queryKey: ["race-by-session", sessionId],
+  enabled: !!sessionId,
+  queryFn: async () => {
+    const { data, error } = await supabase
+      .from("performances")
+      .select("*")
+      .eq("session_id", sessionId)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data;
+  },
+});
+
   const { data: steps = [] } = useQuery({
     queryKey: ["steps", sessionId],
     queryFn: async () => {
@@ -569,11 +584,27 @@ function SessionDetail() {
                 </div>
 
                 {/* Distance */}
-                <div className="border rounded-lg px-3 py-2">
-                  <div className="text-xs text-muted-foreground">Distance</div>
-                  <div className="text-lg font-semibold tabular-nums">
-                    <>{metersFmt(session.total_distance_m ?? 0)}</>
-                  </div>
+                <div className="text-lg font-semibold tabular-nums">
+  {session.day_type === "race" && race ? (
+    <Input
+      type="number"
+      value={race.distance_m ?? ""}
+      className="h-7 text-sm"
+      onBlur={async (e) => {
+        const val = Number(e.target.value) || 0;
+
+        await supabase
+          .from("performances")
+          .update({ distance_m: val })
+          .eq("id", race.id);
+
+        qc.invalidateQueries({ queryKey: ["race-by-session", sessionId] });
+      }}
+    />
+  ) : (
+    metersFmt(session.total_distance_m ?? 0)
+  )}
+</div>
                 </div>
 
                 {/* Pace */}
