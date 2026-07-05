@@ -590,6 +590,7 @@ function RaceAnalysisPage() {
     strokeLinecap="round"
   />
 </g>
+                        </svg>
                       ) : s.avgHr ? (
                         /* ✅ FALLBACK: heart */
                         <div
