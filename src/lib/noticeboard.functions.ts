@@ -16,9 +16,14 @@ export const listPosts = createServerFn({ method: "GET" })
       ids.length
         ? context.supabase.from("noticeboard_reactions").select("post_id, user_id, emoji").in("post_id", ids)
         : Promise.resolve({ data: [] as any[] }),
-      context.supabase.from("profiles").select("id, full_name, profile_image_url").in("id", Array.from(new Set((data ?? []).map((p) => p.author_id)))),
+      context.supabase
+        .from("profiles")
+        .select("id, full_name, profile_image_url")
+        .in("id", Array.from(new Set((data ?? []).map((p) => p.author_id)))),
     ]);
-    const authorMap = new Map((authors ?? []).map((a: any) => [a.id, { name: a.full_name, image: a.profile_image_url ?? null }]));
+    const authorMap = new Map(
+      (authors ?? []).map((a: any) => [a.id, { name: a.full_name, image: a.profile_image_url ?? null }]),
+    );
     return (data ?? []).map((p) => ({
       ...p,
       author_name: authorMap.get(p.author_id)?.name ?? "Coach",
@@ -29,14 +34,16 @@ export const listPosts = createServerFn({ method: "GET" })
 
 export const createPost = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: {
-    post_type: "announcement" | "result" | "upcoming_race" | "training_event" | "resource";
-    title: string;
-    body?: string;
-    link_url?: string;
-    event_date?: string;
-    pinned?: boolean;
-  }) => d)
+  .inputValidator(
+    (d: {
+      post_type: "announcement" | "result" | "upcoming_race" | "training_event" | "resource";
+      title: string;
+      body?: string;
+      link_url?: string;
+      event_date?: string;
+      pinned?: boolean;
+    }) => d,
+  )
   .handler(async ({ data, context }) => {
     const { data: row, error } = await context.supabase
       .from("noticeboard_posts")
@@ -66,15 +73,17 @@ export const deletePost = createServerFn({ method: "POST" })
 
 export const updatePost = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: {
-    id: string;
-    title?: string;
-    body?: string | null;
-    link_url?: string | null;
-    event_date?: string | null;
-    pinned?: boolean;
-    post_type?: "announcement" | "result" | "upcoming_race" | "training_event" | "resource";
-  }) => d)
+  .inputValidator(
+    (d: {
+      id: string;
+      title?: string;
+      body?: string | null;
+      link_url?: string | null;
+      event_date?: string | null;
+      pinned?: boolean;
+      post_type?: "announcement" | "result" | "upcoming_race" | "training_event" | "resource";
+    }) => d,
+  )
   .handler(async ({ data, context }) => {
     const { id, ...rest } = data;
     const { error } = await (context.supabase as any)
@@ -107,4 +116,15 @@ export const toggleReaction = createServerFn({ method: "POST" })
       .insert({ post_id: data.post_id, user_id: context.userId, emoji: data.emoji });
     if (error) throw error;
     return { state: "added" as const };
+  });
+
+export const listMedia = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { data } = await context.supabase
+      .from("noticeboard_media")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    return data ?? [];
   });
