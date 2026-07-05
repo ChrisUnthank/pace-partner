@@ -143,18 +143,24 @@ function RaceAnalysisPage() {
       }
     }
 
-    // ✅ ✅ ADD FINAL PARTIAL SPLIT (FIXES YOUR 400m PROBLEM)
-    const lastPoint = rawPoints[rawPoints.length - 1];
+    // ✅ ✅ CREATE FINAL PARTIAL SPLIT USING TRUE DISTANCE
+    const adjustedDistance = (session?.total_distance_m ?? 0) + (session?.distance_adjustment_m ?? 0);
 
-    if (lastPoint?.distance_m && lastPoint?.elapsed_s) {
-      const coveredDistance = splits.length * splitDistance;
-      const remainingDistance = lastPoint.distance_m - coveredDistance;
+    // total distance already represented by full splits
+    const coveredDistance = splits.length * splitDistance;
 
-      // ✅ avoid tiny GPS noise (e.g. <250m)
-      if (remainingDistance > splitDistance * 0.25) {
+    if (adjustedDistance > coveredDistance) {
+      const finalPoint = rawPoints[rawPoints.length - 1];
+
+      // remaining distance after last full split
+      const remaining = adjustedDistance - coveredDistance;
+
+      // ✅ ignore tiny GPS noise
+      if (remaining > splitDistance * 0.2) {
         splits.push({
           km: splits.length + 1,
-          time: lastPoint.elapsed_s,
+          time: finalPoint?.elapsed_s ?? 0,
+          isPartial: true,
         });
       }
     }
@@ -503,7 +509,9 @@ function RaceAnalysisPage() {
                   <div key={s.km} className="space-y-1">
                     {/* ✅ label + time */}
                     <div className="flex justify-between text-xs border rounded px-2 py-1">
-                      <span className="text-muted-foreground">{isTrackRace ? `Lap ${s.km}` : `Km ${s.km}`}</span>
+                      <span className="text-muted-foreground">
+                        {(s as any).isPartial ? `Km ${s.km} (partial)` : isTrackRace ? `Lap ${s.km}` : `Km ${s.km}`}
+                      </span>
 
                       <div className="flex items-center gap-3">
                         {/* ✅ Placeholder for HR — will wire real data next */}
