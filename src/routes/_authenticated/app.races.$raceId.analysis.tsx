@@ -112,7 +112,7 @@ function RaceAnalysisPage() {
       }
 
       // ✅ DETECT GPS DROPOUT (distance stalls but time continues)
-      else if (timeDiff > 2 && distDiff < 1) {
+      else if (timeDiff > 1 && distDiff < 5) {
         // ✅ record dropout location
         dropoutSegments.push({ index: i });
 
@@ -154,9 +154,21 @@ function RaceAnalysisPage() {
 
   // ✅ Use GPS distance only (split corrections affect TIME, not total distance)
 
-  const reconstructedDistance = useMemo(() => {
-    return estimateCorrectedDistance(rawPoints);
+  const reconstructedResult = useMemo(() => {
+    const result = estimateCorrectedDistance(rawPoints);
+
+    // ✅ ✅ ADD THIS LINE
+
+    console.log("🔍 Reconstruction:");
+    console.log("Total Distance:", result.totalDistance);
+    console.log("Dropout count:", result.dropoutSegments.length);
+    console.log("Dropouts:", result.dropoutSegments.slice(0, 5));
+
+    return result;
   }, [rawPoints]);
+
+  // ✅ keep compatibility with your existing code
+  const reconstructedDistance = reconstructedResult?.totalDistance ?? 0;
 
   const officialDistance = race?.distance_m ?? null;
 
