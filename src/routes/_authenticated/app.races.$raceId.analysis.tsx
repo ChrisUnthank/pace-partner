@@ -115,7 +115,11 @@ function RaceAnalysisPage() {
     if (!rawPoints || rawPoints.length === 0 || !race) return [];
     if (!session) return [];
 
+    // ✅ ✅ ONLY USE GPS DISTANCE
+    const adjustedDistance = session?.total_distance_m ?? 0;
+
     const splits: Array<{ km: number; time: number; isPartial?: boolean }> = [];
+
     let nextDistanceMark = splitDistance;
 
     // ✅ MAIN LOOP — build full splits
@@ -143,20 +147,15 @@ function RaceAnalysisPage() {
       }
     }
 
-    // ✅ ✅ CREATE FINAL PARTIAL SPLIT USING TRUE DISTANCE
-    const adjustedDistance = (session?.total_distance_m ?? 0) + (session?.distance_adjustment_m ?? 0);
-
-    // total distance already represented by full splits
+    // ✅ ✅ PARTIAL SPLIT USING TRUE (GPS) DISTANCE
     const coveredDistance = splits.length * splitDistance;
 
     if (adjustedDistance > coveredDistance) {
-      const finalPoint = rawPoints[rawPoints.length - 1];
-
-      // remaining distance after last full split
       const remaining = adjustedDistance - coveredDistance;
 
-      // ✅ ignore tiny GPS noise
       if (remaining > splitDistance * 0.2) {
+        const finalPoint = rawPoints[rawPoints.length - 1];
+
         splits.push({
           km: splits.length + 1,
           time: finalPoint?.elapsed_s ?? 0,
@@ -165,14 +164,13 @@ function RaceAnalysisPage() {
       }
     }
 
-    // ✅ PROCESS SPLITS (HR + adjustments)
+    // ✅ PROCESS SPLITS (HR + CLEAN ADJUSTMENTS)
     return splits.map((s, i) => {
       const prevTime = i === 0 ? 0 : splits[i - 1].time;
 
       const startDistance = i * splitDistance;
       const endDistance = (i + 1) * splitDistance;
 
-      // ✅ HR calculation
       const pointsInSplit = rawPoints.filter(
         (p) => p.distance_m != null && p.hr != null && p.distance_m >= startDistance && p.distance_m < endDistance,
       );
@@ -187,7 +185,7 @@ function RaceAnalysisPage() {
         avgHr = total / pointsInSplit.length;
       }
 
-      // ✅ DISTANCE ADJUSTMENT ENGINE
+      // ✅ ✅ CORRECT SPLIT-LEVEL ADJUSTMENTS (ONLY SYSTEM NOW)
       const baseDistance = race?.distance_m ?? 1;
 
       const avgPacePerMeter = baseDistance > 0 ? (race?.time_seconds ?? 0) / baseDistance : 0;
@@ -197,33 +195,8 @@ function RaceAnalysisPage() {
       const splitAdjustments = session?.distance_adjustments ?? [];
 
       for (const adj of splitAdjustments) {
-        if (adj.split_km === s.km) {
+        if (Number(adj.split_km) === Number(s.km)) {
           adjustedTime += adj.meters * avgPacePerMeter;
-        }
-      }
-
-      // ✅ FALLBACK (old system still works if no split adjustments)
-      if (splitAdjustments.length === 0) {
-        const totalAdjustment = session?.distance_adjustment_m ?? 0;
-        const mode = session?.distance_adjustment_mode ?? "uniform";
-
-        if (totalAdjustment !== 0 && splits.length > 0) {
-          if (mode === "uniform") {
-            const perSplit = totalAdjustment / splits.length;
-            adjustedTime += perSplit * avgPacePerMeter;
-          }
-
-          if (mode === "start" && i < 2) {
-            const splitsAffected = Math.min(2, splits.length);
-            const perSplit = totalAdjustment / splitsAffected;
-            adjustedTime += perSplit * avgPacePerMeter;
-          }
-
-          if (mode === "end" && i >= splits.length - 2) {
-            const splitsAffected = Math.min(2, splits.length);
-            const perSplit = totalAdjustment / splitsAffected;
-            adjustedTime += perSplit * avgPacePerMeter;
-          }
         }
       }
 
@@ -232,6 +205,7 @@ function RaceAnalysisPage() {
         time: adjustedTime - prevTime,
         avgHr,
         hrSeries,
+        isPartial: (s as any).isPartial,
       };
     });
   }, [rawPoints, splitDistance, race, session]);
@@ -530,7 +504,7 @@ function RaceAnalysisPage() {
                         return `${x},${y}`;
                       })
                       .join(" ")
-                      : undefined;
+                  : undefined;
 
                 return (
                   <div key={s.km} className="space-y-1">
