@@ -153,7 +153,17 @@ function RaceAnalysisPage() {
     return estimateCorrectedDistance(rawPoints);
   }, [rawPoints]);
 
-  const adjustedDistance = reconstructedDistance || session?.total_distance_m || 0;
+  const officialDistance = race?.distance_m ?? null;
+
+  // ✅ calculate smoothing factor (usually ~1.02–1.05)
+  let correctionFactor = 1;
+
+  if (officialDistance && reconstructedDistance > 0) {
+    correctionFactor = officialDistance / reconstructedDistance;
+  }
+
+  // ✅ final adjusted distance (used everywhere)
+  const adjustedDistance = officialDistance || reconstructedDistance || session?.total_distance_m || 0;
 
   const avgPace = adjustedDistance && race?.time_seconds ? (race.time_seconds / adjustedDistance) * 1000 : null;
 
@@ -167,7 +177,7 @@ function RaceAnalysisPage() {
     if (!session) return [];
 
     // ✅ ✅ USE PRECOMPUTED DISTANCE (NO HOOKS HERE)
-    const adjustedDistance = reconstructedDistance || session?.total_distance_m || 0;
+    const adjustedDistance = officialDistance || reconstructedDistance || 0;
 
     const splits: Array<{ km: number; time: number; isPartial?: boolean }> = [];
 
@@ -241,7 +251,7 @@ function RaceAnalysisPage() {
 
       const avgPacePerMeter = baseDistance > 0 ? (race?.time_seconds ?? 0) / baseDistance : 0;
 
-      let adjustedTime = s.time;
+      let adjustedTime = s.time * correctionFactor;
 
       const splitAdjustments = session?.distance_adjustments ?? [];
 
