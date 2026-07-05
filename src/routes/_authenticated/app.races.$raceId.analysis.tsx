@@ -137,10 +137,8 @@ function RaceAnalysisPage() {
       }
     }
 
-    return {
-      totalDistance,
-      dropoutSegments,
-    };
+    void dropoutSegments;
+    return totalDistance;
   }
   function update(id: string, patch: Partial<Split>) {
     setSplits((s) => s.map((x) => (x.id === id ? { ...x, ...patch } : x)));
