@@ -35,6 +35,12 @@ const TYPE_META: Record<string, { label: string; icon: any; cls: string }> = {
 
 const EMOJIS = ["👍", "🔥", "👏", "💪", "🎉"];
 
+function uploadImage(supabase: any, file: File) {
+  const fileName = `${Date.now()}-${file.name}`;
+
+  return supabase.storage.from("noticeboard-media").upload(fileName, file);
+}
+
 function Noticeboard() {
   const list = useServerFn(listPosts);
   const create = useServerFn(createPost);
@@ -67,6 +73,13 @@ function Noticeboard() {
 
   const visible = filter === "all" ? posts : posts.filter((p: any) => p.post_type === filter);
 
+  const { data: media = [] } = useQuery({
+    queryKey: ["noticeboard-media"],
+    queryFn: async () => {
+      const { data } = await listMedia();
+      return data ?? [];
+    },
+  });
   return (
     <div className="space-y-4">
       {/* ✅ TOP ROW */}
