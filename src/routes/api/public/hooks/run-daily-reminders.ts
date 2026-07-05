@@ -11,13 +11,11 @@ export const Route = createFileRoute("/api/public/hooks/run-daily-reminders")({
     handlers: {
       POST: async () => {
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-        const today = new Date().toISOString().slice(0, 10);
         const now = new Date();
-        const hhmm = `${String(now.getUTCHours()).padStart(2, "0")}:${String(now.getUTCMinutes()).padStart(2, "0")}`;
 
         const { data: athletes } = await supabaseAdmin
           .from("athletes")
-          .select("id, user_id, name, reminder_morning_local, reminder_evening_local, reminders_enabled")
+          .select("id, user_id, name, reminder_morning_local, reminder_evening_local, reminders_enabled, profiles:profiles!athletes_user_id_fkey(timezone)")
           .eq("reminders_enabled", true)
           .not("user_id", "is", null);
 
@@ -25,6 +23,8 @@ export const Route = createFileRoute("/api/public/hooks/run-daily-reminders")({
         for (const a of athletes ?? []) {
           const morning = (a.reminder_morning_local ?? "08:00").slice(0, 5);
           const evening = (a.reminder_evening_local ?? "20:00").slice(0, 5);
+          const tz = (a as any).profiles?.timezone || "UTC";
+          const { hhmm, today } = localClock(now, tz);
           // morning reminder window: any time at or after morning, before 12:00
           if (hhmm >= morning && hhmm < "12:00") {
             const { data: vitals } = await supabaseAdmin
@@ -52,6 +52,27 @@ export const Route = createFileRoute("/api/public/hooks/run-daily-reminders")({
     },
   },
 });
+
+function localClock(now: Date, timeZone: string): { hhmm: string; today: string } {
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", hour12: false,
+    }).formatToParts(now);
+    const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
+    const hour = get("hour") === "24" ? "00" : get("hour");
+    return {
+      hhmm: `${hour}:${get("minute")}`,
+      today: `${get("year")}-${get("month")}-${get("day")}`,
+    };
+  } catch {
+    return {
+      hhmm: `${String(now.getUTCHours()).padStart(2, "0")}:${String(now.getUTCMinutes()).padStart(2, "0")}`,
+      today: now.toISOString().slice(0, 10),
+    };
+  }
+}
 
 async function queueNotification(sb: any, userId: string, kind: string, date: string, title: string, body: string, link: string) {
   // dedupe per user/kind/date
