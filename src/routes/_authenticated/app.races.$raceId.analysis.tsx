@@ -157,18 +157,14 @@ function RaceAnalysisPage() {
   const reconstructedResult = useMemo(() => {
     const result = estimateCorrectedDistance(rawPoints);
 
-    // ✅ ✅ ADD THIS LINE
-
     console.log("🔍 Reconstruction:");
-    console.log("Total Distance:", result.totalDistance);
-    console.log("Dropout count:", result.dropoutSegments.length);
-    console.log("Dropouts:", result.dropoutSegments.slice(0, 5));
+    console.log("Total Distance:", result);
 
     return result;
   }, [rawPoints]);
 
   // ✅ keep compatibility with your existing code
-  const reconstructedDistance = reconstructedResult?.totalDistance ?? 0;
+  const reconstructedDistance = reconstructedResult ?? 0;
 
   const officialDistance = race?.distance_m ?? null;
 
