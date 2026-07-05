@@ -25,7 +25,7 @@ export const Route = createFileRoute("/_authenticated/app/noticeboard")({
   ),
 });
 
-const TYPE_META = {
+const TYPE_META: Record<string, { label: string; icon: any; cls: string }> = {
   announcement: { label: "Announcement", icon: Megaphone, cls: "bg-blue-500/15 text-blue-400" },
   result: { label: "Result", icon: Trophy, cls: "bg-amber-500/15 text-amber-400" },
   upcoming_race: { label: "Upcoming race", icon: CalendarDays, cls: "bg-emerald-500/15 text-emerald-400" },
