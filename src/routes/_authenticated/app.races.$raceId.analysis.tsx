@@ -166,19 +166,14 @@ function RaceAnalysisPage() {
     if (!rawPoints || rawPoints.length === 0 || !race) return [];
     if (!session) return [];
 
-    // ✅ ✅ ONLY USE GPS DISTANCE
-
-    const reconstructedDistance = useMemo(() => {
-      return estimateCorrectedDistance(rawPoints);
-    }, [rawPoints]);
-
+    // ✅ ✅ USE PRECOMPUTED DISTANCE (NO HOOKS HERE)
     const adjustedDistance = reconstructedDistance || session?.total_distance_m || 0;
 
     const splits: Array<{ km: number; time: number; isPartial?: boolean }> = [];
 
     let nextDistanceMark = splitDistance;
 
-    // ✅ MAIN LOOP — build full splits
+    // ✅ MAIN LOOP — build splits
     for (let i = 1; i < rawPoints.length; i++) {
       const prev = rawPoints[i - 1];
       const curr = rawPoints[i];
@@ -203,7 +198,7 @@ function RaceAnalysisPage() {
       }
     }
 
-    // ✅ ✅ PARTIAL SPLIT USING TRUE (GPS) DISTANCE
+    // ✅ PARTIAL SPLIT
     const coveredDistance = splits.length * splitDistance;
 
     if (adjustedDistance > coveredDistance) {
