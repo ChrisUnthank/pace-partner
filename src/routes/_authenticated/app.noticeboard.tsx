@@ -182,7 +182,12 @@ function Noticeboard() {
             <CardTitle className="text-base">Instagram</CardTitle>
           </CardHeader>
           <CardContent>
-            https://instagram.com/YOUR_ACCOUNT
+            <a
+              href="https://instagram.com/YOUR_ACCOUNT"
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm text-blue-500 underline"
+            >
               View Instagram →
             </a>
           </CardContent>
