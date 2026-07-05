@@ -90,6 +90,7 @@ function RaceAnalysisPage() {
     },
   });
   function estimateCorrectedDistance(points: any[]) {
+    const dropoutSegments: { index: number }[] = [];
     if (!points || points.length < 2) return 0;
 
     let totalDistance = 0;
@@ -112,6 +113,9 @@ function RaceAnalysisPage() {
 
       // ✅ DETECT GPS DROPOUT (distance stalls but time continues)
       else if (timeDiff > 2 && distDiff < 1) {
+        // ✅ record dropout location
+        dropoutSegments.push({ index: i });
+
         // estimate missing distance from pace before dropout
         const lookback = Math.max(0, i - 5);
         const prevPoint = points[lookback];
@@ -133,7 +137,10 @@ function RaceAnalysisPage() {
       }
     }
 
-    return totalDistance;
+    return {
+      totalDistance,
+      dropoutSegments,
+    };
   }
   function update(id: string, patch: Partial<Split>) {
     setSplits((s) => s.map((x) => (x.id === id ? { ...x, ...patch } : x)));
