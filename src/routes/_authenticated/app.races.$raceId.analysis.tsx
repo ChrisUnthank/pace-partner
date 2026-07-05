@@ -555,7 +555,9 @@ function RaceAnalysisPage() {
                             })()}
                             fill="none"
                             stroke="#ffffff"
-                            strokeWidth="2"
+                            strokeWidth="2.5"
+                            strokeOpacity="0.95"
+                            filter="drop-shadow(0 0 2px rgba(255,255,255,0.6))"
                             strokeLinecap="round"
                           />
                         </svg>
