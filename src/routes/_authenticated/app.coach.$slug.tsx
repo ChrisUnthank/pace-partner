@@ -96,18 +96,20 @@ function CoachProfilePage() {
               />
             )}
             <div className="relative">
-              <div className="flex items-center justify-between gap-4">
-                {editing ? (
-                  <input
-                    value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    className="text-3xl md:text-4xl font-bold tracking-tight border rounded px-2 py-1 w-full"
-                  />
-                ) : (
-                  <h1 className="text-3xl md:text-4xl font-bold tracking-tight">{coach.name}</h1>
-                )}
+              <div className="flex items-center gap-4">
+                <div className="flex-1">
+                  {editing ? (
+                    <input
+                      value={form.name}
+                      onChange={(e) => setForm({ ...form, name: e.target.value })}
+                      className="text-3xl md:text-4xl font-bold tracking-tight border rounded px-2 py-1 w-full"
+                    />
+                  ) : (
+                    <h1 className="text-3xl md:text-4xl font-bold tracking-tight">{coach.name}</h1>
+                  )}
+                </div>
 
-                <Button size="sm" onClick={() => setEditing((v) => !v)}>
+                <Button size="sm" onClick={() => setEditing((v) => !v)} className="shrink-0">
                   {editing ? "Cancel" : "Edit Profile"}
                 </Button>
               </div>
