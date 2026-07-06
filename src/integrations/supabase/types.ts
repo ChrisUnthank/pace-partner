@@ -640,6 +640,7 @@ export type Database = {
           stats: Json | null
           style: string | null
           tagline: string | null
+          team_name: string | null
           testimonials: Json | null
           theme: string | null
         }
@@ -664,6 +665,7 @@ export type Database = {
           stats?: Json | null
           style?: string | null
           tagline?: string | null
+          team_name?: string | null
           testimonials?: Json | null
           theme?: string | null
         }
@@ -688,6 +690,7 @@ export type Database = {
           stats?: Json | null
           style?: string | null
           tagline?: string | null
+          team_name?: string | null
           testimonials?: Json | null
           theme?: string | null
         }
