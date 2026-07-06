@@ -1,0 +1,433 @@
+import { useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Menu, Mail, Phone, Instagram, MapPin, Timer, X } from "lucide-react";
+import type { CoachConfig } from "./coach-config";
+import "./coach-profile-tokens.css";
+
+const SECTIONS = [
+  { id: "home", label: "Home" },
+  { id: "about", label: "About" },
+  { id: "sessions", label: "Sample sessions" },
+  { id: "gallery", label: "Gallery" },
+  { id: "plans", label: "Plans" },
+  { id: "testimonials", label: "Testimonials" },
+  { id: "contact", label: "Location & contact" },
+];
+
+// Simple luminance check so `--on-brand` stays readable against any brand color.
+function onColorFor(hex: string): string {
+  const c = hex.replace("#", "");
+  if (c.length !== 6) return "#FFFFFF";
+  const r = parseInt(c.slice(0, 2), 16);
+  const g = parseInt(c.slice(2, 4), 16);
+  const b = parseInt(c.slice(4, 6), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.6 ? "#17181A" : "#FFFFFF";
+}
+
+function scrollToSection(id: string) {
+  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+export interface CoachProfilePageProps {
+  config: CoachConfig;
+  /** Show the live theme/style/nav preview toggles. Dev-only, strip before shipping a fixed-config page. */
+  showDevControls?: boolean;
+  onConfigChange?: (next: CoachConfig) => void;
+}
+
+export function CoachProfilePage({ config, showDevControls, onConfigChange }: CoachProfilePageProps) {
+  const rootVars = useMemo(
+    () =>
+      ({
+        "--brand": config.brandColor,
+        "--on-brand": onColorFor(config.brandColor),
+      }) as React.CSSProperties,
+    [config.brandColor],
+  );
+
+  return (
+    <div
+      data-coach-root
+      data-theme={config.theme}
+      data-style={config.style}
+      data-nav={config.nav}
+      style={rootVars}
+      className="min-h-screen"
+    >
+      {showDevControls && <DevControls config={config} onChange={onConfigChange} />}
+
+      {config.nav === "sidebar" ? (
+        <SidebarLayout config={config} />
+      ) : (
+        <TopNavLayout config={config} />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Nav shells — the only thing that forks per `nav` value. Section content
+// (<PageSections>) is identical either way.
+// ---------------------------------------------------------------------------
+
+function TopNavLayout({ config }: { config: CoachConfig }) {
+  return (
+    <div>
+      <header
+        className="sticky top-0 z-40 border-b backdrop-blur"
+        style={{ borderColor: "var(--border)", background: "color-mix(in srgb, var(--bg) 85%, transparent)" }}
+      >
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 md:px-8">
+          <Logo config={config} />
+          <nav className="hidden items-center gap-6 md:flex">
+            {SECTIONS.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => scrollToSection(s.id)}
+                className="text-sm hover:opacity-70"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                {s.label}
+              </button>
+            ))}
+          </nav>
+          <div className="hidden md:block">
+            <InquiryCTA />
+          </div>
+          <MobileNavSheet config={config} />
+        </div>
+      </header>
+      <main className="mx-auto max-w-6xl px-4 md:px-8">
+        <PageSections config={config} />
+      </main>
+      <Footer config={config} />
+    </div>
+  );
+}
+
+function SidebarLayout({ config }: { config: CoachConfig }) {
+  return (
+    <div className="md:flex">
+      {/* mobile top bar */}
+      <div
+        className="flex items-center justify-between border-b px-4 py-3 md:hidden"
+        style={{ borderColor: "var(--border)" }}
+      >
+        <Logo config={config} />
+        <MobileNavSheet config={config} />
+      </div>
+
+      <aside
+        className="hidden w-64 shrink-0 flex-col justify-between border-r px-6 py-8 md:sticky md:top-0 md:flex md:h-screen"
+        style={{ borderColor: "var(--border)" }}
+      >
+        <div>
+          <Logo config={config} showName />
+          <nav className="mt-10 flex flex-col gap-4">
+            {SECTIONS.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => scrollToSection(s.id)}
+                className="text-left text-sm hover:opacity-70"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                {s.label}
+              </button>
+            ))}
+          </nav>
+        </div>
+        <InquiryCTA fullWidth />
+      </aside>
+
+      <main className="mx-auto min-w-0 max-w-4xl flex-1 px-4 md:px-10">
+        <PageSections config={config} />
+        <Footer config={config} />
+      </main>
+    </div>
+  );
+}
+
+function Logo({ config, showName }: { config: CoachConfig; showName?: boolean }) {
+  return (
+    <div className="flex items-center gap-2">
+      <div
+        className="flex h-9 w-9 items-center justify-center text-sm font-semibold"
+        style={{ background: "var(--brand)", color: "var(--on-brand)", borderRadius: "var(--radius-sm)" }}
+      >
+        {config.logoInitials}
+      </div>
+      {showName && <span className="coach-heading text-sm">{config.name}</span>}
+    </div>
+  );
+}
+
+function InquiryCTA({ fullWidth }: { fullWidth?: boolean }) {
+  return (
+    <Button
+      onClick={() => scrollToSection("contact")}
+      className={fullWidth ? "w-full" : ""}
+      style={{ background: "var(--brand)", color: "var(--on-brand)", borderRadius: "var(--radius-sm)" }}
+    >
+      Send inquiry
+    </Button>
+  );
+}
+
+function MobileNavSheet({ config }: { config: CoachConfig }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger asChild>
+        <Button variant="ghost" size="icon" className="md:hidden">
+          <Menu className="h-5 w-5" />
+        </Button>
+      </SheetTrigger>
+      <SheetContent style={{ background: "var(--bg)", color: "var(--text-primary)" }}>
+        <nav className="mt-10 flex flex-col gap-5">
+          {SECTIONS.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => {
+                setOpen(false);
+                scrollToSection(s.id);
+              }}
+              className="text-left text-base"
+            >
+              {s.label}
+            </button>
+          ))}
+          <InquiryCTA fullWidth />
+        </nav>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sections — shared by both nav layouts
+// ---------------------------------------------------------------------------
+
+function PageSections({ config }: { config: CoachConfig }) {
+  return (
+    <>
+      <Hero config={config} />
+      <Stats config={config} />
+      <About config={config} />
+      <SampleSessions config={config} />
+      <Gallery config={config} />
+      <Plans config={config} />
+      <Testimonials config={config} />
+      <LocationContact config={config} />
+    </>
+  );
+}
+
+function SectionHeading({ children }: { children: React.ReactNode }) {
+  return <h2 className="coach-heading mb-8 text-2xl md:text-3xl">{children}</h2>;
+}
+
+function Hero({ config }: { config: CoachConfig }) {
+  const modern = config.style === "modern";
+  return (
+    <section id="home" style={{ paddingTop: "var(--section-py)", paddingBottom: "var(--section-py)" }}>
+      <div className={modern ? "grid items-center gap-10 md:grid-cols-[1.1fr_1fr]" : "mx-auto max-w-2xl text-center"}>
+        <div className={modern ? "" : "order-2"}>
+          {!modern && (
+            <img
+              src={config.heroImageUrl}
+              alt={config.name}
+              className="coach-hero-image mx-auto mb-8 h-40 w-40 object-cover"
+            />
+          )}
+          <h1 className="coach-heading text-4xl md:text-5xl">{config.name}</h1>
+          <p className="mt-4 text-lg" style={{ color: "var(--text-secondary)" }}>
+            {config.tagline}
+          </p>
+          <div className={`mt-5 flex flex-wrap gap-2 ${modern ? "" : "justify-center"}`}>
+            {config.disciplines.map((d) => (
+              <span key={d} className="coach-tag px-3 py-1 text-xs font-medium">
+                {d}
+              </span>
+            ))}
+          </div>
+          <div className={`mt-8 flex flex-wrap gap-3 ${modern ? "" : "justify-center"}`}>
+            <InquiryCTA />
+            <Button
+              variant="outline"
+              onClick={() => scrollToSection("plans")}
+              style={{ borderColor: "var(--border)", borderRadius: "var(--radius-sm)" }}
+            >
+              View plans
+            </Button>
+          </div>
+        </div>
+        {modern && (
+          <img
+            src={config.heroImageUrl}
+            alt={config.name}
+            className="coach-hero-image h-72 w-full object-cover md:h-[26rem]"
+          />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function Stats({ config }: { config: CoachConfig }) {
+  if (!config.stats.length) return null;
+  return (
+    <section className="border-t coach-divider py-10">
+      <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
+        {config.stats.map((s) => (
+          <div key={s.label} className="text-center">
+            <div className="coach-mono coach-heading text-3xl" style={{ color: "var(--brand)" }}>
+              {s.value}
+            </div>
+            <div className="mt-1 text-xs uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
+              {s.label}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function About({ config }: { config: CoachConfig }) {
+  if (!config.bio) return null;
+  return (
+    <section id="about" style={{ paddingTop: "var(--section-py)", paddingBottom: "var(--section-py)" }}>
+      <SectionHeading>About</SectionHeading>
+      <p className="max-w-2xl leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+        {config.bio}
+      </p>
+      {config.certifications.length > 0 && (
+        <div className="mt-6 flex flex-wrap gap-2">
+          {config.certifications.map((c) => (
+            <span
+              key={c}
+              className="text-xs px-3 py-1"
+              style={{
+                border: "1px solid var(--border)",
+                borderRadius: "var(--tag-radius)",
+                color: "var(--text-secondary)",
+              }}
+            >
+              {c}
+            </span>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function SampleSessions({ config }: { config: CoachConfig }) {
+  if (!config.sampleSessions.length) return null;
+  return (
+    <section id="sessions" style={{ paddingTop: "var(--section-py)", paddingBottom: "var(--section-py)" }}>
+      <SectionHeading>Sample sessions</SectionHeading>
+      <div className="grid gap-4 md:grid-cols-3">
+        {config.sampleSessions.map((s) => (
+          <div key={s.name} className="coach-card p-5">
+            <div className="flex items-center gap-2" style={{ color: "var(--brand)" }}>
+              <Timer className="h-4 w-4" />
+              <span className="coach-heading text-sm">{s.name}</span>
+            </div>
+            <div className="coach-mono mt-3 text-sm" style={{ color: "var(--text-primary)" }}>
+              {s.target}
+            </div>
+            <div className="mt-2 text-xs" style={{ color: "var(--text-secondary)" }}>
+              {s.purpose}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function Gallery({ config }: { config: CoachConfig }) {
+  const [open, setOpen] = useState<string | null>(null);
+  if (!config.galleryImages.length) return null;
+  return (
+    <section id="gallery" style={{ paddingTop: "var(--section-py)", paddingBottom: "var(--section-py)" }}>
+      <SectionHeading>Gallery</SectionHeading>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        {config.galleryImages.map((src, i) => (
+          <button
+            key={src + i}
+            onClick={() => setOpen(src)}
+            className="aspect-square overflow-hidden"
+            style={{ borderRadius: "var(--radius-sm)" }}
+          >
+            <img src={src} loading="lazy" alt="" className="h-full w-full object-cover transition hover:scale-105" />
+          </button>
+        ))}
+      </div>
+      {open && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6"
+          onClick={() => setOpen(null)}
+        >
+          <button className="absolute right-6 top-6 text-white" onClick={() => setOpen(null)}>
+            <X className="h-6 w-6" />
+          </button>
+          <img src={open} alt="" className="max-h-full max-w-full object-contain" />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function Plans({ config }: { config: CoachConfig }) {
+  if (!config.plans.length) return null;
+  return (
+    <section id="plans" style={{ paddingTop: "var(--section-py)", paddingBottom: "var(--section-py)" }}>
+      <SectionHeading>Coaching plans</SectionHeading>
+      <div className="grid gap-4 md:grid-cols-3">
+        {config.plans.map((p) => (
+          <div
+            key={p.name}
+            className="coach-card flex flex-col p-6"
+            style={p.featured ? { borderColor: "var(--brand)", borderWidth: 2 } : undefined}
+          >
+            {p.featured && (
+              <span
+                className="mb-3 self-start text-[10px] font-semibold uppercase tracking-wide"
+                style={{ color: "var(--brand)" }}
+              >
+                Most popular
+              </span>
+            )}
+            <div className="coach-heading text-lg">{p.name}</div>
+            <div className="coach-mono mt-3 text-3xl">
+              ${p.price}
+              <span className="text-sm font-normal" style={{ color: "var(--text-secondary)" }}>
+                /{p.period}
+              </span>
+            </div>
+            <p className="mt-3 flex-1 text-sm" style={{ color: "var(--text-secondary)" }}>
+              {p.description}
+            </p>
+            <Button
+              className="mt-6"
+              onClick={() => scrollToSection("contact")}
+              style={
+                p.featured
+                  ? { background: "var(--brand)", color: "var(--on-brand)", borderRadius: "var(--radius-sm)" }
+                  : { borderRadius: "var(--radius-sm)" }
+              }
+              variant={p.featured ? "default" : "outline"}
+            >
+              Get started
+            </Button>
