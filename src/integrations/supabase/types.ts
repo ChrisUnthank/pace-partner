@@ -618,6 +618,75 @@ export type Database = {
           },
         ]
       }
+      coach_profiles: {
+        Row: {
+          bio: string | null
+          brand_color: string | null
+          certifications: string[] | null
+          contact: Json | null
+          created_at: string | null
+          disciplines: string[] | null
+          gallery_images: string[] | null
+          hero_image_url: string | null
+          id: string
+          location: Json | null
+          name: string
+          nav: string | null
+          plans: Json | null
+          sample_sessions: Json | null
+          slug: string
+          stats: Json | null
+          style: string | null
+          tagline: string | null
+          testimonials: Json | null
+          theme: string | null
+        }
+        Insert: {
+          bio?: string | null
+          brand_color?: string | null
+          certifications?: string[] | null
+          contact?: Json | null
+          created_at?: string | null
+          disciplines?: string[] | null
+          gallery_images?: string[] | null
+          hero_image_url?: string | null
+          id?: string
+          location?: Json | null
+          name: string
+          nav?: string | null
+          plans?: Json | null
+          sample_sessions?: Json | null
+          slug: string
+          stats?: Json | null
+          style?: string | null
+          tagline?: string | null
+          testimonials?: Json | null
+          theme?: string | null
+        }
+        Update: {
+          bio?: string | null
+          brand_color?: string | null
+          certifications?: string[] | null
+          contact?: Json | null
+          created_at?: string | null
+          disciplines?: string[] | null
+          gallery_images?: string[] | null
+          hero_image_url?: string | null
+          id?: string
+          location?: Json | null
+          name?: string
+          nav?: string | null
+          plans?: Json | null
+          sample_sessions?: Json | null
+          slug?: string
+          stats?: Json | null
+          style?: string | null
+          tagline?: string | null
+          testimonials?: Json | null
+          theme?: string | null
+        }
+        Relationships: []
+      }
       coach_settings: {
         Row: {
           coach_id: string
