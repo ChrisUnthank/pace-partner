@@ -53,11 +53,14 @@ function CoachIndexPage() {
     if (!user?.email) return;
     setCreating(true);
     setError(null);
-    const slug = slugFromEmail(user.email);
+
+    const base = slugFromEmail(user.email);
+    const slug = `${base}-${Date.now()}`;
+
     const { error } = await supabase.from("coach_profiles").insert({
       coach_user_id: user.id,
       slug,
-      name: user.email,
+      name: user.user_metadata?.full_name || user.email,
     });
     if (error) {
       setError(error.message);
