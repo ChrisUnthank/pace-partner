@@ -47,6 +47,7 @@ function CoachProfilePage() {
         tagline: coach.tagline || "",
         bio: coach.bio || "",
         disciplines: coach.disciplines || [],
+        team_name: coach.team_name || "",
       });
     }
   }, [coach]);
@@ -122,41 +123,36 @@ function CoachProfilePage() {
                 </div>
 
                 {editing ? (
-  <div className="flex gap-2">
-    <Button
-      variant="secondary"
-      onClick={() => setEditing(false)}
-    >
-      Cancel
-    </Button>
+                  <div className="flex gap-2">
+                    <Button variant="secondary" onClick={() => setEditing(false)}>
+                      Cancel
+                    </Button>
 
-    <Button
-      onClick={async () => {
-        const { error } = await supabase
-          .from("coach_profiles")
-          .update({
-            name: form.name,
-            tagline: form.tagline,
-            bio: form.bio,
-          })
-          .eq("id", coach.id);
+                    <Button
+                      onClick={async () => {
+                        const { error } = await supabase
+                          .from("coach_profiles")
+                          .update({
+                            name: form.name,
+                            tagline: form.tagline,
+                            bio: form.bio,
+                          })
+                          .eq("id", coach.id);
 
-        if (error) {
-          alert(error.message);
-          return;
-        }
+                        if (error) {
+                          alert(error.message);
+                          return;
+                        }
 
-        setEditing(false);
-      }}
-    >
-      Save
-    </Button>
-  </div>
-) : (
-  <Button onClick={() => setEditing(true)}>
-    Edit Profile
-  </Button>
-)}
+                        setEditing(false);
+                      }}
+                    >
+                      Save
+                    </Button>
+                  </div>
+                ) : (
+                  <Button onClick={() => setEditing(true)}>Edit Profile</Button>
+                )}
               </div>
 
               {/* TAGLINE */}
