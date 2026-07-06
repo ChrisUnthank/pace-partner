@@ -8,7 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Menu, Mail, Phone, Instagram, MapPin, Timer, X } from "lucide-react";
+import { Menu, Mail, Phone, AtSign as Instagram, MapPin, Timer, X } from "lucide-react";
 import type { CoachConfig } from "./coach-config";
 import "./coach-profile-tokens.css";
 
@@ -436,4 +436,65 @@ function Plans({ config }: { config: CoachConfig }) {
       </div>
     </section>
   );
+}
+
+function Testimonials({ config }: { config: CoachConfig }) {
+  if (!config.testimonials.length) return null;
+  return (
+    <section id="testimonials" style={{ paddingTop: "var(--section-py)", paddingBottom: "var(--section-py)" }}>
+      <SectionHeading>Testimonials</SectionHeading>
+      <div className="grid gap-4 md:grid-cols-2">
+        {config.testimonials.map((t, i) => (
+          <div key={i} className="coach-card p-6">
+            <p className="text-sm italic">"{t.quote}"</p>
+            <div className="mt-3 text-xs uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
+              — {t.author}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function LocationContact({ config }: { config: CoachConfig }) {
+  return (
+    <section id="contact" style={{ paddingTop: "var(--section-py)", paddingBottom: "var(--section-py)" }}>
+      <SectionHeading>Location & contact</SectionHeading>
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="coach-card p-6 space-y-2 text-sm">
+          <div className="flex items-center gap-2"><MapPin className="h-4 w-4" />{config.location.city}</div>
+          {config.location.venue && <div style={{ color: "var(--text-secondary)" }}>{config.location.venue}</div>}
+          {config.location.remoteAvailable && <div style={{ color: "var(--text-secondary)" }}>Remote coaching available</div>}
+        </div>
+        <div className="coach-card p-6 space-y-2 text-sm">
+          {config.contact.email && (
+            <a href={`mailto:${config.contact.email}`} className="flex items-center gap-2 hover:underline">
+              <Mail className="h-4 w-4" />{config.contact.email}
+            </a>
+          )}
+          {config.contact.phone && (
+            <a href={`tel:${config.contact.phone}`} className="flex items-center gap-2 hover:underline">
+              <Phone className="h-4 w-4" />{config.contact.phone}
+            </a>
+          )}
+          {config.contact.instagram && (
+            <div className="flex items-center gap-2"><Instagram className="h-4 w-4" />{config.contact.instagram}</div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Footer({ config }: { config: CoachConfig }) {
+  return (
+    <footer className="border-t px-4 py-6 text-xs md:px-8" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
+      © {new Date().getFullYear()} {config.name}
+    </footer>
+  );
+}
+
+function DevControls(_: { config: CoachConfig; onChange?: (next: CoachConfig) => void }) {
+  return null;
 }
