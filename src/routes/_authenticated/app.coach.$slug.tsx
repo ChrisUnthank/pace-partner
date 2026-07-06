@@ -80,64 +80,37 @@ function CoachProfilePage() {
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-6 min-w-0">
           {/* Hero */}
-          <section
-            className="relative overflow-hidden rounded-xl border border-border p-6 md:p-10"
-            style={
-              coach.brand_color
-                ? { background: `linear-gradient(135deg, ${coach.brand_color}22, transparent)` }
-                : undefined
-            }
-          >
-            {coach.hero_image_url && (
-              <img
-                src={coach.hero_image_url}
-                alt={coach.name ?? "Coach"}
-                className="absolute inset-0 h-full w-full object-cover opacity-20"
-              />
-            )}
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
-                {editing ? (
-                  <input
-                    value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    className="text-3xl md:text-4xl font-bold tracking-tight border rounded px-2 py-1 w-full"
-                  />
-                ) : (
-                  <h1 className="text-3xl md:text-4xl font-bold tracking-tight">{coach.name}</h1>
-                )}
+          <section className="relative overflow-hidden rounded-xl border border-border p-6 md:p-10">
+            <div className="relative">
+              {/* NAME + BUTTON */}
+              <div className="flex items-center gap-4">
+                <div className="flex-1">
+                  {editing ? (
+                    <input
+                      value={form.name}
+                      onChange={(e) => setForm({ ...form, name: e.target.value })}
+                      className="text-3xl md:text-4xl font-bold border rounded px-2 py-1 w-full"
+                    />
+                  ) : (
+                    <h1 className="text-3xl md:text-4xl font-bold">{coach.name}</h1>
+                  )}
+                </div>
+
+                <Button onClick={() => setEditing((v) => !v)}>{editing ? "Cancel" : "Edit Profile"}</Button>
               </div>
 
-              <Button size="sm" onClick={() => setEditing((v) => !v)}>
-                {editing ? "Cancel" : "Edit Profile"}
-              </Button>
+              {/* TAGLINE */}
+              {editing ? (
+                <input
+                  value={form.tagline}
+                  onChange={(e) => setForm({ ...form, tagline: e.target.value })}
+                  placeholder="Add a tagline..."
+                  className="mt-2 w-full border rounded px-2 py-1"
+                />
+              ) : coach.tagline ? (
+                <p className="mt-2 text-muted-foreground">{coach.tagline}</p>
+              ) : null}
             </div>
-
-            {/* ✅ TAGLINE */}
-            {editing ? (
-              <input
-                value={form.tagline}
-                onChange={(e) => setForm({ ...form, tagline: e.target.value })}
-                placeholder="Add a tagline..."
-                className="mt-2 text-lg border rounded px-2 py-1 w-full"
-              />
-            ) : coach.tagline ? (
-              <p className="mt-2 text-lg text-muted-foreground">{coach.tagline}</p>
-            ) : null}
-            {Array.isArray(coach.disciplines) && coach.disciplines.length > 0 && (
-              <div className="mt-4 flex flex-wrap gap-2">
-                {coach.disciplines.map((d: string) => (
-                  <Badge key={d} variant="secondary">
-                    {d}
-                  </Badge>
-                ))}
-              </div>
-            )}
-            {locationText && (
-              <div className="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground">
-                <MapPin className="h-3.5 w-3.5" /> {locationText}
-              </div>
-            )}
           </section>
 
           {/* Stats */}
