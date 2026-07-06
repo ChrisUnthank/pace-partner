@@ -172,8 +172,9 @@ function CoachProfilePage() {
                     <textarea
                       value={form.bio}
                       onChange={(e) => setForm({ ...form, bio: e.target.value })}
-                      className="w-full border rounded p-2"
-                      rows={5}
+                      className="w-full border rounded p-3 text-sm resize-none overflow-hidden"
+                      rows={Math.max(8, (form.bio || "").split("\n").length)}
+                      style={{ minHeight: "180px" }}
                     />
                   ) : (
                     coach.bio
