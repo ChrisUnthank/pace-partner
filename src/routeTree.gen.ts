@@ -35,6 +35,7 @@ import { Route as AuthenticatedAppSessionsNewRouteImport } from './routes/_authe
 import { Route as AuthenticatedAppSessionsCalendarRouteImport } from './routes/_authenticated/app.sessions.calendar'
 import { Route as AuthenticatedAppSessionsSessionIdRouteImport } from './routes/_authenticated/app.sessions.$sessionId'
 import { Route as AuthenticatedAppRacesRaceIdRouteImport } from './routes/_authenticated/app.races.$raceId'
+import { Route as AuthenticatedAppCoachSlugRouteImport } from './routes/_authenticated/app.coach.$slug'
 import { Route as AuthenticatedAppAthletesAthleteIdRouteImport } from './routes/_authenticated/app.athletes.$athleteId'
 import { Route as AuthenticatedAppSessionsSessionIdIndexRouteImport } from './routes/_authenticated/app.sessions.$sessionId.index'
 import { Route as AuthenticatedAppRacesRaceIdIndexRouteImport } from './routes/_authenticated/app.races.$raceId.index'
@@ -187,6 +188,12 @@ const AuthenticatedAppRacesRaceIdRoute =
     path: '/$raceId',
     getParentRoute: () => AuthenticatedAppRacesRoute,
   } as any)
+const AuthenticatedAppCoachSlugRoute =
+  AuthenticatedAppCoachSlugRouteImport.update({
+    id: '/app/coach/$slug',
+    path: '/app/coach/$slug',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAppAthletesAthleteIdRoute =
   AuthenticatedAppAthletesAthleteIdRouteImport.update({
     id: '/$athleteId',
@@ -236,6 +243,7 @@ export interface FileRoutesByFullPath {
   '/app/vitals': typeof AuthenticatedAppVitalsRoute
   '/app/': typeof AuthenticatedAppIndexRoute
   '/app/athletes/$athleteId': typeof AuthenticatedAppAthletesAthleteIdRoute
+  '/app/coach/$slug': typeof AuthenticatedAppCoachSlugRoute
   '/app/races/$raceId': typeof AuthenticatedAppRacesRaceIdRouteWithChildren
   '/app/sessions/$sessionId': typeof AuthenticatedAppSessionsSessionIdRouteWithChildren
   '/app/sessions/calendar': typeof AuthenticatedAppSessionsCalendarRoute
@@ -265,6 +273,7 @@ export interface FileRoutesByTo {
   '/app/vitals': typeof AuthenticatedAppVitalsRoute
   '/app': typeof AuthenticatedAppIndexRoute
   '/app/athletes/$athleteId': typeof AuthenticatedAppAthletesAthleteIdRoute
+  '/app/coach/$slug': typeof AuthenticatedAppCoachSlugRoute
   '/app/sessions/calendar': typeof AuthenticatedAppSessionsCalendarRoute
   '/app/sessions/new': typeof AuthenticatedAppSessionsNewRoute
   '/api/public/hooks/dispatch-push': typeof ApiPublicHooksDispatchPushRoute
@@ -297,6 +306,7 @@ export interface FileRoutesById {
   '/_authenticated/app/vitals': typeof AuthenticatedAppVitalsRoute
   '/_authenticated/app/': typeof AuthenticatedAppIndexRoute
   '/_authenticated/app/athletes/$athleteId': typeof AuthenticatedAppAthletesAthleteIdRoute
+  '/_authenticated/app/coach/$slug': typeof AuthenticatedAppCoachSlugRoute
   '/_authenticated/app/races/$raceId': typeof AuthenticatedAppRacesRaceIdRouteWithChildren
   '/_authenticated/app/sessions/$sessionId': typeof AuthenticatedAppSessionsSessionIdRouteWithChildren
   '/_authenticated/app/sessions/calendar': typeof AuthenticatedAppSessionsCalendarRoute
@@ -331,6 +341,7 @@ export interface FileRouteTypes {
     | '/app/vitals'
     | '/app/'
     | '/app/athletes/$athleteId'
+    | '/app/coach/$slug'
     | '/app/races/$raceId'
     | '/app/sessions/$sessionId'
     | '/app/sessions/calendar'
@@ -360,6 +371,7 @@ export interface FileRouteTypes {
     | '/app/vitals'
     | '/app'
     | '/app/athletes/$athleteId'
+    | '/app/coach/$slug'
     | '/app/sessions/calendar'
     | '/app/sessions/new'
     | '/api/public/hooks/dispatch-push'
@@ -391,6 +403,7 @@ export interface FileRouteTypes {
     | '/_authenticated/app/vitals'
     | '/_authenticated/app/'
     | '/_authenticated/app/athletes/$athleteId'
+    | '/_authenticated/app/coach/$slug'
     | '/_authenticated/app/races/$raceId'
     | '/_authenticated/app/sessions/$sessionId'
     | '/_authenticated/app/sessions/calendar'
@@ -599,6 +612,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppRacesRaceIdRouteImport
       parentRoute: typeof AuthenticatedAppRacesRoute
     }
+    '/_authenticated/app/coach/$slug': {
+      id: '/_authenticated/app/coach/$slug'
+      path: '/app/coach/$slug'
+      fullPath: '/app/coach/$slug'
+      preLoaderRoute: typeof AuthenticatedAppCoachSlugRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/app/athletes/$athleteId': {
       id: '/_authenticated/app/athletes/$athleteId'
       path: '/$athleteId'
@@ -742,6 +762,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAppTodayRoute: typeof AuthenticatedAppTodayRoute
   AuthenticatedAppVitalsRoute: typeof AuthenticatedAppVitalsRoute
   AuthenticatedAppIndexRoute: typeof AuthenticatedAppIndexRoute
+  AuthenticatedAppCoachSlugRoute: typeof AuthenticatedAppCoachSlugRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
@@ -758,6 +779,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAppTodayRoute: AuthenticatedAppTodayRoute,
   AuthenticatedAppVitalsRoute: AuthenticatedAppVitalsRoute,
   AuthenticatedAppIndexRoute: AuthenticatedAppIndexRoute,
+  AuthenticatedAppCoachSlugRoute: AuthenticatedAppCoachSlugRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =
