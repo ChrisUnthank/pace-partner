@@ -138,7 +138,6 @@ function CoachProfilePage() {
             name: form.name,
             tagline: form.tagline,
             bio: form.bio,
-            team_name: form.team_name,
           })
           .eq("id", coach.id);
 
