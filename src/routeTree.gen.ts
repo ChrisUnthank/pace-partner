@@ -13,6 +13,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ClaimTokenRouteImport } from './routes/claim.$token'
+import { Route as CSlugRouteImport } from './routes/c.$slug'
 import { Route as AuthenticatedAppIndexRouteImport } from './routes/_authenticated/app.index'
 import { Route as AuthenticatedAppVitalsRouteImport } from './routes/_authenticated/app.vitals'
 import { Route as AuthenticatedAppTodayRouteImport } from './routes/_authenticated/app.today'
@@ -60,6 +61,11 @@ const IndexRoute = IndexRouteImport.update({
 const ClaimTokenRoute = ClaimTokenRouteImport.update({
   id: '/claim/$token',
   path: '/claim/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CSlugRoute = CSlugRouteImport.update({
+  id: '/c/$slug',
+  path: '/c/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedAppIndexRoute = AuthenticatedAppIndexRouteImport.update({
@@ -235,6 +241,7 @@ const AuthenticatedAppRacesRaceIdAnalysisRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/c/$slug': typeof CSlugRoute
   '/claim/$token': typeof ClaimTokenRoute
   '/app/analytics': typeof AuthenticatedAppAnalyticsRoute
   '/app/athletes': typeof AuthenticatedAppAthletesRouteWithChildren
@@ -269,6 +276,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/c/$slug': typeof CSlugRoute
   '/claim/$token': typeof ClaimTokenRoute
   '/app/analytics': typeof AuthenticatedAppAnalyticsRoute
   '/app/checkout': typeof AuthenticatedAppCheckoutRoute
@@ -300,6 +308,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
+  '/c/$slug': typeof CSlugRoute
   '/claim/$token': typeof ClaimTokenRoute
   '/_authenticated/app/analytics': typeof AuthenticatedAppAnalyticsRoute
   '/_authenticated/app/athletes': typeof AuthenticatedAppAthletesRouteWithChildren
@@ -336,6 +345,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/auth'
+    | '/c/$slug'
     | '/claim/$token'
     | '/app/analytics'
     | '/app/athletes'
@@ -370,6 +380,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/auth'
+    | '/c/$slug'
     | '/claim/$token'
     | '/app/analytics'
     | '/app/checkout'
@@ -400,6 +411,7 @@ export interface FileRouteTypes {
     | '/'
     | '/_authenticated'
     | '/auth'
+    | '/c/$slug'
     | '/claim/$token'
     | '/_authenticated/app/analytics'
     | '/_authenticated/app/athletes'
@@ -436,6 +448,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
+  CSlugRoute: typeof CSlugRoute
   ClaimTokenRoute: typeof ClaimTokenRoute
   ApiPublicHooksDispatchPushRoute: typeof ApiPublicHooksDispatchPushRoute
   ApiPublicHooksRunDailyRemindersRoute: typeof ApiPublicHooksRunDailyRemindersRoute
@@ -469,6 +482,13 @@ declare module '@tanstack/react-router' {
       path: '/claim/$token'
       fullPath: '/claim/$token'
       preLoaderRoute: typeof ClaimTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/c/$slug': {
+      id: '/c/$slug'
+      path: '/c/$slug'
+      fullPath: '/c/$slug'
+      preLoaderRoute: typeof CSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/app/': {
@@ -811,6 +831,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
+  CSlugRoute: CSlugRoute,
   ClaimTokenRoute: ClaimTokenRoute,
   ApiPublicHooksDispatchPushRoute: ApiPublicHooksDispatchPushRoute,
   ApiPublicHooksRunDailyRemindersRoute: ApiPublicHooksRunDailyRemindersRoute,
