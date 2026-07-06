@@ -39,6 +39,18 @@ function CoachProfilePage() {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<any>({});
 
+  // ✅ STEP 2 — populate form when coach loads
+  useEffect(() => {
+    if (coach) {
+      setForm({
+        name: coach.name || "",
+        tagline: coach.tagline || "",
+        bio: coach.bio || "",
+        disciplines: coach.disciplines || [],
+      });
+    }
+  }, [coach]);
+
   if (isLoading) {
     return (
       <AppShell>
