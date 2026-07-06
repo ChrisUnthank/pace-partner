@@ -149,7 +149,6 @@ function CoachProfilePage() {
                   <MapPin className="h-3.5 w-3.5" /> {locationText}
                 </div>
               )}
-            </div>
           </section>
 
           {/* Stats */}
