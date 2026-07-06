@@ -47,7 +47,6 @@ function CoachProfilePage() {
         tagline: coach.tagline || "",
         bio: coach.bio || "",
         disciplines: coach.disciplines || [],
-        team_name: coach.team_name || "",
       });
     }
   }, [coach]);
