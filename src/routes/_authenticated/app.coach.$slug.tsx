@@ -290,6 +290,24 @@ function CoachProfilePage() {
         </div>
 
         {/* Sidebar: Contact */}
+        <Card>
+          <CardContent className="p-6 flex flex-col items-center gap-3">
+            {/* LOGO */}
+            {coach.logo_url ? (
+              <img src={coach.logo_url} alt="Logo" className="h-16 w-16 object-contain" />
+            ) : (
+              <div className="h-16 w-16 flex items-center justify-center border rounded text-xs text-muted-foreground">
+                LOGO
+              </div>
+            )}
+
+            {/* TEAM NAME */}
+            {coach.team_name && <p className="text-sm font-medium text-center">{coach.team_name}</p>}
+
+            {/* BRAND COLOR */}
+            {coach.brand_color && <div className="h-2 w-full rounded" style={{ background: coach.brand_color }} />}
+          </CardContent>
+        </Card>
         <aside className="space-y-6 lg:sticky lg:top-20 lg:self-start">
           <Card>
             <CardHeader>
