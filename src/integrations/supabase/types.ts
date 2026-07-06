@@ -623,6 +623,7 @@ export type Database = {
           bio: string | null
           brand_color: string | null
           certifications: string[] | null
+          coach_user_id: string | null
           contact: Json | null
           created_at: string | null
           disciplines: string[] | null
@@ -630,6 +631,7 @@ export type Database = {
           hero_image_url: string | null
           id: string
           location: Json | null
+          logo_initials: string | null
           name: string
           nav: string | null
           plans: Json | null
@@ -645,6 +647,7 @@ export type Database = {
           bio?: string | null
           brand_color?: string | null
           certifications?: string[] | null
+          coach_user_id?: string | null
           contact?: Json | null
           created_at?: string | null
           disciplines?: string[] | null
@@ -652,6 +655,7 @@ export type Database = {
           hero_image_url?: string | null
           id?: string
           location?: Json | null
+          logo_initials?: string | null
           name: string
           nav?: string | null
           plans?: Json | null
@@ -667,6 +671,7 @@ export type Database = {
           bio?: string | null
           brand_color?: string | null
           certifications?: string[] | null
+          coach_user_id?: string | null
           contact?: Json | null
           created_at?: string | null
           disciplines?: string[] | null
@@ -674,6 +679,7 @@ export type Database = {
           hero_image_url?: string | null
           id?: string
           location?: Json | null
+          logo_initials?: string | null
           name?: string
           nav?: string | null
           plans?: Json | null
@@ -685,7 +691,15 @@ export type Database = {
           testimonials?: Json | null
           theme?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "coach_profiles_coach_user_id_fkey"
+            columns: ["coach_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       coach_settings: {
         Row: {
