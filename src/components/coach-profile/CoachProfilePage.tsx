@@ -431,3 +431,9 @@ function Plans({ config }: { config: CoachConfig }) {
             >
               Get started
             </Button>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
