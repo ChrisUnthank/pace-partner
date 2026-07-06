@@ -94,6 +94,31 @@ function CoachProfilePage() {
                   ) : (
                     <h1 className="text-3xl md:text-4xl font-bold">{coach.name}</h1>
                   )}
+                  {editing && (
+                    <div className="flex justify-end">
+                      <Button
+                        onClick={async () => {
+                          const { error } = await supabase
+                            .from("coach_profiles")
+                            .update({
+                              name: form.name,
+                              tagline: form.tagline,
+                              bio: form.bio,
+                            })
+                            .eq("id", coach.id);
+
+                          if (error) {
+                            alert(error.message);
+                            return;
+                          }
+
+                          setEditing(false);
+                        }}
+                      >
+                        Save Changes
+                      </Button>
+                    </div>
+                  )}
                 </div>
 
                 <Button onClick={() => setEditing((v) => !v)}>{editing ? "Cancel" : "Edit Profile"}</Button>
@@ -137,17 +162,18 @@ function CoachProfilePage() {
           )}
 
           {/* About */}
-          {coach.bio && (
+          {(coach.bio || editing) && (
             <section>
               <h2 className="text-xl font-semibold mb-3">About</h2>
+
               <Card>
-                <CardContent className="p-6 whitespace-pre-wrap text-sm leading-relaxed">
+                <CardContent className="p-6">
                   {editing ? (
                     <textarea
                       value={form.bio}
                       onChange={(e) => setForm({ ...form, bio: e.target.value })}
-                      className="w-full border rounded p-2 text-sm"
-                      rows={6}
+                      className="w-full border rounded p-2"
+                      rows={5}
                     />
                   ) : (
                     coach.bio
