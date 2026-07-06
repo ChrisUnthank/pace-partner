@@ -95,35 +95,46 @@ function CoachProfilePage() {
                 className="absolute inset-0 h-full w-full object-cover opacity-20"
               />
             )}
-            <div className="relative">
-              <div className="flex items-center gap-4">
-                <div className="flex-1">
-                  {editing ? (
-                    <input
-                      value={form.name}
-                      onChange={(e) => setForm({ ...form, name: e.target.value })}
-                      className="text-3xl md:text-4xl font-bold tracking-tight border rounded px-2 py-1 w-full"
-                    />
-                  ) : (
-                    <h1 className="text-3xl md:text-4xl font-bold tracking-tight">{coach.name}</h1>
-                  )}
-                </div>
+            <div className="flex items-center gap-4">
+  <div className="flex-1">
+    {editing ? (
+      <input
+        value={form.name}
+        onChange={(e) =>
+          setForm({ ...form, name: e.target.value })
+        }
+        className="text-3xl md:text-4xl font-bold tracking-tight border rounded px-2 py-1 w-full"
+      />
+    ) : (
+      <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
+        {coach.name}
+      </h1>
+    )}
+  </div>
 
-                <Button size="sm" onClick={() => setEditing((v) => !v)} className="shrink-0">
-                  {editing ? "Cancel" : "Edit Profile"}
-                </Button>
-              </div>
+  <Button
+    size="sm"
+    onClick={() => setEditing((v) => !v)}
+  >
+    {editing ? "Cancel" : "Edit Profile"}
+  </Button>
+</div>
 
-              {editing ? (
-                <input
-                  value={form.tagline}
-                  onChange={(e) => setForm({ ...form, tagline: e.target.value })}
-                  placeholder="Add a tagline..."
-                  className="mt-2 text-lg border rounded px-2 py-1 w-full"
-                />
-              ) : coach.tagline ? (
-                <p className="mt-2 text-lg text-muted-foreground">{coach.tagline}</p>
-              ) : null}
+{/* ✅ TAGLINE */}
+{editing ? (
+  <input
+    value={form.tagline}
+    onChange={(e) =>
+      setForm({ ...form, tagline: e.target.value })
+    }
+    placeholder="Add a tagline..."
+    className="mt-2 text-lg border rounded px-2 py-1 w-full"
+  />
+) : coach.tagline ? (
+  <p className="mt-2 text-lg text-muted-foreground">
+    {coach.tagline}
+  </p>
+) : null}
               {Array.isArray(coach.disciplines) && coach.disciplines.length > 0 && (
                 <div className="mt-4 flex flex-wrap gap-2">
                   {coach.disciplines.map((d: string) => (
