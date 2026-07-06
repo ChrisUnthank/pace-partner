@@ -96,59 +96,48 @@ function CoachProfilePage() {
               />
             )}
             <div className="flex items-center gap-4">
-  <div className="flex-1">
-    {editing ? (
-      <input
-        value={form.name}
-        onChange={(e) =>
-          setForm({ ...form, name: e.target.value })
-        }
-        className="text-3xl md:text-4xl font-bold tracking-tight border rounded px-2 py-1 w-full"
-      />
-    ) : (
-      <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
-        {coach.name}
-      </h1>
-    )}
-  </div>
+              <div className="flex-1">
+                {editing ? (
+                  <input
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    className="text-3xl md:text-4xl font-bold tracking-tight border rounded px-2 py-1 w-full"
+                  />
+                ) : (
+                  <h1 className="text-3xl md:text-4xl font-bold tracking-tight">{coach.name}</h1>
+                )}
+              </div>
 
-  <Button
-    size="sm"
-    onClick={() => setEditing((v) => !v)}
-  >
-    {editing ? "Cancel" : "Edit Profile"}
-  </Button>
-</div>
+              <Button size="sm" onClick={() => setEditing((v) => !v)}>
+                {editing ? "Cancel" : "Edit Profile"}
+              </Button>
+            </div>
 
-{/* ✅ TAGLINE */}
-{editing ? (
-  <input
-    value={form.tagline}
-    onChange={(e) =>
-      setForm({ ...form, tagline: e.target.value })
-    }
-    placeholder="Add a tagline..."
-    className="mt-2 text-lg border rounded px-2 py-1 w-full"
-  />
-) : coach.tagline ? (
-  <p className="mt-2 text-lg text-muted-foreground">
-    {coach.tagline}
-  </p>
-) : null}
-              {Array.isArray(coach.disciplines) && coach.disciplines.length > 0 && (
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {coach.disciplines.map((d: string) => (
-                    <Badge key={d} variant="secondary">
-                      {d}
-                    </Badge>
-                  ))}
-                </div>
-              )}
-              {locationText && (
-                <div className="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <MapPin className="h-3.5 w-3.5" /> {locationText}
-                </div>
-              )}
+            {/* ✅ TAGLINE */}
+            {editing ? (
+              <input
+                value={form.tagline}
+                onChange={(e) => setForm({ ...form, tagline: e.target.value })}
+                placeholder="Add a tagline..."
+                className="mt-2 text-lg border rounded px-2 py-1 w-full"
+              />
+            ) : coach.tagline ? (
+              <p className="mt-2 text-lg text-muted-foreground">{coach.tagline}</p>
+            ) : null}
+            {Array.isArray(coach.disciplines) && coach.disciplines.length > 0 && (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {coach.disciplines.map((d: string) => (
+                  <Badge key={d} variant="secondary">
+                    {d}
+                  </Badge>
+                ))}
+              </div>
+            )}
+            {locationText && (
+              <div className="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <MapPin className="h-3.5 w-3.5" /> {locationText}
+              </div>
+            )}
           </section>
 
           {/* Stats */}
@@ -179,7 +168,18 @@ function CoachProfilePage() {
             <section>
               <h2 className="text-xl font-semibold mb-3">About</h2>
               <Card>
-                <CardContent className="p-6 whitespace-pre-wrap text-sm leading-relaxed">{coach.bio}</CardContent>
+                <CardContent className="p-6 whitespace-pre-wrap text-sm leading-relaxed">
+                  {editing ? (
+                    <textarea
+                      value={form.bio}
+                      onChange={(e) => setForm({ ...form, bio: e.target.value })}
+                      className="w-full border rounded p-2 text-sm"
+                      rows={6}
+                    />
+                  ) : (
+                    coach.bio
+                  )}
+                </CardContent>
               </Card>
             </section>
           )}
