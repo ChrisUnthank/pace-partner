@@ -1,5 +1,6 @@
 import { createFileRoute, useParams } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -17,11 +18,7 @@ function useCoachProfile(slug: string) {
   return useQuery({
     queryKey: ["coach-profile", slug],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("coach_profiles")
-        .select("*")
-        .eq("slug", slug)
-        .maybeSingle();
+      const { data, error } = await supabase.from("coach_profiles").select("*").eq("slug", slug).maybeSingle();
       if (error) throw error;
       return data;
     },
@@ -37,6 +34,10 @@ function asArray(v: Json): any[] {
 function CoachProfilePage() {
   const { slug } = useParams({ from: "/_authenticated/app/coach/$slug" });
   const { data: coach, isLoading, error } = useCoachProfile(slug);
+
+  // ✅ STEP 1 — editing state
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState<any>({});
 
   if (isLoading) {
     return (
@@ -69,7 +70,11 @@ function CoachProfilePage() {
           {/* Hero */}
           <section
             className="relative overflow-hidden rounded-xl border border-border p-6 md:p-10"
-            style={coach.brand_color ? { background: `linear-gradient(135deg, ${coach.brand_color}22, transparent)` } : undefined}
+            style={
+              coach.brand_color
+                ? { background: `linear-gradient(135deg, ${coach.brand_color}22, transparent)` }
+                : undefined
+            }
           >
             {coach.hero_image_url && (
               <img
@@ -80,13 +85,13 @@ function CoachProfilePage() {
             )}
             <div className="relative">
               <h1 className="text-3xl md:text-4xl font-bold tracking-tight">{coach.name}</h1>
-              {coach.tagline && (
-                <p className="mt-2 text-lg text-muted-foreground">{coach.tagline}</p>
-              )}
+              {coach.tagline && <p className="mt-2 text-lg text-muted-foreground">{coach.tagline}</p>}
               {Array.isArray(coach.disciplines) && coach.disciplines.length > 0 && (
                 <div className="mt-4 flex flex-wrap gap-2">
                   {coach.disciplines.map((d: string) => (
-                    <Badge key={d} variant="secondary">{d}</Badge>
+                    <Badge key={d} variant="secondary">
+                      {d}
+                    </Badge>
                   ))}
                 </div>
               )}
@@ -110,7 +115,9 @@ function CoachProfilePage() {
                     <Card key={i}>
                       <CardContent className="p-4">
                         <div className="text-2xl font-bold">{String(value ?? "—")}</div>
-                        <div className="text-xs text-muted-foreground uppercase tracking-wide mt-1">{String(label ?? "")}</div>
+                        <div className="text-xs text-muted-foreground uppercase tracking-wide mt-1">
+                          {String(label ?? "")}
+                        </div>
                       </CardContent>
                     </Card>
                   );
@@ -124,9 +131,7 @@ function CoachProfilePage() {
             <section>
               <h2 className="text-xl font-semibold mb-3">About</h2>
               <Card>
-                <CardContent className="p-6 whitespace-pre-wrap text-sm leading-relaxed">
-                  {coach.bio}
-                </CardContent>
+                <CardContent className="p-6 whitespace-pre-wrap text-sm leading-relaxed">{coach.bio}</CardContent>
               </Card>
             </section>
           )}
@@ -142,9 +147,7 @@ function CoachProfilePage() {
                       <CardTitle className="text-base">{s.name ?? `Session ${i + 1}`}</CardTitle>
                       {s.target && <CardDescription>Target: {s.target}</CardDescription>}
                     </CardHeader>
-                    {s.purpose && (
-                      <CardContent className="text-sm text-muted-foreground">{s.purpose}</CardContent>
-                    )}
+                    {s.purpose && <CardContent className="text-sm text-muted-foreground">{s.purpose}</CardContent>}
                   </Card>
                 ))}
               </div>
@@ -163,7 +166,9 @@ function CoachProfilePage() {
                       {p.price != null && (
                         <div className="text-2xl font-bold mt-1">
                           {typeof p.price === "number" ? `$${p.price}` : String(p.price)}
-                          {p.interval && <span className="text-sm font-normal text-muted-foreground"> / {p.interval}</span>}
+                          {p.interval && (
+                            <span className="text-sm font-normal text-muted-foreground"> / {p.interval}</span>
+                          )}
                         </div>
                       )}
                       {p.description && <CardDescription>{p.description}</CardDescription>}
@@ -171,7 +176,9 @@ function CoachProfilePage() {
                     {Array.isArray(p.features) && p.features.length > 0 && (
                       <CardContent className="text-sm">
                         <ul className="space-y-1 list-disc pl-4">
-                          {p.features.map((f: string, j: number) => <li key={j}>{f}</li>)}
+                          {p.features.map((f: string, j: number) => (
+                            <li key={j}>{f}</li>
+                          ))}
                         </ul>
                       </CardContent>
                     )}
@@ -244,7 +251,9 @@ function CoachProfilePage() {
               </CardHeader>
               <CardContent>
                 <ul className="space-y-1 text-sm text-muted-foreground">
-                  {coach.certifications.map((c: string) => <li key={c}>· {c}</li>)}
+                  {coach.certifications.map((c: string) => (
+                    <li key={c}>· {c}</li>
+                  ))}
                 </ul>
               </CardContent>
             </Card>
