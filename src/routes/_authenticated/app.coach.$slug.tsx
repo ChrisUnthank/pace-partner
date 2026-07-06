@@ -138,7 +138,6 @@ function CoachProfilePage() {
             name: form.name,
             tagline: form.tagline,
             bio: form.bio,
-            team_name: form.team_name,
           })
           .eq("id", coach.id);
 
@@ -157,7 +156,7 @@ function CoachProfilePage() {
   <Button onClick={() => setEditing(true)}>
     Edit Profile
   </Button>
-)}{editing ? "Cancel" : "Edit Profile"}</Button>
+)}
               </div>
 
               {/* TAGLINE */}
