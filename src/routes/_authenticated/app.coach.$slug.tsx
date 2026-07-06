@@ -97,7 +97,15 @@ function CoachProfilePage() {
             )}
             <div className="relative">
               <div className="flex items-center justify-between gap-4">
-                <h1 className="text-3xl md:text-4xl font-bold tracking-tight">{coach.name}</h1>
+                {editing ? (
+                  <input
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    className="text-3xl md:text-4xl font-bold tracking-tight border rounded px-2 py-1 w-full"
+                  />
+                ) : (
+                  <h1 className="text-3xl md:text-4xl font-bold tracking-tight">{coach.name}</h1>
+                )}
 
                 <Button size="sm" onClick={() => setEditing((v) => !v)}>
                   {editing ? "Cancel" : "Edit Profile"}
