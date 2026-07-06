@@ -632,6 +632,7 @@ export type Database = {
           id: string
           location: Json | null
           logo_initials: string | null
+          logo_url: string | null
           name: string
           nav: string | null
           plans: Json | null
@@ -657,6 +658,7 @@ export type Database = {
           id?: string
           location?: Json | null
           logo_initials?: string | null
+          logo_url?: string | null
           name: string
           nav?: string | null
           plans?: Json | null
@@ -682,6 +684,7 @@ export type Database = {
           id?: string
           location?: Json | null
           logo_initials?: string | null
+          logo_url?: string | null
           name?: string
           nav?: string | null
           plans?: Json | null
