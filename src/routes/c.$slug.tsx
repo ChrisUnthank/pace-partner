@@ -18,15 +18,10 @@ function useCoachProfile(slug: string) {
   return useQuery({
     queryKey: ["coach-profile-public", slug],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("coach_profiles")
-        .select("*")
-        .eq("slug", slug)
-        .maybeSingle();
+      const { data, error } = await supabase.from("coach_profiles").select("*").eq("slug", slug).maybeSingle();
       if (error) throw error;
       return data;
     },
-    enabled: typeof window !== "undefined",
   });
 }
 
