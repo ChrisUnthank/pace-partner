@@ -96,7 +96,14 @@ function CoachProfilePage() {
               />
             )}
             <div className="relative">
-              <h1 className="text-3xl md:text-4xl font-bold tracking-tight">{coach.name}</h1>
+              <div className="flex items-center justify-between gap-4">
+                <h1 className="text-3xl md:text-4xl font-bold tracking-tight">{coach.name}</h1>
+
+                <Button size="sm" onClick={() => setEditing((v) => !v)}>
+                  {editing ? "Cancel" : "Edit Profile"}
+                </Button>
+              </div>
+
               {coach.tagline && <p className="mt-2 text-lg text-muted-foreground">{coach.tagline}</p>}
               {Array.isArray(coach.disciplines) && coach.disciplines.length > 0 && (
                 <div className="mt-4 flex flex-wrap gap-2">
