@@ -1,13 +1,7 @@
-import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Menu, Mail, Phone, AtSign as Instagram, MapPin, Timer, X } from "lucide-react";
 import type { CoachConfig } from "./coach-config";
 import "./coach-profile-tokens.css";
@@ -65,11 +59,7 @@ export function CoachProfilePage({ config, showDevControls, onConfigChange }: Co
     >
       {showDevControls && <DevControls config={config} onChange={onConfigChange} />}
 
-      {config.nav === "sidebar" ? (
-        <SidebarLayout config={config} />
-      ) : (
-        <TopNavLayout config={config} />
-      )}
+      {config.nav === "sidebar" ? <SidebarLayout config={config} /> : <TopNavLayout config={config} />}
     </div>
   );
 }
@@ -444,10 +434,13 @@ function Testimonials({ config }: { config: CoachConfig }) {
     <section id="testimonials" style={{ paddingTop: "var(--section-py)", paddingBottom: "var(--section-py)" }}>
       <SectionHeading>Testimonials</SectionHeading>
       <div className="grid gap-4 md:grid-cols-2">
-        {config.testimonials.map((t, i) => (
-          <div key={i} className="coach-card p-6">
-            <p className="text-sm italic">"{t.quote}"</p>
-            <div className="mt-3 text-xs uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
+        {config.testimonials.map((t) => (
+          <div key={t.author} className="coach-card p-6">
+            <p className="text-sm leading-relaxed">"{t.quote}"</p>
+            <div
+              className="mt-4 text-xs font-semibold uppercase tracking-wide"
+              style={{ color: "var(--text-secondary)" }}
+            >
               — {t.author}
             </div>
           </div>
@@ -461,26 +454,114 @@ function LocationContact({ config }: { config: CoachConfig }) {
   return (
     <section id="contact" style={{ paddingTop: "var(--section-py)", paddingBottom: "var(--section-py)" }}>
       <SectionHeading>Location & contact</SectionHeading>
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="coach-card p-6 space-y-2 text-sm">
-          <div className="flex items-center gap-2"><MapPin className="h-4 w-4" />{config.location.city}</div>
-          {config.location.venue && <div style={{ color: "var(--text-secondary)" }}>{config.location.venue}</div>}
-          {config.location.remoteAvailable && <div style={{ color: "var(--text-secondary)" }}>Remote coaching available</div>}
+      <div className="grid gap-8 md:grid-cols-2">
+        <div>
+          <div
+            className="flex h-48 items-center justify-center text-sm"
+            style={{
+              background: "var(--bg-elevated)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius)",
+              color: "var(--text-secondary)",
+            }}
+          >
+            {/* TODO: swap for a real embedded map (Google Maps / Mapbox) once an API key is wired up */}
+            Map placeholder
+          </div>
+          <div className="mt-4 flex items-center gap-2 text-sm">
+            <MapPin className="h-4 w-4" style={{ color: "var(--brand)" }} />
+            <span>{config.location.city}</span>
+            {config.location.venue && <span style={{ color: "var(--text-secondary)" }}>· {config.location.venue}</span>}
+          </div>
+          <span className="coach-tag mt-3 inline-block px-3 py-1 text-xs font-medium">
+            {config.location.remoteAvailable ? "In-person & remote/online" : "In-person only"}
+          </span>
         </div>
-        <div className="coach-card p-6 space-y-2 text-sm">
-          {config.contact.email && (
-            <a href={`mailto:${config.contact.email}`} className="flex items-center gap-2 hover:underline">
-              <Mail className="h-4 w-4" />{config.contact.email}
-            </a>
-          )}
-          {config.contact.phone && (
-            <a href={`tel:${config.contact.phone}`} className="flex items-center gap-2 hover:underline">
-              <Phone className="h-4 w-4" />{config.contact.phone}
-            </a>
-          )}
-          {config.contact.instagram && (
-            <div className="flex items-center gap-2"><Instagram className="h-4 w-4" />{config.contact.instagram}</div>
-          )}
+
+        <div>
+          <div className="space-y-2 text-sm">
+            {config.contact.email && (
+              <a href={`mailto:${config.contact.email}`} className="flex items-center gap-2 hover:opacity-70">
+                <Mail className="h-4 w-4" style={{ color: "var(--brand)" }} /> {config.contact.email}
+              </a>
+            )}
+            {config.contact.phone && (
+              <a href={`tel:${config.contact.phone}`} className="flex items-center gap-2 hover:opacity-70">
+                <Phone className="h-4 w-4" style={{ color: "var(--brand)" }} /> {config.contact.phone}
+              </a>
+            )}
+            {config.contact.instagram && (
+              <a
+                href={`https://instagram.com/${config.contact.instagram.replace(/^@/, "")}`}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-2 hover:opacity-70"
+              >
+                <Instagram className="h-4 w-4" style={{ color: "var(--brand)" }} /> {config.contact.instagram}
+              </a>
+            )}
+          </div>
+
+          <form
+            className="mt-6 space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              // TODO: wire up to a real inquiry-submission endpoint / Supabase table
+            }}
+          >
+            <input
+              placeholder="Name"
+              className="w-full px-3 py-2 text-sm"
+              style={{
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-sm)",
+                background: "var(--bg-elevated)",
+              }}
+            />
+            <input
+              type="email"
+              placeholder="Email"
+              className="w-full px-3 py-2 text-sm"
+              style={{
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-sm)",
+                background: "var(--bg-elevated)",
+              }}
+            />
+            <select
+              className="w-full px-3 py-2 text-sm"
+              style={{
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-sm)",
+                background: "var(--bg-elevated)",
+              }}
+              defaultValue=""
+            >
+              <option value="" disabled>
+                Discipline
+              </option>
+              {config.disciplines.map((d) => (
+                <option key={d}>{d}</option>
+              ))}
+            </select>
+            <textarea
+              placeholder="Message"
+              rows={3}
+              className="w-full px-3 py-2 text-sm"
+              style={{
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-sm)",
+                background: "var(--bg-elevated)",
+              }}
+            />
+            <Button
+              type="submit"
+              className="w-full"
+              style={{ background: "var(--brand)", color: "var(--on-brand)", borderRadius: "var(--radius-sm)" }}
+            >
+              Send inquiry
+            </Button>
+          </form>
         </div>
       </div>
     </section>
@@ -489,12 +570,72 @@ function LocationContact({ config }: { config: CoachConfig }) {
 
 function Footer({ config }: { config: CoachConfig }) {
   return (
-    <footer className="border-t px-4 py-6 text-xs md:px-8" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
-      © {new Date().getFullYear()} {config.name}
+    <footer className="border-t coach-divider py-8 text-center text-xs" style={{ color: "var(--text-secondary)" }}>
+      <Logo config={config} />
+      <div className="mt-3">{config.name}</div>
+      <div className="mt-1">Powered by TrackCoach</div>
+      <div className="mt-1">app.co/c/{config.slug}</div>
     </footer>
   );
 }
 
-function DevControls(_: { config: CoachConfig; onChange?: (next: CoachConfig) => void }) {
-  return null;
+// ---------------------------------------------------------------------------
+// Dev-only preview controls — remove this component once a coach's page is
+// embedded with a fixed config.
+// ---------------------------------------------------------------------------
+
+function DevControls({ config, onChange }: { config: CoachConfig; onChange?: (next: CoachConfig) => void }) {
+  if (!onChange) return null;
+  return (
+    <div className="sticky top-0 z-50 flex flex-wrap gap-3 border-b bg-black/90 px-4 py-2 text-white">
+      <ToggleSelect
+        label="theme"
+        value={config.theme}
+        options={["light", "dark"]}
+        onChange={(v) => onChange({ ...config, theme: v as CoachConfig["theme"] })}
+      />
+      <ToggleSelect
+        label="style"
+        value={config.style}
+        options={["modern", "traditional"]}
+        onChange={(v) => onChange({ ...config, style: v as CoachConfig["style"] })}
+      />
+      <ToggleSelect
+        label="nav"
+        value={config.nav}
+        options={["top", "sidebar"]}
+        onChange={(v) => onChange({ ...config, nav: v as CoachConfig["nav"] })}
+      />
+    </div>
+  );
+}
+
+function ToggleSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: string[];
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <span className="opacity-60">{label}</span>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger className="h-7 w-28 bg-white text-black">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((o) => (
+            <SelectItem key={o} value={o}>
+              {o}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
 }
