@@ -112,7 +112,16 @@ function CoachProfilePage() {
                 </Button>
               </div>
 
-              {coach.tagline && <p className="mt-2 text-lg text-muted-foreground">{coach.tagline}</p>}
+              {editing ? (
+                <input
+                  value={form.tagline}
+                  onChange={(e) => setForm({ ...form, tagline: e.target.value })}
+                  placeholder="Add a tagline..."
+                  className="mt-2 text-lg border rounded px-2 py-1 w-full"
+                />
+              ) : coach.tagline ? (
+                <p className="mt-2 text-lg text-muted-foreground">{coach.tagline}</p>
+              ) : null}
               {Array.isArray(coach.disciplines) && coach.disciplines.length > 0 && (
                 <div className="mt-4 flex flex-wrap gap-2">
                   {coach.disciplines.map((d: string) => (
