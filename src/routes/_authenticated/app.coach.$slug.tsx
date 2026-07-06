@@ -87,6 +87,17 @@ function CoachProfilePage() {
                 <div className="flex-1">
                   {editing ? (
                     <input
+                      value={form.team_name || ""}
+                      onChange={(e) => setForm({ ...form, team_name: e.target.value })}
+                      placeholder="Club / Squad / Team name"
+                      className="text-xs uppercase tracking-wide text-muted-foreground border-b mb-1 w-full"
+                    />
+                  ) : coach.team_name ? (
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1">{coach.team_name}</p>
+                  ) : null}
+
+                  {editing ? (
+                    <input
                       value={form.name}
                       onChange={(e) => setForm({ ...form, name: e.target.value })}
                       className="text-3xl md:text-4xl font-bold border rounded px-2 py-1 w-full"
