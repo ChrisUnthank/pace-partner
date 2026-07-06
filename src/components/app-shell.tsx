@@ -4,9 +4,10 @@ import { ReactNode, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyRoles, useAuthUser } from "@/lib/use-auth";
 import { Button } from "@/components/ui/button";
-import { CalendarDays, Users, User2, LogOut, Home, BookmarkCheck, LineChart, ChevronsLeft, ChevronsRight, Zap, ClipboardList, Megaphone, MessageSquare, Trophy } from "lucide-react";
+import { CalendarDays, Users, User2, LogOut, Home, BookmarkCheck, LineChart, ChevronsLeft, ChevronsRight, Zap, ClipboardList, Megaphone, MessageSquare, Trophy, IdCard } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NotificationBell } from "@/components/notification-bell";
+import { useQuery } from "@tanstack/react-query";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
@@ -17,6 +18,20 @@ export function AppShell({ children }: { children: ReactNode }) {
   const isAthlete = roles.includes("athlete");
   const path = useRouterState({ select: (s) => s.location.pathname });
   const [collapsed, setCollapsed] = useState(false);
+
+  const { data: coachProfile } = useQuery({
+    queryKey: ["my-coach-profile-slug", user?.id],
+    enabled: !!user && isCoach,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("coach_profiles")
+        .select("slug")
+        .eq("coach_user_id", user!.id)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
 
   async function signOut() {
     await qc.cancelQueries();
@@ -35,6 +50,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     { to: "/app/templates", label: "Templates", icon: BookmarkCheck, show: isCoach },
     { to: "/app/noticeboard", label: "Noticeboard", icon: Megaphone, show: true },
     { to: "/app/messages", label: "Messages", icon: MessageSquare, show: true },
+    { to: coachProfile?.slug ? `/app/coach/${coachProfile.slug}` : "#", label: "Coach Profile", icon: IdCard, show: isCoach && !!coachProfile?.slug },
     { to: "/app/profile", label: "Profile", icon: User2, show: true },
   ].filter((n) => n.show);
 
