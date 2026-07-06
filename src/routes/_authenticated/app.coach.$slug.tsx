@@ -157,7 +157,7 @@ function CoachProfilePage() {
   <Button onClick={() => setEditing(true)}>
     Edit Profile
   </Button>
-)}{editing ? "Cancel" : "Edit Profile"}</Button>
+)}
               </div>
 
               {/* TAGLINE */}
