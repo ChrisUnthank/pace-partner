@@ -1,0 +1,100 @@
+/* coach-profile-tokens.css
+   Import once (e.g. in your root layout or this route). Two data attributes
+   on the page root drive every color/type/shape decision:
+     data-theme="light" | "dark"
+     data-style="modern" | "traditional"
+   `--brand` / `--on-brand` are set inline per-coach (brandColor is a value,
+   not a token, so it can't live in this static file). */
+
+@import url("https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&family=Inter:wght@400;500;600;700&display=swap");
+
+[data-coach-root] {
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text-primary);
+}
+
+[data-coach-root][data-theme="light"] {
+  --bg: #FAFAF7;
+  --bg-elevated: #FFFFFF;
+  --text-primary: #17181A;
+  --text-secondary: #6B6560;
+  --border: #E4E0D6;
+}
+
+[data-coach-root][data-theme="dark"] {
+  --bg: #111312;
+  --bg-elevated: #191C1B;
+  --text-primary: #F2F0EA;
+  --text-secondary: #9C9890;
+  --border: #2B2E2C;
+}
+
+[data-coach-root][data-style="modern"] {
+  --font-display: "Oswald", sans-serif;
+  --font-body: "Inter", sans-serif;
+  --heading-transform: uppercase;
+  --heading-tracking: -0.01em;
+  --heading-weight: 600;
+  --radius: 6px;
+  --radius-sm: 4px;
+  --divider-width: 3px;
+  --hero-image-radius: 0px;
+  --hero-image-border: none;
+  --section-py: 5rem;
+  --tag-radius: 999px;
+  --tag-fill: var(--brand);
+  --tag-text: var(--on-brand);
+}
+
+[data-coach-root][data-style="traditional"] {
+  --font-display: "Source Serif 4", serif;
+  --font-body: "Inter", sans-serif;
+  --heading-transform: none;
+  --heading-tracking: normal;
+  --heading-weight: 600;
+  --radius: 10px;
+  --radius-sm: 8px;
+  --divider-width: 1px;
+  --hero-image-radius: 12px;
+  --hero-image-border: 1px solid var(--border);
+  --section-py: 4rem;
+  --tag-radius: 999px;
+  --tag-fill: transparent;
+  --tag-text: var(--brand);
+}
+
+[data-coach-root] .coach-heading {
+  font-family: var(--font-display);
+  text-transform: var(--heading-transform);
+  letter-spacing: var(--heading-tracking);
+  font-weight: var(--heading-weight);
+}
+
+[data-coach-root] .coach-divider {
+  border-top-width: var(--divider-width);
+  border-color: var(--border);
+}
+
+[data-coach-root] .coach-tag {
+  border-radius: var(--tag-radius);
+  background: var(--tag-fill);
+  color: var(--tag-text);
+  border: 1px solid var(--brand);
+}
+
+[data-coach-root] .coach-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+[data-coach-root] .coach-hero-image {
+  border-radius: var(--hero-image-radius);
+  border: var(--hero-image-border);
+}
+
+[data-coach-root] .coach-mono {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
