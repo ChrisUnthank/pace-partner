@@ -5,7 +5,7 @@ import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Mail, Instagram, MapPin } from "lucide-react";
+import { Mail, AtSign, MapPin } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/app/coach/$slug")({
   component: CoachProfilePage,
@@ -223,7 +223,7 @@ function CoachProfilePage() {
                   rel="noreferrer"
                   className="flex items-center gap-2 text-sm hover:underline"
                 >
-                  <Instagram className="h-4 w-4" /> @{String(contact.instagram).replace(/^@/, "")}
+                  <AtSign className="h-4 w-4" /> @{String(contact.instagram).replace(/^@/, "")}
                 </a>
               ) : null}
               {!contact.email && !contact.instagram && (
