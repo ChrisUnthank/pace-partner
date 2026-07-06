@@ -4,7 +4,23 @@ import { ReactNode, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyRoles, useAuthUser } from "@/lib/use-auth";
 import { Button } from "@/components/ui/button";
-import { CalendarDays, Users, User2, LogOut, Home, BookmarkCheck, LineChart, ChevronsLeft, ChevronsRight, Zap, ClipboardList, Megaphone, MessageSquare, Trophy, IdCard } from "lucide-react";
+import {
+  CalendarDays,
+  Users,
+  User2,
+  LogOut,
+  Home,
+  BookmarkCheck,
+  LineChart,
+  ChevronsLeft,
+  ChevronsRight,
+  Zap,
+  ClipboardList,
+  Megaphone,
+  MessageSquare,
+  Trophy,
+  IdCard,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NotificationBell } from "@/components/notification-bell";
 import { useQuery } from "@tanstack/react-query";
@@ -50,14 +66,19 @@ export function AppShell({ children }: { children: ReactNode }) {
     { to: "/app/templates", label: "Templates", icon: BookmarkCheck, show: isCoach },
     { to: "/app/noticeboard", label: "Noticeboard", icon: Megaphone, show: true },
     { to: "/app/messages", label: "Messages", icon: MessageSquare, show: true },
-    { to: coachProfile?.slug ? `/app/coach/${coachProfile.slug}` : "#", label: "Coach Profile", icon: IdCard, show: isCoach && !!coachProfile?.slug },
+
+    {
+      to: "/app/coach",
+      label: "Coach Profile",
+      icon: IdCard,
+      show: isCoach,
+    },
+
     { to: "/app/profile", label: "Profile", icon: User2, show: true },
   ].filter((n) => n.show);
 
   const crumb = (() => {
-    const active = [...navItems].reverse().find((n) =>
-      n.to === "/app" ? path === "/app" : path.startsWith(n.to)
-    );
+    const active = [...navItems].reverse().find((n) => (n.to === "/app" ? path === "/app" : path.startsWith(n.to)));
     return active?.label ?? "Strider";
   })();
 
@@ -76,9 +97,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <Zap className="h-4 w-4 text-white" strokeWidth={2.5} />
             </span>
             {!collapsed && (
-              <span className="font-display text-base font-extrabold tracking-tight uppercase">
-                Strider
-              </span>
+              <span className="font-display text-base font-extrabold tracking-tight uppercase">Strider</span>
             )}
           </Link>
         </div>
@@ -116,7 +135,13 @@ export function AppShell({ children }: { children: ReactNode }) {
             )}
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
-            {collapsed ? <ChevronsRight className="h-4 w-4" /> : <><ChevronsLeft className="h-4 w-4" /> Collapse</>}
+            {collapsed ? (
+              <ChevronsRight className="h-4 w-4" />
+            ) : (
+              <>
+                <ChevronsLeft className="h-4 w-4" /> Collapse
+              </>
+            )}
           </button>
         </div>
       </aside>
