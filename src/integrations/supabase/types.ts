@@ -623,11 +623,13 @@ export type Database = {
       }
       coach_profiles: {
         Row: {
+          achievements: Json
           bio: string | null
           brand_color: string | null
           certifications: string[] | null
           coach_photo_url: string | null
           coach_user_id: string | null
+          coaching_philosophy: string | null
           contact: Json | null
           created_at: string | null
           disciplines: string[] | null
@@ -651,11 +653,13 @@ export type Database = {
           theme: string | null
         }
         Insert: {
+          achievements?: Json
           bio?: string | null
           brand_color?: string | null
           certifications?: string[] | null
           coach_photo_url?: string | null
           coach_user_id?: string | null
+          coaching_philosophy?: string | null
           contact?: Json | null
           created_at?: string | null
           disciplines?: string[] | null
@@ -679,11 +683,13 @@ export type Database = {
           theme?: string | null
         }
         Update: {
+          achievements?: Json
           bio?: string | null
           brand_color?: string | null
           certifications?: string[] | null
           coach_photo_url?: string | null
           coach_user_id?: string | null
+          coaching_philosophy?: string | null
           contact?: Json | null
           created_at?: string | null
           disciplines?: string[] | null
