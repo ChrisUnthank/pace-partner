@@ -9,14 +9,14 @@ export interface CoachConfig {
   nav: "top" | "sidebar";
   brandColor: string; // hex
   name: string;
+  teamName?: string;
   slug: string;
   tagline: string;
   disciplines: string[];
   heroImageUrl: string;
-  logoInitials: string;
-  teamName?: string;
-  teamLogoUrl?: string;
   coachPhotoUrl?: string;
+  logoInitials: string;
+  teamLogoUrl?: string;
   stats: { label: string; value: string }[];
   bio: string;
   certifications: string[];
@@ -30,9 +30,15 @@ export interface CoachConfig {
     featured?: boolean;
   }[];
   testimonials: { quote: string; author: string }[];
+  athletes: { name: string; event?: string; photoUrl?: string }[];
   location: { city: string; venue?: string; remoteAvailable: boolean };
   contact: { email: string; phone?: string; instagram?: string; strava?: string };
 }
+
+// ---------------------------------------------------------------------------
+// Default / sample content — matches the brief's example persona.
+// Used for local dev preview and as a fallback while a real row loads.
+// ---------------------------------------------------------------------------
 
 export const defaultCoachConfig: CoachConfig = {
   theme: "light",
@@ -43,8 +49,7 @@ export const defaultCoachConfig: CoachConfig = {
   slug: "marcus-webb",
   tagline: "Track and interval-based coaching for runners chasing their next PR",
   disciplines: ["Track & Interval", "Marathon", "5K/10K"],
-  heroImageUrl:
-    "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=1200&q=80",
+  heroImageUrl: "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=1200&q=80",
   logoInitials: "MW",
   stats: [
     { label: "Years coaching", value: "11" },
@@ -77,12 +82,28 @@ export const defaultCoachConfig: CoachConfig = {
     { name: "Full access", price: "299", period: "mo", description: "Daily contact + biomechanics review" },
   ],
   testimonials: [
-    { quote: "The interval sessions actually match what I run on race day now.", author: "Sarah K. — 2:58 marathon debut" },
-    { quote: "Every week is different because he's actually watching how I respond.", author: "Dev P. — first sub-3:30 marathon" },
+    {
+      quote: "The interval sessions actually match what I run on race day now.",
+      author: "Sarah K. — 2:58 marathon debut",
+    },
+    {
+      quote: "Every week is different because he's actually watching how I respond.",
+      author: "Dev P. — first sub-3:30 marathon",
+    },
+  ],
+  athletes: [
+    { name: "Sarah K.", event: "Marathon" },
+    { name: "Dev P.", event: "5000m" },
   ],
   location: { city: "Melbourne, AU", venue: "Fawkner Park Track", remoteAvailable: true },
   contact: { email: "marcus@example.com", instagram: "@marcuswebbcoaching" },
 };
+
+// ---------------------------------------------------------------------------
+// Map a `coach_profiles` Supabase row onto CoachConfig.
+// Keeps the DB shape (snake_case, jsonb columns that may arrive as objects
+// or arrays) decoupled from the component's prop shape.
+// ---------------------------------------------------------------------------
 
 function asArray<T = any>(v: unknown): T[] {
   if (Array.isArray(v)) return v as T[];
@@ -90,7 +111,10 @@ function asArray<T = any>(v: unknown): T[] {
   return [];
 }
 
-export function coachRowToConfig(row: Record<string, any>): CoachConfig {
+export function coachRowToConfig(
+  row: Record<string, any>,
+  athletes: { name: string; event?: string; photoUrl?: string }[] = [],
+): CoachConfig {
   const d = defaultCoachConfig;
   return {
     theme: row.theme === "dark" ? "dark" : "light",
@@ -98,14 +122,14 @@ export function coachRowToConfig(row: Record<string, any>): CoachConfig {
     nav: row.nav === "sidebar" ? "sidebar" : "top",
     brandColor: row.brand_color || d.brandColor,
     name: row.name || d.name,
+    teamName: row.team_name || undefined,
     slug: row.slug || d.slug,
     tagline: row.tagline || "",
     disciplines: asArray<string>(row.disciplines),
     heroImageUrl: row.hero_image_url || d.heroImageUrl,
-    logoInitials: row.logo_initials || initials(row.name || d.name),
-    teamName: row.team_name || undefined,
-    teamLogoUrl: row.logo_url || undefined,
     coachPhotoUrl: row.coach_photo_url || undefined,
+    logoInitials: row.logo_initials || initials(row.name || d.name),
+    teamLogoUrl: row.logo_url || undefined,
     stats: asArray(row.stats).map((s: any) => ({
       label: s.label ?? s.key ?? "",
       value: String(s.value ?? s.stat ?? ""),
@@ -129,6 +153,7 @@ export function coachRowToConfig(row: Record<string, any>): CoachConfig {
       quote: t.quote ?? t.text ?? t.body ?? "",
       author: t.author ?? t.name ?? "",
     })),
+    athletes,
     location: {
       city: row.location?.city ?? "",
       venue: row.location?.venue,
