@@ -19,6 +19,8 @@ export interface CoachConfig {
   teamLogoUrl?: string;
   stats: { label: string; value: string }[];
   bio: string;
+  coachingPhilosophy?: string;
+  achievements: string[];
   certifications: string[];
   sampleSessions: { name: string; target: string; purpose: string }[];
   galleryImages: string[];
@@ -58,6 +60,9 @@ export const defaultCoachConfig: CoachConfig = {
     { label: "Interval sessions/wk avg", value: "3" },
   ],
   bio: "Former 2:19 marathoner turned coach. I build plans around structured track and interval work, adjusted week to week based on how sessions actually go — not a generic template.",
+  coachingPhilosophy:
+    "Training should be adapted to the athlete in front of you, not the other way around. Every session is a data point — I adjust week to week based on how the body is actually responding, not just what the plan says on paper.",
+  achievements: ["2x Olympian, 3000m Steeplechase", "14 Boston Marathon qualifiers coached", "PB: 2:19:04 marathon"],
   certifications: ["USATF Level 2", "USOPC SafeSport"],
   sampleSessions: [
     { name: "8 × 400m", target: "5K pace, 90s jog recovery", purpose: "Speed and turnover" },
@@ -135,6 +140,8 @@ export function coachRowToConfig(
       value: String(s.value ?? s.stat ?? ""),
     })),
     bio: row.bio || "",
+    coachingPhilosophy: row.coaching_philosophy || undefined,
+    achievements: asArray<string>(row.achievements),
     certifications: asArray<string>(row.certifications),
     sampleSessions: asArray(row.sample_sessions).map((s: any) => ({
       name: s.name ?? "",
