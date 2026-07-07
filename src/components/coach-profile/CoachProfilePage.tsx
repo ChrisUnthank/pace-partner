@@ -31,6 +31,14 @@ function scrollToSection(id: string) {
   document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+// Google Maps supports a basic embeddable iframe via a plain search query URL —
+// no API key or billing setup required, unlike the full Maps Embed API.
+function mapEmbedUrl(location: CoachConfig["location"]): string | null {
+  const query = [location.venue, location.city].filter(Boolean).join(", ");
+  if (!query) return null;
+  return `https://maps.google.com/maps?q=${encodeURIComponent(query)}&z=13&output=embed`;
+}
+
 export interface CoachProfilePageProps {
   config: CoachConfig;
   /** Show the live theme/style/nav preview toggles. Dev-only, strip before shipping a fixed-config page. */
@@ -149,13 +157,22 @@ function SidebarLayout({ config }: { config: CoachConfig }) {
 function Logo({ config, showName }: { config: CoachConfig; showName?: boolean }) {
   return (
     <div className="flex items-center gap-2">
-      <div
-        className="flex h-9 w-9 items-center justify-center text-sm font-semibold"
-        style={{ background: "var(--brand)", color: "var(--on-brand)", borderRadius: "var(--radius-sm)" }}
-      >
-        {config.logoInitials}
-      </div>
-      {showName && <span className="coach-heading text-sm">{config.name}</span>}
+      {config.teamLogoUrl ? (
+        <img
+          src={config.teamLogoUrl}
+          alt={config.teamName || config.name}
+          className="h-9 w-9 object-cover"
+          style={{ borderRadius: "var(--radius-sm)" }}
+        />
+      ) : (
+        <div
+          className="flex h-9 w-9 items-center justify-center text-sm font-semibold"
+          style={{ background: "var(--brand)", color: "var(--on-brand)", borderRadius: "var(--radius-sm)" }}
+        >
+          {config.logoInitials}
+        </div>
+      )}
+      {showName && <span className="coach-heading text-sm">{config.teamName || config.name}</span>}
     </div>
   );
 }
@@ -229,16 +246,29 @@ function Hero({ config }: { config: CoachConfig }) {
   const modern = config.style === "modern";
   return (
     <section id="home" style={{ paddingTop: "var(--section-py)", paddingBottom: "var(--section-py)" }}>
-      <div className={modern ? "grid items-center gap-10 md:grid-cols-[1.1fr_1fr]" : "mx-auto max-w-2xl text-center"}>
-        <div className={modern ? "" : "order-2"}>
-          {!modern && (
+      <div className={modern ? "grid items-center gap-10 md:grid-cols-[1.1fr_1fr]" : "mx-auto max-w-3xl"}>
+        {!modern && (
+          <div className="relative mb-10">
             <img
               src={config.heroImageUrl}
               alt={config.name}
-              className="coach-hero-image mx-auto mb-8 h-40 w-40 object-cover"
+              className="coach-hero-image h-64 w-full object-cover md:h-80"
             />
-          )}
-          <h1 className="coach-heading text-4xl md:text-5xl">{config.name}</h1>
+            {config.coachPhotoUrl && (
+              <img
+                src={config.coachPhotoUrl}
+                alt={config.name}
+                className="absolute -bottom-8 left-1/2 h-20 w-20 -translate-x-1/2 border-4 object-cover"
+                style={{ borderRadius: "999px", borderColor: "var(--bg)" }}
+              />
+            )}
+          </div>
+        )}
+        <div className={modern ? "" : "mx-auto max-w-xl pt-6 text-center"}>
+          <h1 className="coach-heading text-4xl md:text-5xl">
+            {config.name}
+            {config.teamName && <span style={{ color: "var(--text-secondary)" }}> — {config.teamName}</span>}
+          </h1>
           <p className="mt-4 text-lg" style={{ color: "var(--text-secondary)" }}>
             {config.tagline}
           </p>
@@ -261,11 +291,21 @@ function Hero({ config }: { config: CoachConfig }) {
           </div>
         </div>
         {modern && (
-          <img
-            src={config.heroImageUrl}
-            alt={config.name}
-            className="coach-hero-image h-72 w-full object-cover md:h-[26rem]"
-          />
+          <div className="relative">
+            <img
+              src={config.heroImageUrl}
+              alt={config.name}
+              className="coach-hero-image h-72 w-full object-cover md:h-[26rem]"
+            />
+            {config.coachPhotoUrl && (
+              <img
+                src={config.coachPhotoUrl}
+                alt={config.name}
+                className="absolute -bottom-6 -left-6 h-20 w-20 border-4 object-cover"
+                style={{ borderRadius: "var(--radius)", borderColor: "var(--bg)" }}
+              />
+            )}
+          </div>
         )}
       </div>
     </section>
@@ -451,23 +491,33 @@ function Testimonials({ config }: { config: CoachConfig }) {
 }
 
 function LocationContact({ config }: { config: CoachConfig }) {
+  const mapSrc = mapEmbedUrl(config.location);
   return (
     <section id="contact" style={{ paddingTop: "var(--section-py)", paddingBottom: "var(--section-py)" }}>
       <SectionHeading>Location & contact</SectionHeading>
       <div className="grid gap-8 md:grid-cols-2">
         <div>
-          <div
-            className="flex h-48 items-center justify-center text-sm"
-            style={{
-              background: "var(--bg-elevated)",
-              border: "1px solid var(--border)",
-              borderRadius: "var(--radius)",
-              color: "var(--text-secondary)",
-            }}
-          >
-            {/* TODO: swap for a real embedded map (Google Maps / Mapbox) once an API key is wired up */}
-            Map placeholder
-          </div>
+          {mapSrc ? (
+            <iframe
+              title="Location map"
+              src={mapSrc}
+              loading="lazy"
+              className="h-48 w-full"
+              style={{ border: "1px solid var(--border)", borderRadius: "var(--radius)" }}
+            />
+          ) : (
+            <div
+              className="flex h-48 items-center justify-center text-sm"
+              style={{
+                background: "var(--bg-elevated)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius)",
+                color: "var(--text-secondary)",
+              }}
+            >
+              Add a city or venue to show a map
+            </div>
+          )}
           <div className="mt-4 flex items-center gap-2 text-sm">
             <MapPin className="h-4 w-4" style={{ color: "var(--brand)" }} />
             <span>{config.location.city}</span>
