@@ -34,10 +34,10 @@ function useCoachedAthletes(coachUserId: string | undefined) {
     queryKey: ["coach-athletes-roster", coachUserId],
     enabled: !!coachUserId,
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("coach_athletes")
         .select("id, athlete_id, visible_on_coach_page, athletes ( id, name, primary_event, profile_image_url )")
-        .eq("coach_user_id", coachUserId as string);
+        .eq("coach_user_id", coachUserId);
       if (error) throw error;
       return data ?? [];
     },
@@ -67,7 +67,7 @@ function CoachEditorPage() {
 
   async function toggleAthleteVisibility(coachAthleteId: string, next: boolean) {
     setTogglingId(coachAthleteId);
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("coach_athletes")
       .update({ visible_on_coach_page: next })
       .eq("id", coachAthleteId);
@@ -114,38 +114,37 @@ function CoachEditorPage() {
 
   useEffect(() => {
     if (coach) {
-      const c: any = coach;
       setForm({
-        name: c.name || "",
-        team_name: c.team_name || "",
-        tagline: c.tagline || "",
-        bio: c.bio || "",
-        coaching_philosophy: c.coaching_philosophy || "",
-        achievements: (c.achievements || []).join("\n"),
-        disciplines: toCsv(c.disciplines),
-        theme: c.theme || "light",
-        style: c.style || "modern",
-        nav: c.nav || "top",
-        brand_color: c.brand_color || "#BD4130",
-        hero_image_url: c.hero_image_url || "",
-        coach_photo_url: c.coach_photo_url || "",
-        logo_initials: c.logo_initials || "",
-        logo_url: c.logo_url || "",
-        certifications: toCsv(c.certifications),
-        gallery_images: (c.gallery_images || []).join("\n"),
-        location_city: c.location?.city || "",
-        location_venue: c.location?.venue || "",
-        location_remote: !!c.location?.remoteAvailable,
-        contact_email: c.contact?.email || "",
-        contact_phone: c.contact?.phone || "",
-        contact_instagram: c.contact?.instagram || "",
+        name: coach.name || "",
+        team_name: coach.team_name || "",
+        tagline: coach.tagline || "",
+        bio: coach.bio || "",
+        coaching_philosophy: coach.coaching_philosophy || "",
+        achievements: (coach.achievements || []).join("\n"),
+        disciplines: toCsv(coach.disciplines),
+        theme: coach.theme || "light",
+        style: coach.style || "modern",
+        nav: coach.nav || "top",
+        brand_color: coach.brand_color || "#BD4130",
+        hero_image_url: coach.hero_image_url || "",
+        coach_photo_url: coach.coach_photo_url || "",
+        logo_initials: coach.logo_initials || "",
+        logo_url: coach.logo_url || "",
+        certifications: toCsv(coach.certifications),
+        gallery_images: (coach.gallery_images || []).join("\n"),
+        location_city: coach.location?.city || "",
+        location_venue: coach.location?.venue || "",
+        location_remote: !!coach.location?.remoteAvailable,
+        contact_email: coach.contact?.email || "",
+        contact_phone: coach.contact?.phone || "",
+        contact_instagram: coach.contact?.instagram || "",
         sample_sessions:
-          Array.isArray(c.sample_sessions) && c.sample_sessions.length
-            ? c.sample_sessions
+          Array.isArray(coach.sample_sessions) && coach.sample_sessions.length
+            ? coach.sample_sessions
             : [{ name: "", target: "", purpose: "" }],
         plans:
-          Array.isArray(c.plans) && c.plans.length
-            ? c.plans
+          Array.isArray(coach.plans) && coach.plans.length
+            ? coach.plans
             : [{ name: "", price: "", period: "mo", description: "", featured: false }],
       });
     }
@@ -169,7 +168,7 @@ function CoachEditorPage() {
 
   async function handleSave() {
     setSaving(true);
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("coach_profiles")
       .update({
         name: form.name,
@@ -208,7 +207,7 @@ function CoachEditorPage() {
         sample_sessions: (form.sample_sessions || []).filter((s: any) => s.name || s.target || s.purpose),
         plans: (form.plans || []).filter((p: any) => p.name || p.price || p.description),
       })
-      .eq("id", (coach as any)!.id);
+      .eq("id", coach.id);
     setSaving(false);
     if (error) alert(error.message);
   }
