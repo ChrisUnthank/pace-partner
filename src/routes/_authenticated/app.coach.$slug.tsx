@@ -9,7 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Plus, Trash2 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { SingleImageUpload, MultiImageUpload } from "@/components/coach-profile/image-upload";
 import { useAuthUser } from "@/lib/use-auth";
 
@@ -33,7 +34,7 @@ function useCoachedAthletes(coachUserId: string | undefined) {
     queryKey: ["coach-athletes-roster", coachUserId],
     enabled: !!coachUserId,
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("coach_athletes")
         .select("id, athlete_id, visible_on_coach_page, athletes ( id, name, primary_event, profile_image_url )")
         .eq("coach_user_id", coachUserId);
@@ -66,7 +67,7 @@ function CoachEditorPage() {
 
   async function toggleAthleteVisibility(coachAthleteId: string, next: boolean) {
     setTogglingId(coachAthleteId);
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("coach_athletes")
       .update({ visible_on_coach_page: next })
       .eq("id", coachAthleteId);
@@ -78,31 +79,71 @@ function CoachEditorPage() {
     refetchRoster();
   }
 
+  function updateSession(i: number, patch: Partial<{ name: string; target: string; purpose: string }>) {
+    const next = [...(form.sample_sessions || [])];
+    next[i] = { ...next[i], ...patch };
+    setForm({ ...form, sample_sessions: next });
+  }
+  function addSession() {
+    setForm({
+      ...form,
+      sample_sessions: [...(form.sample_sessions || []), { name: "", target: "", purpose: "" }],
+    });
+  }
+  function removeSession(i: number) {
+    setForm({ ...form, sample_sessions: form.sample_sessions.filter((_: any, idx: number) => idx !== i) });
+  }
+
+  function updatePlan(
+    i: number,
+    patch: Partial<{ name: string; price: string; period: string; description: string; featured: boolean }>,
+  ) {
+    const next = [...(form.plans || [])];
+    next[i] = { ...next[i], ...patch };
+    setForm({ ...form, plans: next });
+  }
+  function addPlan() {
+    setForm({
+      ...form,
+      plans: [...(form.plans || []), { name: "", price: "", period: "mo", description: "", featured: false }],
+    });
+  }
+  function removePlan(i: number) {
+    setForm({ ...form, plans: form.plans.filter((_: any, idx: number) => idx !== i) });
+  }
+
   useEffect(() => {
     if (coach) {
-      const c: any = coach;
       setForm({
-        name: c.name || "",
-        team_name: c.team_name || "",
-        tagline: c.tagline || "",
-        bio: c.bio || "",
-        disciplines: toCsv(c.disciplines),
-        theme: c.theme || "light",
-        style: c.style || "modern",
-        nav: c.nav || "top",
-        brand_color: c.brand_color || "#BD4130",
-        hero_image_url: c.hero_image_url || "",
-        coach_photo_url: c.coach_photo_url || "",
-        logo_initials: c.logo_initials || "",
-        logo_url: c.logo_url || "",
-        certifications: toCsv(c.certifications),
-        gallery_images: (c.gallery_images || []).join("\n"),
-        location_city: c.location?.city || "",
-        location_venue: c.location?.venue || "",
-        location_remote: !!c.location?.remoteAvailable,
-        contact_email: c.contact?.email || "",
-        contact_phone: c.contact?.phone || "",
-        contact_instagram: c.contact?.instagram || "",
+        name: coach.name || "",
+        team_name: coach.team_name || "",
+        tagline: coach.tagline || "",
+        bio: coach.bio || "",
+        disciplines: toCsv(coach.disciplines),
+        theme: coach.theme || "light",
+        style: coach.style || "modern",
+        nav: coach.nav || "top",
+        brand_color: coach.brand_color || "#BD4130",
+        hero_image_url: coach.hero_image_url || "",
+        coach_photo_url: coach.coach_photo_url || "",
+        logo_initials: coach.logo_initials || "",
+        logo_url: coach.logo_url || "",
+        certifications: toCsv(coach.certifications),
+        gallery_images: (coach.gallery_images || []).join("\n"),
+        location_city: coach.location?.city || "",
+        location_venue: coach.location?.venue || "",
+        location_remote: !!coach.location?.remoteAvailable,
+        contact_email: coach.contact?.email || "",
+        contact_phone: coach.contact?.phone || "",
+        contact_instagram: coach.contact?.instagram || "",
+        sample_sessions:
+          Array.isArray(coach.sample_sessions) && coach.sample_sessions.length
+            ? coach.sample_sessions
+            : [{ name: "", target: "", purpose: "" }],
+        plans:
+          Array.isArray(coach.plans) && coach.plans.length
+            ? coach.plans
+            : [{ name: "", price: "", period: "mo", description: "", featured: false }],
       });
     }
   }, [coach]);
@@ -125,7 +166,7 @@ function CoachEditorPage() {
 
   async function handleSave() {
     setSaving(true);
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("coach_profiles")
       .update({
         name: form.name,
@@ -156,8 +197,10 @@ function CoachEditorPage() {
           phone: form.contact_phone || undefined,
           instagram: form.contact_instagram || undefined,
         },
+        sample_sessions: (form.sample_sessions || []).filter((s: any) => s.name || s.target || s.purpose),
+        plans: (form.plans || []).filter((p: any) => p.name || p.price || p.description),
       })
-      .eq("id", (coach as any).id);
+      .eq("id", coach.id);
     setSaving(false);
     if (error) alert(error.message);
   }
@@ -322,6 +365,115 @@ function CoachEditorPage() {
 
         <Card>
           <CardHeader>
+            <CardTitle className="text-base">Sample sessions</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {(form.sample_sessions || []).map((s: any, i: number) => (
+              <div key={i} className="space-y-2 rounded-md border p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Session {i + 1}</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => removeSession(i)}
+                    className="h-7 px-2 text-destructive"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+                <Field label="Name">
+                  <Input
+                    value={s.name}
+                    onChange={(e) => updateSession(i, { name: e.target.value })}
+                    placeholder="8 × 400m"
+                  />
+                </Field>
+                <Field label="Target / pace">
+                  <Input
+                    value={s.target}
+                    onChange={(e) => updateSession(i, { target: e.target.value })}
+                    placeholder="5K pace, 90s jog recovery"
+                  />
+                </Field>
+                <Field label="Purpose">
+                  <Input
+                    value={s.purpose}
+                    onChange={(e) => updateSession(i, { purpose: e.target.value })}
+                    placeholder="Speed and turnover"
+                  />
+                </Field>
+              </div>
+            ))}
+            <Button type="button" variant="outline" size="sm" onClick={addSession}>
+              <Plus className="mr-2 h-3.5 w-3.5" /> Add session
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Coaching plans</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {(form.plans || []).map((p: any, i: number) => (
+              <div key={i} className="space-y-2 rounded-md border p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Plan {i + 1}</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => removePlan(i)}
+                    className="h-7 px-2 text-destructive"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+                <Field label="Name">
+                  <Input
+                    value={p.name}
+                    onChange={(e) => updatePlan(i, { name: e.target.value })}
+                    placeholder="Guided"
+                  />
+                </Field>
+                <div className="grid grid-cols-2 gap-2">
+                  <Field label="Price">
+                    <Input
+                      value={p.price}
+                      onChange={(e) => updatePlan(i, { price: e.target.value })}
+                      placeholder="179"
+                    />
+                  </Field>
+                  <Field label="Period">
+                    <Input
+                      value={p.period}
+                      onChange={(e) => updatePlan(i, { period: e.target.value })}
+                      placeholder="mo"
+                    />
+                  </Field>
+                </div>
+                <Field label="Description">
+                  <Input
+                    value={p.description}
+                    onChange={(e) => updatePlan(i, { description: e.target.value })}
+                    placeholder="Weekly adjustments + race tactics"
+                  />
+                </Field>
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox checked={!!p.featured} onCheckedChange={(v) => updatePlan(i, { featured: !!v })} />
+                  Highlight this plan (most popular)
+                </label>
+              </div>
+            ))}
+            <Button type="button" variant="outline" size="sm" onClick={addPlan}>
+              <Plus className="mr-2 h-3.5 w-3.5" /> Add plan
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle className="text-base">Location</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
@@ -335,10 +487,9 @@ function CoachEditorPage() {
               />
             </Field>
             <label className="flex items-center gap-2 text-sm sm:col-span-2">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={form.location_remote}
-                onChange={(e) => setForm({ ...form, location_remote: e.target.checked })}
+                onCheckedChange={(v) => setForm({ ...form, location_remote: !!v })}
               />
               Remote/online coaching available
             </label>
@@ -359,11 +510,10 @@ function CoachEditorPage() {
                   if (!athlete) return null;
                   return (
                     <label key={row.id} className="flex items-center gap-3 rounded-md border p-3 text-sm">
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={row.visible_on_coach_page}
                         disabled={togglingId === row.id}
-                        onChange={(e) => toggleAthleteVisibility(row.id, e.target.checked)}
+                        onCheckedChange={(v) => toggleAthleteVisibility(row.id, !!v)}
                       />
                       {athlete.profile_image_url ? (
                         <img
@@ -413,8 +563,7 @@ function CoachEditorPage() {
         </Card>
 
         <p className="text-xs text-muted-foreground">
-          Stats, sample sessions, plans, and testimonials aren't editable here yet — happy to add structured editors for
-          those next if useful.
+          Stats and testimonials aren't editable here yet — happy to add structured editors for those next if useful.
         </p>
       </div>
     </AppShell>
