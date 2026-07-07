@@ -595,18 +595,21 @@ export type Database = {
           coach_user_id: string
           created_at: string
           id: string
+          visible_on_coach_page: boolean
         }
         Insert: {
           athlete_id: string
           coach_user_id: string
           created_at?: string
           id?: string
+          visible_on_coach_page?: boolean
         }
         Update: {
           athlete_id?: string
           coach_user_id?: string
           created_at?: string
           id?: string
+          visible_on_coach_page?: boolean
         }
         Relationships: [
           {
@@ -623,6 +626,7 @@ export type Database = {
           bio: string | null
           brand_color: string | null
           certifications: string[] | null
+          coach_photo_url: string | null
           coach_user_id: string | null
           contact: Json | null
           created_at: string | null
@@ -650,6 +654,7 @@ export type Database = {
           bio?: string | null
           brand_color?: string | null
           certifications?: string[] | null
+          coach_photo_url?: string | null
           coach_user_id?: string | null
           contact?: Json | null
           created_at?: string | null
@@ -677,6 +682,7 @@ export type Database = {
           bio?: string | null
           brand_color?: string | null
           certifications?: string[] | null
+          coach_photo_url?: string | null
           coach_user_id?: string | null
           contact?: Json | null
           created_at?: string | null
