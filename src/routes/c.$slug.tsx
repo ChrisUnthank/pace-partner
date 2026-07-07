@@ -25,9 +25,33 @@ function useCoachProfile(slug: string) {
   });
 }
 
+function useVisibleAthletes(coachUserId: string | undefined) {
+  return useQuery({
+    queryKey: ["coach-profile-public-athletes", coachUserId],
+    enabled: !!coachUserId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("coach_athletes")
+        .select("athletes ( name, primary_event, profile_image_url )")
+        .eq("coach_user_id", coachUserId)
+        .eq("visible_on_coach_page", true);
+      if (error) throw error;
+      return (data ?? [])
+        .map((row: any) => row.athletes)
+        .filter(Boolean)
+        .map((a: any) => ({
+          name: a.name,
+          event: a.primary_event ?? undefined,
+          photoUrl: a.profile_image_url ?? undefined,
+        }));
+    },
+  });
+}
+
 function PublicCoachProfileRoute() {
   const { slug } = useParams({ from: "/c/$slug" });
   const { data: row, isLoading, error } = useCoachProfile(slug);
+  const { data: athletes } = useVisibleAthletes(row?.coach_user_id);
 
   if (isLoading) {
     return <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">Loading…</div>;
@@ -41,6 +65,6 @@ function PublicCoachProfileRoute() {
     );
   }
 
-  const config = coachRowToConfig(row) ?? defaultCoachConfig;
+  const config = coachRowToConfig(row, athletes ?? []) ?? defaultCoachConfig;
   return <CoachProfilePage config={config} />;
 }
