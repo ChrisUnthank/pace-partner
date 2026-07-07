@@ -14,6 +14,9 @@ export interface CoachConfig {
   disciplines: string[];
   heroImageUrl: string;
   logoInitials: string;
+  teamName?: string;
+  teamLogoUrl?: string;
+  coachPhotoUrl?: string;
   stats: { label: string; value: string }[];
   bio: string;
   certifications: string[];
@@ -100,6 +103,9 @@ export function coachRowToConfig(row: Record<string, any>): CoachConfig {
     disciplines: asArray<string>(row.disciplines),
     heroImageUrl: row.hero_image_url || d.heroImageUrl,
     logoInitials: row.logo_initials || initials(row.name || d.name),
+    teamName: row.team_name || undefined,
+    teamLogoUrl: row.logo_url || undefined,
+    coachPhotoUrl: row.coach_photo_url || undefined,
     stats: asArray(row.stats).map((s: any) => ({
       label: s.label ?? s.key ?? "",
       value: String(s.value ?? s.stat ?? ""),
