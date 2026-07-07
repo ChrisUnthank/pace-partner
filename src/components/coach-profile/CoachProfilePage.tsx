@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Menu, Mail, Phone, AtSign as Instagram, MapPin, Timer, X } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 import type { CoachConfig } from "./coach-config";
 import "./coach-profile-tokens.css";
 
@@ -717,69 +718,130 @@ function LocationContact({ config }: { config: CoachConfig }) {
             )}
           </div>
 
-          <form
-            className="mt-6 space-y-3"
-            onSubmit={(e) => {
-              e.preventDefault();
-              // TODO: wire up to a real inquiry-submission endpoint / Supabase table
-            }}
-          >
-            <input
-              placeholder="Name"
-              className="w-full px-3 py-2 text-sm"
-              style={{
-                border: "1px solid var(--border)",
-                borderRadius: "var(--radius-sm)",
-                background: "var(--bg-elevated)",
-              }}
-            />
-            <input
-              type="email"
-              placeholder="Email"
-              className="w-full px-3 py-2 text-sm"
-              style={{
-                border: "1px solid var(--border)",
-                borderRadius: "var(--radius-sm)",
-                background: "var(--bg-elevated)",
-              }}
-            />
-            <select
-              className="w-full px-3 py-2 text-sm"
-              style={{
-                border: "1px solid var(--border)",
-                borderRadius: "var(--radius-sm)",
-                background: "var(--bg-elevated)",
-              }}
-              defaultValue=""
-            >
-              <option value="" disabled>
-                Discipline
-              </option>
-              {config.disciplines.map((d) => (
-                <option key={d}>{d}</option>
-              ))}
-            </select>
-            <textarea
-              placeholder="Message"
-              rows={3}
-              className="w-full px-3 py-2 text-sm"
-              style={{
-                border: "1px solid var(--border)",
-                borderRadius: "var(--radius-sm)",
-                background: "var(--bg-elevated)",
-              }}
-            />
-            <Button
-              type="submit"
-              className="w-full"
-              style={{ background: "var(--brand)", color: "var(--on-brand)", borderRadius: "var(--radius-sm)" }}
-            >
-              Send inquiry
-            </Button>
-          </form>
+          <InquiryForm config={config} />
         </div>
       </div>
     </section>
+  );
+}
+
+function InquiryForm({ config }: { config: CoachConfig }) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [discipline, setDiscipline] = useState("");
+  const [message, setMessage] = useState("");
+  const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setStatus("sending");
+    const { error } = await (supabase.rpc as any)("submit_coach_inquiry", {
+      p_slug: config.slug,
+      p_name: name,
+      p_email: email,
+      p_discipline: discipline || null,
+      p_message: message || null,
+    });
+    if (error) {
+      setStatus("error");
+      return;
+    }
+
+    // Best-effort email notification — don't block success on this failing,
+    // since the inquiry + in-app notification are already saved either way.
+    if (config.contact.email) {
+      supabase.functions
+        .invoke("send-coach-inquiry-email", {
+          body: {
+            to: config.contact.email,
+            coachName: config.name,
+            inquirerName: name,
+            inquirerEmail: email,
+            discipline,
+            message,
+          },
+        })
+        .catch(() => {
+          // Silently ignore — the inquiry itself already succeeded.
+        });
+    }
+
+    setStatus("sent");
+    setName("");
+    setEmail("");
+    setDiscipline("");
+    setMessage("");
+  }
+
+  if (status === "sent") {
+    return (
+      <div
+        className="mt-6 rounded-md p-4 text-sm"
+        style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}
+      >
+        Thanks — your message has been sent. {config.name.split(" ")[0]} will be in touch soon.
+      </div>
+    );
+  }
+
+  const inputStyle = {
+    border: "1px solid var(--border)",
+    borderRadius: "var(--radius-sm)",
+    background: "var(--bg-elevated)",
+  };
+
+  return (
+    <form className="mt-6 space-y-3" onSubmit={handleSubmit}>
+      <input
+        placeholder="Name"
+        required
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        className="w-full px-3 py-2 text-sm"
+        style={inputStyle}
+      />
+      <input
+        type="email"
+        placeholder="Email"
+        required
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        className="w-full px-3 py-2 text-sm"
+        style={inputStyle}
+      />
+      <select
+        value={discipline}
+        onChange={(e) => setDiscipline(e.target.value)}
+        className="w-full px-3 py-2 text-sm"
+        style={inputStyle}
+      >
+        <option value="">Discipline</option>
+        {config.disciplines.map((d) => (
+          <option key={d}>{d}</option>
+        ))}
+      </select>
+      <textarea
+        placeholder="Message"
+        rows={3}
+        value={message}
+        onChange={(e) => setMessage(e.target.value)}
+        className="w-full px-3 py-2 text-sm"
+        style={inputStyle}
+      />
+      {status === "error" && (
+        <p className="text-xs" style={{ color: "#DC2626" }}>
+          Something went wrong sending your message — please try again.
+        </p>
+      )}
+      <Button
+        type="submit"
+        disabled={status === "sending"}
+        className="w-full"
+        style={{ background: "var(--brand)", color: "var(--on-brand)", borderRadius: "var(--radius-sm)" }}
+      >
+        {status === "sending" ? "Sending…" : "Send inquiry"}
+      </Button>
+    </form>
   );
 }
 
