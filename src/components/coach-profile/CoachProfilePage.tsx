@@ -10,6 +10,7 @@ const SECTIONS = [
   { id: "home", label: "Home" },
   { id: "about", label: "About" },
   { id: "sessions", label: "Sample sessions" },
+  { id: "athletes", label: "Athletes" },
   { id: "gallery", label: "Gallery" },
   { id: "plans", label: "Plans" },
   { id: "testimonials", label: "Testimonials" },
@@ -230,6 +231,7 @@ function PageSections({ config }: { config: CoachConfig }) {
       <Stats config={config} />
       <About config={config} />
       <SampleSessions config={config} />
+      <AthletesCoached config={config} />
       <Gallery config={config} />
       <Plans config={config} />
       <Testimonials config={config} />
@@ -405,6 +407,49 @@ function SampleSessions({ config }: { config: CoachConfig }) {
             <div className="mt-2 text-xs" style={{ color: "var(--text-secondary)" }}>
               {s.purpose}
             </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AthletesCoached({ config }: { config: CoachConfig }) {
+  if (!config.athletes.length) return null;
+  return (
+    <section
+      id="athletes"
+      style={{
+        paddingTop: "var(--section-py)",
+        paddingBottom: "var(--section-py)",
+        borderBottom: "1px solid var(--border)",
+      }}
+    >
+      <SectionHeading>Athletes coached</SectionHeading>
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
+        {config.athletes.map((a, i) => (
+          <div key={a.name + i} className="text-center">
+            {a.photoUrl ? (
+              <img
+                src={a.photoUrl}
+                alt={a.name}
+                className="mx-auto h-16 w-16 rounded-full object-cover"
+                style={{ border: "1px solid var(--border)" }}
+              />
+            ) : (
+              <div
+                className="mx-auto flex h-16 w-16 items-center justify-center rounded-full text-sm font-semibold"
+                style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}
+              >
+                {a.name?.[0]?.toUpperCase()}
+              </div>
+            )}
+            <div className="mt-2 text-sm font-medium">{a.name}</div>
+            {a.event && (
+              <div className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                {a.event}
+              </div>
+            )}
           </div>
         ))}
       </div>
