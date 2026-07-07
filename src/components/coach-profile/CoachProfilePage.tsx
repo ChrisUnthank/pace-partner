@@ -84,7 +84,7 @@ function TopNavLayout({ config }: { config: CoachConfig }) {
         className="sticky top-0 z-40 border-b backdrop-blur"
         style={{ borderColor: "var(--border)", background: "color-mix(in srgb, var(--bg) 85%, transparent)" }}
       >
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 md:px-8">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 md:px-8 xl:max-w-7xl 2xl:max-w-[100rem]">
           <Logo config={config} />
           <nav className="hidden items-center gap-6 md:flex">
             {SECTIONS.map((s) => (
@@ -104,7 +104,7 @@ function TopNavLayout({ config }: { config: CoachConfig }) {
           <MobileNavSheet config={config} />
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-4 md:px-8">
+      <main className="mx-auto max-w-6xl px-4 md:px-8 xl:max-w-7xl 2xl:max-w-[100rem]">
         <PageSections config={config} />
       </main>
       <Footer config={config} />
@@ -146,7 +146,7 @@ function SidebarLayout({ config }: { config: CoachConfig }) {
         <InquiryCTA fullWidth />
       </aside>
 
-      <main className="mx-auto min-w-0 max-w-4xl flex-1 px-4 md:px-10">
+      <main className="mx-auto min-w-0 max-w-4xl flex-1 px-4 md:px-10 xl:max-w-5xl 2xl:max-w-6xl">
         <PageSections config={config} />
         <Footer config={config} />
       </main>
@@ -245,7 +245,14 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 function Hero({ config }: { config: CoachConfig }) {
   const modern = config.style === "modern";
   return (
-    <section id="home" style={{ paddingTop: "var(--section-py)", paddingBottom: "var(--section-py)" }}>
+    <section
+      id="home"
+      style={{
+        paddingTop: "var(--section-py)",
+        paddingBottom: "var(--section-py)",
+        borderBottom: "1px solid var(--border)",
+      }}
+    >
       <div className={modern ? "grid items-center gap-10 md:grid-cols-[1.1fr_1fr]" : "mx-auto max-w-3xl"}>
         {!modern && (
           <div className="relative mb-10">
@@ -265,10 +272,12 @@ function Hero({ config }: { config: CoachConfig }) {
           </div>
         )}
         <div className={modern ? "" : "mx-auto max-w-xl pt-6 text-center"}>
-          <h1 className="coach-heading text-4xl md:text-5xl">
-            {config.name}
-            {config.teamName && <span style={{ color: "var(--text-secondary)" }}> — {config.teamName}</span>}
-          </h1>
+          {config.teamName && (
+            <div className="coach-heading mb-1 text-sm uppercase tracking-wide" style={{ color: "var(--brand)" }}>
+              {config.teamName}
+            </div>
+          )}
+          <h1 className="coach-heading text-4xl md:text-5xl">{config.name}</h1>
           <p className="mt-4 text-lg" style={{ color: "var(--text-secondary)" }}>
             {config.tagline}
           </p>
@@ -334,29 +343,39 @@ function Stats({ config }: { config: CoachConfig }) {
 
 function About({ config }: { config: CoachConfig }) {
   if (!config.bio) return null;
+  const traditional = config.style === "traditional";
   return (
-    <section id="about" style={{ paddingTop: "var(--section-py)", paddingBottom: "var(--section-py)" }}>
-      <SectionHeading>About</SectionHeading>
-      <p className="max-w-2xl leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-        {config.bio}
-      </p>
-      {config.certifications.length > 0 && (
-        <div className="mt-6 flex flex-wrap gap-2">
-          {config.certifications.map((c) => (
-            <span
-              key={c}
-              className="text-xs px-3 py-1"
-              style={{
-                border: "1px solid var(--border)",
-                borderRadius: "var(--tag-radius)",
-                color: "var(--text-secondary)",
-              }}
-            >
-              {c}
-            </span>
-          ))}
-        </div>
-      )}
+    <section
+      id="about"
+      style={{
+        paddingTop: "var(--section-py)",
+        paddingBottom: "var(--section-py)",
+        borderBottom: "1px solid var(--border)",
+      }}
+    >
+      <div className={traditional ? "mx-auto max-w-2xl text-center" : ""}>
+        <SectionHeading>About</SectionHeading>
+        <p className="leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+          {config.bio}
+        </p>
+        {config.certifications.length > 0 && (
+          <div className={`mt-6 flex flex-wrap gap-2 ${traditional ? "justify-center" : ""}`}>
+            {config.certifications.map((c) => (
+              <span
+                key={c}
+                className="text-xs px-3 py-1"
+                style={{
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--tag-radius)",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                {c}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
     </section>
   );
 }
@@ -364,7 +383,14 @@ function About({ config }: { config: CoachConfig }) {
 function SampleSessions({ config }: { config: CoachConfig }) {
   if (!config.sampleSessions.length) return null;
   return (
-    <section id="sessions" style={{ paddingTop: "var(--section-py)", paddingBottom: "var(--section-py)" }}>
+    <section
+      id="sessions"
+      style={{
+        paddingTop: "var(--section-py)",
+        paddingBottom: "var(--section-py)",
+        borderBottom: "1px solid var(--border)",
+      }}
+    >
       <SectionHeading>Sample sessions</SectionHeading>
       <div className="grid gap-4 md:grid-cols-3">
         {config.sampleSessions.map((s) => (
@@ -390,9 +416,16 @@ function Gallery({ config }: { config: CoachConfig }) {
   const [open, setOpen] = useState<string | null>(null);
   if (!config.galleryImages.length) return null;
   return (
-    <section id="gallery" style={{ paddingTop: "var(--section-py)", paddingBottom: "var(--section-py)" }}>
+    <section
+      id="gallery"
+      style={{
+        paddingTop: "var(--section-py)",
+        paddingBottom: "var(--section-py)",
+        borderBottom: "1px solid var(--border)",
+      }}
+    >
       <SectionHeading>Gallery</SectionHeading>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
         {config.galleryImages.map((src, i) => (
           <button
             key={src + i}
@@ -422,7 +455,14 @@ function Gallery({ config }: { config: CoachConfig }) {
 function Plans({ config }: { config: CoachConfig }) {
   if (!config.plans.length) return null;
   return (
-    <section id="plans" style={{ paddingTop: "var(--section-py)", paddingBottom: "var(--section-py)" }}>
+    <section
+      id="plans"
+      style={{
+        paddingTop: "var(--section-py)",
+        paddingBottom: "var(--section-py)",
+        borderBottom: "1px solid var(--border)",
+      }}
+    >
       <SectionHeading>Coaching plans</SectionHeading>
       <div className="grid gap-4 md:grid-cols-3">
         {config.plans.map((p) => (
@@ -471,7 +511,14 @@ function Plans({ config }: { config: CoachConfig }) {
 function Testimonials({ config }: { config: CoachConfig }) {
   if (!config.testimonials.length) return null;
   return (
-    <section id="testimonials" style={{ paddingTop: "var(--section-py)", paddingBottom: "var(--section-py)" }}>
+    <section
+      id="testimonials"
+      style={{
+        paddingTop: "var(--section-py)",
+        paddingBottom: "var(--section-py)",
+        borderBottom: "1px solid var(--border)",
+      }}
+    >
       <SectionHeading>Testimonials</SectionHeading>
       <div className="grid gap-4 md:grid-cols-2">
         {config.testimonials.map((t) => (
@@ -621,7 +668,9 @@ function LocationContact({ config }: { config: CoachConfig }) {
 function Footer({ config }: { config: CoachConfig }) {
   return (
     <footer className="border-t coach-divider py-8 text-center text-xs" style={{ color: "var(--text-secondary)" }}>
-      <Logo config={config} />
+      <div className="flex justify-center">
+        <Logo config={config} />
+      </div>
       <div className="mt-3">{config.name}</div>
       <div className="mt-1">Powered by TrackCoach</div>
       <div className="mt-1">app.co/c/{config.slug}</div>
