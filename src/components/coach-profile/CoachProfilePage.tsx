@@ -240,8 +240,8 @@ function PageSections({ config }: { config: CoachConfig }) {
   );
 }
 
-function SectionHeading({ children }: { children: React.ReactNode }) {
-  return <h2 className="coach-heading mb-8 text-2xl md:text-3xl">{children}</h2>;
+function SectionHeading({ children, centered }: { children: React.ReactNode; centered?: boolean }) {
+  return <h2 className={`coach-heading mb-8 text-2xl md:text-3xl ${centered ? "text-center" : ""}`}>{children}</h2>;
 }
 
 function Hero({ config }: { config: CoachConfig }) {
@@ -255,7 +255,11 @@ function Hero({ config }: { config: CoachConfig }) {
         borderBottom: "1px solid var(--border)",
       }}
     >
-      <div className={modern ? "grid items-center gap-10 md:grid-cols-[1.1fr_1fr]" : "mx-auto max-w-3xl"}>
+      <div
+        className={
+          modern ? "grid items-center gap-10 md:grid-cols-[1.1fr_1fr]" : "mx-auto max-w-3xl lg:max-w-4xl xl:max-w-5xl"
+        }
+      >
         {!modern && (
           <div className="relative mb-10">
             <img
@@ -273,7 +277,7 @@ function Hero({ config }: { config: CoachConfig }) {
             )}
           </div>
         )}
-        <div className={modern ? "" : "mx-auto max-w-xl px-4 pt-6 text-center sm:px-0"}>
+        <div className={modern ? "" : "mx-auto max-w-2xl px-4 pt-6 text-center sm:px-0"}>
           {config.teamName && (
             <div className="coach-heading mb-1 text-sm uppercase tracking-wide" style={{ color: "var(--brand)" }}>
               {config.teamName}
@@ -408,7 +412,7 @@ function About({ config }: { config: CoachConfig }) {
           borderBottom: "1px solid var(--border)",
         }}
       >
-        <div className="mx-auto max-w-2xl text-center">
+        <div className="mx-auto max-w-2xl lg:max-w-3xl text-center">
           <SectionHeading>About</SectionHeading>
           {bioBlock}
           {philosophyBlock && <div className="mt-6">{philosophyBlock}</div>}
@@ -456,7 +460,7 @@ function SampleSessions({ config }: { config: CoachConfig }) {
         borderBottom: "1px solid var(--border)",
       }}
     >
-      <SectionHeading>Sample sessions</SectionHeading>
+      <SectionHeading centered={config.style === "traditional"}>Sample sessions</SectionHeading>
       <div className="grid gap-4 md:grid-cols-3">
         {config.sampleSessions.map((s) => (
           <div key={s.name} className="coach-card p-5">
@@ -488,7 +492,7 @@ function AthletesCoached({ config }: { config: CoachConfig }) {
         borderBottom: "1px solid var(--border)",
       }}
     >
-      <SectionHeading>Athletes coached</SectionHeading>
+      <SectionHeading centered={config.style === "traditional"}>Athletes coached</SectionHeading>
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
         {config.athletes.map((a, i) => (
           <div key={a.name + i} className="text-center">
@@ -532,7 +536,7 @@ function Gallery({ config }: { config: CoachConfig }) {
         borderBottom: "1px solid var(--border)",
       }}
     >
-      <SectionHeading>Gallery</SectionHeading>
+      <SectionHeading centered={config.style === "traditional"}>Gallery</SectionHeading>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
         {config.galleryImages.map((src, i) => (
           <button
@@ -571,7 +575,7 @@ function Plans({ config }: { config: CoachConfig }) {
         borderBottom: "1px solid var(--border)",
       }}
     >
-      <SectionHeading>Coaching plans</SectionHeading>
+      <SectionHeading centered={config.style === "traditional"}>Coaching plans</SectionHeading>
       <div className="grid gap-4 md:grid-cols-3">
         {config.plans.map((p) => (
           <div
@@ -627,7 +631,7 @@ function Testimonials({ config }: { config: CoachConfig }) {
         borderBottom: "1px solid var(--border)",
       }}
     >
-      <SectionHeading>Testimonials</SectionHeading>
+      <SectionHeading centered={config.style === "traditional"}>Testimonials</SectionHeading>
       <div className="grid gap-4 md:grid-cols-2">
         {config.testimonials.map((t) => (
           <div key={t.author} className="coach-card p-6">
@@ -649,7 +653,7 @@ function LocationContact({ config }: { config: CoachConfig }) {
   const mapSrc = mapEmbedUrl(config.location);
   return (
     <section id="contact" style={{ paddingTop: "var(--section-py)", paddingBottom: "var(--section-py)" }}>
-      <SectionHeading>Location & contact</SectionHeading>
+      <SectionHeading centered={config.style === "traditional"}>Location & contact</SectionHeading>
       <div className="grid gap-8 md:grid-cols-2">
         <div>
           {mapSrc ? (
