@@ -299,7 +299,13 @@ function Hero({ config }: { config: CoachConfig }) {
             <Button
               variant="outline"
               onClick={() => scrollToSection("plans")}
-              style={{ borderColor: "var(--border)", borderRadius: "var(--radius-sm)" }}
+              className="!border-[var(--brand)] !bg-[var(--bg-elevated)] !text-[var(--brand)] hover:!bg-[var(--brand)] hover:!text-[var(--on-brand)]"
+              style={{
+                background: "var(--bg-elevated) !important" as any,
+                color: "var(--brand) !important" as any,
+                borderColor: "var(--brand) !important" as any,
+                borderRadius: "var(--radius-sm)",
+              }}
             >
               View plans
             </Button>
@@ -362,11 +368,11 @@ function About({ config }: { config: CoachConfig }) {
       {config.certifications.map((c) => (
         <span
           key={c}
-          className="text-xs px-3 py-1"
+          className="text-xs px-3 py-1 font-medium"
           style={{
-            border: "1px solid var(--border)",
+            border: "1px solid var(--brand)",
             borderRadius: "var(--tag-radius)",
-            color: "var(--text-secondary)",
+            color: "var(--brand)",
           }}
         >
           {c}
