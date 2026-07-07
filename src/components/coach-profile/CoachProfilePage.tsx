@@ -412,7 +412,7 @@ function About({ config }: { config: CoachConfig }) {
           borderBottom: "1px solid var(--border)",
         }}
       >
-        <div className="mx-auto max-w-2xl lg:max-w-3xl text-center">
+        <div className="mx-auto max-w-3xl lg:max-w-4xl xl:max-w-5xl text-center">
           <SectionHeading>About</SectionHeading>
           {bioBlock}
           {philosophyBlock && <div className="mt-6">{philosophyBlock}</div>}
