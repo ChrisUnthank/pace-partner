@@ -2501,6 +2501,10 @@ export type Database = {
         Returns: Json
       }
       session_training_load: { Args: { _session_id: string }; Returns: number }
+      toggle_coach_athlete_visibility: {
+        Args: { p_coach_athlete_id: string; p_visible: boolean }
+        Returns: undefined
+      }
     }
     Enums: {
       app_role: "coach" | "athlete" | "admin" | "manager"
