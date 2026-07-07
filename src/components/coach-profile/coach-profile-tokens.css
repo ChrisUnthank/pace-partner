@@ -6,7 +6,11 @@
    `--brand` / `--on-brand` are set inline per-coach (brandColor is a value,
    not a token, so it can't live in this static file). */
 
-@import url("https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&family=Inter:wght@400;500;600;700&display=swap");
+/* Google Fonts (Oswald, Source Serif 4, Inter) are loaded via a <link> tag in
+   your document head, not via @import here — lightningcss (Vite's CSS
+   processor in this project) treats @import url(...) as a local file
+   resolution and throws ENOENT on remote URLs. See README for the exact
+   <link> tags to add. */
 
 [data-coach-root] {
   font-family: var(--font-body);
@@ -14,21 +18,25 @@
   color: var(--text-primary);
 }
 
+/* ---------- theme axis: surfaces + text ---------- */
+
 [data-coach-root][data-theme="light"] {
-  --bg: #FAFAF7;
-  --bg-elevated: #FFFFFF;
-  --text-primary: #17181A;
-  --text-secondary: #6B6560;
-  --border: #E4E0D6;
+  --bg: #fafaf7;
+  --bg-elevated: #ffffff;
+  --text-primary: #17181a;
+  --text-secondary: #6b6560;
+  --border: #e4e0d6;
 }
 
 [data-coach-root][data-theme="dark"] {
   --bg: #111312;
-  --bg-elevated: #191C1B;
-  --text-primary: #F2F0EA;
-  --text-secondary: #9C9890;
-  --border: #2B2E2C;
+  --bg-elevated: #191c1b;
+  --text-primary: #f2f0ea;
+  --text-secondary: #9c9890;
+  --border: #2b2e2c;
 }
+
+/* ---------- style axis: type, radius, borders, density ---------- */
 
 [data-coach-root][data-style="modern"] {
   --font-display: "Oswald", sans-serif;
@@ -63,6 +71,8 @@
   --tag-fill: transparent;
   --tag-text: var(--brand);
 }
+
+/* Shared helpers */
 
 [data-coach-root] .coach-heading {
   font-family: var(--font-display);
