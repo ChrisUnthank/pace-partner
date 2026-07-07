@@ -344,7 +344,7 @@ function Stats({ config }: { config: CoachConfig }) {
 }
 
 function About({ config }: { config: CoachConfig }) {
-  if (!config.bio) return null;
+  if (!config.bio && !config.coachingPhilosophy && !config.achievements.length) return null;
   const traditional = config.style === "traditional";
   return (
     <section
@@ -357,9 +357,39 @@ function About({ config }: { config: CoachConfig }) {
     >
       <div className={traditional ? "mx-auto max-w-2xl text-center" : ""}>
         <SectionHeading>About</SectionHeading>
-        <p className="leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-          {config.bio}
-        </p>
+        {config.bio && (
+          <p className="whitespace-pre-line leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+            {config.bio}
+          </p>
+        )}
+
+        {config.coachingPhilosophy && (
+          <div className="mt-6">
+            <div className="coach-heading text-sm" style={{ color: "var(--brand)" }}>
+              Coaching philosophy
+            </div>
+            <p className="mt-2 whitespace-pre-line leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+              {config.coachingPhilosophy}
+            </p>
+          </div>
+        )}
+
+        {config.achievements.length > 0 && (
+          <div className="mt-6">
+            <div className="coach-heading text-sm" style={{ color: "var(--brand)" }}>
+              Achievements
+            </div>
+            <ul
+              className={`mt-2 space-y-1 text-sm ${traditional ? "list-none" : "list-disc pl-5"}`}
+              style={{ color: "var(--text-secondary)" }}
+            >
+              {config.achievements.map((a, i) => (
+                <li key={i}>{a}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {config.certifications.length > 0 && (
           <div className={`mt-6 flex flex-wrap gap-2 ${traditional ? "justify-center" : ""}`}>
             {config.certifications.map((c) => (
