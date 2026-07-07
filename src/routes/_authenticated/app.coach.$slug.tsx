@@ -23,7 +23,22 @@ function useCoachProfile(slug: string) {
     queryFn: async () => {
       const { data, error } = await supabase.from("coach_profiles").select("*").eq("slug", slug).maybeSingle();
       if (error) throw error;
-      return data as any;
+      return data;
+    },
+  });
+}
+
+function useCoachedAthletes(coachUserId: string | undefined) {
+  return useQuery({
+    queryKey: ["coach-athletes-roster", coachUserId],
+    enabled: !!coachUserId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("coach_athletes")
+        .select("id, athlete_id, visible_on_coach_page, athletes ( id, name, primary_event, profile_image_url )")
+        .eq("coach_user_id", coachUserId);
+      if (error) throw error;
+      return data ?? [];
     },
   });
 }
@@ -41,12 +56,27 @@ function fromCsv(v: string) {
 
 function CoachEditorPage() {
   const { slug } = useParams({ from: "/_authenticated/app/coach/$slug" });
-  const { data: coachData, isLoading, error } = useCoachProfile(slug);
-  const coach: any = coachData;
+  const { data: coach, isLoading, error } = useCoachProfile(slug);
   const { user } = useAuthUser();
+  const { data: roster, refetch: refetchRoster } = useCoachedAthletes(user?.id);
 
   const [form, setForm] = useState<any>({});
   const [saving, setSaving] = useState(false);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+
+  async function toggleAthleteVisibility(coachAthleteId: string, next: boolean) {
+    setTogglingId(coachAthleteId);
+    const { error } = await supabase
+      .from("coach_athletes")
+      .update({ visible_on_coach_page: next })
+      .eq("id", coachAthleteId);
+    setTogglingId(null);
+    if (error) {
+      alert(error.message);
+      return;
+    }
+    refetchRoster();
+  }
 
   useEffect(() => {
     if (coach) {
@@ -125,7 +155,7 @@ function CoachEditorPage() {
           phone: form.contact_phone || undefined,
           instagram: form.contact_instagram || undefined,
         },
-      } as any)
+      })
       .eq("id", coach.id);
     setSaving(false);
     if (error) alert(error.message);
@@ -311,6 +341,52 @@ function CoachEditorPage() {
               />
               Remote/online coaching available
             </label>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Athletes shown on this page</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {!roster || roster.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No athletes linked to your roster yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {roster.map((row: any) => {
+                  const athlete = row.athletes;
+                  if (!athlete) return null;
+                  return (
+                    <label key={row.id} className="flex items-center gap-3 rounded-md border p-3 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={row.visible_on_coach_page}
+                        disabled={togglingId === row.id}
+                        onChange={(e) => toggleAthleteVisibility(row.id, e.target.checked)}
+                      />
+                      {athlete.profile_image_url ? (
+                        <img
+                          src={athlete.profile_image_url}
+                          alt={athlete.name}
+                          className="h-8 w-8 rounded-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs">
+                          {athlete.name?.[0]?.toUpperCase() ?? "?"}
+                        </div>
+                      )}
+                      <span className="flex-1">{athlete.name}</span>
+                      {athlete.primary_event && (
+                        <span className="text-xs text-muted-foreground">{athlete.primary_event}</span>
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            <p className="mt-3 text-xs text-muted-foreground">
+              Check the athletes you'd like visible on your public coach page. Toggling saves immediately.
+            </p>
           </CardContent>
         </Card>
 
