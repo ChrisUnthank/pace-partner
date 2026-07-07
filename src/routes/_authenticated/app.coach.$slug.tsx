@@ -23,7 +23,7 @@ function useCoachProfile(slug: string) {
     queryFn: async () => {
       const { data, error } = await supabase.from("coach_profiles").select("*").eq("slug", slug).maybeSingle();
       if (error) throw error;
-      return data;
+      return data as any;
     },
   });
 }
@@ -41,7 +41,8 @@ function fromCsv(v: string) {
 
 function CoachEditorPage() {
   const { slug } = useParams({ from: "/_authenticated/app/coach/$slug" });
-  const { data: coach, isLoading, error } = useCoachProfile(slug);
+  const { data: coachData, isLoading, error } = useCoachProfile(slug);
+  const coach: any = coachData;
   const { user } = useAuthUser();
 
   const [form, setForm] = useState<any>({});
@@ -124,7 +125,7 @@ function CoachEditorPage() {
           phone: form.contact_phone || undefined,
           instagram: form.contact_instagram || undefined,
         },
-      })
+      } as any)
       .eq("id", coach.id);
     setSaving(false);
     if (error) alert(error.message);
