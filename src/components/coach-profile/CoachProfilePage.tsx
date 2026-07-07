@@ -261,25 +261,25 @@ function Hero({ config }: { config: CoachConfig }) {
             <img
               src={config.heroImageUrl}
               alt={config.name}
-              className="coach-hero-image h-64 w-full object-cover md:h-80"
+              className="coach-hero-image h-48 w-full object-cover sm:h-64 md:h-80"
             />
             {config.coachPhotoUrl && (
               <img
                 src={config.coachPhotoUrl}
                 alt={config.name}
-                className="absolute -bottom-8 left-1/2 h-20 w-20 -translate-x-1/2 border-4 object-cover"
+                className="absolute -bottom-6 left-1/2 h-16 w-16 -translate-x-1/2 border-4 object-cover sm:-bottom-8 sm:h-20 sm:w-20"
                 style={{ borderRadius: "999px", borderColor: "var(--bg)" }}
               />
             )}
           </div>
         )}
-        <div className={modern ? "" : "mx-auto max-w-xl pt-6 text-center"}>
+        <div className={modern ? "" : "mx-auto max-w-xl px-4 pt-6 text-center sm:px-0"}>
           {config.teamName && (
             <div className="coach-heading mb-1 text-sm uppercase tracking-wide" style={{ color: "var(--brand)" }}>
               {config.teamName}
             </div>
           )}
-          <h1 className="coach-heading text-4xl md:text-5xl">{config.name}</h1>
+          <h1 className="coach-heading text-3xl sm:text-4xl md:text-5xl">{config.name}</h1>
           <p className="mt-4 text-lg" style={{ color: "var(--text-secondary)" }}>
             {config.tagline}
           </p>
@@ -346,6 +346,79 @@ function Stats({ config }: { config: CoachConfig }) {
 function About({ config }: { config: CoachConfig }) {
   if (!config.bio && !config.coachingPhilosophy && !config.achievements.length) return null;
   const traditional = config.style === "traditional";
+
+  const bioBlock = config.bio && (
+    <p className="whitespace-pre-line leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+      {config.bio}
+    </p>
+  );
+
+  const certsBlock = config.certifications.length > 0 && (
+    <div className={`mt-6 flex flex-wrap gap-2 ${traditional ? "justify-center" : ""}`}>
+      {config.certifications.map((c) => (
+        <span
+          key={c}
+          className="text-xs px-3 py-1"
+          style={{
+            border: "1px solid var(--border)",
+            borderRadius: "var(--tag-radius)",
+            color: "var(--text-secondary)",
+          }}
+        >
+          {c}
+        </span>
+      ))}
+    </div>
+  );
+
+  const philosophyBlock = config.coachingPhilosophy && (
+    <div>
+      <div className="coach-heading text-sm" style={{ color: "var(--brand)" }}>
+        Coaching philosophy
+      </div>
+      <p className="mt-2 whitespace-pre-line leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+        {config.coachingPhilosophy}
+      </p>
+    </div>
+  );
+
+  const achievementsBlock = config.achievements.length > 0 && (
+    <div>
+      <div className="coach-heading text-sm" style={{ color: "var(--brand)" }}>
+        Achievements
+      </div>
+      <ul
+        className={`mt-2 space-y-1 text-sm ${traditional ? "list-none" : "list-disc pl-5"}`}
+        style={{ color: "var(--text-secondary)" }}
+      >
+        {config.achievements.map((a, i) => (
+          <li key={i}>{a}</li>
+        ))}
+      </ul>
+    </div>
+  );
+
+  if (traditional) {
+    return (
+      <section
+        id="about"
+        style={{
+          paddingTop: "var(--section-py)",
+          paddingBottom: "var(--section-py)",
+          borderBottom: "1px solid var(--border)",
+        }}
+      >
+        <div className="mx-auto max-w-2xl text-center">
+          <SectionHeading>About</SectionHeading>
+          {bioBlock}
+          {philosophyBlock && <div className="mt-6">{philosophyBlock}</div>}
+          {achievementsBlock && <div className="mt-6">{achievementsBlock}</div>}
+          {certsBlock}
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section
       id="about"
@@ -355,56 +428,16 @@ function About({ config }: { config: CoachConfig }) {
         borderBottom: "1px solid var(--border)",
       }}
     >
-      <div className={traditional ? "mx-auto max-w-2xl text-center" : ""}>
-        <SectionHeading>About</SectionHeading>
-        {config.bio && (
-          <p className="whitespace-pre-line leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-            {config.bio}
-          </p>
-        )}
-
-        {config.coachingPhilosophy && (
-          <div className="mt-6">
-            <div className="coach-heading text-sm" style={{ color: "var(--brand)" }}>
-              Coaching philosophy
-            </div>
-            <p className="mt-2 whitespace-pre-line leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-              {config.coachingPhilosophy}
-            </p>
-          </div>
-        )}
-
-        {config.achievements.length > 0 && (
-          <div className="mt-6">
-            <div className="coach-heading text-sm" style={{ color: "var(--brand)" }}>
-              Achievements
-            </div>
-            <ul
-              className={`mt-2 space-y-1 text-sm ${traditional ? "list-none" : "list-disc pl-5"}`}
-              style={{ color: "var(--text-secondary)" }}
-            >
-              {config.achievements.map((a, i) => (
-                <li key={i}>{a}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {config.certifications.length > 0 && (
-          <div className={`mt-6 flex flex-wrap gap-2 ${traditional ? "justify-center" : ""}`}>
-            {config.certifications.map((c) => (
-              <span
-                key={c}
-                className="text-xs px-3 py-1"
-                style={{
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--tag-radius)",
-                  color: "var(--text-secondary)",
-                }}
-              >
-                {c}
-              </span>
-            ))}
+      <SectionHeading>About</SectionHeading>
+      <div className="grid gap-10 md:grid-cols-2">
+        <div>
+          {bioBlock}
+          {certsBlock}
+        </div>
+        {(philosophyBlock || achievementsBlock) && (
+          <div className="space-y-6">
+            {philosophyBlock}
+            {achievementsBlock}
           </div>
         )}
       </div>
