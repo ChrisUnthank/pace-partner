@@ -30,7 +30,7 @@ function useVisibleAthletes(coachUserId: string | undefined) {
     queryKey: ["coach-profile-public-athletes", coachUserId],
     enabled: !!coachUserId,
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("coach_athletes")
         .select("athletes ( name, primary_event, profile_image_url )")
         .eq("coach_user_id", coachUserId)
@@ -51,7 +51,7 @@ function useVisibleAthletes(coachUserId: string | undefined) {
 function PublicCoachProfileRoute() {
   const { slug } = useParams({ from: "/c/$slug" });
   const { data: row, isLoading, error } = useCoachProfile(slug);
-  const { data: athletes } = useVisibleAthletes(row?.coach_user_id);
+  const { data: athletes } = useVisibleAthletes(row?.coach_user_id ?? undefined);
 
   if (isLoading) {
     return <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">Loading…</div>;
