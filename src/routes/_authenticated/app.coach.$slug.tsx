@@ -67,10 +67,10 @@ function CoachEditorPage() {
 
   async function toggleAthleteVisibility(coachAthleteId: string, next: boolean) {
     setTogglingId(coachAthleteId);
-    const { error } = await (supabase as any)
-      .from("coach_athletes")
-      .update({ visible_on_coach_page: next })
-      .eq("id", coachAthleteId);
+    const { error } = await (supabase.rpc as any)("toggle_coach_athlete_visibility", {
+      p_coach_athlete_id: coachAthleteId,
+      p_visible: next,
+    });
     setTogglingId(null);
     if (error) {
       alert(error.message);
