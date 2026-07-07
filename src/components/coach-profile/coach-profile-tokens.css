@@ -56,7 +56,7 @@
 }
 
 [data-coach-root][data-style="traditional"] {
-  --font-display: "Source Serif 4", serif;
+  --font-display: "Fraunces", serif;
   --font-body: "Inter", sans-serif;
   --heading-transform: none;
   --heading-tracking: normal;
