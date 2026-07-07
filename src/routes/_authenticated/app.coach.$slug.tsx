@@ -59,12 +59,12 @@ function CoachEditorPage() {
         logo_initials: coach.logo_initials || "",
         certifications: toCsv(coach.certifications),
         gallery_images: (coach.gallery_images || []).join("\n"),
-        location_city: coach.location?.city || "",
-        location_venue: coach.location?.venue || "",
-        location_remote: !!coach.location?.remoteAvailable,
-        contact_email: coach.contact?.email || "",
-        contact_phone: coach.contact?.phone || "",
-        contact_instagram: coach.contact?.instagram || "",
+        location_city: (coach.location as any)?.city || "",
+        location_venue: (coach.location as any)?.venue || "",
+        location_remote: !!(coach.location as any)?.remoteAvailable,
+        contact_email: (coach.contact as any)?.email || "",
+        contact_phone: (coach.contact as any)?.phone || "",
+        contact_instagram: (coach.contact as any)?.instagram || "",
       });
     }
   }, [coach]);
@@ -116,7 +116,7 @@ function CoachEditorPage() {
           instagram: form.contact_instagram || undefined,
         },
       })
-      .eq("id", coach.id);
+      .eq("id", coach!.id);
     setSaving(false);
     if (error) alert(error.message);
   }

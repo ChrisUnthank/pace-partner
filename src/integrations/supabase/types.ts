@@ -631,6 +631,7 @@ export type Database = {
           hero_image_url: string | null
           id: string
           location: Json | null
+          logo_image_url: string | null
           logo_initials: string | null
           logo_url: string | null
           name: string
@@ -657,6 +658,7 @@ export type Database = {
           hero_image_url?: string | null
           id?: string
           location?: Json | null
+          logo_image_url?: string | null
           logo_initials?: string | null
           logo_url?: string | null
           name: string
@@ -683,6 +685,7 @@ export type Database = {
           hero_image_url?: string | null
           id?: string
           location?: Json | null
+          logo_image_url?: string | null
           logo_initials?: string | null
           logo_url?: string | null
           name?: string
