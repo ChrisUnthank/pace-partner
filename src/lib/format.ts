@@ -24,6 +24,16 @@ export function clockToSec(v: string): number | null {
   return null;
 }
 
+// Rounds a GPS-measured distance to a clean, sensible display value —
+// e.g. a recorded 998m interval rep shows as "1000m" instead of the raw
+// GPS noise. Only for workout structure labels (rep/step distances), not
+// for actual session totals which should stay precise.
+export function roundDistanceForDisplay(m: number): number {
+  if (m < 1000) return Math.round(m / 25) * 25;
+  if (m < 3000) return Math.round(m / 50) * 50;
+  return Math.round(m / 100) * 100;
+}
+
 export function metersFmt(m?: number | null): string {
   if (m == null) return "—";
   // Honour the user's units preference when running in the browser.
@@ -35,7 +45,9 @@ export function metersFmt(m?: number | null): string {
         if (miles >= 0.1) return `${miles.toFixed(miles >= 10 ? 1 : 2)} mi`;
         return `${Math.round(m * 1.09361)} yd`;
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
   if (m >= 1000) return `${(m / 1000).toFixed(m % 1000 === 0 ? 0 : 2)} km`;
   return `${Math.round(m)} m`;
