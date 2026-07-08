@@ -166,60 +166,65 @@ function AppHome() {
           </Card>
         )}
 
-        {isCoach && <DashboardAlertsPanel />}
-
-        {isCoach && <RecentReviewsCard />}
-
         {isCoach && (
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>Your athletes</CardTitle>
-              <Button asChild size="sm" variant="outline">
-                <Link to="/app/athletes">Manage</Link>
-              </Button>
-            </CardHeader>
-            <CardContent>
-              {!roster || roster.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No athletes yet.{" "}
-                  <Link to="/app/athletes" className="underline">
-                    Add your first one
-                  </Link>
-                  .
-                </p>
-              ) : (
-                <div className="divide-y">
-                  {roster.map((r: any) => {
-                    const ready = readiness?.find((x) => x.athlete_id === r.athlete_id);
-                    return (
-                      <Link
-                        key={r.athlete_id}
-                        to="/app/athletes/$athleteId"
-                        params={{ athleteId: r.athlete_id }}
-                        className="flex items-center justify-between py-3 hover:bg-accent/50 px-2 rounded gap-3"
-                      >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <UserAvatar name={r.athletes?.name} imageUrl={r.athletes?.profile_image_url} size="sm" />
-                          <div className="min-w-0">
-                            <div className="font-medium truncate">{r.athletes?.name}</div>
-                            <div className="text-xs text-muted-foreground">
-                              {r.athletes?.primary_event ?? "—"}
-                              {r.athletes?.last_log_at && <> · last log {formatRelative(r.athletes.last_log_at)}</>}
-                            </div>
-                          </div>
-                        </div>
-                        <ReadinessBadge
-                          status={ready?.readiness_status as any}
-                          score={ready?.readiness_score as any}
-                          confidence={ready?.confidence as any}
-                        />
+          <div className="grid gap-6 lg:grid-cols-3">
+            <div className="lg:col-span-2">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <CardTitle>Your athletes</CardTitle>
+                  <Button asChild size="sm" variant="outline">
+                    <Link to="/app/athletes">Manage</Link>
+                  </Button>
+                </CardHeader>
+                <CardContent>
+                  {!roster || roster.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No athletes yet.{" "}
+                      <Link to="/app/athletes" className="underline">
+                        Add your first one
                       </Link>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                      .
+                    </p>
+                  ) : (
+                    <div className="divide-y max-h-[560px] overflow-y-auto">
+                      {roster.map((r: any) => {
+                        const ready = readiness?.find((x) => x.athlete_id === r.athlete_id);
+                        return (
+                          <Link
+                            key={r.athlete_id}
+                            to="/app/athletes/$athleteId"
+                            params={{ athleteId: r.athlete_id }}
+                            className="flex items-center justify-between py-3 hover:bg-accent/50 px-2 rounded gap-3"
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <UserAvatar name={r.athletes?.name} imageUrl={r.athletes?.profile_image_url} size="sm" />
+                              <div className="min-w-0">
+                                <div className="font-medium truncate">{r.athletes?.name}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {r.athletes?.primary_event ?? "—"}
+                                  {r.athletes?.last_log_at && <> · last log {formatRelative(r.athletes.last_log_at)}</>}
+                                </div>
+                              </div>
+                            </div>
+                            <ReadinessBadge
+                              status={ready?.readiness_status as any}
+                              score={ready?.readiness_score as any}
+                              confidence={ready?.confidence as any}
+                            />
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="space-y-6 lg:col-span-1">
+              <DashboardAlertsPanel />
+              <RecentReviewsCard />
+            </div>
+          </div>
         )}
 
         {isAthlete && athlete && !isCoach && <AthleteHome athleteId={athlete.id} />}
