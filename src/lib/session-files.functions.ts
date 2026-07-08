@@ -153,6 +153,7 @@ type ParsedLap = {
   max_heart_rate: number | null;
   avg_cadence: number | null;
   kind?: "warmup" | "work" | "recovery" | "cooldown";
+  sourceFileIndex?: number;
 };
 
 type ParsedFile = {
@@ -359,7 +360,7 @@ async function parseFIT(buffer: ArrayBuffer): Promise<ParsedFile> {
   });
 }
 
-function classifyLaps(laps: ParsedLap[], plannedSteps: any[] = []): ParsedLap[] {
+function classifyLaps(laps: ParsedLap[], plannedSteps: any[] = [], numFiles: number = 1): ParsedLap[] {
   if (!Array.isArray(laps) || laps.length === 0) return [];
 
   const valid = laps.filter((l) => l.total_distance > 0 && l.total_elapsed_time > 0);
@@ -399,6 +400,40 @@ function classifyLaps(laps: ParsedLap[], plannedSteps: any[] = []): ParsedLap[] 
     if (hasLadderPlan) return classified;
     return classified;
   }
+
+  // When the athlete/coach uploaded multiple SEPARATE files (e.g. distinct
+  // Warm Up / Work / Cool Down / Strides recordings), the file boundary
+  // itself is a far more reliable signal than lap distance — a warmup jog
+  // can easily be a similar distance to a recovery jog between reps, which
+  // is exactly what caused a warmup lap to be misclassified as "recovery"
+  // and left stranded between work reps instead of tagged as "warmup".
+  // So: the earliest file's laps are always warmup, the latest file's laps
+  // are always cooldown, and only laps from files in between (or the single
+  // file, if there's only one) go through the distance-based heuristic.
+  if (numFiles >= 3) {
+    const firstFileLaps = laps.filter((l) => l.sourceFileIndex === 0);
+    const lastFileLaps = laps.filter((l) => l.sourceFileIndex === numFiles - 1);
+    const middleLaps = laps.filter((l) => l.sourceFileIndex !== 0 && l.sourceFileIndex !== numFiles - 1);
+
+    const classifiedMiddle = classifyLapsByDistance(middleLaps);
+
+    return laps.map((lap) => {
+      if (lap.sourceFileIndex === 0) return { ...lap, kind: "warmup" as const };
+      if (lap.sourceFileIndex === numFiles - 1) return { ...lap, kind: "cooldown" as const };
+      const match = classifiedMiddle.find((c) => c.index === lap.index);
+      return match ?? { ...lap, kind: "work" as const };
+    });
+  }
+
+  return classifyLapsByDistance(laps);
+}
+
+// The original distance-bucket heuristic, used for a single continuous
+// recording (or the "work" portion once explicit warmup/cooldown files have
+// already been pulled out above) where there's no other signal available to
+// tell warmup/recovery/cooldown apart besides pace and distance patterns.
+function classifyLapsByDistance(laps: ParsedLap[]): ParsedLap[] {
+  if (laps.length === 0) return [];
 
   if (laps.length < 4) {
     return laps.map((l) => ({ ...l, kind: "work" as const }));
@@ -838,23 +873,31 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   mergedPoints.sort((a, b) => a.elapsed_s - b.elapsed_s);
 
   const mergedLaps: ParsedLap[] = [];
-  for (const { parsed } of parsedFiles) {
+  parsedFiles.forEach(({ parsed }, fileIdx) => {
     for (const lap of parsed.laps) {
-      mergedLaps.push({ ...lap });
+      mergedLaps.push({ ...lap, sourceFileIndex: fileIdx });
     }
-  }
+  });
 
   mergedLaps.sort((a, b) => (a.startMs ?? 0) - (b.startMs ?? 0));
   mergedLaps.forEach((l, i) => {
     l.index = i;
   });
 
-  const classifiedLaps = classifyLaps(mergedLaps, hasManualPlan ? safePlannedSteps : []);
+  const classifiedLaps = classifyLaps(mergedLaps, hasManualPlan ? safePlannedSteps : [], parsedFiles.length);
   const pairs = buildWorkRecoveryPairs(classifiedLaps);
 
   const workLaps = classifiedLaps.filter((l) => l.kind === "work");
   const warmupLaps = classifiedLaps.filter((l) => l.kind === "warmup");
   const cooldownLaps = classifiedLaps.filter((l) => l.kind === "cooldown");
+
+  // Computed once here (not inside the hasManualPlan branch below) so these
+  // are in scope for the final sessions.update() — previously work_avg_pace_
+  // sec_per_km etc. fell back to the whole-session blended average because
+  // work-specific metrics were never computed outside that branch.
+  const warmupMetrics = summarizeLapsMetrics(warmupLaps, mergedPoints);
+  const cooldownMetrics = summarizeLapsMetrics(cooldownLaps, mergedPoints);
+  const workMetrics = summarizeLapsMetrics(workLaps, mergedPoints);
 
   const isIntervals = pairs.length > 1;
 
@@ -905,9 +948,6 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   } else {
     const stepsToInsert: any[] = [];
     let stepOrder = 1;
-
-    const warmupMetrics = summarizeLapsMetrics(warmupLaps, mergedPoints);
-    const cooldownMetrics = summarizeLapsMetrics(cooldownLaps, mergedPoints);
 
     const hasWarmup = Number(warmupMetrics.time ?? 0) >= 120 || Number(warmupMetrics.distance ?? 0) >= 200;
 
@@ -1231,6 +1271,13 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
     }
   }
 
+  const workPaceSecPerKm =
+    workMetrics.distance && workMetrics.time ? (Number(workMetrics.time) / Number(workMetrics.distance)) * 1000 : null;
+
+  const easyDistance = (warmupMetrics.distance ?? 0) + (cooldownMetrics.distance ?? 0);
+  const easyTime = (warmupMetrics.time ?? 0) + (cooldownMetrics.time ?? 0);
+  const easyPaceSecPerKm = easyDistance > 0 && easyTime > 0 ? (easyTime / easyDistance) * 1000 : null;
+
   const { error: updErr } = await sb
     .from("sessions")
     .update({
@@ -1244,9 +1291,10 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
       completion_pct: 100,
       work_distance_m: workDistance || null,
       work_time_s: workTime || null,
-      work_avg_hr: avgHr,
-      work_avg_pace_sec_per_km: avgPace,
-      work_avg_cadence: avgCad,
+      work_avg_hr: workMetrics.avgHr ?? avgHr,
+      work_avg_pace_sec_per_km: workPaceSecPerKm ?? avgPace,
+      work_avg_cadence: workMetrics.avgCad ?? avgCad,
+      easy_avg_pace_sec_per_km: easyPaceSecPerKm,
       structure: isIntervals ? "intervals" : "continuous",
       needs_review: isIntervals,
     } as any)
@@ -1258,9 +1306,10 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
 // Max gap (in ms) between one file's estimated end and the next file's start
 // for them to be treated as parts of the SAME session (e.g. separate Warm Up /
 // Work / Cool Down / Strides files, or a device that paused/restarted
-// recording mid-session). A genuine AM vs PM double session on the same
-// calendar day has a much larger gap than this and must NOT be merged.
-const SAME_SESSION_MAX_GAP_MS = 3 * 60 * 60 * 1000; // 3 hours
+// recording mid-session). Kept well under a typical between-session gap —
+// some athletes only have 1-2 hours between AM/PM doubles — so genuinely
+// separate sessions never get merged.
+const SAME_SESSION_MAX_GAP_MS = 90 * 60 * 1000; // 90 minutes
 
 // Finds an existing same-day fit_import session whose most recent attached
 // file ends within SAME_SESSION_MAX_GAP_MS of the new file's start time.
@@ -1319,6 +1368,34 @@ async function findMatchingSameDaySession(
   return bestMatch && bestGap <= SAME_SESSION_MAX_GAP_MS ? bestMatch : null;
 }
 
+// Converts a UTC instant into the athlete's local calendar date and hour-of-day.
+// Using .toISOString()/.getHours() directly would resolve in the SERVER's
+// timezone (typically UTC in cloud environments) — for an athlete outside
+// UTC, an evening session can come out as "morning" and even land on the
+// wrong calendar date. This fixes both by resolving in the athlete's own
+// stored timezone (athletes.timezone).
+function getLocalDateAndHour(utcInstant: string | Date, timeZone: string): { date: string; hour: number } {
+  const d = typeof utcInstant === "string" ? new Date(utcInstant) : utcInstant;
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      hour12: false,
+    }).formatToParts(d);
+    const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+    const date = `${get("year")}-${get("month")}-${get("day")}`;
+    // "24" from hour12:false at midnight should read as 0
+    const hour = Number(get("hour")) % 24;
+    return { date, hour };
+  } catch {
+    // Invalid/unknown timezone string — fall back to UTC rather than throwing
+    return { date: d.toISOString().slice(0, 10), hour: d.getUTCHours() };
+  }
+}
+
 export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator(
@@ -1341,9 +1418,13 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
     }
 
     const activityType = mapFitSport(parsed.sport ?? undefined);
-    const sessionDate = parsed.startedAt
-      ? new Date(parsed.startedAt).toISOString().slice(0, 10)
-      : new Date().toISOString().slice(0, 10);
+
+    const { data: athleteRow } = await sb.from("athletes").select("timezone").eq("id", data.athleteId).maybeSingle();
+    const athleteTimezone = athleteRow?.timezone || "UTC";
+
+    const { date: sessionDate, hour: localHour } = parsed.startedAt
+      ? getLocalDateAndHour(parsed.startedAt, athleteTimezone)
+      : getLocalDateAndHour(new Date(), athleteTimezone);
 
     let sess: any;
 
@@ -1373,9 +1454,7 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
             created_by: context.userId,
             session_date: sessionDate,
             title: (() => {
-              const recordedAt = parsed.startedAt ? new Date(parsed.startedAt) : new Date();
-              const hour = recordedAt.getHours();
-              const timeLabel = hour < 11 ? "Morning" : hour < 16 ? "Afternoon" : "Evening";
+              const timeLabel = localHour < 11 ? "Morning" : localHour < 16 ? "Afternoon" : "Evening";
               return `${timeLabel} session`;
             })(),
             day_type: "training",
