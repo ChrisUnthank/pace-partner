@@ -337,12 +337,16 @@ function SessionDetail() {
       // ✅ FORCE CACHE UPDATE
       qc.setQueryData(["session", sessionId], updatedSession);
 
-      // create performance
+      // create performance — prefer work-only distance/time (correctly
+      // excludes any attached warmup/cooldown) over the whole session's
+      // totals, which was creating wildly inflated "Official Distance"
+      // values (e.g. 14km instead of 7.4km) for any race with a merged
+      // warmup or cooldown file attached.
       const payload = {
         athlete_id: session.athlete_id,
         performance_date: session.session_date,
-        distance_m: Math.round(Number(session.total_distance_m)),
-        time_seconds: Number(session.total_time_seconds),
+        distance_m: Math.round(Number((session as any).work_distance_m ?? session.total_distance_m)),
+        time_seconds: Number((session as any).work_time_s ?? session.total_time_seconds),
         event_name: session.title || null,
         notes: session.notes || null,
         session_id: sessionId, // ✅ critical
@@ -522,25 +526,19 @@ function SessionDetail() {
                         Completed
                       </Badge>
                     )}
-                    {session.day_type === "race" && (
+                    {session.day_type === "race" && session.completed_at && (
                       <Button
                         size="sm"
                         variant="outline"
                         onClick={async () => {
-                          const { data, error } = await (supabase as any)
+                          const { data } = await (supabase as any)
                             .from("performances")
                             .select("id")
                             .eq("session_id", sessionId)
-                            .order("created_at", { ascending: false })
-                            .limit(1)
                             .maybeSingle();
 
-                          if (error) {
-                            toast.error(error.message);
-                            return;
-                          }
                           if (!data?.id) {
-                            toast.error("No race data recorded yet — mark a Work block as the race first.");
+                            console.log("No race found yet");
                             return;
                           }
 
@@ -1183,21 +1181,20 @@ function StepBlock({
 
     qc.setQueryData(["session", session.id], updatedSession);
 
-    // Upsert (not delete-then-insert) so this is atomic and can never leave
-    // a duplicate row behind, relying on the session_id unique constraint.
-    const { error: perfErr } = await (supabase.from("performances") as any).upsert(
-      {
-        athlete_id: session.athlete_id,
-        performance_date: session.session_date,
-        distance_m: Math.round(totalDistance),
-        time_seconds: totalTime,
-        event_name: session.title || null,
-        notes: session.notes || null,
-        session_id: session.id,
-        context: "race",
-      },
-      { onConflict: "session_id" },
-    );
+    // Replace any existing performance for this session with this step's data
+    await (supabase.from("performances") as any).delete().eq("session_id", session.id);
+
+    const { error: perfErr } = await (supabase.from("performances") as any).insert({
+      athlete_id: session.athlete_id,
+      performance_date: session.session_date,
+      distance_m: Math.round(totalDistance),
+      time_seconds: totalTime,
+      event_name: session.title || null,
+      notes: session.notes || null,
+      session_id: session.id,
+      is_pb: false,
+      context: "race",
+    });
 
     if (perfErr) {
       toast.error(perfErr.message);
