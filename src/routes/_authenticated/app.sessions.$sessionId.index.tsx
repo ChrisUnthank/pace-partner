@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { secToClock, clockToSec, metersFmt } from "@/lib/format";
+import { secToClock, clockToSec, metersFmt, roundDistanceForDisplay } from "@/lib/format";
 import { sessionClassificationLabel } from "@/lib/session-categories";
 import { saveSessionAsTemplate } from "@/lib/templates";
 import { useAuthUser, useMyRoles } from "@/lib/use-auth";
@@ -1027,11 +1027,11 @@ function StepBlock({
 
             {isWork &&
               step.target_kind === "distance" &&
-              ` · ${setCount > 1 ? `${setCount}×` : ""}${step.reps}×${metersFmt(step.target_distance_m)}`}
+              ` · ${setCount > 1 ? `${setCount}×` : ""}${step.reps}×${metersFmt(roundDistanceForDisplay(step.target_distance_m))}`}
 
             {isWork && step.target_kind === "time" && ` · ${step.reps}×${secToClock(step.target_time_seconds)}`}
 
-            {isStrides && ` · ${step.reps}×${metersFmt(step.target_distance_m)}`}
+            {isStrides && ` · ${step.reps}×${metersFmt(roundDistanceForDisplay(step.target_distance_m))}`}
           </CardTitle>
 
           <div className="text-sm text-muted-foreground">{open ? "▼" : "▶"}</div>
