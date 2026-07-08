@@ -33,7 +33,7 @@ import { Switch } from "@/components/ui/switch";
 import { UserAvatar } from "@/components/user-avatar";
 import { ActivityIcon } from "@/lib/activity-icon";
 import { invalidateSession } from "@/lib/session-invalidation";
-import { deleteSession, uploadAndParseSessionFile } from "@/lib/session-files.functions";
+import { deleteSession, uploadAndParseSessionFile, mergeSessionIntoAnother } from "@/lib/session-files.functions";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { computeStrideLengthM, formatStride } from "@/lib/session-metrics";
 
@@ -45,6 +45,7 @@ function SessionDetail() {
   const { sessionId } = Route.useParams();
   const qc = useQueryClient();
   const removeSession = useServerFn(deleteSession);
+  const mergeSession = useServerFn(mergeSessionIntoAnother);
   const { user } = useAuthUser();
   const { data: roles = [] } = useMyRoles();
   const isCoach = roles.includes("coach");
@@ -112,6 +113,42 @@ function SessionDetail() {
       setDistanceInput(String(race.distance_m));
     }
   }, [race?.distance_m]);
+
+  // Other sessions for this athlete on the same calendar day — likely
+  // candidates for merging, e.g. a cooldown that split off into its own
+  // session because it was uploaded before the race got marked, so the
+  // tighter same-session gap threshold applied at the time.
+  const { data: sameDaySessions } = useQuery({
+    queryKey: ["same-day-sessions", session?.athlete_id, session?.session_date, sessionId],
+    enabled: !!session?.athlete_id && !!session?.session_date,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("sessions")
+        .select("id, title, total_distance_m, total_time_seconds, day_type")
+        .eq("athlete_id", session!.athlete_id)
+        .eq("session_date", session!.session_date)
+        .neq("id", sessionId);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const [merging, setMerging] = useState(false);
+  async function handleMerge(otherSessionId: string) {
+    setMerging(true);
+    try {
+      await mergeSession({ data: { sourceSessionId: otherSessionId, targetSessionId: sessionId } });
+      toast.success("Sessions merged");
+      qc.invalidateQueries({ queryKey: ["session", sessionId] });
+      qc.invalidateQueries({ queryKey: ["steps", sessionId] });
+      qc.invalidateQueries({ queryKey: ["results", sessionId] });
+      qc.invalidateQueries({ queryKey: ["raw-points", sessionId] });
+      qc.invalidateQueries({ queryKey: ["same-day-sessions"] });
+    } catch (err: any) {
+      toast.error(err?.message ?? "Merge failed");
+    }
+    setMerging(false);
+  }
 
   const { data: steps = [] } = useQuery({
     queryKey: ["steps", sessionId],
@@ -554,6 +591,31 @@ function SessionDetail() {
             </div>
           </CardContent>
         </Card>
+
+        {sameDaySessions && sameDaySessions.length > 0 && (
+          <Card className="border-amber-500/40 bg-amber-500/5">
+            <CardContent className="py-3 space-y-2">
+              <p className="text-sm font-medium">
+                {sameDaySessions.length === 1 ? "Another session" : `${sameDaySessions.length} other sessions`} found
+                for this athlete on the same day — could be a split-off warmup or cooldown.
+              </p>
+              {sameDaySessions.map((s: any) => (
+                <div key={s.id} className="flex items-center justify-between gap-3 text-sm border rounded-md px-3 py-2">
+                  <div className="min-w-0">
+                    <span className="font-medium">{s.title ?? "Untitled session"}</span>
+                    <span className="text-muted-foreground ml-2">
+                      {s.total_distance_m ? metersFmt(s.total_distance_m) : "—"}
+                      {s.total_time_seconds ? ` · ${secToClock(s.total_time_seconds)}` : ""}
+                    </span>
+                  </div>
+                  <Button size="sm" variant="outline" disabled={merging} onClick={() => handleMerge(s.id)}>
+                    {merging ? "Merging…" : "Merge into this session"}
+                  </Button>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
 
         {/* ───────────────── Overview card: the four headline numbers + context ───────────────── */}
         <Card>
