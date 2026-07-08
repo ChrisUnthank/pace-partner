@@ -60,14 +60,32 @@ function RaceAnalysisPage() {
     queryFn: async () => {
       if (!race?.session_id) return [];
 
-      const { data } = await supabase
-        .from("raw_session_points")
-        .select("*")
-        .eq("session_id", race.session_id)
-        .order("elapsed_s")
-        .limit(20000);
+      // See app.sessions.$sessionId.analysis.tsx for why this paginates
+      // instead of using a single big .limit() — Supabase's server-side
+      // max-rows cap silently overrides any client limit above it, which
+      // was cutting off the tail end of longer races (finish-line splits,
+      // final kick) without any visible error.
+      const PAGE_SIZE = 1000;
+      const all: any[] = [];
+      let from = 0;
 
-      return data ?? [];
+      while (true) {
+        const { data, error } = await supabase
+          .from("raw_session_points")
+          .select("*")
+          .eq("session_id", race.session_id)
+          .order("elapsed_s")
+          .range(from, from + PAGE_SIZE - 1);
+
+        if (error || !data || data.length === 0) break;
+
+        all.push(...data);
+
+        if (data.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
+
+      return all;
     },
   });
 
