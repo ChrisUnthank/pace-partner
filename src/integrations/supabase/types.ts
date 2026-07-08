@@ -621,6 +621,36 @@ export type Database = {
           },
         ]
       }
+      coach_inquiries: {
+        Row: {
+          coach_user_id: string
+          created_at: string
+          discipline: string | null
+          email: string
+          id: string
+          message: string | null
+          name: string
+        }
+        Insert: {
+          coach_user_id: string
+          created_at?: string
+          discipline?: string | null
+          email: string
+          id?: string
+          message?: string | null
+          name: string
+        }
+        Update: {
+          coach_user_id?: string
+          created_at?: string
+          discipline?: string | null
+          email?: string
+          id?: string
+          message?: string | null
+          name?: string
+        }
+        Relationships: []
+      }
       coach_profiles: {
         Row: {
           achievements: Json
@@ -1983,6 +2013,7 @@ export type Database = {
           distance_adjustment_m: number | null
           distance_adjustment_mode: string | null
           distance_adjustments: Json | null
+          easy_avg_pace_sec_per_km: number | null
           fueling_notes: string | null
           hr_drift_pct: number | null
           id: string
@@ -1995,6 +2026,7 @@ export type Database = {
           needs_review: boolean | null
           notes: string | null
           pace_decay_pct: number | null
+          race_step_id: string | null
           rpe: number | null
           session_date: string
           source: Database["public"]["Enums"]["session_source"]
@@ -2029,6 +2061,7 @@ export type Database = {
           distance_adjustment_m?: number | null
           distance_adjustment_mode?: string | null
           distance_adjustments?: Json | null
+          easy_avg_pace_sec_per_km?: number | null
           fueling_notes?: string | null
           hr_drift_pct?: number | null
           id?: string
@@ -2041,6 +2074,7 @@ export type Database = {
           needs_review?: boolean | null
           notes?: string | null
           pace_decay_pct?: number | null
+          race_step_id?: string | null
           rpe?: number | null
           session_date: string
           source?: Database["public"]["Enums"]["session_source"]
@@ -2075,6 +2109,7 @@ export type Database = {
           distance_adjustment_m?: number | null
           distance_adjustment_mode?: string | null
           distance_adjustments?: Json | null
+          easy_avg_pace_sec_per_km?: number | null
           fueling_notes?: string | null
           hr_drift_pct?: number | null
           id?: string
@@ -2087,6 +2122,7 @@ export type Database = {
           needs_review?: boolean | null
           notes?: string | null
           pace_decay_pct?: number | null
+          race_step_id?: string | null
           rpe?: number | null
           session_date?: string
           source?: Database["public"]["Enums"]["session_source"]
@@ -2118,6 +2154,13 @@ export type Database = {
             columns: ["location_id"]
             isOneToOne: false
             referencedRelation: "training_locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sessions_race_step_id_fkey"
+            columns: ["race_step_id"]
+            isOneToOne: false
+            referencedRelation: "steps"
             referencedColumns: ["id"]
           },
         ]
@@ -2501,6 +2544,16 @@ export type Database = {
         Returns: Json
       }
       session_training_load: { Args: { _session_id: string }; Returns: number }
+      submit_coach_inquiry: {
+        Args: {
+          p_discipline: string
+          p_email: string
+          p_message: string
+          p_name: string
+          p_slug: string
+        }
+        Returns: undefined
+      }
       toggle_coach_athlete_visibility: {
         Args: { p_coach_athlete_id: string; p_visible: boolean }
         Returns: undefined

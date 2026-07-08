@@ -132,6 +132,12 @@ function Noticeboard() {
           {visible.map((p: any) => {
             const meta = TYPE_META[p.post_type] || TYPE_META.announcement;
             const Icon = meta.icon;
+            const counts: Record<string, number> = {};
+            const mine = new Set<string>();
+            for (const r of p.reactions ?? []) {
+              counts[r.emoji] = (counts[r.emoji] ?? 0) + 1;
+              if (r.user_id === user?.id) mine.add(r.emoji);
+            }
 
             return (
               <Card key={p.id}>
@@ -178,9 +184,11 @@ function Noticeboard() {
                       <button
                         key={e}
                         onClick={() => reactM.mutate({ post_id: p.id, emoji: e })}
-                        className="text-xs px-2 py-1 border rounded"
+                        className={`text-xs px-2 py-1 border rounded transition-colors ${
+                          mine.has(e) ? "bg-primary/15 border-primary text-primary" : "hover:bg-muted"
+                        }`}
                       >
-                        {e}
+                        {e} {counts[e] ? <span className="ml-1 tabular-nums">{counts[e]}</span> : null}
                       </button>
                     ))}
                   </div>
@@ -188,6 +196,20 @@ function Noticeboard() {
               </Card>
             );
           })}
+
+          {editing && (
+            <Composer
+              key={editing.id}
+              initial={editing}
+              createFn={create}
+              updateFn={update}
+              onCreated={() => {
+                setEditing(null);
+                qc.invalidateQueries({ queryKey: ["noticeboard"] });
+              }}
+              onCancel={() => setEditing(null)}
+            />
+          )}
         </div>
 
         {/* ✅ RIGHT PANEL */}
