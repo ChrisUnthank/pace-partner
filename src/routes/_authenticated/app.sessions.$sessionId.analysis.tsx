@@ -19,7 +19,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { secToClock, metersFmt, paceFmt } from "@/lib/format";
+import { secToClock, metersFmt, paceFmt, roundDistanceForDisplay } from "@/lib/format";
 import { sessionClassificationLabel } from "@/lib/session-categories";
 import { useServerFn } from "@tanstack/react-start";
 import { computeContinuousFatigue } from "@/lib/ai.functions";
@@ -1694,7 +1694,7 @@ function UnifiedSessionTable({
                         {r.adjusted ? " *" : ""}
                       </td>
                       <td className="py-1 pr-2 text-right tabular-nums">
-                        {r.distanceM > 0 ? metersFmt(r.distanceM) : "—"}
+                        {r.distanceM > 0 ? metersFmt(roundDistanceForDisplay(r.distanceM)) : "—"}
                       </td>
                       <td className="py-1 pr-2 text-right tabular-nums">
                         {r.durationS > 0 ? secToClock(r.durationS) : "—"}
