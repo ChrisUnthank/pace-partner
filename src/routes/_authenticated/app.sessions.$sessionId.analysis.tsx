@@ -194,23 +194,41 @@ function SessionAnalysis() {
   const { data: rawPoints = [] } = useQuery({
     queryKey: ["raw-points", sessionId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("raw_session_points")
+      // A single query with a big .limit() isn't enough — Supabase/PostgREST
+      // enforces its own server-side max-rows cap (commonly 1000) that a
+      // client-requested limit can only lower, never raise. For any session
+      // with more than that many recorded points, everything past the cap
+      // was silently missing — which happened to always be the tail end
+      // (e.g. Cool Down, since it's chronologically last). Paginate instead
+      // so long sessions are fetched in full regardless of the server cap.
+      const PAGE_SIZE = 1000;
+      const all: any[] = [];
+      let from = 0;
 
-        .select(
-          "elapsed_s, distance_m, hr, pace_sec_per_km, cadence, elevation_m, lat, lng, segment_type, vertical_oscillation_cm, ground_contact_time_ms, temperature_c",
-        )
+      while (true) {
+        const { data, error } = await supabase
+          .from("raw_session_points")
+          .select(
+            "elapsed_s, distance_m, hr, pace_sec_per_km, cadence, elevation_m, lat, lng, segment_type, vertical_oscillation_cm, ground_contact_time_ms, temperature_c",
+          )
+          .eq("session_id", sessionId)
+          .order("elapsed_s", { ascending: true })
+          .range(from, from + PAGE_SIZE - 1);
 
-        .eq("session_id", sessionId)
-        .order("elapsed_s", { ascending: true })
-        .limit(20000);
+        if (error) {
+          console.error("raw-points error:", error);
+          break;
+        }
 
-      if (error) {
-        console.error("raw-points error:", error);
-        return [];
+        if (!data || data.length === 0) break;
+
+        all.push(...data);
+
+        if (data.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
       }
 
-      return data ?? [];
+      return all;
     },
   });
 
@@ -1696,20 +1714,7 @@ function buildTraceGroups(points: any[]): TraceGroup[] {
     groups.push({ type: currentType, points: current });
   }
 
-  // remove tiny fake cooldown tails
-  return groups.filter((g, idx) => {
-    if (g.type !== "cooldown") return true;
-    const first = g.points[0];
-    const last = g.points[g.points.length - 1];
-    const durationS = Math.max(0, Number(last?.elapsed_s ?? 0) - Number(first?.elapsed_s ?? 0));
-    const distanceM = Math.max(0, Number(last?.distance_m ?? 0) - Number(first?.distance_m ?? 0));
-
-    if (durationS < 120 && distanceM < 200) {
-      return false;
-    }
-
-    return true;
-  });
+  return groups;
 }
 
 function computeMetricsFromTraceSlice(slice: any[]) {
