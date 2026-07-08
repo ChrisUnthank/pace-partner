@@ -144,7 +144,11 @@ export function BulkFitUpload({ athleteId }: { athleteId: string }) {
           Bulk upload FIT / GPX
         </CardTitle>
 
-        <CardDescription>Drops each file into a new completed session.</CardDescription>
+        <CardDescription>
+          Files recorded close together (e.g. separate Warm Up / Work / Cool Down / Strides files, or a watch that
+          paused mid-session) are automatically merged into one session. Files more than 3 hours apart on the same day —
+          like an AM and a PM session — are kept as separate sessions.
+        </CardDescription>
       </CardHeader>
 
       <CardContent className="space-y-3">
