@@ -13,8 +13,9 @@ import { DashboardAlertsPanel } from "@/components/dashboard-alerts-panel";
 import { UserAvatar } from "@/components/user-avatar";
 import { RecentReviewsCard } from "@/components/recent-reviews-card";
 import { Badge } from "@/components/ui/badge";
-import { ClipboardList, CalendarDays, Megaphone, MessageSquare } from "lucide-react";
+import { ClipboardList, CalendarDays, Megaphone, MessageSquare, Trophy } from "lucide-react";
 import { listPosts } from "@/lib/noticeboard.functions";
+import { listMessageContacts } from "@/lib/messages.functions";
 import { ActivityIcon } from "@/lib/activity-icon";
 
 export const Route = createFileRoute("/_authenticated/app/")({
@@ -81,6 +82,46 @@ function AppHome() {
       return data;
     },
   });
+
+  const readinessCounts = { green: 0, amber: 0, red: 0 };
+  (readiness ?? []).forEach((r: any) => {
+    if (r.readiness_status && readinessCounts[r.readiness_status as "green" | "amber" | "red"] !== undefined) {
+      readinessCounts[r.readiness_status as "green" | "amber" | "red"]++;
+    }
+  });
+  const loggedTodayCount = (readiness ?? []).length;
+
+  const { data: upcomingRaces } = useQuery({
+    queryKey: ["upcoming-races", roster?.map((r) => r.athlete_id).join(",")],
+    enabled: !!roster && roster.length > 0,
+    queryFn: async () => {
+      const today = todayISO();
+      const twoWeeksOut = new Date();
+      twoWeeksOut.setDate(twoWeeksOut.getDate() + 14);
+      const { data, error } = await supabase
+        .from("sessions")
+        .select("id, title, session_date, athlete_id")
+        .in(
+          "athlete_id",
+          roster!.map((r) => r.athlete_id),
+        )
+        .eq("day_type", "race")
+        .gte("session_date", today)
+        .lte("session_date", twoWeeksOut.toISOString().slice(0, 10))
+        .order("session_date", { ascending: true })
+        .limit(6);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const listContacts = useServerFn(listMessageContacts);
+  const { data: contacts } = useQuery({
+    queryKey: ["msg-contacts-home"],
+    enabled: isCoach,
+    queryFn: () => listContacts(),
+  });
+  const unreadCount = (contacts ?? []).reduce((sum: number, c: any) => sum + (c.unread ?? 0), 0);
 
   return (
     <AppShell>
@@ -167,6 +208,31 @@ function AppHome() {
         )}
 
         {isCoach && (
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <QuickTile to="/app/messages" icon={MessageSquare} label="Messages" badge={unreadCount} />
+            <QuickTile to="/app/noticeboard" icon={Megaphone} label="Noticeboard" />
+            <QuickTile to="/app/sessions/calendar" icon={CalendarDays} label="Calendar" />
+            <QuickTile to="/app/athletes" icon={ClipboardList} label="Athletes" />
+          </div>
+        )}
+
+        {isCoach && roster && roster.length > 0 && (
+          <div className="flex flex-wrap items-center gap-4 text-sm">
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+              {readinessCounts.green} ready
+              <span className="h-2.5 w-2.5 rounded-full bg-amber-500 ml-2" />
+              {readinessCounts.amber} caution
+              <span className="h-2.5 w-2.5 rounded-full bg-red-500 ml-2" />
+              {readinessCounts.red} recover
+            </div>
+            <span className="text-muted-foreground">
+              · {loggedTodayCount} of {roster.length} logged today
+            </span>
+          </div>
+        )}
+
+        {isCoach && (
           <div className="grid gap-6 lg:grid-cols-3">
             <div className="lg:col-span-2">
               <Card>
@@ -222,6 +288,38 @@ function AppHome() {
 
             <div className="space-y-6 lg:col-span-1">
               <DashboardAlertsPanel />
+
+              {upcomingRaces && upcomingRaces.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <Trophy className="h-4 w-4 text-[var(--accent-red)]" /> Upcoming races
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-1">
+                    {upcomingRaces.map((race: any) => {
+                      const athleteName = roster?.find((r) => r.athlete_id === race.athlete_id)?.athletes?.name;
+                      return (
+                        <Link
+                          key={race.id}
+                          to="/app/races/$raceId"
+                          params={{ raceId: race.id }}
+                          className="flex items-center justify-between py-1.5 text-sm hover:bg-accent/50 rounded px-1 -mx-1"
+                        >
+                          <div className="min-w-0">
+                            <div className="font-medium truncate">{race.title ?? "Race"}</div>
+                            <div className="text-xs text-muted-foreground truncate">{athleteName}</div>
+                          </div>
+                          <span className="text-xs text-muted-foreground shrink-0 ml-2">
+                            {relativeDate(race.session_date)}
+                          </span>
+                        </Link>
+                      );
+                    })}
+                  </CardContent>
+                </Card>
+              )}
+
               <RecentReviewsCard />
             </div>
           </div>
@@ -421,12 +519,17 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function QuickTile({ to, icon: Icon, label }: { to: string; icon: any; label: string }) {
+function QuickTile({ to, icon: Icon, label, badge }: { to: string; icon: any; label: string; badge?: number }) {
   return (
     <Link
       to={to}
-      className="rounded-lg border border-border p-4 flex flex-col items-center justify-center gap-2 hover:bg-accent/50 transition-colors"
+      className="relative rounded-lg border border-border p-4 flex flex-col items-center justify-center gap-2 hover:bg-accent/50 transition-colors"
     >
+      {!!badge && (
+        <span className="absolute top-2 right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--accent-red)] text-[10px] font-bold text-white flex items-center justify-center">
+          {badge > 9 ? "9+" : badge}
+        </span>
+      )}
       <Icon className="h-5 w-5 text-[var(--accent-red)]" />
       <span className="text-xs font-medium">{label}</span>
     </Link>
