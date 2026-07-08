@@ -363,6 +363,16 @@ export function reconstructTrack(
       const dominantMidElapsed = (dominant.startElapsed + dominant.endElapsed) / 2;
       const fractionThroughRace = totalTime > 0 ? (dominantMidElapsed - points[0].elapsed_s) / totalTime : 0.5;
 
+      // A plausible minimum duration for how long it should take to cover
+      // `remainder` metres, using the race's overall average pace as the
+      // reference. Without this, a real-world pause (elapsed time barely
+      // advances, but GPS jumps a long way on resume) looks like a
+      // dominant anomaly with a near-zero duration — ramping a large
+      // distance across that tiny window creates an impossible
+      // instantaneous jump (e.g. multiple "km" splits crossed in seconds).
+      const raceAvgSpeed = totalTime > 0 ? officialDistanceM / totalTime : 0;
+      const minRampDurationS = raceAvgSpeed > 0 ? Math.abs(remainder) / raceAvgSpeed : 0;
+
       if (fractionThroughRace <= opts.edgeWindowFraction) {
         // Error concentrated at the START -> anchor from the FINISH.
         // Spread the missing distance smoothly across the dropout's own
@@ -372,42 +382,32 @@ export function reconstructTrack(
         // gradual ramp rather than jumping straight to the fully-corrected
         // value. Before the anomaly: untouched. After it: fully shifted.
         anchor = "finish";
-        const rampStart = dominant.startIndex;
-        const rampEnd = dominant.endIndex;
-        const rampStartElapsed = points[rampStart]?.elapsed_s ?? 0;
-        const rampEndElapsed = points[rampEnd]?.elapsed_s ?? rampStartElapsed;
-        const rampDuration = rampEndElapsed - rampStartElapsed;
+        const rampStartElapsed = points[dominant.startIndex]?.elapsed_s ?? 0;
+        const rawRampEndElapsed = points[dominant.endIndex]?.elapsed_s ?? rampStartElapsed;
+        const rampEndElapsed = Math.max(rawRampEndElapsed, rampStartElapsed + minRampDurationS);
 
         for (let i = 0; i < final.length; i++) {
-          if (i < rampStart) {
-            final[i] = corrected[i];
-          } else if (i >= rampEnd) {
-            final[i] = corrected[i] + remainder;
-          } else {
-            const t = rampDuration > 0 ? (points[i].elapsed_s - rampStartElapsed) / rampDuration : 1;
-            final[i] = corrected[i] + remainder * Math.max(0, Math.min(1, t));
-          }
+          const t =
+            points[i].elapsed_s <= rampStartElapsed
+              ? 0
+              : (points[i].elapsed_s - rampStartElapsed) / (rampEndElapsed - rampStartElapsed);
+          final[i] = corrected[i] + remainder * Math.max(0, Math.min(1, t));
         }
       } else if (fractionThroughRace >= 1 - opts.edgeWindowFraction) {
         // Error concentrated at the FINISH -> anchor from the START.
-        // Same smooth-ramp treatment, mirrored: untouched before the
-        // anomaly, gradually shifted across its span, fully shifted after.
+        // Same smooth-ramp treatment, mirrored, with the same physically-
+        // plausible minimum duration.
         anchor = "start";
-        const rampStart = dominant.startIndex;
-        const rampEnd = dominant.endIndex;
-        const rampStartElapsed = points[rampStart]?.elapsed_s ?? 0;
-        const rampEndElapsed = points[rampEnd]?.elapsed_s ?? rampStartElapsed;
-        const rampDuration = rampEndElapsed - rampStartElapsed;
+        const rampStartElapsed = points[dominant.startIndex]?.elapsed_s ?? 0;
+        const rawRampEndElapsed = points[dominant.endIndex]?.elapsed_s ?? rampStartElapsed;
+        const rampEndElapsed = Math.max(rawRampEndElapsed, rampStartElapsed + minRampDurationS);
 
         for (let i = 0; i < final.length; i++) {
-          if (i < rampStart) {
-            final[i] = corrected[i];
-          } else if (i >= rampEnd) {
-            final[i] = corrected[i] + remainder;
-          } else {
-            const t = rampDuration > 0 ? (points[i].elapsed_s - rampStartElapsed) / rampDuration : 1;
-            final[i] = corrected[i] + remainder * Math.max(0, Math.min(1, t));
-          }
+          const t =
+            points[i].elapsed_s <= rampStartElapsed
+              ? 0
+              : (points[i].elapsed_s - rampStartElapsed) / (rampEndElapsed - rampStartElapsed);
+          final[i] = corrected[i] + remainder * Math.max(0, Math.min(1, t));
         }
       } else {
         // Error is somewhere in the middle, or spread across multiple
