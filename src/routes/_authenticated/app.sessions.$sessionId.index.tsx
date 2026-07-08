@@ -33,7 +33,12 @@ import { Switch } from "@/components/ui/switch";
 import { UserAvatar } from "@/components/user-avatar";
 import { ActivityIcon } from "@/lib/activity-icon";
 import { invalidateSession } from "@/lib/session-invalidation";
-import { deleteSession, uploadAndParseSessionFile, mergeSessionIntoAnother } from "@/lib/session-files.functions";
+import {
+  deleteSession,
+  uploadAndParseSessionFile,
+  mergeSessionIntoAnother,
+  rebuildSessionClassification,
+} from "@/lib/session-files.functions";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { computeStrideLengthM, formatStride } from "@/lib/session-metrics";
 
@@ -46,6 +51,8 @@ function SessionDetail() {
   const qc = useQueryClient();
   const removeSession = useServerFn(deleteSession);
   const mergeSession = useServerFn(mergeSessionIntoAnother);
+  const rebuildClassification = useServerFn(rebuildSessionClassification);
+  const [rebuilding, setRebuilding] = useState(false);
   const { user } = useAuthUser();
   const { data: roles = [] } = useMyRoles();
   const isCoach = roles.includes("coach");
@@ -144,6 +151,7 @@ function SessionDetail() {
       qc.invalidateQueries({ queryKey: ["results", sessionId] });
       qc.invalidateQueries({ queryKey: ["raw-points", sessionId] });
       qc.invalidateQueries({ queryKey: ["same-day-sessions"] });
+      qc.invalidateQueries({ queryKey: ["session-file-count", sessionId] });
     } catch (err: any) {
       toast.error(err?.message ?? "Merge failed");
     }
@@ -161,6 +169,18 @@ function SessionDetail() {
       }
 
       return data ?? [];
+    },
+  });
+
+  const { data: fileCount = 0 } = useQuery({
+    queryKey: ["session-file-count", sessionId],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from("session_files")
+        .select("id", { count: "exact", head: true })
+        .eq("session_id", sessionId);
+      if (error) return 0;
+      return count ?? 0;
     },
   });
 
@@ -243,6 +263,7 @@ function SessionDetail() {
         qc.invalidateQueries({ queryKey: ["steps", sessionId] });
         qc.invalidateQueries({ queryKey: ["results", sessionId] });
         qc.invalidateQueries({ queryKey: ["raw-points", sessionId] });
+        qc.invalidateQueries({ queryKey: ["session-file-count", sessionId] });
       } catch (err: any) {
         console.error("FIT upload error:", err);
         toast.error(err.message);
@@ -566,6 +587,27 @@ function SessionDetail() {
                 >
                   {session.day_type === "race" ? "Remove race" : "Mark as race"}
                 </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={rebuilding}
+                  onClick={async () => {
+                    setRebuilding(true);
+                    try {
+                      await rebuildClassification({ data: { sessionId } });
+                      toast.success("Classification rebuilt from source files");
+                      qc.invalidateQueries({ queryKey: ["session", sessionId] });
+                      qc.invalidateQueries({ queryKey: ["steps", sessionId] });
+                      qc.invalidateQueries({ queryKey: ["results", sessionId] });
+                      qc.invalidateQueries({ queryKey: ["raw-points", sessionId] });
+                    } catch (err: any) {
+                      toast.error(err?.message ?? "Rebuild failed");
+                    }
+                    setRebuilding(false);
+                  }}
+                >
+                  {rebuilding ? "Rebuilding…" : "↻ Recompute classification"}
+                </Button>
                 {session.completed_at && (
                   <Button asChild size="sm" variant="outline">
                     <Link to="/app/sessions/$sessionId/analysis" params={{ sessionId }}>
@@ -806,6 +848,20 @@ function SessionDetail() {
         {session.notes && (
           <Card>
             <CardContent className="pt-4 text-sm">{session.notes}</CardContent>
+          </Card>
+        )}
+
+        {(fileCount >= 3 || (session.day_type === "race" && !session.race_step_id)) && (
+          <Card className="border-blue-500/40 bg-blue-500/5">
+            <CardContent className="py-3 text-sm">
+              <span className="font-medium">Review recommended: </span>
+              {fileCount >= 3
+                ? `This session combines ${fileCount} uploaded files — please check the Workout structure below to confirm warmup/work/cooldown are correctly assigned.`
+                : "This session is marked as a race but no block has been confirmed as the race yet."}{" "}
+              Use the dropdown on each block to fix any mislabeled segment, and{" "}
+              {session.day_type === "race" ? '"Mark as race" on the correct block, ' : ""}
+              then "↻ Recompute classification" above if you want the auto-split re-run from scratch.
+            </CardContent>
           </Card>
         )}
 
