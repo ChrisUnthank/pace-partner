@@ -105,7 +105,7 @@ function SessionAnalysis() {
     gct: false,
   });
 
-  const [xMode, setXMode] = useState<"time" | "distance">("time");
+  const [xMode, setXMode] = useState<"time" | "distance">("distance");
   const [speedMode, setSpeedMode] = useState<"pace" | "speed">("pace");
   const [scope, setScope] = useState<ScopeKey>("full");
 
@@ -202,7 +202,8 @@ function SessionAnalysis() {
         )
 
         .eq("session_id", sessionId)
-        .order("elapsed_s", { ascending: true });
+        .order("elapsed_s", { ascending: true })
+        .limit(20000);
 
       if (error) {
         console.error("raw-points error:", error);
@@ -419,12 +420,8 @@ function SessionAnalysis() {
                 </CardDescription>
               </div>
               <div className="flex items-center gap-2">
-                {/* ✅ Time / Distance */}
+                {/* ✅ Distance / Time */}
                 <div className="flex gap-1">
-                  <Button size="sm" variant={xKey === "t" ? "default" : "outline"} onClick={() => setXMode("time")}>
-                    Time
-                  </Button>
-
                   <Button
                     size="sm"
                     variant={xKey === "d" ? "default" : "outline"}
@@ -432,6 +429,10 @@ function SessionAnalysis() {
                     onClick={() => setXMode("distance")}
                   >
                     Distance
+                  </Button>
+
+                  <Button size="sm" variant={xKey === "t" ? "default" : "outline"} onClick={() => setXMode("time")}>
+                    Time
                   </Button>
                 </div>
 
