@@ -455,6 +455,49 @@ function classifyLapsByDistance(laps: ParsedLap[]): ParsedLap[] {
 
   const tolerance = Math.max(20, dominantDistance * 0.25);
 
+  // Distance alone can't tell "watch auto-lapping a continuous run every 1km"
+  // apart from "genuine 1km work reps" — both produce a sequence of similar
+  // distance laps. Pace is what actually distinguishes them: real intervals
+  // have a clear, deliberate contrast between work and recovery effort. If
+  // the laps matching the dominant distance aren't meaningfully faster than
+  // the rest, this is one continuous effort (e.g. a run with a couple of
+  // real-world pauses for traffic/a toilet break, not structured intervals)
+  // and shouldn't be fragmented into a fake warmup/work/cooldown structure.
+  function paceSecPerKm(lap: ParsedLap) {
+    return lap.total_distance > 0 ? (lap.total_elapsed_time / lap.total_distance) * 1000 : null;
+  }
+  function median(nums: number[]) {
+    if (nums.length === 0) return null;
+    const sorted = [...nums].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  }
+
+  if (dominantDistance > 0) {
+    const candidateWorkPaces = nonRestCandidates
+      .filter((l) => Math.abs(l.total_distance - dominantDistance) <= tolerance)
+      .map(paceSecPerKm)
+      .filter((p): p is number => p != null);
+    const otherPaces = nonRestCandidates
+      .filter((l) => Math.abs(l.total_distance - dominantDistance) > tolerance)
+      .map(paceSecPerKm)
+      .filter((p): p is number => p != null);
+
+    const workMedian = median(candidateWorkPaces);
+    const otherMedian = median(otherPaces);
+
+    // "Recovery" laps should be clearly slower (higher sec/km) than work laps
+    // in genuine intervals — require at least 15% slower. If not, or if there
+    // aren't enough non-matching laps to compare against, treat this as one
+    // continuous session instead of fragmenting it.
+    const isGenuineIntervals =
+      workMedian != null && otherMedian != null && otherPaces.length >= 2 && otherMedian >= workMedian * 1.15;
+
+    if (!isGenuineIntervals) {
+      return laps.map((l) => ({ ...l, kind: l.intensity === "rest" ? ("recovery" as const) : ("work" as const) }));
+    }
+  }
+
   let classified: ParsedLap[] = laps.map((lap) => {
     if (lap.intensity === "rest") {
       return { ...lap, kind: "recovery" as const };
@@ -1492,17 +1535,35 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
       }
     }
 
-    const { data: duplicate } = await sb
+    // Detect duplicates by what was actually recorded, not the filename —
+    // a renamed/re-exported copy of the same activity (e.g. "file.1" vs
+    // "file.2") has a different filename but identical start time, distance,
+    // and duration, and should still be caught.
+    const { data: candidateFiles } = await sb
       .from("session_files")
-      .select("id")
-      .eq("session_id", sess.id)
-      .eq("original_filename", data.filename)
-      .eq("started_at", parsed.startedAt ?? "")
-      .eq("total_distance_m", parsed.totalDistanceM)
-      .maybeSingle();
+      .select("id, started_at, total_distance_m, total_time_s, original_filename")
+      .eq("session_id", sess.id);
+
+    const newStartMs = parsed.startedAt ? new Date(parsed.startedAt).getTime() : null;
+    const duplicate = (candidateFiles ?? []).find((f: any) => {
+      if (!f.started_at || newStartMs == null) return false;
+      const startDiffS = Math.abs(new Date(f.started_at).getTime() - newStartMs) / 1000;
+      if (startDiffS > 5) return false; // different recordings won't start within 5s of each other
+
+      const distanceMatch =
+        parsed.totalDistanceM > 0 &&
+        Math.abs(Number(f.total_distance_m ?? 0) - parsed.totalDistanceM) <= Math.max(5, parsed.totalDistanceM * 0.01);
+      const timeMatch =
+        parsed.totalTimeS > 0 &&
+        Math.abs(Number(f.total_time_s ?? 0) - parsed.totalTimeS) <= Math.max(2, parsed.totalTimeS * 0.01);
+
+      return distanceMatch && timeMatch;
+    });
 
     if (duplicate) {
-      throw new Error("This FIT file is already attached to this session.");
+      throw new Error(
+        `This file appears to be a duplicate of "${duplicate.original_filename}" already attached to this session (same start time, distance, and duration) — skipped to avoid double-counting.`,
+      );
     }
 
     const storagePath = `${data.athleteId}/${Date.now()}-${data.filename}`;
