@@ -33,7 +33,12 @@ import { Switch } from "@/components/ui/switch";
 import { UserAvatar } from "@/components/user-avatar";
 import { ActivityIcon } from "@/lib/activity-icon";
 import { invalidateSession } from "@/lib/session-invalidation";
-import { deleteSession, uploadAndParseSessionFile, mergeSessionIntoAnother, rebuildSessionClassification } from "@/lib/session-files.functions";
+import {
+  deleteSession,
+  uploadAndParseSessionFile,
+  mergeSessionIntoAnother,
+  rebuildSessionClassification,
+} from "@/lib/session-files.functions";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { computeStrideLengthM, formatStride } from "@/lib/session-metrics";
 
@@ -517,19 +522,25 @@ function SessionDetail() {
                         Completed
                       </Badge>
                     )}
-                    {session.day_type === "race" && session.completed_at && (
+                    {session.day_type === "race" && (
                       <Button
                         size="sm"
                         variant="outline"
                         onClick={async () => {
-                          const { data } = await (supabase as any)
+                          const { data, error } = await (supabase as any)
                             .from("performances")
                             .select("id")
                             .eq("session_id", sessionId)
+                            .order("created_at", { ascending: false })
+                            .limit(1)
                             .maybeSingle();
 
+                          if (error) {
+                            toast.error(error.message);
+                            return;
+                          }
                           if (!data?.id) {
-                            console.log("No race found yet");
+                            toast.error("No race data recorded yet — mark a Work block as the race first.");
                             return;
                           }
 
@@ -742,7 +753,8 @@ function SessionDetail() {
               {/* Split pace — overall (above) can blend warmup/cooldown/work
                   paces together into something misleading. Shown only when
                   there's a real warmup/cooldown to distinguish from work. */}
-              {((session as any).work_avg_pace_sec_per_km != null || (session as any).easy_avg_pace_sec_per_km != null) && (
+              {((session as any).work_avg_pace_sec_per_km != null ||
+                (session as any).easy_avg_pace_sec_per_km != null) && (
                 <div className="flex flex-wrap gap-4 text-sm border-t pt-3">
                   {(session as any).work_avg_pace_sec_per_km != null && (
                     <div>
@@ -853,7 +865,7 @@ function SessionDetail() {
                 ? `This session combines ${fileCount} uploaded files — please check the Workout structure below to confirm warmup/work/cooldown are correctly assigned.`
                 : "This session is marked as a race but no block has been confirmed as the race yet."}{" "}
               Use the dropdown on each block to fix any mislabeled segment, and{" "}
-              {session.day_type === "race" ? "\"Mark as race\" on the correct block, " : ""}
+              {session.day_type === "race" ? '"Mark as race" on the correct block, ' : ""}
               then "↻ Recompute classification" above if you want the auto-split re-run from scratch.
             </CardContent>
           </Card>
@@ -1133,7 +1145,10 @@ function StepBlock({
 
   async function reassignKind(newKind: string) {
     if (newKind === step.kind) return;
-    const { error } = await supabase.from("steps").update({ kind: newKind } as any).eq("id", step.id);
+    const { error } = await supabase
+      .from("steps")
+      .update({ kind: newKind } as any)
+      .eq("id", step.id);
     if (error) {
       toast.error(error.message);
       return;
@@ -1168,20 +1183,21 @@ function StepBlock({
 
     qc.setQueryData(["session", session.id], updatedSession);
 
-    // Replace any existing performance for this session with this step's data
-    await (supabase.from("performances") as any).delete().eq("session_id", session.id);
-
-    const { error: perfErr } = await (supabase.from("performances") as any).insert({
-      athlete_id: session.athlete_id,
-      performance_date: session.session_date,
-      distance_m: Math.round(totalDistance),
-      time_seconds: totalTime,
-      event_name: session.title || null,
-      notes: session.notes || null,
-      session_id: session.id,
-      is_pb: false,
-      context: "race",
-    });
+    // Upsert (not delete-then-insert) so this is atomic and can never leave
+    // a duplicate row behind, relying on the session_id unique constraint.
+    const { error: perfErr } = await (supabase.from("performances") as any).upsert(
+      {
+        athlete_id: session.athlete_id,
+        performance_date: session.session_date,
+        distance_m: Math.round(totalDistance),
+        time_seconds: totalTime,
+        event_name: session.title || null,
+        notes: session.notes || null,
+        session_id: session.id,
+        context: "race",
+      },
+      { onConflict: "session_id" },
+    );
 
     if (perfErr) {
       toast.error(perfErr.message);
