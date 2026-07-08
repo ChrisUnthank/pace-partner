@@ -640,6 +640,30 @@ function SessionDetail() {
                 </div>
               </div>
 
+              {/* Split pace — overall (above) can blend warmup/cooldown/work
+                  paces together into something misleading. Shown only when
+                  there's a real warmup/cooldown to distinguish from work. */}
+              {(session.work_avg_pace_sec_per_km != null || session.easy_avg_pace_sec_per_km != null) && (
+                <div className="flex flex-wrap gap-4 text-sm border-t pt-3">
+                  {session.work_avg_pace_sec_per_km != null && (
+                    <div>
+                      <span className="text-xs text-muted-foreground">Work pace </span>
+                      <span className="font-semibold tabular-nums">
+                        {secToClock(session.work_avg_pace_sec_per_km)}/km
+                      </span>
+                    </div>
+                  )}
+                  {session.easy_avg_pace_sec_per_km != null && (
+                    <div>
+                      <span className="text-xs text-muted-foreground">Warm-up/Cool-down avg </span>
+                      <span className="font-semibold tabular-nums">
+                        {secToClock(session.easy_avg_pace_sec_per_km)}/km
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* ✅ ✅ NEW: SPLIT-LEVEL CORRECTIONS */}
               <div className="border-t pt-3 space-y-2">
                 <Label className="text-xs text-muted-foreground">Split corrections</Label>
