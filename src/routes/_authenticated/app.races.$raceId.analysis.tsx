@@ -74,6 +74,10 @@ function RaceAnalysisPage() {
           .from("raw_session_points")
           .select("*")
           .eq("session_id", race.session_id)
+          // Race analysis should only ever cover the race itself — if this
+          // session also has an attached warmup or cooldown, their points
+          // must not inflate the race's distance/pace/graphs.
+          .eq("segment_type", "work")
           .order("elapsed_s")
           .range(from, from + PAGE_SIZE - 1);
 
