@@ -1767,6 +1767,20 @@ export const deleteSessionFileBlock = createServerFn({ method: "POST" })
 // same athlete. Moves the actual files across, cleans up all derived data
 // on the source (steps/results/points/etc — these get regenerated fresh for
 // the target), then rebuilds the target from its now-combined file set.
+// Re-runs classification/rebuild on a session's already-attached files, with
+// no new upload needed. Useful after marking a session as a race (or fixing
+// its day_type), or after merging another session in — either of those
+// changes what the classification logic should produce, but only a rebuild
+// actually regroups the steps correctly from the source lap data.
+export const rebuildSessionClassification = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { sessionId: string }) => d)
+  .handler(async ({ data, context }) => {
+    const sb = context.supabase;
+    await rebuildSessionFromAllFiles(sb, data.sessionId);
+    return { ok: true };
+  });
+
 export const mergeSessionIntoAnother = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { sourceSessionId: string; targetSessionId: string }) => d)
