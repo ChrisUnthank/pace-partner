@@ -1123,6 +1123,27 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?:
 
   if (safePoints.length < 2) return null;
 
+  // "Null Island" (0,0) is the standard placeholder for a missing/failed GPS
+  // fix — if every point is at or extremely close to it, there's no real
+  // route to show. A map centered on the Gulf of Guinea with one dot is more
+  // confusing than helpful, so show a clear message instead.
+  const hasRealGps = safePoints.some((p) => Math.abs(Number(p.lat)) > 0.01 || Math.abs(Number(p.lng)) > 0.01);
+
+  if (!hasRealGps) {
+    return (
+      <Card className="h-full flex flex-col">
+        <CardHeader className="pb-2">
+          <CardTitle>Route</CardTitle>
+          <CardDescription>No GPS data available for this session</CardDescription>
+        </CardHeader>
+        <CardContent className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
+          This activity has no valid GPS coordinates — common for indoor or treadmill sessions, or if the device didn't
+          get a GPS fix during recording.
+        </CardContent>
+      </Card>
+    );
+  }
+
   const lats = safePoints.map((p) => Number(p.lat));
   const lngs = safePoints.map((p) => Number(p.lng));
   const minLat = Math.min(...lats);
@@ -1156,6 +1177,8 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?:
     Number(safePoints[playIndex]?.lat ?? first.lat),
     Number(safePoints[playIndex]?.lng ?? first.lng),
   ];
+  const currentKind = safePoints[playIndex]?.stepKind || "work";
+  const currentColor = STEP_STROKE[currentKind] ?? "#3b82f6";
 
   return (
     <Card className="h-full flex flex-col">
@@ -1163,11 +1186,7 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?:
         <div className="flex items-center justify-between">
           <div>
             <CardTitle>Route</CardTitle>
-            <CardDescription>
-              {first.lat === 0 && first.lng === 0
-                ? "GPS trace has no valid coordinates for this session"
-                : "Route from uploaded GPS trace, colored by segment"}
-            </CardDescription>
+            <CardDescription>Route from uploaded GPS trace, colored by segment</CardDescription>
           </div>
           <Button
             size="sm"
@@ -1225,7 +1244,7 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?:
               <CircleMarker
                 center={currentPos}
                 radius={8}
-                pathOptions={{ color: "#ffffff", weight: 2, fillColor: "#3b82f6", fillOpacity: 1 }}
+                pathOptions={{ color: "#ffffff", weight: 2, fillColor: currentColor, fillOpacity: 1 }}
               />
             )}
           </MapContainer>
