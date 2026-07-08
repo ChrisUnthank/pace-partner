@@ -146,19 +146,24 @@ export function BulkFitUpload({ athleteId }: { athleteId: string }) {
 
         <CardDescription>
           Files recorded close together (e.g. separate Warm Up / Work / Cool Down / Strides files, or a watch that
-          paused mid-session) are automatically merged into one session. Files more than 3 hours apart on the same day —
-          like an AM and a PM session — are kept as separate sessions.
+          paused mid-session) are automatically merged into one session. Files more than 90 minutes apart on the same
+          day — like an AM and a PM session — are kept as separate sessions.
         </CardDescription>
       </CardHeader>
 
       <CardContent className="space-y-3">
-        <input
-          type="file"
-          multiple
-          accept=".fit,.gpx"
-          disabled={busy}
-          onChange={(e) => handle(e.currentTarget.files)}
-        />
+        <label className="inline-flex items-center gap-2 cursor-pointer rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-sm hover:bg-accent transition-colors">
+          <Upload className="h-4 w-4" />
+          {busy ? "Uploading…" : "Choose files"}
+          <input
+            type="file"
+            multiple
+            accept=".fit,.gpx"
+            disabled={busy}
+            onChange={(e) => handle(e.currentTarget.files)}
+            className="hidden"
+          />
+        </label>
 
         <ul className="text-xs space-y-1">
           {statuses.map((s, i) => (
