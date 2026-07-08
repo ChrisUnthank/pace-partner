@@ -1,11 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-function semicirclesToDegrees(sc: number | null | undefined): number | null {
-  if (sc == null) return null;
-  return (sc * 180) / Math.pow(2, 31);
-}
-
 async function fetchWeather(lat: number, lon: number, timestamp: string) {
   try {
     const date = new Date(timestamp);
@@ -308,8 +303,8 @@ async function parseFIT(buffer: ArrayBuffer): Promise<ParsedFile> {
           elapsed_s: r.elapsed_time ?? (r.timestamp ? (new Date(r.timestamp).getTime() - t0) / 1000 : 0),
           distance_m: r.distance ?? null,
 
-          lat: semicirclesToDegrees(r.position_lat),
-          lng: semicirclesToDegrees(r.position_long),
+          lat: r.position_lat != null ? Number(r.position_lat) : null,
+          lng: r.position_long != null ? Number(r.position_long) : null,
 
           elevation_m: r.enhanced_altitude ?? r.altitude ?? null,
           hr: r.heart_rate ?? null,
