@@ -299,12 +299,7 @@ function SessionAnalysis() {
       hrEnd: s.hrEnd ?? null,
       hrRec: s.hrRec ?? null,
       hrDrop: s.hrDrop ?? null,
-      pace:
-        s.pace != null
-          ? speedMode === "speed"
-            ? 3600 / s.pace
-            : s.pace
-          : null,
+      pace: s.pace != null ? (speedMode === "speed" ? 3600 / s.pace : s.pace) : null,
       cadence: s.cadence ?? null,
       elev: s.elev ?? null,
       vo: s.vo ?? null,
@@ -538,11 +533,7 @@ function SessionAnalysis() {
                       reversed={speedMode === "pace"}
                       tick={{ fontSize: 11 }}
                       width={48}
-                      tickFormatter={(v) =>
-                        speedMode === "speed"
-                          ? `${Number(v).toFixed(1)}`
-                          : secToClock(Number(v))
-                      }
+                      tickFormatter={(v) => (speedMode === "speed" ? `${Number(v).toFixed(1)}` : secToClock(Number(v)))}
                     />
                     <YAxis
                       yAxisId="cadence"
@@ -614,7 +605,7 @@ function SessionAnalysis() {
                         stroke="#ef4444"
                         dot={false}
                         type="monotone"
-                        connectNulls
+                        connectNulls={false}
                         strokeWidth={2}
                         isAnimationActive={false}
                       />
@@ -627,7 +618,7 @@ function SessionAnalysis() {
                         stroke="#3b82f6"
                         dot={false}
                         type="monotone"
-                        connectNulls
+                        connectNulls={false}
                         strokeWidth={2}
                         isAnimationActive={false}
                       />
@@ -640,7 +631,7 @@ function SessionAnalysis() {
                         stroke="#8b5cf6"
                         dot={false}
                         type="monotone"
-                        connectNulls
+                        connectNulls={false}
                         strokeWidth={1.5}
                         isAnimationActive={false}
                       />
@@ -653,7 +644,7 @@ function SessionAnalysis() {
                         stroke="#10b981"
                         dot={false}
                         type="monotone"
-                        connectNulls
+                        connectNulls={false}
                         strokeWidth={1.5}
                         isAnimationActive={false}
                       />
@@ -1177,7 +1168,17 @@ function buildSamples(
   };
 
   if (Array.isArray(rawPoints) && rawPoints.length > 10) {
-    const samples: Sample[] = rawPoints.map((p: any, idx: number) => {
+    // A gap this large between two consecutive RECORDED points means no data
+    // exists in between — almost always the idle time between separate
+    // uploaded files (e.g. finishing Warm Up, then starting Work a few
+    // minutes later). Normal recording intervals are a few seconds at most,
+    // so anything past this is treated as a genuine pause, not just a slow
+    // GPS sample rate.
+    const GAP_BREAK_THRESHOLD_S = 60;
+
+    const samples: Sample[] = [];
+
+    rawPoints.forEach((p: any, idx: number) => {
       const rawPace = p.pace_sec_per_km != null ? Number(p.pace_sec_per_km) : undefined;
 
       const currentT = Number(p.elapsed_s ?? idx);
@@ -1190,14 +1191,30 @@ function buildSamples(
       const segmentDuration = Math.max(0, currentT - prevT);
       const segmentDistance = Math.max(0, (currentD ?? 0) - prevD);
 
+      // Insert a null-value marker right at the gap so the chart breaks the
+      // line here instead of drawing a fake flat/interpolated segment across
+      // idle time between merged files.
+      if (idx > 0 && segmentDuration > GAP_BREAK_THRESHOLD_S) {
+        samples.push({
+          t: prevT + 0.001,
+          d: prevD,
+          hr: undefined,
+          pace: undefined,
+          cadence: undefined,
+          elev: undefined,
+          vo: undefined,
+          gct: undefined,
+          lat: undefined,
+          lng: undefined,
+          stepId: "trace",
+          stepKind: "work",
+          repNumber: 1,
+        });
+      }
+
       let normalizedKind = String(p.segment_type ?? "work").toLowerCase();
 
       if (!["warmup", "work", "recovery", "cooldown", "strides"].includes(normalizedKind)) {
-        normalizedKind = "work";
-      }
-
-      // ✅ Ignore tiny fake cooldown tails at the end of a work-only file
-      if (normalizedKind === "cooldown" && segmentDuration < 120 && segmentDistance < 200) {
         normalizedKind = "work";
       }
 
@@ -1230,7 +1247,7 @@ function buildSamples(
       if (s.vo != null) has.vo = true;
       if (s.gct != null) has.gct = true;
 
-      return s;
+      samples.push(s);
     });
 
     const gpsPoints = samples
@@ -1252,18 +1269,13 @@ function buildSamples(
           const durationPrev = endSamplePrev.t - startT;
           const distancePrev = (endSamplePrev.d ?? 0) - startD;
 
-          // 🚫 Skip tiny fake cooldown segments
-          if (currentKind === "cooldown" && durationPrev < 120 && distancePrev < 200) {
-            // do nothing (skip this band)
-          } else {
-            bands.push({
-              kind: currentKind,
-              t1: startT,
-              t2: endSamplePrev.t,
-              d1: startD,
-              d2: endSamplePrev.d ?? startD,
-            });
-          }
+          bands.push({
+            kind: currentKind,
+            t1: startT,
+            t2: endSamplePrev.t,
+            d1: startD,
+            d2: endSamplePrev.d ?? startD,
+          });
 
           currentKind = kind;
           startT = samples[i].t;
@@ -1276,17 +1288,13 @@ function buildSamples(
       const finalDuration = endSample.t - startT;
       const finalDistance = (endSample.d ?? 0) - startD;
 
-      if (currentKind === "cooldown" && finalDuration < 120 && finalDistance < 200) {
-        // 🚫 skip tiny cooldown at end
-      } else {
-        bands.push({
-          kind: currentKind,
-          t1: startT,
-          t2: endSample.t,
-          d1: startD,
-          d2: endSample.d ?? startD,
-        });
-      }
+      bands.push({
+        kind: currentKind,
+        t1: startT,
+        t2: endSample.t,
+        d1: startD,
+        d2: endSample.d ?? startD,
+      });
 
       return {
         samples,
@@ -1579,23 +1587,22 @@ function UnifiedSessionTable({
                       <td className="py-1 pr-2 text-right tabular-nums">
                         {r.durationS > 0 ? secToClock(r.durationS) : "—"}
                       </td>
-                   
-<td className="py-1 pr-2 text-right tabular-nums">
-  {r.avgPace
-    ? speedMode === "pace"
-      ? paceFmt(r.avgPace)
-      : `${paceToSpeed(r.avgPace)?.toFixed(1)} km/h`
-    : "—"}
-</td>
 
-                      
-<td className="py-1 pr-2 text-right tabular-nums">
-  {r.maxPace
-    ? speedMode === "pace"
-      ? paceFmt(r.maxPace)
-      : `${paceToSpeed(r.maxPace)?.toFixed(1)} km/h`
-    : "—"}
-</td>
+                      <td className="py-1 pr-2 text-right tabular-nums">
+                        {r.avgPace
+                          ? speedMode === "pace"
+                            ? paceFmt(r.avgPace)
+                            : `${paceToSpeed(r.avgPace)?.toFixed(1)} km/h`
+                          : "—"}
+                      </td>
+
+                      <td className="py-1 pr-2 text-right tabular-nums">
+                        {r.maxPace
+                          ? speedMode === "pace"
+                            ? paceFmt(r.maxPace)
+                            : `${paceToSpeed(r.maxPace)?.toFixed(1)} km/h`
+                          : "—"}
+                      </td>
 
                       <td className="py-1 pr-2 text-right tabular-nums">{r.avgHr ?? "—"}</td>
                       <td className="py-1 pr-2 text-right tabular-nums">{r.maxHr ?? "—"}</td>
