@@ -851,7 +851,7 @@ function SessionDetail() {
           </Card>
         )}
 
-        {(fileCount >= 3 || (session.day_type === "race" && !session.race_step_id)) && (
+        {(fileCount >= 3 || (session.day_type === "race" && !(session as any).race_step_id)) && (
           <Card className="border-blue-500/40 bg-blue-500/5">
             <CardContent className="py-3 text-sm">
               <span className="font-medium">Review recommended: </span>
