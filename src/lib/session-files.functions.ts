@@ -1255,6 +1255,70 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   if (updErr) throw updErr;
 }
 
+// Max gap (in ms) between one file's estimated end and the next file's start
+// for them to be treated as parts of the SAME session (e.g. separate Warm Up /
+// Work / Cool Down / Strides files, or a device that paused/restarted
+// recording mid-session). A genuine AM vs PM double session on the same
+// calendar day has a much larger gap than this and must NOT be merged.
+const SAME_SESSION_MAX_GAP_MS = 3 * 60 * 60 * 1000; // 3 hours
+
+// Finds an existing same-day fit_import session whose most recent attached
+// file ends within SAME_SESSION_MAX_GAP_MS of the new file's start time.
+// Falls back to creating a new session if no candidate is close enough in
+// time — this is what correctly keeps AM/PM doubles as separate sessions
+// while still merging split files (warmup/work/cooldown/strides) that were
+// recorded back-to-back.
+async function findMatchingSameDaySession(
+  sb: any,
+  athleteId: string,
+  sessionDate: string,
+  newFileStartMs: number | null,
+): Promise<any | null> {
+  const { data: candidates } = await sb
+    .from("sessions")
+    .select("id, session_date")
+    .eq("athlete_id", athleteId)
+    .eq("session_date", sessionDate)
+    .eq("source", "fit_import");
+
+  if (!candidates || candidates.length === 0) return null;
+
+  // If the new file has no parseable start time, fall back to the previous
+  // (looser) behavior of just using the first same-day session — we can't
+  // do a time-gap comparison without a timestamp.
+  if (newFileStartMs === null) return candidates[0];
+
+  let bestMatch: any = null;
+  let bestGap = Infinity;
+
+  for (const candidate of candidates) {
+    const { data: files } = await sb
+      .from("session_files")
+      .select("started_at, total_time_s")
+      .eq("session_id", candidate.id);
+
+    if (!files || files.length === 0) continue;
+
+    for (const f of files) {
+      if (!f.started_at) continue;
+      const fileStartMs = new Date(f.started_at).getTime();
+      const fileEndMs = fileStartMs + (Number(f.total_time_s) || 0) * 1000;
+
+      // Gap is measured from whichever file boundary is closer to the new
+      // file's start — handles both "new file comes after" and "new file
+      // comes before" (e.g. uploading Warm Up after Work was already added).
+      const gap = Math.min(Math.abs(newFileStartMs - fileEndMs), Math.abs(newFileStartMs - fileStartMs));
+
+      if (gap < bestGap) {
+        bestGap = gap;
+        bestMatch = candidate;
+      }
+    }
+  }
+
+  return bestMatch && bestGap <= SAME_SESSION_MAX_GAP_MS ? bestMatch : null;
+}
+
 export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator(
@@ -1296,14 +1360,8 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
 
       sess = existing;
     } else {
-      const { data: existingSameDay } = await sb
-        .from("sessions")
-        .select("*")
-        .eq("athlete_id", data.athleteId)
-        .eq("session_date", sessionDate)
-        .eq("source", "fit_import")
-        .limit(1)
-        .maybeSingle();
+      const newFileStartMs = parsed.startedAt ? new Date(parsed.startedAt).getTime() : null;
+      const existingSameDay = await findMatchingSameDaySession(sb, data.athleteId, sessionDate, newFileStartMs);
 
       if (existingSameDay) {
         sess = existingSameDay;
@@ -1315,8 +1373,8 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
             created_by: context.userId,
             session_date: sessionDate,
             title: (() => {
-              const now = new Date();
-              const hour = now.getHours();
+              const recordedAt = parsed.startedAt ? new Date(parsed.startedAt) : new Date();
+              const hour = recordedAt.getHours();
               const timeLabel = hour < 11 ? "Morning" : hour < 16 ? "Afternoon" : "Evening";
               return `${timeLabel} session`;
             })(),
