@@ -87,7 +87,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       {/* Sidebar */}
       <aside
         className={cn(
-          "hidden md:flex flex-col shrink-0 border-r border-border bg-sidebar transition-[width] duration-200",
+          "hidden md:flex flex-col shrink-0 border-r border-border bg-sidebar transition-[width] duration-200 sticky top-0 h-screen overflow-y-auto",
           collapsed ? "w-16" : "w-60",
         )}
       >
