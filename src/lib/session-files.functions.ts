@@ -355,7 +355,22 @@ async function parseFIT(buffer: ArrayBuffer): Promise<ParsedFile> {
   });
 }
 
-function classifyLaps(laps: ParsedLap[], plannedSteps: any[] = [], numFiles: number = 1): ParsedLap[] {
+function paceSecPerKm(lap: ParsedLap) {
+  return lap.total_distance > 0 ? (lap.total_elapsed_time / lap.total_distance) * 1000 : null;
+}
+function median(nums: number[]) {
+  if (nums.length === 0) return null;
+  const sorted = [...nums].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function classifyLaps(
+  laps: ParsedLap[],
+  plannedSteps: any[] = [],
+  numFiles: number = 1,
+  isRace: boolean = false,
+): ParsedLap[] {
   if (!Array.isArray(laps) || laps.length === 0) return [];
 
   const valid = laps.filter((l) => l.total_distance > 0 && l.total_elapsed_time > 0);
@@ -366,6 +381,65 @@ function classifyLaps(laps: ParsedLap[], plannedSteps: any[] = [], numFiles: num
   const workSteps = getPlannedWorkSteps(plannedSteps);
   const hasPlannedWork = workSteps.length > 0;
   const hasLadderPlan = workSteps.some(stepIsLadder);
+
+  // For a session marked as a race, protect the race distance/time from ever
+  // including warmup or cooldown. Distance alone isn't reliable here — a
+  // short race (e.g. 1500m) can easily be shorter than its own warmup or
+  // cooldown jog. Pace is what's actually reliable: race effort is always
+  // dramatically faster than warmup/cooldown jogging, regardless of how far
+  // the race itself covers. Whichever file has the fastest median pace is
+  // "the race" — anything recorded chronologically before it is warmup,
+  // anything after is cooldown.
+  //
+  // One wrinkle: a warmup file that includes strides (short fast pickups)
+  // can easily be *faster per-km* than sustained race effort, despite being
+  // a totally different kind of effort. So pace alone isn't quite enough —
+  // a candidate also needs a substantial distance to be eligible, ruling out
+  // a brief burst of strides from ever outranking the real race.
+  if (isRace && numFiles >= 2) {
+    const fileDistances = new Map<number, number>();
+    const filePaces = new Map<number, number>();
+    const fileIndexes = new Set(laps.map((l) => l.sourceFileIndex ?? 0));
+
+    for (const idx of fileIndexes) {
+      const fileLaps = laps.filter(
+        (l) => (l.sourceFileIndex ?? 0) === idx && l.total_distance > 50 && l.total_elapsed_time > 10,
+      );
+      const totalDist = fileLaps.reduce((sum, l) => sum + (l.total_distance ?? 0), 0);
+      const pace = median(fileLaps.map(paceSecPerKm).filter((p): p is number => p != null));
+      fileDistances.set(idx, totalDist);
+      if (pace != null) filePaces.set(idx, pace);
+    }
+
+    const maxDistance = Math.max(0, ...fileDistances.values());
+    // A candidate needs at least 1km, and at least a third of the longest
+    // file's distance — enough to rule out a short stride set, without
+    // requiring it to literally be the longest file (a short race can still
+    // be shorter than its own warmup/cooldown).
+    const minCandidateDistance = Math.max(1000, maxDistance * 0.3);
+
+    const eligibleIndexes = [...filePaces.keys()].filter(
+      (idx) => (fileDistances.get(idx) ?? 0) >= minCandidateDistance,
+    );
+
+    if (eligibleIndexes.length > 0) {
+      let raceFileIndex = eligibleIndexes[0];
+      let fastestPace = filePaces.get(raceFileIndex) ?? Infinity;
+      for (const idx of eligibleIndexes) {
+        const pace = filePaces.get(idx)!;
+        if (pace < fastestPace) {
+          fastestPace = pace;
+          raceFileIndex = idx;
+        }
+      }
+      return laps.map((lap) => {
+        const idx = lap.sourceFileIndex ?? 0;
+        if (idx === raceFileIndex) return { ...lap, kind: "work" as const };
+        if (idx < raceFileIndex) return { ...lap, kind: "warmup" as const };
+        return { ...lap, kind: "cooldown" as const };
+      });
+    }
+  }
 
   if (hasPlannedWork) {
     let classified: ParsedLap[] = laps.map((lap) => {
@@ -420,6 +494,38 @@ function classifyLaps(laps: ParsedLap[], plannedSteps: any[] = [], numFiles: num
     });
   }
 
+  // Exactly 2 files is genuinely ambiguous by file-position alone — it could
+  // be Work + Cool Down (no warmup ever uploaded) or Warm Up + Work (no
+  // cooldown uploaded), and those need opposite labeling. Pace resolves it:
+  // a cooldown is always meaningfully slower than the work that preceded it,
+  // and a warmup is always meaningfully slower than the work that follows
+  // it. If neither file is clearly slower than the other, don't force a
+  // label — fall through to the normal distance-based classification.
+  if (numFiles === 2) {
+    const file0Laps = laps.filter((l) => l.sourceFileIndex === 0 && l.total_distance > 50 && l.total_elapsed_time > 10);
+    const file1Laps = laps.filter((l) => l.sourceFileIndex === 1 && l.total_distance > 50 && l.total_elapsed_time > 10);
+
+    const pace0 = median(file0Laps.map(paceSecPerKm).filter((p): p is number => p != null));
+    const pace1 = median(file1Laps.map(paceSecPerKm).filter((p): p is number => p != null));
+
+    if (pace0 != null && pace1 != null) {
+      // Second file clearly slower (higher sec/km) than the first -> cooldown
+      if (pace1 >= pace0 * 1.15) {
+        return laps.map((lap) => ({
+          ...lap,
+          kind: lap.sourceFileIndex === 1 ? ("cooldown" as const) : ("work" as const),
+        }));
+      }
+      // First file clearly slower than the second -> warmup
+      if (pace0 >= pace1 * 1.15) {
+        return laps.map((lap) => ({
+          ...lap,
+          kind: lap.sourceFileIndex === 0 ? ("warmup" as const) : ("work" as const),
+        }));
+      }
+    }
+  }
+
   return classifyLapsByDistance(laps);
 }
 
@@ -463,15 +569,6 @@ function classifyLapsByDistance(laps: ParsedLap[]): ParsedLap[] {
   // the rest, this is one continuous effort (e.g. a run with a couple of
   // real-world pauses for traffic/a toilet break, not structured intervals)
   // and shouldn't be fragmented into a fake warmup/work/cooldown structure.
-  function paceSecPerKm(lap: ParsedLap) {
-    return lap.total_distance > 0 ? (lap.total_elapsed_time / lap.total_distance) * 1000 : null;
-  }
-  function median(nums: number[]) {
-    if (nums.length === 0) return null;
-    const sorted = [...nums].sort((a, b) => a - b);
-    const mid = Math.floor(sorted.length / 2);
-    return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-  }
 
   if (dominantDistance > 0) {
     const candidateWorkPaces = nonRestCandidates
@@ -922,7 +1019,12 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
     l.index = i;
   });
 
-  const classifiedLaps = classifyLaps(mergedLaps, hasManualPlan ? safePlannedSteps : [], parsedFiles.length);
+  const classifiedLaps = classifyLaps(
+    mergedLaps,
+    hasManualPlan ? safePlannedSteps : [],
+    parsedFiles.length,
+    sess.day_type === "race",
+  );
   const pairs = buildWorkRecoveryPairs(classifiedLaps);
 
   const workLaps = classifiedLaps.filter((l) => l.kind === "work");
@@ -1368,6 +1470,12 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
 // separate sessions never get merged.
 const SAME_SESSION_MAX_GAP_MS = 90 * 60 * 1000; // 90 minutes
 
+// A much looser window once a session is already marked as a race — post-race
+// medal ceremony, food, results checking, and queues (for a toilet or
+// anything else) can easily create gaps far longer than a normal training
+// double, and a second genuine race the same day is exceedingly rare.
+const RACE_DAY_MAX_GAP_MS = 6 * 60 * 60 * 1000; // 6 hours
+
 // Finds an existing same-day fit_import session whose most recent attached
 // file ends within SAME_SESSION_MAX_GAP_MS of the new file's start time.
 // Falls back to creating a new session if no candidate is close enough in
@@ -1382,7 +1490,7 @@ async function findMatchingSameDaySession(
 ): Promise<any | null> {
   const { data: candidates } = await sb
     .from("sessions")
-    .select("id, session_date")
+    .select("id, session_date, day_type")
     .eq("athlete_id", athleteId)
     .eq("session_date", sessionDate)
     .eq("source", "fit_import");
@@ -1422,7 +1530,17 @@ async function findMatchingSameDaySession(
     }
   }
 
-  return bestMatch && bestGap <= SAME_SESSION_MAX_GAP_MS ? bestMatch : null;
+  if (!bestMatch) return null;
+
+  // Race days routinely have long real-world gaps that aren't a sign of a
+  // separate activity — post-race medal collection, food, results, toilet
+  // queues can easily push a cooldown recording past the normal 90-minute
+  // same-session window. A second genuine race on the same day is
+  // exceedingly rare, so once a session is already marked as a race, treat
+  // anything else recorded that day as part of it.
+  const maxGap = bestMatch.day_type === "race" ? RACE_DAY_MAX_GAP_MS : SAME_SESSION_MAX_GAP_MS;
+
+  return bestGap <= maxGap ? bestMatch : null;
 }
 
 // Converts a UTC instant into the athlete's local calendar date and hour-of-day.
@@ -1641,6 +1759,75 @@ export const deleteSessionFileBlock = createServerFn({ method: "POST" })
       .eq("session_id", sessionId);
 
     return { ok: true, sessionId, remainingFiles: count ?? 0 };
+  });
+
+// Merges an orphaned session (e.g. a cooldown that split into its own
+// session because it was uploaded before the race was marked, so the
+// tighter same-session gap threshold applied) into another session for the
+// same athlete. Moves the actual files across, cleans up all derived data
+// on the source (steps/results/points/etc — these get regenerated fresh for
+// the target), then rebuilds the target from its now-combined file set.
+export const mergeSessionIntoAnother = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { sourceSessionId: string; targetSessionId: string }) => d)
+  .handler(async ({ data, context }) => {
+    const sb = context.supabase;
+    const { sourceSessionId, targetSessionId } = data;
+
+    if (sourceSessionId === targetSessionId) {
+      throw new Error("Cannot merge a session into itself.");
+    }
+
+    const { data: sourceSession, error: sourceErr } = await sb
+      .from("sessions")
+      .select("id, athlete_id, session_date")
+      .eq("id", sourceSessionId)
+      .single();
+    if (sourceErr || !sourceSession) throw sourceErr ?? new Error("Source session not found");
+
+    const { data: targetSession, error: targetErr } = await sb
+      .from("sessions")
+      .select("id, athlete_id, session_date")
+      .eq("id", targetSessionId)
+      .single();
+    if (targetErr || !targetSession) throw targetErr ?? new Error("Target session not found");
+
+    if (sourceSession.athlete_id !== targetSession.athlete_id) {
+      throw new Error("Both sessions must belong to the same athlete.");
+    }
+
+    // Move the actual recorded files across — these are the only thing worth
+    // keeping from the source session. Everything else on the source is
+    // derived data that gets regenerated fresh for the target below.
+    const { error: moveErr } = await sb
+      .from("session_files")
+      .update({ session_id: targetSessionId })
+      .eq("session_id", sourceSessionId);
+    if (moveErr) throw moveErr;
+
+    // Clean up the source session's derived data before deleting it, same
+    // set of tables deleteSession clears.
+    const { data: sourceSteps } = await sb.from("steps").select("id").eq("session_id", sourceSessionId);
+    const sourceStepIds = (sourceSteps ?? []).map((s: any) => s.id);
+    if (sourceStepIds.length > 0) {
+      await sb.from("interval_results").delete().in("step_id", sourceStepIds);
+    }
+    await sb.from("steps").delete().eq("session_id", sourceSessionId);
+    await sb.from("raw_session_points").delete().eq("session_id", sourceSessionId);
+    await sb.from("session_fatigue").delete().eq("session_id", sourceSessionId);
+    await sb.from("session_zone_time").delete().eq("session_id", sourceSessionId);
+    await sb.from("session_insights").delete().eq("session_id", sourceSessionId);
+    await sb.from("performances").delete().eq("session_id", sourceSessionId);
+
+    const { error: delErr } = await sb.from("sessions").delete().eq("id", sourceSessionId);
+    if (delErr) throw delErr;
+
+    // Rebuild the target from its now-combined set of files — this is what
+    // actually re-classifies warmup/work/cooldown correctly across all of
+    // them, including the newly-merged-in file.
+    await rebuildSessionFromAllFiles(sb, targetSessionId);
+
+    return { ok: true };
   });
 
 export const deleteSession = createServerFn({ method: "POST" })
