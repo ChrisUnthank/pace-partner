@@ -1081,6 +1081,20 @@ function StepBlock({
 
   const isMarkedAsRace = session.race_step_id === step.id;
 
+  async function reassignKind(newKind: string) {
+    if (newKind === step.kind) return;
+    const { error } = await supabase
+      .from("steps")
+      .update({ kind: newKind } as any)
+      .eq("id", step.id);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(`Reassigned to ${newKind}`);
+    invalidateSession(qc, session.id, session.athlete_id);
+  }
+
   async function markAsRace() {
     // Build the race's actual distance/time from this step's own recorded
     // reps, not the whole session — so a race with an attached warmup or
@@ -1175,6 +1189,18 @@ function StepBlock({
           </CardTitle>
 
           <div className="flex items-center gap-2">
+            <Select value={step.kind} onValueChange={reassignKind}>
+              <SelectTrigger className="h-7 w-[110px] text-xs" onClick={(e) => e.stopPropagation()}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="warmup">Warmup</SelectItem>
+                <SelectItem value="work">Work</SelectItem>
+                <SelectItem value="recovery">Recovery</SelectItem>
+                <SelectItem value="cooldown">Cooldown</SelectItem>
+                <SelectItem value="strides">Strides</SelectItem>
+              </SelectContent>
+            </Select>
             {isWork && (
               <Button
                 size="sm"
