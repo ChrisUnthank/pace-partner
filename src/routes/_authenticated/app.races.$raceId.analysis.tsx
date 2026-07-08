@@ -74,6 +74,10 @@ function RaceAnalysisPage() {
           .from("raw_session_points")
           .select("*")
           .eq("session_id", race.session_id)
+          // Race analysis should only ever cover the race itself — if this
+          // session also has an attached warmup or cooldown, their points
+          // must not inflate the race's distance/pace/graphs.
+          .eq("segment_type", "work")
           .order("elapsed_s")
           .range(from, from + PAGE_SIZE - 1);
 
@@ -85,7 +89,23 @@ function RaceAnalysisPage() {
         from += PAGE_SIZE;
       }
 
-      return all;
+      if (all.length === 0) return all;
+
+      // The GPS reconstruction and splits-building logic assumes a race
+      // recording starts at elapsed_s=0 / distance_m=0 — true before
+      // multi-file merging existed, but these points now carry whatever
+      // offset they had within the whole merged session (e.g. starting at
+      // elapsed_s=2853 if there was a ~48min warmup before it). Without
+      // rebasing, that offset gets misread as GPS drift/dropout, wildly
+      // inflating "reconstructed distance" and corrupting split times.
+      const baseElapsed = Number(all[0].elapsed_s ?? 0);
+      const baseDistance = Number(all[0].distance_m ?? 0);
+
+      return all.map((p) => ({
+        ...p,
+        elapsed_s: Number(p.elapsed_s ?? 0) - baseElapsed,
+        distance_m: p.distance_m != null ? Number(p.distance_m) - baseDistance : p.distance_m,
+      }));
     },
   });
 
