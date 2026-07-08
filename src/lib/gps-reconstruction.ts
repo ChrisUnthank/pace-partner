@@ -365,23 +365,49 @@ export function reconstructTrack(
 
       if (fractionThroughRace <= opts.edgeWindowFraction) {
         // Error concentrated at the START -> anchor from the FINISH.
-        // Inject the extra distance as a one-time offset that begins at the
-        // dominant anomaly and carries through unchanged for everything after.
+        // Spread the missing distance smoothly across the dropout's own
+        // duration (time-weighted), not as a single abrupt step at its end —
+        // the athlete covered that ground gradually during the dropout, so
+        // split boundaries that fall inside/near it should reflect that
+        // gradual ramp rather than jumping straight to the fully-corrected
+        // value. Before the anomaly: untouched. After it: fully shifted.
         anchor = "finish";
-        const injectAtIndex = dominant.endIndex;
+        const rampStart = dominant.startIndex;
+        const rampEnd = dominant.endIndex;
+        const rampStartElapsed = points[rampStart]?.elapsed_s ?? 0;
+        const rampEndElapsed = points[rampEnd]?.elapsed_s ?? rampStartElapsed;
+        const rampDuration = rampEndElapsed - rampStartElapsed;
+
         for (let i = 0; i < final.length; i++) {
-          final[i] = i >= injectAtIndex ? corrected[i] + remainder : corrected[i];
+          if (i < rampStart) {
+            final[i] = corrected[i];
+          } else if (i >= rampEnd) {
+            final[i] = corrected[i] + remainder;
+          } else {
+            const t = rampDuration > 0 ? (points[i].elapsed_s - rampStartElapsed) / rampDuration : 1;
+            final[i] = corrected[i] + remainder * Math.max(0, Math.min(1, t));
+          }
         }
-        // Any tiny residual left after this single injection is just rounding —
-        // if the remainder logic above wasn't a full explanation, top up gently.
       } else if (fractionThroughRace >= 1 - opts.edgeWindowFraction) {
         // Error concentrated at the FINISH -> anchor from the START.
-        // Leave everything up to the anomaly untouched; the shortfall lands
-        // in the tail (often visible as the final partial split).
+        // Same smooth-ramp treatment, mirrored: untouched before the
+        // anomaly, gradually shifted across its span, fully shifted after.
         anchor = "start";
-        const injectAtIndex = dominant.startIndex + 1;
+        const rampStart = dominant.startIndex;
+        const rampEnd = dominant.endIndex;
+        const rampStartElapsed = points[rampStart]?.elapsed_s ?? 0;
+        const rampEndElapsed = points[rampEnd]?.elapsed_s ?? rampStartElapsed;
+        const rampDuration = rampEndElapsed - rampStartElapsed;
+
         for (let i = 0; i < final.length; i++) {
-          final[i] = i >= injectAtIndex ? corrected[i] + remainder : corrected[i];
+          if (i < rampStart) {
+            final[i] = corrected[i];
+          } else if (i >= rampEnd) {
+            final[i] = corrected[i] + remainder;
+          } else {
+            const t = rampDuration > 0 ? (points[i].elapsed_s - rampStartElapsed) / rampDuration : 1;
+            final[i] = corrected[i] + remainder * Math.max(0, Math.min(1, t));
+          }
         }
       } else {
         // Error is somewhere in the middle, or spread across multiple
