@@ -12,6 +12,8 @@ import {
   CartesianGrid,
   Legend,
 } from "recharts";
+import { MapContainer, TileLayer, Polyline, CircleMarker } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
 
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/app-shell";
@@ -1076,12 +1078,48 @@ function ZonePanel({ rows, title }: { rows: any[]; title: string }) {
   );
 }
 
-function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
+function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?: string; t?: number }[] }) {
   const safePoints = useMemo(() => {
     return Array.isArray(points)
       ? points.filter((p) => p && Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)))
       : [];
   }, [points]);
+
+  const [playing, setPlaying] = useState(false);
+  const [playIndex, setPlayIndex] = useState(0);
+  const rafRef = useRef<number | null>(null);
+  const startTimeRef = useRef<number | null>(null);
+
+  const PLAYBACK_DURATION_MS = 18000; // full route replay takes ~18s regardless of actual session length
+
+  useEffect(() => {
+    if (!playing) {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      return;
+    }
+
+    startTimeRef.current = null;
+
+    function step(timestamp: number) {
+      if (startTimeRef.current === null) startTimeRef.current = timestamp;
+      const elapsed = timestamp - startTimeRef.current;
+      const progress = Math.min(1, elapsed / PLAYBACK_DURATION_MS);
+      const idx = Math.floor(progress * (safePoints.length - 1));
+      setPlayIndex(idx);
+
+      if (progress < 1) {
+        rafRef.current = requestAnimationFrame(step);
+      } else {
+        setPlaying(false);
+      }
+    }
+
+    rafRef.current = requestAnimationFrame(step);
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing, safePoints.length]);
 
   if (safePoints.length < 2) return null;
 
@@ -1091,76 +1129,112 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number }[] }) {
   const maxLat = Math.max(...lats);
   const minLng = Math.min(...lngs);
   const maxLng = Math.max(...lngs);
-
-  const width = 800;
-  const height = 600;
-  const pad = 20;
-
-  const project = (lat: number, lng: number) => {
-    const usableW = width - pad * 2;
-    const usableH = height - pad * 2;
-
-    const x = pad + ((lng - minLng) / (maxLng - minLng || 1)) * usableW;
-    const y = height - pad - ((lat - minLat) / (maxLat - minLat || 1)) * usableH;
-
-    return [x, y] as const;
-  };
-
-  const path = safePoints
-    .map((p) => {
-      const [x, y] = project(Number(p.lat), Number(p.lng));
-      return `${x},${y}`;
-    })
-    .join(" ");
+  const center: [number, number] = [(minLat + maxLat) / 2, (minLng + maxLng) / 2];
 
   const first = safePoints[0];
   const last = safePoints[safePoints.length - 1];
 
-  const [startX, startY] = project(Number(first.lat), Number(first.lng));
-  const [endX, endY] = project(Number(last.lat), Number(last.lng));
+  // Group consecutive same-kind points into segments so each can be drawn as
+  // its own colored Polyline (matching the same warmup/work/cooldown colors
+  // used everywhere else on this page).
+  const segments: { kind: string; positions: [number, number][] }[] = [];
+  safePoints.forEach((p, i) => {
+    const kind = p.stepKind || "work";
+    const pos: [number, number] = [Number(p.lat), Number(p.lng)];
+    const lastSeg = segments[segments.length - 1];
+    if (lastSeg && lastSeg.kind === kind) {
+      lastSeg.positions.push(pos);
+    } else {
+      // include the previous point too so segments connect with no visual gap
+      const prevPos =
+        i > 0 ? ([Number(safePoints[i - 1].lat), Number(safePoints[i - 1].lng)] as [number, number]) : pos;
+      segments.push({ kind, positions: [prevPos, pos] });
+    }
+  });
+
+  const currentPos: [number, number] = [
+    Number(safePoints[playIndex]?.lat ?? first.lat),
+    Number(safePoints[playIndex]?.lng ?? first.lng),
+  ];
 
   return (
     <Card className="h-full flex flex-col">
-      <CardHeader>
-        <CardTitle>Route preview</CardTitle>
-        <CardDescription>Static route preview from uploaded GPS trace.</CardDescription>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>Route</CardTitle>
+            <CardDescription>
+              {first.lat === 0 && first.lng === 0
+                ? "GPS trace has no valid coordinates for this session"
+                : "Route from uploaded GPS trace, colored by segment"}
+            </CardDescription>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              if (playing) {
+                setPlaying(false);
+              } else {
+                setPlayIndex(0);
+                setPlaying(true);
+              }
+            }}
+          >
+            {playing ? "Pause" : "▶ Replay"}
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="flex-1 flex flex-col">
-        <div className="text-xs text-muted-foreground mb-2 space-y-1">
-          <div>
-            Start: {first.lat?.toFixed(5)}, {first.lng?.toFixed(5)}
-          </div>
-          <div>
-            Finish: {last.lat?.toFixed(5)}, {last.lng?.toFixed(5)}
-          </div>
+        <div className="flex flex-wrap gap-3 mb-2 text-xs">
+          {(["warmup", "work", "recovery", "cooldown", "strides"] as const).map(
+            (k) =>
+              segments.some((s) => s.kind === k) && (
+                <div key={k} className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full" style={{ background: STEP_STROKE[k] }} />
+                  <span className="capitalize text-muted-foreground">{k}</span>
+                </div>
+              ),
+          )}
         </div>
 
-        <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} className="border rounded bg-black">
-          <polyline
-            points={path}
-            fill="none"
-            stroke="#ef4444"
-            strokeWidth="3"
-            strokeLinejoin="round"
-            strokeLinecap="round"
-          />
-
-          {/* Start cue */}
-          <circle cx={startX} cy={startY} r="5" fill="#22c55e" />
-          <text x={startX + 8} y={startY - 8} fill="#22c55e" fontSize="12" fontWeight="600">
-            Start
-          </text>
-
-          {/* Finish cue */}
-          <circle cx={endX} cy={endY} r="5" fill="#ef4444" />
-          <text x={endX + 8} y={endY - 8} fill="#ef4444" fontSize="12" fontWeight="600">
-            Finish
-          </text>
-        </svg>
+        <div className="flex-1 min-h-[400px] rounded overflow-hidden border">
+          <MapContainer center={center} zoom={15} scrollWheelZoom style={{ height: "100%", width: "100%" }}>
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+            {segments.map((seg, i) => (
+              <Polyline
+                key={i}
+                positions={seg.positions}
+                pathOptions={{ color: STEP_STROKE[seg.kind] ?? "#ef4444", weight: 4 }}
+              />
+            ))}
+            <CircleMarker
+              center={[Number(first.lat), Number(first.lng)]}
+              radius={6}
+              pathOptions={{ color: "#22c55e", fillColor: "#22c55e", fillOpacity: 1 }}
+            />
+            <CircleMarker
+              center={[Number(last.lat), Number(last.lng)]}
+              radius={6}
+              pathOptions={{ color: "#ef4444", fillColor: "#ef4444", fillOpacity: 1 }}
+            />
+            {playing && (
+              <CircleMarker
+                center={currentPos}
+                radius={8}
+                pathOptions={{ color: "#ffffff", weight: 2, fillColor: "#3b82f6", fillOpacity: 1 }}
+              />
+            )}
+          </MapContainer>
+        </div>
       </CardContent>
     </Card>
   );
 }
+
 function paceToSpeed(paceSecPerKm?: number | null) {
   if (!paceSecPerKm || paceSecPerKm <= 0) return null;
   return 3600 / paceSecPerKm;
@@ -1175,7 +1249,7 @@ function buildSamples(
   bands: { kind: string; t1: number; t2: number; d1: number; d2: number }[];
   mode: "trace" | "rep" | "empty";
   hasMetric: Record<MetricKey, boolean>;
-  gpsPoints: { lat: number; lng: number }[];
+  gpsPoints: { lat: number; lng: number; stepKind: string; t: number }[];
 } {
   const has: Record<MetricKey, boolean> = {
     hr: false,
@@ -1271,7 +1345,7 @@ function buildSamples(
 
     const gpsPoints = samples
       .filter((s) => s.lat != null && s.lng != null)
-      .map((s) => ({ lat: s.lat as number, lng: s.lng as number }));
+      .map((s) => ({ lat: s.lat as number, lng: s.lng as number, stepKind: s.stepKind || "work", t: s.t }));
 
     const bands: { kind: string; t1: number; t2: number; d1: number; d2: number }[] = [];
 
