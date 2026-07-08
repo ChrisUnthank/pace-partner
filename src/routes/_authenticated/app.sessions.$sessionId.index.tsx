@@ -1017,12 +1017,90 @@ function StepBlock({
     invalidateSession(qc, session.id, session.athlete_id);
   }
 
+  const isMarkedAsRace = session.race_step_id === step.id;
+
+  async function markAsRace() {
+    // Build the race's actual distance/time from this step's own recorded
+    // reps, not the whole session — so a race with an attached warmup or
+    // cooldown never gets its distance/time diluted by them.
+    const totalDistance = results.reduce((sum, r) => sum + (Number(r.actual_distance_m) || 0), 0);
+    const totalTime = results.reduce((sum, r) => sum + (Number(r.actual_time_seconds) || 0), 0);
+
+    if (totalDistance <= 0 || totalTime <= 0) {
+      toast.error("This block has no recorded distance/time yet — add results before marking it as the race.");
+      return;
+    }
+
+    const { data: updatedSession, error: sessErr } = await supabase
+      .from("sessions")
+      .update({ day_type: "race", race_step_id: step.id } as any)
+      .eq("id", session.id)
+      .select()
+      .single();
+
+    if (sessErr) {
+      toast.error(sessErr.message);
+      return;
+    }
+
+    qc.setQueryData(["session", session.id], updatedSession);
+
+    // Replace any existing performance for this session with this step's data
+    await (supabase.from("performances") as any).delete().eq("session_id", session.id);
+
+    const { error: perfErr } = await (supabase.from("performances") as any).insert({
+      athlete_id: session.athlete_id,
+      performance_date: session.session_date,
+      distance_m: Math.round(totalDistance),
+      time_seconds: totalTime,
+      event_name: session.title || null,
+      notes: session.notes || null,
+      session_id: session.id,
+      is_pb: false,
+      context: "race",
+    });
+
+    if (perfErr) {
+      toast.error(perfErr.message);
+      return;
+    }
+
+    toast.success("Marked as the race 🏁");
+    qc.invalidateQueries({ queryKey: ["session", session.id] });
+    qc.invalidateQueries({ queryKey: ["race-by-session", session.id] });
+    qc.invalidateQueries({ queryKey: ["races", session.athlete_id] });
+    qc.invalidateQueries({ queryKey: ["my-pbs", session.athlete_id] });
+  }
+
+  async function unmarkAsRace() {
+    const { data: updatedSession, error } = await supabase
+      .from("sessions")
+      .update({ day_type: "training", race_step_id: null } as any)
+      .eq("id", session.id)
+      .select()
+      .single();
+
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+
+    await (supabase.from("performances") as any).delete().eq("session_id", session.id);
+
+    qc.setQueryData(["session", session.id], updatedSession);
+    toast("Race unmarked");
+    qc.invalidateQueries({ queryKey: ["session", session.id] });
+    qc.invalidateQueries({ queryKey: ["race-by-session", session.id] });
+    qc.invalidateQueries({ queryKey: ["races", session.athlete_id] });
+  }
+
   return (
     <Card>
       {/* ✅ HEADER */}
       <CardHeader className="cursor-pointer" onClick={() => setOpen((v) => !v)}>
         <div className="flex items-center justify-between bg-muted/40 rounded px-2 py-1">
           <CardTitle className="text-base capitalize flex items-center gap-2">
+            {isMarkedAsRace && <span title="This block is marked as the race">🏁</span>}
             {step.kind === "recovery" ? "Recovery" : step.kind}
 
             {isWork &&
@@ -1034,7 +1112,25 @@ function StepBlock({
             {isStrides && ` · ${step.reps}×${metersFmt(roundDistanceForDisplay(step.target_distance_m))}`}
           </CardTitle>
 
-          <div className="text-sm text-muted-foreground">{open ? "▼" : "▶"}</div>
+          <div className="flex items-center gap-2">
+            {isWork && (
+              <Button
+                size="sm"
+                variant={isMarkedAsRace ? "destructive" : "outline"}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (isMarkedAsRace) {
+                    unmarkAsRace();
+                  } else {
+                    markAsRace();
+                  }
+                }}
+              >
+                {isMarkedAsRace ? "Unmark race" : "🏁 Mark as race"}
+              </Button>
+            )}
+            <div className="text-sm text-muted-foreground">{open ? "▼" : "▶"}</div>
+          </div>
         </div>
       </CardHeader>
 
