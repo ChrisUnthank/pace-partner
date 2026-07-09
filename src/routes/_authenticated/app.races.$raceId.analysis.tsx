@@ -801,8 +801,24 @@ function RaceMapPanel({
           </div>
         )}
 
-        <div className="flex-1 min-h-[400px] rounded overflow-hidden border">
-          <MapContainer center={center} zoom={15} scrollWheelZoom style={{ height: "100%", width: "100%" }}>
+        <div className="rounded overflow-hidden border" style={{ height: 450 }}>
+          <MapContainer
+            center={center}
+            zoom={15}
+            scrollWheelZoom
+            style={{ height: "100%", width: "100%" }}
+            ref={(map) => {
+              // Leaflet measures its container at mount time. Inside a flex
+              // layout, that measurement can happen before the container has
+              // settled into its final size, leaving the map permanently
+              // stuck at a stale/zero size (tiles never repaint, even though
+              // the outer div is the right size). Forcing a re-measure one
+              // tick later fixes it without needing a fixed non-flex parent.
+              if (map) {
+                setTimeout(() => map.invalidateSize(), 0);
+              }
+            }}
+          >
             <TileLayer
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
               url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
