@@ -224,6 +224,13 @@ function RaceAnalysisPage() {
   const maxSplit = splitTimes.length > 0 ? Math.max(...splitTimes) : null;
   const minSplit = splitTimes.length > 0 ? Math.min(...splitTimes) : null;
 
+  // Slowest *full* split's time — used to scale bar widths by relative pace
+  // (slowest fills the bar, faster splits read visibly shorter). Kept
+  // separate from partial splits, whose shorter raw time isn't a fair pace
+  // comparison against a full km/lap.
+  const fullSplitTimes = autoSplits.filter((s) => !s.isPartial).map((s) => s.time);
+  const maxFullSplitTime = fullSplitTimes.length > 0 ? Math.max(...fullSplitTimes) : null;
+
   // ✅ Combined race insight system
   const pacingInsight = useMemo(() => {
     if (!autoSplits || autoSplits.length < 2) return null;
@@ -512,12 +519,23 @@ function RaceAnalysisPage() {
             </CardHeader>
             <CardContent className="space-y-2">
               {autoSplits.map((s) => {
-                // Bar width represents this split's actual distance relative
-                // to a standard full split — a 400m partial (out of a 1000m
-                // standard) should visually read as ~40% width, not be sized
-                // by comparing elapsed time across splits.
                 const splitOwnDistance = s.endDistanceM - s.startDistanceM;
-                let width = splitDistance > 0 ? (splitOwnDistance / splitDistance) * 100 : 100;
+
+                let width: number;
+                if (s.isPartial) {
+                  // Partial splits (e.g. a 400m tail on the finish) are sized
+                  // by how much of a standard split they cover — comparing
+                  // their shorter raw time to full splits wouldn't be a fair
+                  // pace comparison.
+                  width = splitDistance > 0 ? (splitOwnDistance / splitDistance) * 100 : 100;
+                } else {
+                  // Full splits are sized by pace relative to the *slowest*
+                  // full split in the race — the slowest km fills the bar,
+                  // faster splits read visibly shorter, so a glance shows
+                  // where the race was toughest instead of every full split
+                  // looking identical regardless of how fast it was run.
+                  width = maxFullSplitTime && maxFullSplitTime > 0 ? (s.time / maxFullSplitTime) * 100 : 100;
+                }
                 width = Math.min(100, Math.max(width, 8)); // clamp, and keep tiny splits visible
 
                 // ✅ colour logic — target time now scales to this split's actual
