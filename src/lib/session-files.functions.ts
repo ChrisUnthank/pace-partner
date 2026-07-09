@@ -35,7 +35,22 @@ async function fetchWeather(lat: number, lon: number, timestamp: string) {
       }
     }
 
-    return { temp: temps[bestIdx] ?? null, wind: winds[bestIdx] ?? null };
+    // Some hours in the archive/forecast data can have a gap in one
+    // variable but not the other (rare, but seen in practice — e.g. temp
+    // present, wind null for that exact hour). Rather than silently
+    // returning null for that one field, check a couple of adjacent hours
+    // for a usable reading — close enough for a session summary, and
+    // better than a blank field when the info was available an hour either
+    // side.
+    const nearestNonNull = (arr: (number | null)[]): number | null => {
+      for (let offset = 0; offset <= 2; offset++) {
+        if (arr[bestIdx + offset] != null) return arr[bestIdx + offset];
+        if (arr[bestIdx - offset] != null) return arr[bestIdx - offset];
+      }
+      return null;
+    };
+
+    return { temp: nearestNonNull(temps), wind: nearestNonNull(winds) };
   } catch (err) {
     console.error("Weather fetch failed", err);
     return { temp: null, wind: null };
@@ -721,7 +736,18 @@ function inferRecoveryMode(recoveryLap: ParsedLap | null): string | null {
   const paceSecPerKm = dist > 0 ? (dur / dist) * 1000 : null;
 
   if (dist < 10) return "rest";
-  if (paceSecPerKm != null && paceSecPerKm > 500) return "walk";
+
+  // A genuine "walk" recovery involves real ambulation — at least 100m
+  // covered over at least 30s. Below that (a brief shuffle, GPS jitter,
+  // or someone barely moving), calling it a "walk" overstates what
+  // actually happened; "standing" is the honest label.
+  const MIN_WALK_DISTANCE_M = 100;
+  const MIN_WALK_DURATION_S = 30;
+
+  if (paceSecPerKm != null && paceSecPerKm > 500) {
+    return dist >= MIN_WALK_DISTANCE_M && dur >= MIN_WALK_DURATION_S ? "walk" : "standing";
+  }
+
   return "jog";
 }
 
@@ -1398,7 +1424,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
         Math.abs(p.lng) <= 180,
     );
 
-  // prefer a fix from early in the activity, but fall back to anywhere
+    // prefer a fix from early in the activity, but fall back to anywhere
     const earlyWindow = withGps.filter((p) => p.elapsed_s <= 300);
     const candidates = earlyWindow.length > 0 ? earlyWindow : withGps;
     const firstPoint = candidates.length > 0 ? candidates[Math.floor(candidates.length / 2)] : null;
@@ -1414,6 +1440,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
       weatherWind = weather.wind;
       locationName = await fetchLocationName(firstPoint.lat!, firstPoint.lng!);
     }
+  }
 
   const workPaceSecPerKm =
     workMetrics.distance && workMetrics.time ? (Number(workMetrics.time) / Number(workMetrics.distance)) * 1000 : null;
