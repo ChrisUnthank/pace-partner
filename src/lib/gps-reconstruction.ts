@@ -81,7 +81,7 @@ export interface ReconstructionOptions {
   spikeAbsoluteFloorMps?: number;
   /** Rolling median window in samples used for the local reference pace. Default 21 */
   medianWindow?: number;
-  /** If the reconciliation gap vs. official distance is below this fraction of total distance, treat as generic smoothing rather than localized anchoring. Default 0.015 (1.5%) */
+  /** If the reconciliation gap vs. official distance is below this fraction of total distance, treat as generic smoothing rather than localized anchoring. Default 0.03 (3%) — anomaly-specific correction already ran in classifyAndCorrect, so a remaining gap in this range is far more likely ordinary GPS-vs-course measurement drift than something that also belongs concentrated at the same dropout location a second time. */
   genericSmoothingThreshold?: number;
   /** Fraction of total race time used to decide if anomalies are "dominant" near start/finish. Default 0.15 (15%) */
   edgeWindowFraction?: number;
@@ -92,7 +92,7 @@ const DEFAULTS: Required<ReconstructionOptions> = {
   spikeSpeedRatio: 2.4,
   spikeAbsoluteFloorMps: 7.0,
   medianWindow: 21,
-  genericSmoothingThreshold: 0.015,
+  genericSmoothingThreshold: 0.03,
   edgeWindowFraction: 0.15,
 };
 
