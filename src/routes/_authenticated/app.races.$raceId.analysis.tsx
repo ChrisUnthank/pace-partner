@@ -360,8 +360,8 @@ function RaceAnalysisPage() {
 
             <div className="col-span-3">
               <p className="text-xs text-muted-foreground">
-                GPS: {metersFmt((session as any)?.work_distance_m ?? session?.total_distance_m ?? 0)} ·
-                Reconstructed: {metersFmt(reconstructedDistance)} · Official: {metersFmt(race?.distance_m ?? 0)}
+                GPS: {metersFmt((session as any)?.work_distance_m ?? session?.total_distance_m ?? 0)} · Reconstructed:{" "}
+                {metersFmt(reconstructedDistance)} · Official: {metersFmt(race?.distance_m ?? 0)}
                 {reconstruction.anomalies.length > 0 && (
                   <>
                     {" "}
@@ -477,7 +477,11 @@ function RaceAnalysisPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
           <div className="lg:col-span-2">
-            <RaceMapPanel points={replayPoints} raceTimeSeconds={race?.time_seconds ?? null} zoneProfile={zoneProfile} />
+            <RaceMapPanel
+              points={replayPoints}
+              raceTimeSeconds={race?.time_seconds ?? null}
+              zoneProfile={zoneProfile}
+            />
           </div>
 
           {pacingInsight && (
@@ -686,13 +690,16 @@ const ZONE_LABELS: Record<string, string> = {
   z5: "Z5 Rep",
 };
 
-type ZoneProfile = {
-  hr_z1_max: number | null;
-  hr_z2_max: number | null;
-  hr_z3_max: number | null;
-  hr_z4_max: number | null;
-  hr_z5_max: number | null;
-} | null | undefined;
+type ZoneProfile =
+  | {
+      hr_z1_max: number | null;
+      hr_z2_max: number | null;
+      hr_z3_max: number | null;
+      hr_z4_max: number | null;
+      hr_z5_max: number | null;
+    }
+  | null
+  | undefined;
 
 function hrToZone(hr: number | null, profile: ZoneProfile): string | null {
   if (hr == null || !profile?.hr_z1_max) return null;
@@ -715,10 +722,7 @@ function RaceMapPanel({
   const safePoints = useMemo(
     () =>
       points.filter(
-        (p) =>
-          Number.isFinite(p.lat) &&
-          Number.isFinite(p.lng) &&
-          (Math.abs(p.lat) > 0.01 || Math.abs(p.lng) > 0.01),
+        (p) => Number.isFinite(p.lat) && Number.isFinite(p.lng) && (Math.abs(p.lat) > 0.01 || Math.abs(p.lng) > 0.01),
       ),
     [points],
   );
@@ -728,6 +732,9 @@ function RaceMapPanel({
   const [speed, setSpeed] = useState<(typeof SPEED_OPTIONS)[number]>(1);
   const rafRef = useRef<number | null>(null);
   const startTimeRef = useRef<number | null>(null);
+  // How much playback time has elapsed so far, preserved across pauses so
+  // resuming continues from the same spot instead of jumping back to 0.
+  const elapsedMsRef = useRef(0);
 
   // Race replay needs to take longer than the fixed ~18s session replay —
   // scaled to actual race duration so detail is visible, capped so a
@@ -743,13 +750,17 @@ function RaceMapPanel({
   useEffect(() => {
     if (!playing) {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      // Pausing (not finishing) resets the frame-timestamp anchor so the
+      // next resume recomputes it from elapsedMsRef instead of using a
+      // stale timestamp from before the pause.
+      startTimeRef.current = null;
       return;
     }
-    startTimeRef.current = null;
 
     function step(timestamp: number) {
-      if (startTimeRef.current === null) startTimeRef.current = timestamp;
+      if (startTimeRef.current === null) startTimeRef.current = timestamp - elapsedMsRef.current;
       const elapsed = timestamp - startTimeRef.current;
+      elapsedMsRef.current = elapsed;
       const progress = Math.min(1, elapsed / playbackDurationMs);
       const idx = Math.floor(progress * (safePoints.length - 1));
       setPlayIndex(idx);
@@ -837,12 +848,16 @@ function RaceMapPanel({
                 if (playing) {
                   setPlaying(false);
                 } else {
-                  setPlayIndex(0);
+                  const finished = playIndex >= safePoints.length - 1;
+                  if (finished) {
+                    setPlayIndex(0);
+                    elapsedMsRef.current = 0;
+                  }
                   setPlaying(true);
                 }
               }}
             >
-              {playing ? "Pause" : "▶ Replay"}
+              {playing ? "Pause" : playIndex > 0 && playIndex < safePoints.length - 1 ? "▶ Resume" : "▶ Replay"}
             </Button>
           </div>
         </div>
@@ -858,7 +873,7 @@ function RaceMapPanel({
             ))}
           </div>
         )}
-        {playing && (
+        {(playing || playIndex > 0) && (
           <div className="flex gap-4 text-sm border rounded-md px-3 py-2 bg-muted/40 flex-wrap">
             <div>
               <span className="text-muted-foreground">Elapsed: </span>
@@ -870,9 +885,7 @@ function RaceMapPanel({
             </div>
             <div>
               <span className="text-muted-foreground">Pace: </span>
-              <span className="tabular-nums font-medium">
-                {livePaceSecPerKm ? paceFmt(livePaceSecPerKm) : "—"}
-              </span>
+              <span className="tabular-nums font-medium">{livePaceSecPerKm ? paceFmt(livePaceSecPerKm) : "—"}</span>
             </div>
             {current.elev != null && (
               <div>
@@ -928,7 +941,7 @@ function RaceMapPanel({
               radius={6}
               pathOptions={{ color: "#ef4444", fillColor: "#ef4444", fillOpacity: 1 }}
             />
-            {playing && (
+            {(playing || playIndex > 0) && (
               <CircleMarker
                 center={[current.lat, current.lng]}
                 radius={8}
