@@ -360,8 +360,8 @@ function RaceAnalysisPage() {
 
             <div className="col-span-3">
               <p className="text-xs text-muted-foreground">
-                GPS: {metersFmt((session as any)?.work_distance_m ?? session?.total_distance_m ?? 0)} · Reconstructed:{" "}
-                {metersFmt(reconstructedDistance)} · Official: {metersFmt(race?.distance_m ?? 0)}
+                GPS: {metersFmt((session as any)?.work_distance_m ?? session?.total_distance_m ?? 0)} ·
+                Reconstructed: {metersFmt(reconstructedDistance)} · Official: {metersFmt(race?.distance_m ?? 0)}
                 {reconstruction.anomalies.length > 0 && (
                   <>
                     {" "}
@@ -477,11 +477,7 @@ function RaceAnalysisPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
           <div className="lg:col-span-2">
-            <RaceMapPanel
-              points={replayPoints}
-              raceTimeSeconds={race?.time_seconds ?? null}
-              zoneProfile={zoneProfile}
-            />
+            <RaceMapPanel points={replayPoints} raceTimeSeconds={race?.time_seconds ?? null} zoneProfile={zoneProfile} />
           </div>
 
           {pacingInsight && (
@@ -690,16 +686,13 @@ const ZONE_LABELS: Record<string, string> = {
   z5: "Z5 Rep",
 };
 
-type ZoneProfile =
-  | {
-      hr_z1_max: number | null;
-      hr_z2_max: number | null;
-      hr_z3_max: number | null;
-      hr_z4_max: number | null;
-      hr_z5_max: number | null;
-    }
-  | null
-  | undefined;
+type ZoneProfile = {
+  hr_z1_max: number | null;
+  hr_z2_max: number | null;
+  hr_z3_max: number | null;
+  hr_z4_max: number | null;
+  hr_z5_max: number | null;
+} | null | undefined;
 
 function hrToZone(hr: number | null, profile: ZoneProfile): string | null {
   if (hr == null || !profile?.hr_z1_max) return null;
@@ -722,7 +715,10 @@ function RaceMapPanel({
   const safePoints = useMemo(
     () =>
       points.filter(
-        (p) => Number.isFinite(p.lat) && Number.isFinite(p.lng) && (Math.abs(p.lat) > 0.01 || Math.abs(p.lng) > 0.01),
+        (p) =>
+          Number.isFinite(p.lat) &&
+          Number.isFinite(p.lng) &&
+          (Math.abs(p.lat) > 0.01 || Math.abs(p.lng) > 0.01),
       ),
     [points],
   );
@@ -874,7 +870,9 @@ function RaceMapPanel({
             </div>
             <div>
               <span className="text-muted-foreground">Pace: </span>
-              <span className="tabular-nums font-medium">{livePaceSecPerKm ? paceFmt(livePaceSecPerKm) : "—"}</span>
+              <span className="tabular-nums font-medium">
+                {livePaceSecPerKm ? paceFmt(livePaceSecPerKm) : "—"}
+              </span>
             </div>
             {current.elev != null && (
               <div>
