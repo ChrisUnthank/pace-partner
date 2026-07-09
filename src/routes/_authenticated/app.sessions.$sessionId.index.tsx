@@ -23,7 +23,17 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { CheckCircle2, Apple, BookmarkPlus, LineChart, Sparkles } from "lucide-react";
+import {
+  CheckCircle2,
+  Apple,
+  BookmarkPlus,
+  LineChart,
+  Sparkles,
+  MapPin,
+  Mountain,
+  Thermometer,
+  Wind,
+} from "lucide-react";
 import { PostSessionInsightModal } from "@/components/post-session-insight-modal";
 import { useServerFn } from "@tanstack/react-start";
 import { getLatestAthleteNote, generateSessionNote, getAiAccessStatus } from "@/lib/ai.functions";
@@ -33,7 +43,12 @@ import { Switch } from "@/components/ui/switch";
 import { UserAvatar } from "@/components/user-avatar";
 import { ActivityIcon } from "@/lib/activity-icon";
 import { invalidateSession } from "@/lib/session-invalidation";
-import { deleteSession, uploadAndParseSessionFile, mergeSessionIntoAnother, rebuildSessionClassification } from "@/lib/session-files.functions";
+import {
+  deleteSession,
+  uploadAndParseSessionFile,
+  mergeSessionIntoAnother,
+  rebuildSessionClassification,
+} from "@/lib/session-files.functions";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { computeStrideLengthM, formatStride } from "@/lib/session-metrics";
 
@@ -110,6 +125,29 @@ function SessionDetail() {
     },
   });
 
+  // Work step for the "Workout" summary line (e.g. "8 × 1km + 90s jog
+  // recovery") on the Overview card. Only grabs the first work step — for
+  // sessions with a single block of reps (the common case) that's the whole
+  // picture; a multi-set session (e.g. "2 sets of 4 × 400m") would need
+  // extending this to detect and summarize multiple work steps.
+  const { data: workStep } = useQuery({
+    queryKey: ["overview-work-step", sessionId],
+    enabled: !!sessionId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("steps")
+        .select("*")
+        .eq("session_id", sessionId)
+        .eq("kind", "work")
+        .order("step_order")
+        .limit(1)
+        .maybeSingle();
+
+      if (error) throw error;
+      return data;
+    },
+  });
+
   useEffect(() => {
     if (race?.distance_m != null) {
       setDistanceInput(String(race.distance_m));
@@ -152,7 +190,10 @@ function SessionDetail() {
     // Whenever composition changes (new file, merge, or a fresh classification
     // run), a previously "reviewed" session may need a fresh look — clear the
     // dismissed flag so the banner can reappear if still relevant.
-    await supabase.from("sessions").update({ review_dismissed_at: null } as any).eq("id", sessionId);
+    await supabase
+      .from("sessions")
+      .update({ review_dismissed_at: null } as any)
+      .eq("id", sessionId);
   }
 
   async function handleMerge(otherSessionId: string) {
@@ -660,7 +701,9 @@ function SessionDetail() {
           <Card className="border-amber-500/40 bg-amber-500/5">
             <CardContent className="py-3 space-y-2">
               <p className="text-sm font-medium">
-                {sameDaySessions.length === 1 ? "Another uploaded session" : `${sameDaySessions.length} other uploaded sessions`}{" "}
+                {sameDaySessions.length === 1
+                  ? "Another uploaded session"
+                  : `${sameDaySessions.length} other uploaded sessions`}{" "}
                 found for this athlete on the same day — could be a split-off warmup or cooldown from this same upload.
               </p>
               {sameDaySessions.map((s: any) => (
@@ -694,15 +737,39 @@ function SessionDetail() {
 
           <CardContent className="space-y-3">
             {(session.location || session.terrain || session.average_temp_c != null || session.wind_kph != null) && (
-              <div className="text-sm text-muted-foreground">
-                {[
-                  session.location,
-                  session.terrain ? session.terrain.charAt(0).toUpperCase() + session.terrain.slice(1) : null,
-                  session.average_temp_c != null ? `${session.average_temp_c}°C` : null,
-                  session.wind_kph != null ? `Wind ${session.wind_kph} km/h` : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                {session.location && (
+                  <span className="flex items-center gap-1">
+                    <MapPin className="h-3.5 w-3.5" />
+                    {session.location}
+                  </span>
+                )}
+                {session.terrain && (
+                  <span className="flex items-center gap-1">
+                    <Mountain className="h-3.5 w-3.5" />
+                    {session.terrain.charAt(0).toUpperCase() + session.terrain.slice(1)}
+                  </span>
+                )}
+                {session.average_temp_c != null && (
+                  <span className="flex items-center gap-1">
+                    <Thermometer className="h-3.5 w-3.5" />
+                    {session.average_temp_c}°C
+                  </span>
+                )}
+                {session.wind_kph != null && (
+                  <span className="flex items-center gap-1">
+                    <Wind className="h-3.5 w-3.5" />
+                    Wind {session.wind_kph} km/h
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Workout structure — e.g. "8 × 1km + 90s jog recovery" */}
+            {workStep && formatWorkoutStructure(workStep) && (
+              <div className="border rounded-lg px-3 py-2">
+                <div className="text-xs text-muted-foreground">Workout</div>
+                <div className="text-lg font-semibold">{formatWorkoutStructure(workStep)}</div>
               </div>
             )}
 
@@ -711,7 +778,7 @@ function SessionDetail() {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
                 {/* Time */}
                 <div className="border rounded-lg px-3 py-2">
-                  <div className="text-xs text-muted-foreground">Time</div>
+                  <div className="text-xs text-muted-foreground">Total Time</div>
                   <div className="text-lg font-semibold tabular-nums">
                     {secToClock(session.total_time_seconds || 0)}
                   </div>
@@ -756,7 +823,7 @@ function SessionDetail() {
 
                 {/* Pace */}
                 <div className="border rounded-lg px-3 py-2">
-                  <div className="text-xs text-muted-foreground">Pace</div>
+                  <div className="text-xs text-muted-foreground">Total Avg Pace</div>
                   <div className="text-lg font-semibold tabular-nums">
                     {session.total_time_seconds && (session.total_distance_m ?? 0) > 0
                       ? secToClock((session.total_time_seconds / (session.total_distance_m ?? 0)) * 1000)
@@ -774,22 +841,23 @@ function SessionDetail() {
               {/* Split pace — overall (above) can blend warmup/cooldown/work
                   paces together into something misleading. Shown only when
                   there's a real warmup/cooldown to distinguish from work. */}
-              {((session as any).work_avg_pace_sec_per_km != null || (session as any).easy_avg_pace_sec_per_km != null) && (
-                <div className="flex flex-wrap gap-4 text-sm border-t pt-3">
+              {((session as any).work_avg_pace_sec_per_km != null ||
+                (session as any).easy_avg_pace_sec_per_km != null) && (
+                <div className="grid grid-cols-2 gap-3 border-t pt-3">
                   {(session as any).work_avg_pace_sec_per_km != null && (
-                    <div>
-                      <span className="text-xs text-muted-foreground">Work pace </span>
-                      <span className="font-semibold tabular-nums">
+                    <div className="border rounded-lg px-3 py-2">
+                      <div className="text-xs text-muted-foreground">Work pace</div>
+                      <div className="text-lg font-semibold tabular-nums">
                         {secToClock((session as any).work_avg_pace_sec_per_km)}/km
-                      </span>
+                      </div>
                     </div>
                   )}
                   {(session as any).easy_avg_pace_sec_per_km != null && (
-                    <div>
-                      <span className="text-xs text-muted-foreground">Warm-up/Cool-down avg </span>
-                      <span className="font-semibold tabular-nums">
+                    <div className="border rounded-lg px-3 py-2">
+                      <div className="text-xs text-muted-foreground">Warm-up/Cool-down avg</div>
+                      <div className="text-lg font-semibold tabular-nums">
                         {secToClock((session as any).easy_avg_pace_sec_per_km)}/km
-                      </span>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -887,7 +955,7 @@ function SessionDetail() {
                     ? `This session combines ${fileCount} uploaded files — please check the Workout structure below to confirm warmup/work/cooldown are correctly assigned.`
                     : "This session is marked as a race but no block has been confirmed as the race yet."}{" "}
                   Use the dropdown on each block to fix any mislabeled segment, and{" "}
-                  {session.day_type === "race" ? "\"Mark as race\" on the correct block, " : ""}
+                  {session.day_type === "race" ? '"Mark as race" on the correct block, ' : ""}
                   then "↻ Recompute classification" above if you want the auto-split re-run from scratch.
                 </div>
                 <Button
@@ -998,19 +1066,15 @@ function SessionDetail() {
           <DialogHeader>
             <DialogTitle>Merge "{mergeTarget?.title}" into this session?</DialogTitle>
             <DialogDescription>
-              This permanently deletes "{mergeTarget?.title}" — its GPS trace, steps, results, insights, and any
-              race record — and moves its files into this session instead. This cannot be undone.
+              This permanently deletes "{mergeTarget?.title}" — its GPS trace, steps, results, insights, and any race
+              record — and moves its files into this session instead. This cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setMergeTarget(null)}>
               Cancel
             </Button>
-            <Button
-              variant="destructive"
-              disabled={merging}
-              onClick={() => mergeTarget && handleMerge(mergeTarget.id)}
-            >
+            <Button variant="destructive" disabled={merging} onClick={() => mergeTarget && handleMerge(mergeTarget.id)}>
               {merging ? "Merging…" : "Yes, merge and delete the other session"}
             </Button>
           </DialogFooter>
@@ -1211,7 +1275,10 @@ function StepBlock({
 
   async function reassignKind(newKind: string) {
     if (newKind === step.kind) return;
-    const { error } = await supabase.from("steps").update({ kind: newKind } as any).eq("id", step.id);
+    const { error } = await supabase
+      .from("steps")
+      .update({ kind: newKind } as any)
+      .eq("id", step.id);
     if (error) {
       toast.error(error.message);
       return;
@@ -1802,4 +1869,35 @@ function SessionSummary({
       </CardContent>
     </Card>
   );
+}
+
+// Formats a work step's structure into a short human-readable summary for
+// the Overview card, e.g. "8 × 1km + 90s jog recovery". Continuous work
+// (reps <= 1) just shows the distance/time — there's no recovery to
+// describe. Prefers whichever target (distance or time) the step actually
+// used, since FIT-derived steps and manually-planned steps can differ.
+function formatWorkoutStructure(step: any): string | null {
+  if (!step) return null;
+
+  const unit =
+    step.target_kind === "distance" && step.target_distance_m
+      ? metersFmt(step.target_distance_m)
+      : step.target_kind === "time" && step.target_time_seconds
+        ? secToClock(step.target_time_seconds)
+        : null;
+
+  if (!unit) return null;
+  if (step.reps <= 1) return unit;
+
+  const repsPart = `${step.reps} × ${unit}`;
+  const recoveryMode = step.recovery_between_reps_mode ? ` ${step.recovery_between_reps_mode}` : "";
+
+  const recoveryPart =
+    step.recovery_between_reps_target_kind === "distance" && step.recovery_between_reps_distance_m
+      ? `${metersFmt(step.recovery_between_reps_distance_m)}${recoveryMode} recovery`
+      : step.recovery_between_reps_seconds
+        ? `${secToClock(step.recovery_between_reps_seconds)}${recoveryMode} recovery`
+        : null;
+
+  return recoveryPart ? `${repsPart} + ${recoveryPart}` : repsPart;
 }
