@@ -8,12 +8,19 @@ export function secToClock(s?: number | null): string {
   if (h > 0) return `${sign}${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
   return `${sign}${m}:${String(sec).padStart(2, "0")}`;
 }
-
 export function paceFmt(secPerKm?: number | null): string {
   if (!secPerKm) return "—";
   return `${secToClock(secPerKm)} /km`;
 }
-
+export function clockToSec(v: string): number | null {
+  if (!v) return null;
+  const parts = v.split(":").map((p) => Number(p));
+  if (parts.some((n) => isNaN(n))) return null;
+  if (parts.length === 1) return parts[0];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return null;
+}
 // Rounds a GPS-measured distance to a clean, sensible display value —
 // e.g. a recorded 998m interval rep shows as "1000m" instead of the raw
 // GPS noise. Only for workout structure labels (rep/step distances), not
@@ -23,7 +30,6 @@ export function roundDistanceForDisplay(m: number): number {
   if (m < 3000) return Math.round(m / 50) * 50;
   return Math.round(m / 100) * 100;
 }
-
 export function metersFmt(m?: number | null): string {
   if (m == null) return "—";
   // Honour the user's units preference when running in the browser.
@@ -42,7 +48,6 @@ export function metersFmt(m?: number | null): string {
   if (m >= 1000) return `${(m / 1000).toFixed(m % 1000 === 0 ? 0 : 2)} km`;
   return `${Math.round(m)} m`;
 }
-
 export function todayISO(): string {
   const d = new Date();
   const tz = d.getTimezoneOffset() * 60000;
