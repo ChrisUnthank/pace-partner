@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { sessionClassificationLabel, INTENT_LABEL, DAY_TYPE_LABEL } from "@/lib/session-categories";
 import { ActivityIcon } from "@/lib/activity-icon";
@@ -67,19 +68,37 @@ export function CalendarDayCell({
   isToday,
   compact = false,
   onMultiClick,
+  onAdd,
 }: {
   day: DayData;
   inMonth: boolean;
   isToday: boolean;
   compact?: boolean;
   onMultiClick?: (day: DayData) => void;
+  /** Opens the "add to this day" menu (upload file / create session / manual entry). Works on any day, not just empty ones — existing sessions stay reachable via their own pills/sheet. */
+  onAdd?: (date: string) => void;
 }) {
   const sessions = day.sessions;
   const dayNum = Number(day.date.slice(8, 10));
   const readinessCls = day.readiness_status ? READINESS_DOT[day.readiness_status] : null;
 
+  const addButton = onAdd && (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onAdd(day.date);
+      }}
+      className="rounded p-0.5 text-muted-foreground/60 hover:text-foreground hover:bg-accent shrink-0"
+      title="Add to this day"
+      aria-label={`Add session or upload for ${day.date}`}
+    >
+      <Plus className="h-3 w-3" />
+    </button>
+  );
+
   const header = (
-    <div className="flex items-start justify-between px-1.5 pt-1">
+    <div className="flex items-start justify-between px-1.5 pt-1 gap-1">
       <span
         className={cn(
           "text-[11px] leading-none",
@@ -90,23 +109,32 @@ export function CalendarDayCell({
       >
         {dayNum}
       </span>
-      {readinessCls && (
-        <span
-          className={cn("h-2 w-2 rounded-full mt-0.5", readinessCls)}
-          title={`Readiness${day.readiness_score != null ? ` ${Math.round(day.readiness_score)}` : ""}`}
-        />
-      )}
+      <div className="flex items-center gap-1">
+        {readinessCls && (
+          <span
+            className={cn("h-2 w-2 rounded-full", readinessCls)}
+            title={`Readiness${day.readiness_score != null ? ` ${Math.round(day.readiness_score)}` : ""}`}
+          />
+        )}
+        {addButton}
+      </div>
     </div>
   );
 
   if (compact) {
-    // Mobile: date + tiny color bar + dots
+    // Mobile: date + tiny color bar + dots. Uses a div (not button) as the
+    // outer element since it now contains its own nested "+" button —
+    // nesting <button> inside <button> is invalid HTML and breaks clicks.
     return (
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => sessions.length && onMultiClick?.(day)}
+        onKeyDown={(e) => {
+          if ((e.key === "Enter" || e.key === " ") && sessions.length) onMultiClick?.(day);
+        }}
         className={cn(
-          "h-16 w-full border rounded-md bg-background text-left flex flex-col overflow-hidden",
+          "h-16 w-full border rounded-md bg-background text-left flex flex-col overflow-hidden cursor-pointer",
           !inMonth && "opacity-50",
           isToday && "ring-1 ring-primary",
         )}
@@ -114,10 +142,17 @@ export function CalendarDayCell({
         {header}
         <div className="flex-1 flex items-end gap-0.5 px-1 pb-1 flex-wrap">
           {sessions.slice(0, 4).map((s) => (
-            <span key={s.id} className={cn("h-1.5 w-1.5 rounded-full", sessionColorClass(s), s.is_planned && !s.completed_at && "opacity-50")} />
+            <span
+              key={s.id}
+              className={cn(
+                "h-1.5 w-1.5 rounded-full",
+                sessionColorClass(s),
+                s.is_planned && !s.completed_at && "opacity-50",
+              )}
+            />
           ))}
         </div>
-      </button>
+      </div>
     );
   }
 
@@ -132,7 +167,13 @@ export function CalendarDayCell({
       {header}
       <div className="flex-1 flex flex-col gap-1 px-1.5 pb-1.5 mt-1">
         {sessions.slice(0, 2).map((s) => (
-          <SessionPill key={s.id} s={s} load={day.training_load} eff={day.efficiencyBySession?.[s.id]} singleSession={sessions.length === 1} />
+          <SessionPill
+            key={s.id}
+            s={s}
+            load={day.training_load}
+            eff={day.efficiencyBySession?.[s.id]}
+            singleSession={sessions.length === 1}
+          />
         ))}
         {sessions.length > 2 && (
           <button
