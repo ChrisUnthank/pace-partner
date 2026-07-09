@@ -14,14 +14,15 @@ export function paceFmt(secPerKm?: number | null): string {
   return `${secToClock(secPerKm)} /km`;
 }
 
-export function clockToSec(v: string): number | null {
-  if (!v) return null;
-  const parts = v.split(":").map((p) => Number(p));
-  if (parts.some((n) => isNaN(n))) return null;
-  if (parts.length === 1) return parts[0];
-  if (parts.length === 2) return parts[0] * 60 + parts[1];
-  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-  return null;
+export function secToClock(s?: number | null): string {
+  if (s == null || isNaN(s)) return "—";
+  const sign = s < 0 ? "-" : "";
+  const abs = Math.round(Math.abs(s)); // round the total once, up front
+  const h = Math.floor(abs / 3600);
+  const m = Math.floor((abs % 3600) / 60);
+  const sec = abs % 60;
+  if (h > 0) return `${sign}${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+  return `${sign}${m}:${String(sec).padStart(2, "0")}`;
 }
 
 // Rounds a GPS-measured distance to a clean, sensible display value —
