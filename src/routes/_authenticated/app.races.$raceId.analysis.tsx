@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useId } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/app-shell";
@@ -502,6 +502,8 @@ function RaceAnalysisPage() {
           )}
         </div>
 
+        <ZoneGradientBar points={replayPoints} zoneProfile={zoneProfile} />
+
         {isFitRace ? (
           <Card>
             <CardHeader>
@@ -950,6 +952,132 @@ function RaceMapPanel({
             )}
           </MapContainer>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// A gray fallback for stretches with no HR reading (GPS dropout, sensor
+// lost contact, etc.) — keeps the bar honest instead of guessing a zone.
+const NO_HR_COLOR = "#475569";
+
+const GRADIENT_STOPS = 160;
+
+function ZoneGradientBar({
+  points,
+  zoneProfile,
+}: {
+  points: { elapsed_s: number; distance_m: number; hr: number | null }[];
+  zoneProfile: ZoneProfile;
+}) {
+  const [xMode, setXMode] = useState<"distance" | "time">("distance");
+  const gradientId = useId();
+
+  const sorted = useMemo(
+    () => [...points].filter((p) => Number.isFinite(p.elapsed_s)).sort((a, b) => a.elapsed_s - b.elapsed_s),
+    [points],
+  );
+
+  // Sampled at a fixed number of evenly-spaced stops (not one stop per raw
+  // GPS point) so zone transitions render as a genuine gradient fade across
+  // a few percent of the bar's width, rather than a near-instant jump
+  // between two adjacent, closely-spaced stops.
+  const stops = useMemo(() => {
+    if (sorted.length < 2) return [];
+    const total = xMode === "distance" ? sorted[sorted.length - 1].distance_m : sorted[sorted.length - 1].elapsed_s;
+    if (!total) return [];
+
+    const out: { offset: number; color: string }[] = [];
+    let idx = 0;
+    for (let i = 0; i < GRADIENT_STOPS; i++) {
+      const frac = i / (GRADIENT_STOPS - 1);
+      const target = frac * total;
+      while (
+        idx < sorted.length - 1 &&
+        (xMode === "distance" ? sorted[idx].distance_m : sorted[idx].elapsed_s) < target
+      ) {
+        idx++;
+      }
+      const p = sorted[idx];
+      const zone = hrToZone(p?.hr ?? null, zoneProfile);
+      out.push({ offset: frac, color: zone ? ZONE_COLORS[zone] : NO_HR_COLOR });
+    }
+    return out;
+  }, [sorted, xMode, zoneProfile]);
+
+  if (stops.length === 0) {
+    return null;
+  }
+
+  const totalDistance = sorted[sorted.length - 1].distance_m;
+  const totalTime = sorted[sorted.length - 1].elapsed_s;
+  const hasZoneData = zoneProfile?.hr_z1_max != null;
+
+  const tickFracs = [0, 0.25, 0.5, 0.75, 1];
+  const tickLabel = (frac: number) =>
+    xMode === "distance" ? metersFmt(frac * totalDistance) : secToClock(frac * totalTime);
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <CardTitle className="text-base">Effort by zone</CardTitle>
+            <CardDescription>HR zone across the race, faded between zones as effort shifts</CardDescription>
+          </div>
+          <div className="flex rounded-md border overflow-hidden">
+            {(["distance", "time"] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => setXMode(m)}
+                className={`px-2 py-1 text-xs capitalize ${
+                  xMode === m ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground"
+                }`}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {!hasZoneData && (
+          <p className="text-xs text-muted-foreground mb-2">
+            No HR zone thresholds set for this athlete — showing raw HR as gray until zones are configured.
+          </p>
+        )}
+
+        <svg viewBox="0 0 100 16" preserveAspectRatio="none" className="w-full h-10 rounded overflow-hidden">
+          <defs>
+            <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="0">
+              {stops.map((s, i) => (
+                <stop key={i} offset={s.offset} stopColor={s.color} />
+              ))}
+            </linearGradient>
+          </defs>
+          <rect x="0" y="0" width="100" height="16" fill={`url(#${gradientId})`} />
+        </svg>
+
+        <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+          {tickFracs.map((f) => (
+            <span key={f}>{tickLabel(f)}</span>
+          ))}
+        </div>
+
+        {hasZoneData && (
+          <div className="flex flex-wrap gap-3 text-xs mt-3">
+            {(["z1", "z2", "z3", "z4", "z5"] as const).map((z) => (
+              <div key={z} className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full" style={{ background: ZONE_COLORS[z] }} />
+                <span className="text-muted-foreground">{ZONE_LABELS[z]}</span>
+              </div>
+            ))}
+            <div className="flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full" style={{ background: NO_HR_COLOR }} />
+              <span className="text-muted-foreground">No HR</span>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
