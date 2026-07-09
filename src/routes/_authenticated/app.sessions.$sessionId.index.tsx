@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { secToClock, clockToSec, metersFmt, roundDistanceForDisplay } from "@/lib/format";
+import { secToClock, clockToSec, metersFmt, roundDistanceForDisplay, roundRecoverySeconds } from "@/lib/format";
 import { sessionClassificationLabel } from "@/lib/session-categories";
 import { saveSessionAsTemplate } from "@/lib/templates";
 import { useAuthUser, useMyRoles } from "@/lib/use-auth";
@@ -42,6 +42,7 @@ import { markAttendance } from "@/lib/messages.functions";
 import { Switch } from "@/components/ui/switch";
 import { UserAvatar } from "@/components/user-avatar";
 import { ActivityIcon } from "@/lib/activity-icon";
+import { reconstructTrack } from "@/lib/gps-reconstruction";
 import { invalidateSession } from "@/lib/session-invalidation";
 import {
   deleteSession,
@@ -147,6 +148,44 @@ function SessionDetail() {
       return data;
     },
   });
+
+  // Raw points + GPS reconstruction, purely to decide whether the manual
+  // "Split corrections" UI needs to be shown at all. If reconstruction ran
+  // clean (no dropouts/spikes detected), there's nothing for a coach to
+  // second-guess — the automatic correction can be trusted. Only surface
+  // the manual override when reconstruction actually had to flag something.
+  const { data: rawPointsForConfidence = [] } = useQuery({
+    queryKey: ["overview-raw-points", sessionId],
+    enabled: !!sessionId,
+    queryFn: async () => {
+      const PAGE_SIZE = 1000;
+      const all: any[] = [];
+      let from = 0;
+      while (true) {
+        const { data, error } = await supabase
+          .from("raw_session_points")
+          .select("elapsed_s, distance_m")
+          .eq("session_id", sessionId)
+          .order("elapsed_s")
+          .range(from, from + PAGE_SIZE - 1);
+        if (error || !data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
+      return all;
+    },
+  });
+
+  const splitReconstruction = useMemo(() => {
+    if (!rawPointsForConfidence.length) return null;
+    const officialDistance = session?.day_type === "race" ? (race?.distance_m ?? null) : null;
+    return reconstructTrack(rawPointsForConfidence as any, officialDistance);
+  }, [rawPointsForConfidence, session?.day_type, race?.distance_m]);
+
+  // Reconstruction found nothing to flag -> automatic correction is
+  // trustworthy -> manual overrides aren't needed for this session.
+  const needsManualSplitCorrection = (splitReconstruction?.anomalies.length ?? 0) > 0;
 
   useEffect(() => {
     if (race?.distance_m != null) {
@@ -740,25 +779,25 @@ function SessionDetail() {
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
                 {session.location && (
                   <span className="flex items-center gap-1">
-                    <MapPin className="h-3.5 w-3.5" />
+                    <MapPin className="h-3.5 w-3.5 text-sky-400" />
                     {session.location}
                   </span>
                 )}
                 {session.terrain && (
                   <span className="flex items-center gap-1">
-                    <Mountain className="h-3.5 w-3.5" />
+                    <Mountain className="h-3.5 w-3.5 text-emerald-500" />
                     {session.terrain.charAt(0).toUpperCase() + session.terrain.slice(1)}
                   </span>
                 )}
                 {session.average_temp_c != null && (
                   <span className="flex items-center gap-1">
-                    <Thermometer className="h-3.5 w-3.5" />
+                    <Thermometer className="h-3.5 w-3.5 text-orange-400" />
                     {session.average_temp_c}°C
                   </span>
                 )}
                 {session.wind_kph != null && (
                   <span className="flex items-center gap-1">
-                    <Wind className="h-3.5 w-3.5" />
+                    <Wind className="h-3.5 w-3.5 text-cyan-400" />
                     Wind {session.wind_kph} km/h
                   </span>
                 )}
@@ -863,79 +902,100 @@ function SessionDetail() {
                 </div>
               )}
 
-              {/* ✅ ✅ NEW: SPLIT-LEVEL CORRECTIONS */}
-              <div className="border-t pt-3 space-y-2">
-                <Label className="text-xs text-muted-foreground">Split corrections</Label>
+              {/* Split corrections — only surfaced when GPS reconstruction actually
+                  flagged something (dropout/spike) it couldn't confidently resolve
+                  on its own, or when this session already has saved corrections
+                  from before (so existing overrides are never hidden). */}
+              {(needsManualSplitCorrection || ((session.distance_adjustments as any[] | null) ?? []).length > 0) && (
+                <div className="border-t pt-3 space-y-2">
+                  <Label className="text-xs text-muted-foreground">Split corrections</Label>
 
-                {((session.distance_adjustments as any[] | null) ?? []).map((adj: any, i: number) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <Input
-                      type="number"
-                      value={adj.split_km}
-                      placeholder="Km"
-                      className="w-16"
-                      onChange={async (e) => {
-                        const updated = [...((session.distance_adjustments as any[] | null) ?? [])];
-                        updated[i].split_km = Number(e.target.value);
+                  {needsManualSplitCorrection && (
+                    <p className="text-xs text-muted-foreground">
+                      GPS reconstruction detected a dropout or spike it couldn't fully resolve automatically — use these
+                      to manually adjust a specific split if needed.
+                    </p>
+                  )}
 
-                        await supabase.from("sessions").update({ distance_adjustments: updated }).eq("id", session.id);
+                  {((session.distance_adjustments as any[] | null) ?? []).map((adj: any, i: number) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        value={adj.split_km}
+                        placeholder="Km"
+                        className="w-16"
+                        onChange={async (e) => {
+                          const updated = [...((session.distance_adjustments as any[] | null) ?? [])];
+                          updated[i].split_km = Number(e.target.value);
 
-                        qc.invalidateQueries({ queryKey: ["session", sessionId] });
-                      }}
-                    />
+                          await supabase
+                            .from("sessions")
+                            .update({ distance_adjustments: updated })
+                            .eq("id", session.id);
 
-                    <Input
-                      type="number"
-                      value={adj.meters}
-                      placeholder="+m"
-                      className="w-20"
-                      onChange={async (e) => {
-                        const updated = [...((session.distance_adjustments as any[] | null) ?? [])];
-                        updated[i].meters = Number(e.target.value);
+                          qc.invalidateQueries({ queryKey: ["session", sessionId] });
+                        }}
+                      />
 
-                        await supabase.from("sessions").update({ distance_adjustments: updated }).eq("id", session.id);
+                      <Input
+                        type="number"
+                        value={adj.meters}
+                        placeholder="+m"
+                        className="w-20"
+                        onChange={async (e) => {
+                          const updated = [...((session.distance_adjustments as any[] | null) ?? [])];
+                          updated[i].meters = Number(e.target.value);
 
-                        qc.invalidateQueries({ queryKey: ["session", sessionId] });
-                      }}
-                    />
+                          await supabase
+                            .from("sessions")
+                            .update({ distance_adjustments: updated })
+                            .eq("id", session.id);
 
-                    <span className="text-xs text-muted-foreground">m</span>
+                          qc.invalidateQueries({ queryKey: ["session", sessionId] });
+                        }}
+                      />
 
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={async () => {
-                        const updated = ((session.distance_adjustments as any[] | null) ?? []).filter(
-                          (_: any, idx: number) => idx !== i,
-                        );
+                      <span className="text-xs text-muted-foreground">m</span>
 
-                        await supabase.from("sessions").update({ distance_adjustments: updated }).eq("id", session.id);
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={async () => {
+                          const updated = ((session.distance_adjustments as any[] | null) ?? []).filter(
+                            (_: any, idx: number) => idx !== i,
+                          );
 
-                        qc.invalidateQueries({ queryKey: ["session", sessionId] });
-                      }}
-                    >
-                      ✕
-                    </Button>
-                  </div>
-                ))}
+                          await supabase
+                            .from("sessions")
+                            .update({ distance_adjustments: updated })
+                            .eq("id", session.id);
 
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={async () => {
-                    const updated = [
-                      ...((session.distance_adjustments as any[] | null) ?? []),
-                      { split_km: 1, meters: 50 },
-                    ];
+                          qc.invalidateQueries({ queryKey: ["session", sessionId] });
+                        }}
+                      >
+                        ✕
+                      </Button>
+                    </div>
+                  ))}
 
-                    await supabase.from("sessions").update({ distance_adjustments: updated }).eq("id", session.id);
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={async () => {
+                      const updated = [
+                        ...((session.distance_adjustments as any[] | null) ?? []),
+                        { split_km: 1, meters: 50 },
+                      ];
 
-                    qc.invalidateQueries({ queryKey: ["session", sessionId] });
-                  }}
-                >
-                  + Add correction
-                </Button>
-              </div>
+                      await supabase.from("sessions").update({ distance_adjustments: updated }).eq("id", session.id);
+
+                      qc.invalidateQueries({ queryKey: ["session", sessionId] });
+                    }}
+                  >
+                    + Add correction
+                  </Button>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -1881,7 +1941,7 @@ function formatWorkoutStructure(step: any): string | null {
 
   const unit =
     step.target_kind === "distance" && step.target_distance_m
-      ? metersFmt(step.target_distance_m)
+      ? metersFmt(roundDistanceForDisplay(step.target_distance_m))
       : step.target_kind === "time" && step.target_time_seconds
         ? secToClock(step.target_time_seconds)
         : null;
@@ -1894,9 +1954,9 @@ function formatWorkoutStructure(step: any): string | null {
 
   const recoveryPart =
     step.recovery_between_reps_target_kind === "distance" && step.recovery_between_reps_distance_m
-      ? `${metersFmt(step.recovery_between_reps_distance_m)}${recoveryMode} recovery`
+      ? `${metersFmt(roundDistanceForDisplay(step.recovery_between_reps_distance_m))}${recoveryMode} recovery`
       : step.recovery_between_reps_seconds
-        ? `${secToClock(step.recovery_between_reps_seconds)}${recoveryMode} recovery`
+        ? `${secToClock(roundRecoverySeconds(step.recovery_between_reps_seconds))}${recoveryMode} recovery`
         : null;
 
   return recoveryPart ? `${repsPart} + ${recoveryPart}` : repsPart;
