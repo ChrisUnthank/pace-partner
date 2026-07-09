@@ -33,7 +33,7 @@ const RANGES = {
   "4w": { days: 28, label: "4 weeks" },
   "3m": { days: 91, label: "3 months" },
   "6m": { days: 182, label: "6 months" },
-  "all": { days: 2000, label: "All time" },
+  all: { days: 2000, label: "All time" },
 } as const;
 type RangeKey = keyof typeof RANGES;
 
@@ -89,7 +89,13 @@ function AnalyticsPage() {
   if (isCoach && !selectedAthleteId) {
     return (
       <AppShell>
-        <CoachRoster range={range} onRangeChange={setRange} customFrom={customFrom} customTo={customTo} onCustomRange={setCustomRange} />
+        <CoachRoster
+          range={range}
+          onRangeChange={setRange}
+          customFrom={customFrom}
+          customTo={customTo}
+          onCustomRange={setCustomRange}
+        />
       </AppShell>
     );
   }
@@ -104,15 +110,34 @@ function AnalyticsPage() {
 
   return (
     <AppShell>
-      <AthleteAnalytics athleteId={selectedAthleteId} range={range} onRangeChange={setRange} showBack={isCoach}
-        customFrom={customFrom} customTo={customTo} onCustomRange={setCustomRange} />
+      <AthleteAnalytics
+        athleteId={selectedAthleteId}
+        range={range}
+        onRangeChange={setRange}
+        showBack={isCoach}
+        customFrom={customFrom}
+        customTo={customTo}
+        onCustomRange={setCustomRange}
+      />
     </AppShell>
   );
 }
 
 // ---------- Coach roster ----------
 
-function CoachRoster({ range, onRangeChange, customFrom, customTo, onCustomRange }: { range: RangeKey; onRangeChange: (r: RangeKey) => void; customFrom?: string; customTo?: string; onCustomRange: (from?: string, to?: string) => void }) {
+function CoachRoster({
+  range,
+  onRangeChange,
+  customFrom,
+  customTo,
+  onCustomRange,
+}: {
+  range: RangeKey;
+  onRangeChange: (r: RangeKey) => void;
+  customFrom?: string;
+  customTo?: string;
+  onCustomRange: (from?: string, to?: string) => void;
+}) {
   const { user } = useAuthUser();
   const { data: rawRoles = [] } = useMyRawRoles();
   const isManager = rawRoles.includes("manager");
@@ -123,10 +148,7 @@ function CoachRoster({ range, onRangeChange, customFrom, customTo, onCustomRange
     enabled: !!user,
     queryFn: async () => {
       if (isManager) {
-        const { data } = await supabase
-          .from("athletes")
-          .select("id, name, primary_event")
-          .order("name");
+        const { data } = await supabase.from("athletes").select("id, name, primary_event").order("name");
         return (data ?? []).map((a: any) => ({ athlete_id: a.id, athletes: a }));
       }
       const { data } = await supabase
@@ -198,7 +220,13 @@ function CoachRoster({ range, onRangeChange, customFrom, customTo, onCustomRange
           <h1 className="text-2xl font-bold">Roster analytics</h1>
           <p className="text-sm text-muted-foreground">Readiness band and 14-day fitness trend for every athlete.</p>
         </div>
-        <RangePicker value={range} onChange={onRangeChange} customFrom={customFrom} customTo={customTo} onCustomRange={onCustomRange} />
+        <RangePicker
+          value={range}
+          onChange={onRangeChange}
+          customFrom={customFrom}
+          customTo={customTo}
+          onCustomRange={onCustomRange}
+        />
       </div>
 
       <Card>
@@ -258,7 +286,8 @@ function ctlSlopeDirection(values: number[]): "improving" | "stable" | "declinin
   const n = values.length;
   const xMean = (n - 1) / 2;
   const yMean = values.reduce((a, b) => a + b, 0) / n;
-  let num = 0, den = 0;
+  let num = 0,
+    den = 0;
   for (let i = 0; i < n; i++) {
     num += (i - xMean) * (values[i] - yMean);
     den += (i - xMean) ** 2;
@@ -301,7 +330,11 @@ function AthleteAnalytics({
   const { data: athlete } = useQuery({
     queryKey: ["analytics-athlete", athleteId],
     queryFn: async () => {
-      const { data } = await supabase.from("athletes").select("id, name, primary_event").eq("id", athleteId).maybeSingle();
+      const { data } = await supabase
+        .from("athletes")
+        .select("id, name, primary_event")
+        .eq("id", athleteId)
+        .maybeSingle();
       return data;
     },
   });
@@ -315,7 +348,18 @@ function AthleteAnalytics({
         .eq("athlete_id", athleteId)
         .gte("load_date", since)
         .order("load_date", { ascending: true });
-      return data ?? [];
+
+      // CTL/ATL/TSB come out of the DB as floating point (exponentially-
+      // weighted averages carry full precision). Rounding here — once, at
+      // the source — means the chart lines, the area fill, and Recharts'
+      // default tooltip all show clean whole numbers without needing a
+      // formatter on every chart element that touches this data.
+      return (data ?? []).map((d) => ({
+        ...d,
+        ctl: d.ctl != null ? Math.round(Number(d.ctl)) : d.ctl,
+        atl: d.atl != null ? Math.round(Number(d.atl)) : d.atl,
+        tsb: d.tsb != null ? Math.round(Number(d.tsb)) : d.tsb,
+      }));
     },
   });
 
@@ -376,7 +420,9 @@ function AthleteAnalytics({
     queryFn: async () => {
       const { data } = await supabase
         .from("interval_results")
-        .select("step_id, actual_time_seconds, actual_distance_m, steps!inner(kind, sessions!inner(athlete_id, session_date, completed_at))")
+        .select(
+          "step_id, actual_time_seconds, actual_distance_m, steps!inner(kind, sessions!inner(athlete_id, session_date, completed_at))",
+        )
         .eq("steps.sessions.athlete_id", athleteId)
         .not("steps.sessions.completed_at", "is", null)
         .gte("steps.sessions.session_date", since);
@@ -391,7 +437,9 @@ function AthleteAnalytics({
     queryFn: async () => {
       const { data } = await supabase
         .from("steps")
-        .select("id, kind, reps, set_count, target_distance_m, target_time_seconds, sessions!inner(athlete_id, session_date, completed_at)")
+        .select(
+          "id, kind, reps, set_count, target_distance_m, target_time_seconds, sessions!inner(athlete_id, session_date, completed_at)",
+        )
         .eq("sessions.athlete_id", athleteId)
         .not("sessions.completed_at", "is", null)
         .gte("sessions.session_date", since);
@@ -402,7 +450,11 @@ function AthleteAnalytics({
   const { data: physio } = useQuery({
     queryKey: ["analytics-physio", athleteId],
     queryFn: async () => {
-      const { data } = await supabase.from("athlete_physio_profile").select("*").eq("athlete_id", athleteId).maybeSingle();
+      const { data } = await supabase
+        .from("athlete_physio_profile")
+        .select("*")
+        .eq("athlete_id", athleteId)
+        .maybeSingle();
       return data;
     },
   });
@@ -511,7 +563,11 @@ function AthleteAnalytics({
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           {showBack && (
-            <Link to="/app/analytics" search={{ range }} className="text-sm text-muted-foreground inline-flex items-center gap-1 hover:underline">
+            <Link
+              to="/app/analytics"
+              search={{ range }}
+              className="text-sm text-muted-foreground inline-flex items-center gap-1 hover:underline"
+            >
               <ChevronLeft className="h-3.5 w-3.5" /> Back to roster
             </Link>
           )}
@@ -524,18 +580,28 @@ function AthleteAnalytics({
             />
           </div>
         </div>
-        <RangePicker value={range} onChange={onRangeChange} customFrom={customFrom} customTo={customTo} onCustomRange={onCustomRange} />
+        <RangePicker
+          value={range}
+          onChange={onRangeChange}
+          customFrom={customFrom}
+          customTo={customTo}
+          onCustomRange={onCustomRange}
+        />
       </div>
 
       {/* PMC */}
       <Card>
         <CardHeader>
           <CardTitle>Performance Management Chart</CardTitle>
-          <CardDescription>Fitness (CTL), fatigue (ATL), form (TSB) over {RANGES[range].label.toLowerCase()}.</CardDescription>
+          <CardDescription>
+            Fitness (CTL), fatigue (ATL), form (TSB) over {RANGES[range].label.toLowerCase()}.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {!load || load.length < 3 ? (
-            <p className="text-sm text-muted-foreground">Building baseline — keep logging sessions and daily check-ins.</p>
+            <p className="text-sm text-muted-foreground">
+              Building baseline — keep logging sessions and daily check-ins.
+            </p>
           ) : (
             <div className="h-[320px] w-full">
               <ResponsiveContainer>
@@ -544,14 +610,40 @@ function AthleteAnalytics({
                   <XAxis dataKey="load_date" tick={{ fontSize: 11 }} minTickGap={32} />
                   <YAxis tick={{ fontSize: 11 }} />
                   <Tooltip
-                    contentStyle={{ background: "hsl(var(--background))", border: "1px solid hsl(var(--border))", fontSize: 12 }}
+                    contentStyle={{
+                      background: "hsl(var(--background))",
+                      border: "1px solid hsl(var(--border))",
+                      fontSize: 12,
+                    }}
                     labelStyle={{ color: "hsl(var(--foreground))" }}
                   />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
                   <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeDasharray="2 4" />
-                  <Area type="monotone" dataKey="tsb" name="Form (TSB)" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.12} />
-                  <Line type="monotone" dataKey="ctl" name="Fitness (CTL)" stroke="#10b981" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="atl" name="Fatigue (ATL)" stroke="#f43f5e" strokeWidth={2} strokeDasharray="4 3" dot={false} />
+                  <Area
+                    type="monotone"
+                    dataKey="tsb"
+                    name="Form (TSB)"
+                    stroke="#3b82f6"
+                    fill="#3b82f6"
+                    fillOpacity={0.12}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="ctl"
+                    name="Fitness (CTL)"
+                    stroke="#10b981"
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="atl"
+                    name="Fatigue (ATL)"
+                    stroke="#f43f5e"
+                    strokeWidth={2}
+                    strokeDasharray="4 3"
+                    dot={false}
+                  />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -575,7 +667,13 @@ function AthleteAnalytics({
                     <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
                     <XAxis dataKey="week" tick={{ fontSize: 10 }} minTickGap={24} />
                     <YAxis tick={{ fontSize: 11 }} />
-                    <Tooltip contentStyle={{ background: "hsl(var(--background))", border: "1px solid hsl(var(--border))", fontSize: 12 }} />
+                    <Tooltip
+                      contentStyle={{
+                        background: "hsl(var(--background))",
+                        border: "1px solid hsl(var(--border))",
+                        fontSize: 12,
+                      }}
+                    />
                     <Bar dataKey="value" name="Load" fill="#6366f1" radius={[3, 3, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -587,7 +685,9 @@ function AthleteAnalytics({
         <Card>
           <CardHeader>
             <CardTitle>Within-session fatigue trend</CardTitle>
-            <CardDescription>Average efficiency score across interval sessions, by week. Higher = holding pace better late.</CardDescription>
+            <CardDescription>
+              Average efficiency score across interval sessions, by week. Higher = holding pace better late.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {weeklyEfficiency.length < 2 ? (
@@ -599,8 +699,21 @@ function AthleteAnalytics({
                     <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
                     <XAxis dataKey="week" tick={{ fontSize: 10 }} minTickGap={24} />
                     <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} />
-                    <Tooltip contentStyle={{ background: "hsl(var(--background))", border: "1px solid hsl(var(--border))", fontSize: 12 }} />
-                    <Line type="monotone" dataKey="value" name="Efficiency" stroke="#0ea5e9" strokeWidth={2} dot={{ r: 3 }} />
+                    <Tooltip
+                      contentStyle={{
+                        background: "hsl(var(--background))",
+                        border: "1px solid hsl(var(--border))",
+                        fontSize: 12,
+                      }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="value"
+                      name="Efficiency"
+                      stroke="#0ea5e9"
+                      strokeWidth={2}
+                      dot={{ r: 3 }}
+                    />
                   </RLineChart>
                 </ResponsiveContainer>
               </div>
@@ -622,7 +735,13 @@ function AthleteAnalytics({
                     <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
                     <XAxis dataKey="week" tick={{ fontSize: 10 }} minTickGap={24} />
                     <YAxis tick={{ fontSize: 11 }} />
-                    <Tooltip contentStyle={{ background: "hsl(var(--background))", border: "1px solid hsl(var(--border))", fontSize: 12 }} />
+                    <Tooltip
+                      contentStyle={{
+                        background: "hsl(var(--background))",
+                        border: "1px solid hsl(var(--border))",
+                        fontSize: 12,
+                      }}
+                    />
                     <Bar dataKey="km" name="km" fill="#10b981" radius={[3, 3, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -631,10 +750,38 @@ function AthleteAnalytics({
           </CardContent>
         </Card>
 
-        <ZoneBarCard title="Time in HR Zone" description="Minutes per HR zone in this range." data={zoneBuckets.hr} dataKey="minutes" unit="min" color="#ef4444" />
-        <ZoneBarCard title="Time in Pace Zone" description="Minutes per pace zone (anchored to 5K pace)." data={zoneBuckets.pace} dataKey="minutes" unit="min" color="#3b82f6" />
-        <ZoneBarCard title="Distance in HR Zone" description="Kilometres per HR zone in this range." data={zoneBuckets.hr} dataKey="km" unit="km" color="#ef4444" />
-        <ZoneBarCard title="Distance in Pace Zone" description="Kilometres per pace zone in this range." data={zoneBuckets.pace} dataKey="km" unit="km" color="#3b82f6" />
+        <ZoneBarCard
+          title="Time in HR Zone"
+          description="Minutes per HR zone in this range."
+          data={zoneBuckets.hr}
+          dataKey="minutes"
+          unit="min"
+          color="#ef4444"
+        />
+        <ZoneBarCard
+          title="Time in Pace Zone"
+          description="Minutes per pace zone (anchored to 5K pace)."
+          data={zoneBuckets.pace}
+          dataKey="minutes"
+          unit="min"
+          color="#3b82f6"
+        />
+        <ZoneBarCard
+          title="Distance in HR Zone"
+          description="Kilometres per HR zone in this range."
+          data={zoneBuckets.hr}
+          dataKey="km"
+          unit="km"
+          color="#ef4444"
+        />
+        <ZoneBarCard
+          title="Distance in Pace Zone"
+          description="Kilometres per pace zone in this range."
+          data={zoneBuckets.pace}
+          dataKey="km"
+          unit="km"
+          color="#3b82f6"
+        />
 
         <Card>
           <CardHeader>
@@ -651,7 +798,13 @@ function AthleteAnalytics({
                     <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
                     <XAxis dataKey="intent" tick={{ fontSize: 11 }} />
                     <YAxis tick={{ fontSize: 11 }} />
-                    <Tooltip contentStyle={{ background: "hsl(var(--background))", border: "1px solid hsl(var(--border))", fontSize: 12 }} />
+                    <Tooltip
+                      contentStyle={{
+                        background: "hsl(var(--background))",
+                        border: "1px solid hsl(var(--border))",
+                        fontSize: 12,
+                      }}
+                    />
                     <Bar dataKey="minutes" name="min" fill="#8b5cf6" radius={[3, 3, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -671,7 +824,9 @@ function AthleteAnalytics({
         </CardHeader>
         <CardContent>
           {!physio || physio.status !== "ok" ? (
-            <p className="text-sm text-muted-foreground">{physio?.coaching_note ?? "Log PBs at two or more distances to generate a profile."}</p>
+            <p className="text-sm text-muted-foreground">
+              {physio?.coaching_note ?? "Log PBs at two or more distances to generate a profile."}
+            </p>
           ) : (
             <div className="grid sm:grid-cols-2 gap-4 items-center">
               <div className="flex items-center gap-4">
@@ -692,7 +847,8 @@ function AthleteAnalytics({
                 <div className="font-semibold">{physio.archetype}</div>
                 {physio.speed_reserve_pct != null && (
                   <div className="text-xs text-muted-foreground mt-2">
-                    Speed reserve: <span className="tabular-nums">{physio.speed_reserve_pct}%</span> ({physio.speed_reserve_bucket})
+                    Speed reserve: <span className="tabular-nums">{physio.speed_reserve_pct}%</span> (
+                    {physio.speed_reserve_bucket})
                   </div>
                 )}
               </div>
@@ -709,7 +865,19 @@ function AthleteAnalytics({
   );
 }
 
-function RangePicker({ value, onChange, customFrom, customTo, onCustomRange }: { value: RangeKey; onChange: (r: RangeKey) => void; customFrom?: string; customTo?: string; onCustomRange?: (from?: string, to?: string) => void }) {
+function RangePicker({
+  value,
+  onChange,
+  customFrom,
+  customTo,
+  onCustomRange,
+}: {
+  value: RangeKey;
+  onChange: (r: RangeKey) => void;
+  customFrom?: string;
+  customTo?: string;
+  onCustomRange?: (from?: string, to?: string) => void;
+}) {
   const isCustom = !!(customFrom || customTo);
   return (
     <div className="flex items-center gap-2 flex-wrap">
@@ -726,21 +894,42 @@ function RangePicker({ value, onChange, customFrom, customTo, onCustomRange }: {
       </div>
       <div className="sm:hidden">
         <Select value={value} onValueChange={(v) => onChange(v as RangeKey)}>
-          <SelectTrigger className="h-8 w-[120px] text-xs"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="h-8 w-[120px] text-xs">
+            <SelectValue />
+          </SelectTrigger>
           <SelectContent>
             {(Object.keys(RANGES) as RangeKey[]).map((k) => (
-              <SelectItem key={k} value={k}>{RANGES[k].label}</SelectItem>
+              <SelectItem key={k} value={k}>
+                {RANGES[k].label}
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>
       </div>
       {onCustomRange && (
         <div className="flex items-center gap-1 text-xs">
-          <input type="date" value={customFrom ?? ""} onChange={(e) => onCustomRange(e.target.value || undefined, customTo)} className="h-8 px-2 border rounded bg-background" aria-label="From" />
+          <input
+            type="date"
+            value={customFrom ?? ""}
+            onChange={(e) => onCustomRange(e.target.value || undefined, customTo)}
+            className="h-8 px-2 border rounded bg-background"
+            aria-label="From"
+          />
           <span className="text-muted-foreground">→</span>
-          <input type="date" value={customTo ?? ""} onChange={(e) => onCustomRange(customFrom, e.target.value || undefined)} className="h-8 px-2 border rounded bg-background" aria-label="To" />
+          <input
+            type="date"
+            value={customTo ?? ""}
+            onChange={(e) => onCustomRange(customFrom, e.target.value || undefined)}
+            className="h-8 px-2 border rounded bg-background"
+            aria-label="To"
+          />
           {isCustom && (
-            <button onClick={() => onCustomRange(undefined, undefined)} className="px-2 h-8 text-xs hover:bg-accent rounded">Clear</button>
+            <button
+              onClick={() => onCustomRange(undefined, undefined)}
+              className="px-2 h-8 text-xs hover:bg-accent rounded"
+            >
+              Clear
+            </button>
           )}
         </div>
       )}
@@ -761,7 +950,12 @@ function PieSplit({ aerobic, anaerobic }: { aerobic: number; anaerobic: number }
 }
 
 function ZoneBarCard({
-  title, description, data, dataKey, unit, color,
+  title,
+  description,
+  data,
+  dataKey,
+  unit,
+  color,
 }: {
   title: string;
   description: string;
@@ -787,7 +981,13 @@ function ZoneBarCard({
                 <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
                 <XAxis dataKey="zone" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip contentStyle={{ background: "hsl(var(--background))", border: "1px solid hsl(var(--border))", fontSize: 12 }} />
+                <Tooltip
+                  contentStyle={{
+                    background: "hsl(var(--background))",
+                    border: "1px solid hsl(var(--border))",
+                    fontSize: 12,
+                  }}
+                />
                 <Bar dataKey={dataKey} name={unit} fill={color} radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -824,11 +1024,15 @@ function VolumePieCard({ data }: { data: { kind: string; minutes: number; km: nu
             <button
               onClick={() => setMode("minutes")}
               className={`px-2.5 py-1 ${mode === "minutes" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
-            >Time</button>
+            >
+              Time
+            </button>
             <button
               onClick={() => setMode("km")}
               className={`px-2.5 py-1 ${mode === "km" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
-            >Distance</button>
+            >
+              Distance
+            </button>
           </div>
         </div>
       </CardHeader>
@@ -840,20 +1044,17 @@ function VolumePieCard({ data }: { data: { kind: string; minutes: number; km: nu
             <div className="h-[220px] w-full">
               <ResponsiveContainer>
                 <PieChart>
-                  <Pie
-                    data={data}
-                    dataKey={mode}
-                    nameKey="kind"
-                    innerRadius={45}
-                    outerRadius={80}
-                    paddingAngle={2}
-                  >
+                  <Pie data={data} dataKey={mode} nameKey="kind" innerRadius={45} outerRadius={80} paddingAngle={2}>
                     {data.map((d) => (
                       <Cell key={d.kind} fill={KIND_COLORS[d.kind] ?? "#8b5cf6"} />
                     ))}
                   </Pie>
                   <Tooltip
-                    contentStyle={{ background: "hsl(var(--background))", border: "1px solid hsl(var(--border))", fontSize: 12 }}
+                    contentStyle={{
+                      background: "hsl(var(--background))",
+                      border: "1px solid hsl(var(--border))",
+                      fontSize: 12,
+                    }}
                     formatter={(v: any, n: any) => {
                       const pct = total ? Math.round((Number(v) / total) * 100) : 0;
                       return [`${v} ${mode === "minutes" ? "min" : "km"} (${pct}%)`, n];
@@ -865,7 +1066,8 @@ function VolumePieCard({ data }: { data: { kind: string; minutes: number; km: nu
             </div>
             {mode === "km" && (
               <p className="text-xs text-muted-foreground mt-2">
-                Includes warmup/cooldown to show how volume is split. Will exceed the headline "Weekly distance" number, which intentionally excludes warmup/cooldown.
+                Includes warmup/cooldown to show how volume is split. Will exceed the headline "Weekly distance" number,
+                which intentionally excludes warmup/cooldown.
               </p>
             )}
           </>
