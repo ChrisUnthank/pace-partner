@@ -38,19 +38,40 @@ async function fetchWeather(lat: number, lon: number, timestamp: string) {
     // Some hours in the archive/forecast data can have a gap in one
     // variable but not the other (rare, but seen in practice — e.g. temp
     // present, wind null for that exact hour). Rather than silently
-    // returning null for that one field, check a couple of adjacent hours
-    // for a usable reading — close enough for a session summary, and
-    // better than a blank field when the info was available an hour either
-    // side.
-    const nearestNonNull = (arr: (number | null)[]): number | null => {
-      for (let offset = 0; offset <= 2; offset++) {
+    // returning null for that one field, check adjacent hours for a usable
+    // reading — close enough for a session summary, and better than a
+    // blank field when the info was available a few hours either side.
+    // Wind fields in particular tend to have wider gaps than temperature
+    // in both the archive and forecast datasets, so give wind a longer
+    // leash (up to 6h either side) rather than the 2h used for temp.
+    const nearestNonNull = (arr: (number | null)[], maxOffset: number): number | null => {
+      for (let offset = 0; offset <= maxOffset; offset++) {
         if (arr[bestIdx + offset] != null) return arr[bestIdx + offset];
-        if (arr[bestIdx - offset] != null) return arr[bestIdx - offset];
+        if (offset > 0 && arr[bestIdx - offset] != null) return arr[bestIdx - offset];
       }
       return null;
     };
 
-    return { temp: nearestNonNull(temps), wind: nearestNonNull(winds) };
+    const resolvedTemp = nearestNonNull(temps, 2);
+    let resolvedWind = nearestNonNull(winds, 6);
+
+    if (resolvedWind == null) {
+      // Wind still unresolved even with the wider window - log the raw
+      // window we searched so a real provider gap (vs. a bug here) can be
+      // confirmed from server logs instead of guessing after the fact.
+      console.error(
+        "fetchWeather: no usable wind_speed_10m reading",
+        JSON.stringify({
+          lat,
+          lon,
+          day,
+          bestIdx,
+          nearbyWinds: winds.slice(Math.max(0, bestIdx - 6), bestIdx + 7),
+        }),
+      );
+    }
+
+    return { temp: resolvedTemp, wind: resolvedWind };
   } catch (err) {
     console.error("Weather fetch failed", err);
     return { temp: null, wind: null };
