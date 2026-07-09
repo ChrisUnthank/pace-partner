@@ -333,18 +333,6 @@ function RaceAnalysisPage() {
                   </>
                 )}
               </p>
-              {/* TEMP DEBUG — remove once the reconstruction branch issue is resolved */}
-              <p className="text-xs text-amber-500 mt-1">
-                DEBUG: officialDistanceM={officialDistance} reconstructedTotalDistanceM=
-                {reconstruction.reconstructedTotalDistanceM} remainder=
-                {(officialDistance ?? 0) - reconstruction.reconstructedTotalDistanceM} fractionOfTotal=
-                {officialDistance
-                  ? (
-                      Math.abs((officialDistance ?? 0) - reconstruction.reconstructedTotalDistanceM) / officialDistance
-                    ).toFixed(5)
-                  : "n/a"}{" "}
-                anomalies={reconstruction.anomalies.length}
-              </p>
             </div>
 
             {/* ✅ Data quality panel — transparency into what was auto-corrected */}
@@ -474,30 +462,18 @@ function RaceAnalysisPage() {
             </CardHeader>
             <CardContent className="space-y-2">
               {autoSplits.map((s) => {
-                let width = 100;
-
-                if (autoSplits.length > 1) {
-                  const times = autoSplits.map((x) => x.time);
-                  const max = Math.max(...times);
-                  const min = Math.min(...times);
-
-                  const range = max - min;
-
-                  if (range > 0) {
-                    width = ((s.time - min) / range) * 100;
-                  } else {
-                    width = 100;
-                  }
-
-                  // ✅ prevent tiny invisible bars
-                  width = Math.max(width, 8);
-                }
+                // Bar width represents this split's actual distance relative
+                // to a standard full split — a 400m partial (out of a 1000m
+                // standard) should visually read as ~40% width, not be sized
+                // by comparing elapsed time across splits.
+                const splitOwnDistance = s.endDistanceM - s.startDistanceM;
+                let width = splitDistance > 0 ? (splitOwnDistance / splitDistance) * 100 : 100;
+                width = Math.min(100, Math.max(width, 8)); // clamp, and keep tiny splits visible
 
                 // ✅ colour logic — target time now scales to this split's actual
                 // distance, so partial splits are graded fairly instead of always
                 // reading as "fast" relative to a full-length target.
                 let color = "bg-blue-500";
-                const splitOwnDistance = s.endDistanceM - s.startDistanceM;
 
                 if (avgPace && splitOwnDistance > 0) {
                   const targetSplitTime = (avgPace / 1000) * splitOwnDistance;
