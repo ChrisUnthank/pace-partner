@@ -1398,18 +1398,22 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
         Math.abs(p.lng) <= 180,
     );
 
-    // prefer a fix from early in the activity, but fall back to anywhere
+  // prefer a fix from early in the activity, but fall back to anywhere
     const earlyWindow = withGps.filter((p) => p.elapsed_s <= 300);
     const candidates = earlyWindow.length > 0 ? earlyWindow : withGps;
     const firstPoint = candidates.length > 0 ? candidates[Math.floor(candidates.length / 2)] : null;
 
-    if (firstPoint && parsedFiles[0]?.parsed?.startedAt) {
-      const weather = await fetchWeather(firstPoint.lat!, firstPoint.lng!, parsedFiles[0].parsed.startedAt);
+    // Use this point's OWN timestamp, not parsedFiles[0]'s start time — if
+    // the early window came up empty and we fell back to "anywhere in the
+    // merged session", that point could be from a much later file (e.g.
+    // the cooldown), and pairing its location with a much-earlier file's
+    // start time would ask the weather API for the wrong hour entirely.
+    if (firstPoint?.timestamp) {
+      const weather = await fetchWeather(firstPoint.lat!, firstPoint.lng!, firstPoint.timestamp);
       weatherTemp = weather.temp;
       weatherWind = weather.wind;
       locationName = await fetchLocationName(firstPoint.lat!, firstPoint.lng!);
     }
-  }
 
   const workPaceSecPerKm =
     workMetrics.distance && workMetrics.time ? (Number(workMetrics.time) / Number(workMetrics.distance)) * 1000 : null;

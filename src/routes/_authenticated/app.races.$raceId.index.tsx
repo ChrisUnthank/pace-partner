@@ -53,7 +53,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { computeStrideLengthM, formatStride } from "@/lib/session-metrics";
 
-export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/")({
+export const Route = createFileRoute("/_authenticated/app/races/$raceId/")({
   component: SessionDetail,
 });
 
