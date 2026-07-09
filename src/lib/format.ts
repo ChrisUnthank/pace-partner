@@ -21,6 +21,16 @@ export function clockToSec(v: string): number | null {
   if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
   return null;
 }
+
+// Rounds a recovery duration to the nearest 15 seconds for display — e.g. a
+// recorded 97s recovery between reps shows as "1:30" instead of "1:37".
+// Coaches think in clean round intervals, not raw GPS/lap-boundary timing
+// noise, so this only affects how a value is *displayed* (the underlying
+// recorded seconds used for analysis/fatigue calcs are untouched).
+export function roundRecoverySeconds(sec: number): number {
+  if (!Number.isFinite(sec) || sec <= 0) return sec;
+  return Math.round(sec / 15) * 15;
+}
 // Rounds a GPS-measured distance to a clean, sensible display value —
 // e.g. a recorded 998m interval rep shows as "1000m" instead of the raw
 // GPS noise. Only for workout structure labels (rep/step distances), not
@@ -30,6 +40,7 @@ export function roundDistanceForDisplay(m: number): number {
   if (m < 3000) return Math.round(m / 50) * 50;
   return Math.round(m / 100) * 100;
 }
+
 export function metersFmt(m?: number | null): string {
   if (m == null) return "—";
   // Honour the user's units preference when running in the browser.
