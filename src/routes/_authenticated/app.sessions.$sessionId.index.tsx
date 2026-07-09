@@ -33,12 +33,7 @@ import { Switch } from "@/components/ui/switch";
 import { UserAvatar } from "@/components/user-avatar";
 import { ActivityIcon } from "@/lib/activity-icon";
 import { invalidateSession } from "@/lib/session-invalidation";
-import {
-  deleteSession,
-  uploadAndParseSessionFile,
-  mergeSessionIntoAnother,
-  rebuildSessionClassification,
-} from "@/lib/session-files.functions";
+import { deleteSession, uploadAndParseSessionFile, mergeSessionIntoAnother, rebuildSessionClassification } from "@/lib/session-files.functions";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { computeStrideLengthM, formatStride } from "@/lib/session-metrics";
 
@@ -125,26 +120,46 @@ function SessionDetail() {
   // candidates for merging, e.g. a cooldown that split off into its own
   // session because it was uploaded before the race got marked, so the
   // tighter same-session gap threshold applied at the time.
+  //
+  // Restricted to auto-uploaded (source = 'fit_import') sessions on both
+  // sides — a manually-created planned session, strength session, or
+  // cross-training day is NOT a candidate for "this looks like a split-off
+  // warmup/cooldown of an upload", and merging into/from one would silently
+  // destroy a real, unrelated session. Also excludes other races, since two
+  // distinct races never belong merged together.
+  const isFitImportSession = (session as any)?.source === "fit_import";
   const { data: sameDaySessions } = useQuery({
     queryKey: ["same-day-sessions", session?.athlete_id, session?.session_date, sessionId],
-    enabled: !!session?.athlete_id && !!session?.session_date,
+    enabled: !!session?.athlete_id && !!session?.session_date && isFitImportSession,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sessions")
-        .select("id, title, total_distance_m, total_time_seconds, day_type")
+        .select("id, title, total_distance_m, total_time_seconds, day_type, source")
         .eq("athlete_id", session!.athlete_id)
         .eq("session_date", session!.session_date)
+        .eq("source", "fit_import")
+        .neq("day_type", "race")
         .neq("id", sessionId);
       if (error) throw error;
       return data ?? [];
     },
   });
 
+  const [mergeTarget, setMergeTarget] = useState<{ id: string; title: string } | null>(null);
   const [merging, setMerging] = useState(false);
+
+  async function clearReviewDismissed() {
+    // Whenever composition changes (new file, merge, or a fresh classification
+    // run), a previously "reviewed" session may need a fresh look — clear the
+    // dismissed flag so the banner can reappear if still relevant.
+    await supabase.from("sessions").update({ review_dismissed_at: null } as any).eq("id", sessionId);
+  }
+
   async function handleMerge(otherSessionId: string) {
     setMerging(true);
     try {
       await mergeSession({ data: { sourceSessionId: otherSessionId, targetSessionId: sessionId } });
+      await clearReviewDismissed();
       toast.success("Sessions merged");
       qc.invalidateQueries({ queryKey: ["session", sessionId] });
       qc.invalidateQueries({ queryKey: ["steps", sessionId] });
@@ -156,6 +171,7 @@ function SessionDetail() {
       toast.error(err?.message ?? "Merge failed");
     }
     setMerging(false);
+    setMergeTarget(null);
   }
 
   const { data: steps = [] } = useQuery({
@@ -258,6 +274,7 @@ function SessionDetail() {
         }
 
         toast.success("File uploaded and session updated");
+        await clearReviewDismissed();
 
         qc.invalidateQueries({ queryKey: ["session", sessionId] });
         qc.invalidateQueries({ queryKey: ["steps", sessionId] });
@@ -600,6 +617,7 @@ function SessionDetail() {
                     try {
                       await rebuildClassification({ data: { sessionId } });
                       toast.success("Classification rebuilt from source files");
+                      await clearReviewDismissed();
                       qc.invalidateQueries({ queryKey: ["session", sessionId] });
                       qc.invalidateQueries({ queryKey: ["steps", sessionId] });
                       qc.invalidateQueries({ queryKey: ["results", sessionId] });
@@ -642,8 +660,8 @@ function SessionDetail() {
           <Card className="border-amber-500/40 bg-amber-500/5">
             <CardContent className="py-3 space-y-2">
               <p className="text-sm font-medium">
-                {sameDaySessions.length === 1 ? "Another session" : `${sameDaySessions.length} other sessions`} found
-                for this athlete on the same day — could be a split-off warmup or cooldown.
+                {sameDaySessions.length === 1 ? "Another uploaded session" : `${sameDaySessions.length} other uploaded sessions`}{" "}
+                found for this athlete on the same day — could be a split-off warmup or cooldown from this same upload.
               </p>
               {sameDaySessions.map((s: any) => (
                 <div key={s.id} className="flex items-center justify-between gap-3 text-sm border rounded-md px-3 py-2">
@@ -654,8 +672,13 @@ function SessionDetail() {
                       {s.total_time_seconds ? ` · ${secToClock(s.total_time_seconds)}` : ""}
                     </span>
                   </div>
-                  <Button size="sm" variant="outline" disabled={merging} onClick={() => handleMerge(s.id)}>
-                    {merging ? "Merging…" : "Merge into this session"}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={merging}
+                    onClick={() => setMergeTarget({ id: s.id, title: s.title ?? "Untitled session" })}
+                  >
+                    Merge into this session
                   </Button>
                 </div>
               ))}
@@ -751,8 +774,7 @@ function SessionDetail() {
               {/* Split pace — overall (above) can blend warmup/cooldown/work
                   paces together into something misleading. Shown only when
                   there's a real warmup/cooldown to distinguish from work. */}
-              {((session as any).work_avg_pace_sec_per_km != null ||
-                (session as any).easy_avg_pace_sec_per_km != null) && (
+              {((session as any).work_avg_pace_sec_per_km != null || (session as any).easy_avg_pace_sec_per_km != null) && (
                 <div className="flex flex-wrap gap-4 text-sm border-t pt-3">
                   {(session as any).work_avg_pace_sec_per_km != null && (
                     <div>
@@ -855,19 +877,41 @@ function SessionDetail() {
           </Card>
         )}
 
-        {(fileCount >= 3 || (session.day_type === "race" && !(session as any).race_step_id)) && (
-          <Card className="border-blue-500/40 bg-blue-500/5">
-            <CardContent className="py-3 text-sm">
-              <span className="font-medium">Review recommended: </span>
-              {fileCount >= 3
-                ? `This session combines ${fileCount} uploaded files — please check the Workout structure below to confirm warmup/work/cooldown are correctly assigned.`
-                : "This session is marked as a race but no block has been confirmed as the race yet."}{" "}
-              Use the dropdown on each block to fix any mislabeled segment, and{" "}
-              {session.day_type === "race" ? '"Mark as race" on the correct block, ' : ""}
-              then "↻ Recompute classification" above if you want the auto-split re-run from scratch.
-            </CardContent>
-          </Card>
-        )}
+        {(fileCount >= 3 || (session.day_type === "race" && !(session as any).race_step_id)) &&
+          !(session as any).review_dismissed_at && (
+            <Card className="border-blue-500/40 bg-blue-500/5">
+              <CardContent className="py-3 text-sm flex items-start justify-between gap-3">
+                <div>
+                  <span className="font-medium">Review recommended: </span>
+                  {fileCount >= 3
+                    ? `This session combines ${fileCount} uploaded files — please check the Workout structure below to confirm warmup/work/cooldown are correctly assigned.`
+                    : "This session is marked as a race but no block has been confirmed as the race yet."}{" "}
+                  Use the dropdown on each block to fix any mislabeled segment, and{" "}
+                  {session.day_type === "race" ? "\"Mark as race\" on the correct block, " : ""}
+                  then "↻ Recompute classification" above if you want the auto-split re-run from scratch.
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="shrink-0"
+                  onClick={async () => {
+                    const { error } = await supabase
+                      .from("sessions")
+                      .update({ review_dismissed_at: new Date().toISOString() } as any)
+                      .eq("id", sessionId);
+                    if (error) {
+                      toast.error(error.message);
+                      return;
+                    }
+                    toast.success("Marked as reviewed");
+                    qc.invalidateQueries({ queryKey: ["session", sessionId] });
+                  }}
+                >
+                  ✓ Reviewed
+                </Button>
+              </CardContent>
+            </Card>
+          )}
 
         <div>
           <div className="flex items-center justify-between mb-2">
@@ -948,6 +992,30 @@ function SessionDetail() {
 
         <FuelingPanel session={session} />
       </div>
+
+      <Dialog open={!!mergeTarget} onOpenChange={(open) => !open && setMergeTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Merge "{mergeTarget?.title}" into this session?</DialogTitle>
+            <DialogDescription>
+              This permanently deletes "{mergeTarget?.title}" — its GPS trace, steps, results, insights, and any
+              race record — and moves its files into this session instead. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMergeTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={merging}
+              onClick={() => mergeTarget && handleMerge(mergeTarget.id)}
+            >
+              {merging ? "Merging…" : "Yes, merge and delete the other session"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={saveTplOpen} onOpenChange={setSaveTplOpen}>
         <DialogContent>
@@ -1143,10 +1211,7 @@ function StepBlock({
 
   async function reassignKind(newKind: string) {
     if (newKind === step.kind) return;
-    const { error } = await supabase
-      .from("steps")
-      .update({ kind: newKind } as any)
-      .eq("id", step.id);
+    const { error } = await supabase.from("steps").update({ kind: newKind } as any).eq("id", step.id);
     if (error) {
       toast.error(error.message);
       return;
