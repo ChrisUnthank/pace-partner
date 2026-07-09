@@ -1,10 +1,10 @@
 export function secToClock(s?: number | null): string {
   if (s == null || isNaN(s)) return "—";
   const sign = s < 0 ? "-" : "";
-  const abs = Math.abs(s);
+  const abs = Math.round(Math.abs(s));
   const h = Math.floor(abs / 3600);
   const m = Math.floor((abs % 3600) / 60);
-  const sec = Math.round(abs % 60);
+  const sec = abs % 60;
   if (h > 0) return `${sign}${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
   return `${sign}${m}:${String(sec).padStart(2, "0")}`;
 }
@@ -12,17 +12,6 @@ export function secToClock(s?: number | null): string {
 export function paceFmt(secPerKm?: number | null): string {
   if (!secPerKm) return "—";
   return `${secToClock(secPerKm)} /km`;
-}
-
-export function secToClock(s?: number | null): string {
-  if (s == null || isNaN(s)) return "—";
-  const sign = s < 0 ? "-" : "";
-  const abs = Math.round(Math.abs(s)); // round the total once, up front
-  const h = Math.floor(abs / 3600);
-  const m = Math.floor((abs % 3600) / 60);
-  const sec = abs % 60;
-  if (h > 0) return `${sign}${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
-  return `${sign}${m}:${String(sec).padStart(2, "0")}`;
 }
 
 // Rounds a GPS-measured distance to a clean, sensible display value —
