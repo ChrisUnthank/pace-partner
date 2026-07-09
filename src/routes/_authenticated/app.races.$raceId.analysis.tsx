@@ -134,10 +134,28 @@ function RaceAnalysisPage() {
     return reconstructTrack(rawPoints as any, officialDistance);
   }, [rawPoints, officialDistance]);
 
-  // Zips lat/lng back onto the reconstructed (dropout/spike-corrected)
-  // points for the replay map — reconstructTrack() sorts rawPoints by
-  // elapsed_s internally and returns a 1:1 mapped array, so re-sorting
-  // rawPoints the same way here keeps both arrays index-aligned.
+  // HR zone boundaries for this athlete — used to color the replay marker
+  // by effort zone rather than a flat color, and to label the live zone in
+  // the HUD readout.
+  const { data: zoneProfile } = useQuery({
+    queryKey: ["zone-profile", race?.athlete_id],
+    enabled: !!race?.athlete_id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("athlete_zone_profiles")
+        .select("hr_z1_max, hr_z2_max, hr_z3_max, hr_z4_max, hr_z5_max")
+        .eq("athlete_id", race.athlete_id)
+        .maybeSingle();
+
+      if (error) throw error;
+      return data as any;
+    },
+  });
+
+  // Zips lat/lng/elevation back onto the reconstructed (dropout/spike-
+  // corrected) points for the replay map — reconstructTrack() sorts
+  // rawPoints by elapsed_s internally and returns a 1:1 mapped array, so
+  // re-sorting rawPoints the same way here keeps both arrays index-aligned.
   const replayPoints = useMemo(() => {
     const sorted = [...rawPoints].sort((a: any, b: any) => a.elapsed_s - b.elapsed_s);
     return reconstruction.points.map((rp, i) => ({
@@ -146,6 +164,7 @@ function RaceAnalysisPage() {
       elapsed_s: rp.elapsed_s,
       distance_m: rp.final_distance_m,
       hr: rp.hr ?? null,
+      elev: sorted[i]?.elevation_m != null ? Number(sorted[i].elevation_m) : null,
     }));
   }, [rawPoints, reconstruction.points]);
 
@@ -456,22 +475,32 @@ function RaceAnalysisPage() {
           </CardContent>
         </Card>
 
-        <RaceMapPanel points={replayPoints} raceTimeSeconds={race?.time_seconds ?? null} />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+          <div className="lg:col-span-2">
+            <RaceMapPanel
+              points={replayPoints}
+              raceTimeSeconds={race?.time_seconds ?? null}
+              zoneProfile={zoneProfile}
+            />
+          </div>
 
-        {pacingInsight && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Race Insights</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              {pacingInsight.start && <p>{pacingInsight.start}</p>}
+          {pacingInsight && (
+            <div className="lg:col-span-1">
+              <Card className="h-full">
+                <CardHeader>
+                  <CardTitle className="text-base">Race Insights</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm">
+                  {pacingInsight.start && <p>{pacingInsight.start}</p>}
 
-              {pacingInsight.pacing && <p>{pacingInsight.pacing}</p>}
+                  {pacingInsight.pacing && <p>{pacingInsight.pacing}</p>}
 
-              {pacingInsight.gps && <p className="text-xs text-muted-foreground">{pacingInsight.gps}</p>}
-            </CardContent>
-          </Card>
-        )}
+                  {pacingInsight.gps && <p className="text-xs text-muted-foreground">{pacingInsight.gps}</p>}
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </div>
 
         {isFitRace ? (
           <Card>
@@ -643,12 +672,52 @@ function RaceAnalysisPage() {
 
 const SPEED_OPTIONS = [1, 2, 4] as const;
 
+// Matches the zone colors used on the session Analysis page's ZonePanel,
+// so a coach reads "red dot" the same way across both pages.
+const ZONE_COLORS: Record<string, string> = {
+  z1: "#34d399",
+  z2: "#38bdf8",
+  z3: "#fbbf24",
+  z4: "#f97316",
+  z5: "#ef4444",
+};
+
+const ZONE_LABELS: Record<string, string> = {
+  z1: "Z1 Easy",
+  z2: "Z2 Aerobic",
+  z3: "Z3 Tempo",
+  z4: "Z4 VO2/5K",
+  z5: "Z5 Rep",
+};
+
+type ZoneProfile =
+  | {
+      hr_z1_max: number | null;
+      hr_z2_max: number | null;
+      hr_z3_max: number | null;
+      hr_z4_max: number | null;
+      hr_z5_max: number | null;
+    }
+  | null
+  | undefined;
+
+function hrToZone(hr: number | null, profile: ZoneProfile): string | null {
+  if (hr == null || !profile?.hr_z1_max) return null;
+  if (hr <= profile.hr_z1_max) return "z1";
+  if (profile.hr_z2_max != null && hr <= profile.hr_z2_max) return "z2";
+  if (profile.hr_z3_max != null && hr <= profile.hr_z3_max) return "z3";
+  if (profile.hr_z4_max != null && hr <= profile.hr_z4_max) return "z4";
+  return "z5";
+}
+
 function RaceMapPanel({
   points,
   raceTimeSeconds,
+  zoneProfile,
 }: {
-  points: { lat: number; lng: number; elapsed_s: number; distance_m: number; hr: number | null }[];
+  points: { lat: number; lng: number; elapsed_s: number; distance_m: number; hr: number | null; elev: number | null }[];
   raceTimeSeconds: number | null;
+  zoneProfile: ZoneProfile;
 }) {
   const safePoints = useMemo(
     () =>
@@ -740,6 +809,9 @@ function RaceMapPanel({
   const dTime = safePoints[winEndIdx].elapsed_s - safePoints[winStartIdx].elapsed_s;
   const livePaceSecPerKm = dDist > 0 && dTime > 0 ? (dTime / dDist) * 1000 : null;
 
+  const currentZone = hrToZone(current.hr, zoneProfile);
+  const markerColor = currentZone ? ZONE_COLORS[currentZone] : "#3b82f6";
+
   return (
     <Card className="h-full flex flex-col">
       <CardHeader className="pb-2">
@@ -780,8 +852,18 @@ function RaceMapPanel({
         </div>
       </CardHeader>
       <CardContent className="flex-1 flex flex-col gap-2">
+        {zoneProfile?.hr_z1_max != null && (
+          <div className="flex flex-wrap gap-3 text-xs -mt-1">
+            {(["z1", "z2", "z3", "z4", "z5"] as const).map((z) => (
+              <div key={z} className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full" style={{ background: ZONE_COLORS[z] }} />
+                <span className="text-muted-foreground">{ZONE_LABELS[z]}</span>
+              </div>
+            ))}
+          </div>
+        )}
         {playing && (
-          <div className="flex gap-4 text-sm border rounded-md px-3 py-2 bg-muted/40">
+          <div className="flex gap-4 text-sm border rounded-md px-3 py-2 bg-muted/40 flex-wrap">
             <div>
               <span className="text-muted-foreground">Elapsed: </span>
               <span className="tabular-nums font-medium">{secToClock(current.elapsed_s)}</span>
@@ -794,9 +876,23 @@ function RaceMapPanel({
               <span className="text-muted-foreground">Pace: </span>
               <span className="tabular-nums font-medium">{livePaceSecPerKm ? paceFmt(livePaceSecPerKm) : "—"}</span>
             </div>
+            {current.elev != null && (
+              <div>
+                <span className="text-muted-foreground">Elev: </span>
+                <span className="tabular-nums font-medium">{Math.round(current.elev)}m</span>
+              </div>
+            )}
             <div className="flex items-center gap-1">
-              <Heart className="h-3.5 w-3.5 text-[var(--accent-red)]" />
+              <Heart className="h-3.5 w-3.5" style={{ color: markerColor }} />
               <span className="tabular-nums font-medium">{current.hr ?? "—"}</span>
+              {currentZone && (
+                <span
+                  className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                  style={{ background: markerColor, color: "#0a0a0a" }}
+                >
+                  {ZONE_LABELS[currentZone]}
+                </span>
+              )}
             </div>
           </div>
         )}
@@ -838,7 +934,7 @@ function RaceMapPanel({
               <CircleMarker
                 center={[current.lat, current.lng]}
                 radius={8}
-                pathOptions={{ color: "#ffffff", weight: 2, fillColor: "#3b82f6", fillOpacity: 1 }}
+                pathOptions={{ color: "#ffffff", weight: 2, fillColor: markerColor, fillOpacity: 1 }}
               />
             )}
           </MapContainer>
