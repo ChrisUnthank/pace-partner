@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -291,6 +291,15 @@ function RaceAnalysisPage() {
   return (
     <AppShell>
       <div className="space-y-6 max-w-6xl">
+        {race.session_id && (
+          <Link
+            to="/app/sessions/$sessionId"
+            params={{ sessionId: race.session_id }}
+            className="text-sm text-muted-foreground underline"
+          >
+            ← Back to session
+          </Link>
+        )}
         <div className="flex items-center gap-2">
           <Trophy className="h-5 w-5 text-[var(--accent-red)]" />
           <div>
@@ -315,14 +324,26 @@ function RaceAnalysisPage() {
 
             <div className="col-span-3">
               <p className="text-xs text-muted-foreground">
-                GPS: {metersFmt((session as any)?.work_distance_m ?? session?.total_distance_m ?? 0)} · Reconstructed:{" "}
-                {metersFmt(reconstructedDistance)} · Official: {metersFmt(race?.distance_m ?? 0)}
+                GPS: {metersFmt((session as any)?.work_distance_m ?? session?.total_distance_m ?? 0)} ·
+                Reconstructed: {metersFmt(reconstructedDistance)} · Official: {metersFmt(race?.distance_m ?? 0)}
                 {reconstruction.anomalies.length > 0 && (
                   <>
                     {" "}
                     · Anchor: <span className="font-medium">{reconstruction.anchor}</span>
                   </>
                 )}
+              </p>
+              {/* TEMP DEBUG — remove once the reconstruction branch issue is resolved */}
+              <p className="text-xs text-amber-500 mt-1">
+                DEBUG: officialDistanceM={officialDistance} reconstructedTotalDistanceM=
+                {reconstruction.reconstructedTotalDistanceM} remainder=
+                {(officialDistance ?? 0) - reconstruction.reconstructedTotalDistanceM} fractionOfTotal=
+                {officialDistance
+                  ? (
+                      Math.abs((officialDistance ?? 0) - reconstruction.reconstructedTotalDistanceM) / officialDistance
+                    ).toFixed(5)
+                  : "n/a"}{" "}
+                anomalies={reconstruction.anomalies.length}
               </p>
             </div>
 
