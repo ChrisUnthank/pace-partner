@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/app-shell";
@@ -10,6 +10,8 @@ import { Label } from "@/components/ui/label";
 import { Trash2, Plus, Trophy, Heart, AlertTriangle } from "lucide-react";
 import { metersFmt, secToClock, clockToSec, paceFmt } from "@/lib/format";
 import { reconstructTrack, buildSplitsFromCorrectedPoints, smoothSeries } from "@/lib/gps-reconstruction";
+import { MapContainer, TileLayer, Polyline, CircleMarker } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
 
 export const Route = createFileRoute("/_authenticated/app/races/$raceId/analysis")({
   component: RaceAnalysisPage,
@@ -131,6 +133,21 @@ function RaceAnalysisPage() {
   const reconstruction = useMemo(() => {
     return reconstructTrack(rawPoints as any, officialDistance);
   }, [rawPoints, officialDistance]);
+
+  // Zips lat/lng back onto the reconstructed (dropout/spike-corrected)
+  // points for the replay map — reconstructTrack() sorts rawPoints by
+  // elapsed_s internally and returns a 1:1 mapped array, so re-sorting
+  // rawPoints the same way here keeps both arrays index-aligned.
+  const replayPoints = useMemo(() => {
+    const sorted = [...rawPoints].sort((a: any, b: any) => a.elapsed_s - b.elapsed_s);
+    return reconstruction.points.map((rp, i) => ({
+      lat: Number(sorted[i]?.lat),
+      lng: Number(sorted[i]?.lng),
+      elapsed_s: rp.elapsed_s,
+      distance_m: rp.final_distance_m,
+      hr: rp.hr ?? null,
+    }));
+  }, [rawPoints, reconstruction.points]);
 
   const reconstructedDistance = reconstruction.reconstructedTotalDistanceM ?? 0;
 
@@ -324,8 +341,8 @@ function RaceAnalysisPage() {
 
             <div className="col-span-3">
               <p className="text-xs text-muted-foreground">
-                GPS: {metersFmt((session as any)?.work_distance_m ?? session?.total_distance_m ?? 0)} ·
-                Reconstructed: {metersFmt(reconstructedDistance)} · Official: {metersFmt(race?.distance_m ?? 0)}
+                GPS: {metersFmt((session as any)?.work_distance_m ?? session?.total_distance_m ?? 0)} · Reconstructed:{" "}
+                {metersFmt(reconstructedDistance)} · Official: {metersFmt(race?.distance_m ?? 0)}
                 {reconstruction.anomalies.length > 0 && (
                   <>
                     {" "}
@@ -438,6 +455,8 @@ function RaceAnalysisPage() {
             </div>
           </CardContent>
         </Card>
+
+        <RaceMapPanel points={replayPoints} raceTimeSeconds={race?.time_seconds ?? null} />
 
         {pacingInsight && (
           <Card>
@@ -619,6 +638,197 @@ function RaceAnalysisPage() {
         )}
       </div>
     </AppShell>
+  );
+}
+
+const SPEED_OPTIONS = [1, 2, 4] as const;
+
+function RaceMapPanel({
+  points,
+  raceTimeSeconds,
+}: {
+  points: { lat: number; lng: number; elapsed_s: number; distance_m: number; hr: number | null }[];
+  raceTimeSeconds: number | null;
+}) {
+  const safePoints = useMemo(
+    () =>
+      points.filter(
+        (p) => Number.isFinite(p.lat) && Number.isFinite(p.lng) && (Math.abs(p.lat) > 0.01 || Math.abs(p.lng) > 0.01),
+      ),
+    [points],
+  );
+
+  const [playing, setPlaying] = useState(false);
+  const [playIndex, setPlayIndex] = useState(0);
+  const [speed, setSpeed] = useState<(typeof SPEED_OPTIONS)[number]>(1);
+  const rafRef = useRef<number | null>(null);
+  const startTimeRef = useRef<number | null>(null);
+
+  // Race replay needs to take longer than the fixed ~18s session replay —
+  // scaled to actual race duration so detail is visible, capped so a
+  // marathon doesn't take forever, floored so a short race isn't a blink.
+  // Speed buttons then divide this base down for a faster watch.
+  const baseDurationMs = useMemo(() => {
+    const raceSec = raceTimeSeconds ?? 300;
+    return Math.min(60000, Math.max(20000, raceSec * 50));
+  }, [raceTimeSeconds]);
+
+  const playbackDurationMs = baseDurationMs / speed;
+
+  useEffect(() => {
+    if (!playing) {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      return;
+    }
+    startTimeRef.current = null;
+
+    function step(timestamp: number) {
+      if (startTimeRef.current === null) startTimeRef.current = timestamp;
+      const elapsed = timestamp - startTimeRef.current;
+      const progress = Math.min(1, elapsed / playbackDurationMs);
+      const idx = Math.floor(progress * (safePoints.length - 1));
+      setPlayIndex(idx);
+
+      if (progress < 1) {
+        rafRef.current = requestAnimationFrame(step);
+      } else {
+        setPlaying(false);
+      }
+    }
+
+    rafRef.current = requestAnimationFrame(step);
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing, safePoints.length, playbackDurationMs]);
+
+  if (safePoints.length < 2) {
+    return (
+      <Card className="h-full flex flex-col">
+        <CardHeader className="pb-2">
+          <CardTitle>Race replay</CardTitle>
+          <CardDescription>No GPS data available for this race</CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
+
+  const lats = safePoints.map((p) => p.lat);
+  const lngs = safePoints.map((p) => p.lng);
+  const center: [number, number] = [
+    (Math.min(...lats) + Math.max(...lats)) / 2,
+    (Math.min(...lngs) + Math.max(...lngs)) / 2,
+  ];
+  const positions: [number, number][] = safePoints.map((p) => [p.lat, p.lng]);
+  const current = safePoints[playIndex] ?? safePoints[0];
+
+  // Live pace from a rolling ±15s window around the marker, not raw
+  // point-to-point (too noisy off GPS) and not average-so-far (too sluggish
+  // to show a surge or fade as it happens).
+  const windowSec = 15;
+  let winStartIdx = safePoints.findIndex((p) => p.elapsed_s >= current.elapsed_s - windowSec);
+  if (winStartIdx === -1) winStartIdx = 0;
+  let winEndIdx = safePoints.length - 1;
+  for (let i = playIndex; i < safePoints.length; i++) {
+    if (safePoints[i].elapsed_s >= current.elapsed_s + windowSec) {
+      winEndIdx = i;
+      break;
+    }
+  }
+  const dDist = safePoints[winEndIdx].distance_m - safePoints[winStartIdx].distance_m;
+  const dTime = safePoints[winEndIdx].elapsed_s - safePoints[winStartIdx].elapsed_s;
+  const livePaceSecPerKm = dDist > 0 && dTime > 0 ? (dTime / dDist) * 1000 : null;
+
+  return (
+    <Card className="h-full flex flex-col">
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <CardTitle>Race replay</CardTitle>
+            <CardDescription>Route with live HR/pace, from GPS trace</CardDescription>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-md border overflow-hidden">
+              {SPEED_OPTIONS.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setSpeed(s)}
+                  className={`px-2 py-1 text-xs ${
+                    speed === s ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground"
+                  }`}
+                >
+                  {s}×
+                </button>
+              ))}
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                if (playing) {
+                  setPlaying(false);
+                } else {
+                  setPlayIndex(0);
+                  setPlaying(true);
+                }
+              }}
+            >
+              {playing ? "Pause" : "▶ Replay"}
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="flex-1 flex flex-col gap-2">
+        {playing && (
+          <div className="flex gap-4 text-sm border rounded-md px-3 py-2 bg-muted/40">
+            <div>
+              <span className="text-muted-foreground">Elapsed: </span>
+              <span className="tabular-nums font-medium">{secToClock(current.elapsed_s)}</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">Distance: </span>
+              <span className="tabular-nums font-medium">{metersFmt(current.distance_m)}</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">Pace: </span>
+              <span className="tabular-nums font-medium">{livePaceSecPerKm ? paceFmt(livePaceSecPerKm) : "—"}</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <Heart className="h-3.5 w-3.5 text-[var(--accent-red)]" />
+              <span className="tabular-nums font-medium">{current.hr ?? "—"}</span>
+            </div>
+          </div>
+        )}
+
+        <div className="flex-1 min-h-[400px] rounded overflow-hidden border">
+          <MapContainer center={center} zoom={15} scrollWheelZoom style={{ height: "100%", width: "100%" }}>
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+              url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+            />
+            <Polyline positions={positions} pathOptions={{ color: "#ef4444", weight: 4 }} />
+            <CircleMarker
+              center={positions[0]}
+              radius={6}
+              pathOptions={{ color: "#22c55e", fillColor: "#22c55e", fillOpacity: 1 }}
+            />
+            <CircleMarker
+              center={positions[positions.length - 1]}
+              radius={6}
+              pathOptions={{ color: "#ef4444", fillColor: "#ef4444", fillOpacity: 1 }}
+            />
+            {playing && (
+              <CircleMarker
+                center={[current.lat, current.lng]}
+                radius={8}
+                pathOptions={{ color: "#ffffff", weight: 2, fillColor: "#3b82f6", fillOpacity: 1 }}
+              />
+            )}
+          </MapContainer>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
