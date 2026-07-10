@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -79,6 +79,12 @@ function SessionDetail() {
   // ✅ FIT upload setup
   const uploadFile = useServerFn(uploadAndParseSessionFile);
   const [uploading, setUploading] = useState(false);
+  // Triggers the hidden file input below via .click() — a <label> wrapping
+  // a shadcn Button (a real <button>) doesn't reliably forward clicks to
+  // an associated file input, since the click lands on the button itself
+  // rather than the label. A ref + explicit .click() is the reliable way
+  // to have a styled button open the native file picker.
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const {
     data: session,
@@ -372,6 +378,7 @@ function SessionDetail() {
       }
 
       setUploading(false);
+      e.target.value = "";
     };
 
     reader.readAsDataURL(file);
@@ -674,18 +681,22 @@ function SessionDetail() {
                     Save as template
                   </Button>
                 )}
-                <label className="cursor-pointer">
-                  <Button size="sm" variant="outline" disabled={uploading}>
-                    {uploading ? "Uploading…" : "Upload activity"}
-                  </Button>
-                  <input
-                    type="file"
-                    accept=".fit,.gpx"
-                    className="hidden"
-                    disabled={uploading}
-                    onChange={handleFileUpload}
-                  />
-                </label>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={uploading}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {uploading ? "Uploading…" : "Upload activity"}
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".fit,.gpx"
+                  className="hidden"
+                  disabled={uploading}
+                  onChange={handleFileUpload}
+                />
                 <Button
                   size="sm"
                   variant={session.day_type === "race" ? "destructive" : "outline"}
