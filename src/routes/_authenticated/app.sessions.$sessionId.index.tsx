@@ -149,6 +149,11 @@ function SessionDetail() {
     },
   });
 
+  // Computed once here rather than inline in JSX — formatWorkoutStructure
+  // now returns {main, recovery} so the recovery portion can be styled
+  // smaller than the main "N × distance" part.
+  const workoutStructure = useMemo(() => formatWorkoutStructure(workStep), [workStep]);
+
   // Raw points + GPS reconstruction, purely to decide whether the manual
   // "Split corrections" UI needs to be shown at all. If reconstruction ran
   // clean (no dropouts/spikes detected), there's nothing for a coach to
@@ -804,11 +809,16 @@ function SessionDetail() {
               </div>
             )}
 
-            {/* Workout structure — e.g. "8 × 1km + 90s jog recovery" */}
-            {workStep && formatWorkoutStructure(workStep) && (
+            {/* Workout structure — e.g. "8 × 1km" + smaller "1 min Recovery (standing)" */}
+            {workoutStructure && (
               <div className="border rounded-lg px-3 py-2">
                 <div className="text-xs text-muted-foreground">Workout</div>
-                <div className="text-lg font-semibold">{formatWorkoutStructure(workStep)}</div>
+                <div className="text-lg font-semibold">
+                  {workoutStructure.main}
+                  {workoutStructure.recovery && (
+                    <span className="text-sm font-normal text-muted-foreground"> + {workoutStructure.recovery}</span>
+                  )}
+                </div>
               </div>
             )}
 
@@ -1328,7 +1338,74 @@ function StepBlock({
       return;
     }
 
+    await recomputeSessionAggregatesFromReps();
+
     invalidateSession(qc, session.id, session.athlete_id);
+  }
+
+  // Rolls up interval_results across every step in this session into the
+  // session-level fields the Overview card actually reads. Editing a rep's
+  // Time/Dist previously only touched interval_results — Work pace,
+  // Warm-up/Cool-down avg, and (for manually-created sessions) GPS
+  // Distance all read straight from the `sessions` row and never picked up
+  // a manual edit until this ran.
+  //
+  // GPS-derived total_distance_m/total_time_seconds are left untouched for
+  // real FIT/GPX uploads (source === 'fit_import') — those represent the
+  // actual recorded track, not a coach's manual entry, and a manual rep
+  // tweak should never silently overwrite real GPS data. For
+  // manually-created sessions (no GPS track at all) those totals are
+  // backfilled from the reps since there's no other source of truth.
+  async function recomputeSessionAggregatesFromReps() {
+    const { data: steps } = await supabase.from("steps").select("id, kind").eq("session_id", session.id);
+    if (!steps || steps.length === 0) return;
+
+    const stepIds = steps.map((s: any) => s.id);
+    const kindByStepId = new Map(steps.map((s: any) => [s.id, s.kind]));
+
+    const { data: allResults } = await supabase
+      .from("interval_results")
+      .select("step_id, actual_distance_m, actual_time_seconds")
+      .in("step_id", stepIds);
+
+    let workDistance = 0;
+    let workTime = 0;
+    let easyDistance = 0;
+    let easyTime = 0;
+    let totalDistance = 0;
+    let totalTime = 0;
+
+    for (const r of allResults ?? []) {
+      const kind = kindByStepId.get((r as any).step_id);
+      const d = Number((r as any).actual_distance_m) || 0;
+      const t = Number((r as any).actual_time_seconds) || 0;
+      totalDistance += d;
+      totalTime += t;
+      if (kind === "work" || kind === "strides") {
+        workDistance += d;
+        workTime += t;
+      } else if (kind === "warmup" || kind === "cooldown") {
+        easyDistance += d;
+        easyTime += t;
+      }
+    }
+
+    const sessionPatch: any = {
+      work_distance_m: workDistance || null,
+      work_time_s: workTime || null,
+      work_avg_pace_sec_per_km: workDistance > 0 && workTime > 0 ? (workTime / workDistance) * 1000 : null,
+      easy_avg_pace_sec_per_km: easyDistance > 0 && easyTime > 0 ? (easyTime / easyDistance) * 1000 : null,
+    };
+
+    if (session.source !== "fit_import") {
+      sessionPatch.total_distance_m = totalDistance || null;
+      sessionPatch.total_time_seconds = totalTime || null;
+    }
+
+    const { error: aggErr } = await supabase.from("sessions").update(sessionPatch).eq("id", session.id);
+    if (aggErr) {
+      console.error("Failed to recompute session aggregates from reps:", aggErr.message);
+    }
   }
 
   const isMarkedAsRace = session.race_step_id === step.id;
@@ -1507,13 +1584,12 @@ function StepBlock({
                           const r = results.find((x) => x.rep_number === rep && (x.set_number ?? 1) === setN);
 
                           return (
-                            <RepRow
-                              key={`${setN}-${rep}`}
-                              step={step}
-                              rep={rep}
-                              result={r}
-                              onSave={(p) => saveRep(setN, rep, p)}
-                            />
+                            <div key={`${setN}-${rep}`}>
+                              <RepRow step={step} rep={rep} result={r} onSave={(p) => saveRep(setN, rep, p)} />
+                              {step.reps > 1 && rep < reps.length && (
+                                <RecoveryBetweenReps step={step} session={session} />
+                              )}
+                            </div>
                           );
                         })}
                       </div>
@@ -1579,7 +1655,7 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
 
   useEffect(() => {
     setTime(result?.actual_time_seconds ? secToClock(result.actual_time_seconds) : "");
-    setDist(result?.actual_distance_m ?? "");
+    setDist(result?.actual_distance_m != null ? Math.round(Number(result.actual_distance_m)) : "");
     setHrEnd(result?.hr_end ?? "");
     setHrRec(result?.hr_end_recovery ?? "");
     setHrAvg(result?.hr_avg ?? "");
@@ -1594,7 +1670,7 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
   function commit() {
     const patch: any = {
       actual_time_seconds: clockToSec(time as any),
-      actual_distance_m: dist === "" ? null : Number(dist),
+      actual_distance_m: dist === "" ? null : Math.round(Number(dist)),
       hr_end: hrEnd === "" ? null : Number(hrEnd),
       hr_end_recovery: hrRec === "" ? null : Number(hrRec),
       hr_avg: hrAvg === "" ? null : Number(hrAvg),
@@ -1636,9 +1712,9 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
         </div>
 
         <div className="col-span-2">
-          <Label className="text-xs">Dist</Label>
+          <Label className="text-xs">Dist (m)</Label>
 
-          <Input type="number" value={dist} onChange={(e) => setDist(e.target.value)} onBlur={commit} />
+          <Input type="number" step="1" value={dist} onChange={(e) => setDist(e.target.value)} onBlur={commit} />
         </div>
 
         {!isRecovery && (
@@ -1762,6 +1838,103 @@ function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// A small editable divider shown between reps in a work/strides step,
+// surfacing the "recovery between reps" target that previously only
+// appeared read-only in the collapsed header summary. This is a single
+// step-level target (recovery_between_reps_seconds/_distance_m/_mode),
+// not a per-rep result — editing any one instance updates the same
+// underlying value that applies to every recovery in this step, which is
+// why the same summary repeats between each pair of reps.
+function RecoveryBetweenReps({ step, session }: { step: any; session: any }) {
+  const qc = useQueryClient();
+  const isDistanceTarget = step.recovery_between_reps_target_kind === "distance";
+
+  const [editing, setEditing] = useState(false);
+  const [timeText, setTimeText] = useState(secToClock(step.recovery_between_reps_seconds || 0));
+  const [distanceText, setDistanceText] = useState<string | number>(step.recovery_between_reps_distance_m ?? "");
+  const [mode, setMode] = useState<string>(step.recovery_between_reps_mode ?? "standing");
+
+  useEffect(() => {
+    setTimeText(secToClock(step.recovery_between_reps_seconds || 0));
+    setDistanceText(step.recovery_between_reps_distance_m ?? "");
+    setMode(step.recovery_between_reps_mode ?? "standing");
+  }, [
+    step.id,
+    step.recovery_between_reps_seconds,
+    step.recovery_between_reps_distance_m,
+    step.recovery_between_reps_mode,
+  ]);
+
+  async function commit() {
+    const patch: any = { recovery_between_reps_mode: mode || null };
+    if (isDistanceTarget) {
+      patch.recovery_between_reps_distance_m = distanceText === "" ? null : Number(distanceText);
+    } else {
+      patch.recovery_between_reps_seconds = clockToSec(timeText as any) || null;
+    }
+
+    const { error } = await supabase.from("steps").update(patch).eq("id", step.id);
+    if (error) {
+      toast.error(`Recovery save failed: ${error.message}`);
+      return;
+    }
+    setEditing(false);
+    invalidateSession(qc, session.id, session.athlete_id);
+  }
+
+  const summary =
+    isDistanceTarget && Number(distanceText) > 0
+      ? `${metersFmt(roundDistanceForDisplay(Number(distanceText)))} Recovery${mode ? ` (${mode})` : ""}`
+      : clockToSec(timeText as any) > 0
+        ? `${formatRecoveryDuration(roundRecoverySeconds(clockToSec(timeText as any)))} Recovery${mode ? ` (${mode})` : ""}`
+        : "Recovery (not set)";
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className="w-full text-left text-xs italic text-muted-foreground px-2 py-1 my-0.5 rounded hover:bg-accent/40 hover:text-foreground"
+        title="Applies to every recovery between reps in this step — click to edit"
+      >
+        ↓ {summary}
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex items-end gap-2 px-2 py-1.5 my-0.5 bg-muted/30 rounded">
+      {isDistanceTarget ? (
+        <div>
+          <Label className="text-xs">Recovery dist (m)</Label>
+          <Input
+            type="number"
+            step="1"
+            className="h-7 w-24 text-xs"
+            value={distanceText}
+            onChange={(e) => setDistanceText(e.target.value)}
+          />
+        </div>
+      ) : (
+        <div>
+          <Label className="text-xs">Recovery (mm:ss)</Label>
+          <Input className="h-7 w-20 text-xs" value={timeText} onChange={(e) => setTimeText(e.target.value)} />
+        </div>
+      )}
+      <div>
+        <Label className="text-xs">Mode</Label>
+        <Input className="h-7 w-28 text-xs" value={mode} onChange={(e) => setMode(e.target.value)} />
+      </div>
+      <Button size="sm" className="h-7" onClick={commit}>
+        Save
+      </Button>
+      <Button size="sm" variant="ghost" className="h-7" onClick={() => setEditing(false)}>
+        Cancel
+      </Button>
     </div>
   );
 }
@@ -1932,11 +2105,13 @@ function SessionSummary({
 }
 
 // Formats a work step's structure into a short human-readable summary for
-// the Overview card, e.g. "8 × 1km + 90s jog recovery". Continuous work
-// (reps <= 1) just shows the distance/time — there's no recovery to
-// describe. Prefers whichever target (distance or time) the step actually
-// used, since FIT-derived steps and manually-planned steps can differ.
-function formatWorkoutStructure(step: any): string | null {
+// the Overview card, e.g. "8 × 1km" + a separate "1 min Recovery
+// (standing)" part so the caller can render the recovery portion in
+// smaller text. Continuous work (reps <= 1) just has a main part — there's
+// no recovery to describe. Prefers whichever target (distance or time) the
+// step actually used, since FIT-derived steps and manually-planned steps
+// can differ.
+function formatWorkoutStructure(step: any): { main: string; recovery: string | null } | null {
   if (!step) return null;
 
   const unit =
@@ -1947,17 +2122,27 @@ function formatWorkoutStructure(step: any): string | null {
         : null;
 
   if (!unit) return null;
-  if (step.reps <= 1) return unit;
+  if (step.reps <= 1) return { main: unit, recovery: null };
 
   const repsPart = `${step.reps} × ${unit}`;
-  const recoveryMode = step.recovery_between_reps_mode ? ` ${step.recovery_between_reps_mode}` : "";
+  const recoveryMode = step.recovery_between_reps_mode ? ` (${step.recovery_between_reps_mode})` : "";
 
   const recoveryPart =
     step.recovery_between_reps_target_kind === "distance" && step.recovery_between_reps_distance_m
-      ? `${metersFmt(roundDistanceForDisplay(step.recovery_between_reps_distance_m))}${recoveryMode} recovery`
+      ? `${metersFmt(roundDistanceForDisplay(step.recovery_between_reps_distance_m))} Recovery${recoveryMode}`
       : step.recovery_between_reps_seconds
-        ? `${secToClock(roundRecoverySeconds(step.recovery_between_reps_seconds))}${recoveryMode} recovery`
+        ? `${formatRecoveryDuration(roundRecoverySeconds(step.recovery_between_reps_seconds))} Recovery${recoveryMode}`
         : null;
 
-  return recoveryPart ? `${repsPart} + ${recoveryPart}` : repsPart;
+  return { main: repsPart, recovery: recoveryPart };
+}
+
+// "1 min" for whole minutes (the common case for recovery), falling back
+// to clock format (e.g. "1:30") for anything that isn't a whole minute.
+function formatRecoveryDuration(seconds: number): string {
+  if (seconds > 0 && seconds % 60 === 0) {
+    const mins = seconds / 60;
+    return `${mins} min`;
+  }
+  return secToClock(seconds);
 }
