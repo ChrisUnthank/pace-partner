@@ -545,24 +545,82 @@ function classifyLaps(
     const pace1 = median(file1Laps.map(paceSecPerKm).filter((p): p is number => p != null));
 
     if (pace0 != null && pace1 != null) {
-      // Second file clearly slower (higher sec/km) than the first -> cooldown
+      // Second file clearly slower (higher sec/km) than the first -> cooldown.
+      // The "work" file (file0) can still have its own internal work/recovery
+      // structure (e.g. "1 x 2km then 5 x 1km" with jogs between reps) — it
+      // still needs to go through classifyLapsByDistance rather than being
+      // blanket-tagged "work", or every recovery jog inside it silently gets
+      // folded into the work total.
       if (pace1 >= pace0 * 1.15) {
-        return laps.map((lap) => ({
-          ...lap,
-          kind: lap.sourceFileIndex === 1 ? ("cooldown" as const) : ("work" as const),
-        }));
+        const workFileClassified = classifyLapsByDistance(laps.filter((l) => l.sourceFileIndex === 0));
+        return laps.map((lap) => {
+          if (lap.sourceFileIndex === 1) return { ...lap, kind: "cooldown" as const };
+          const match = workFileClassified.find((c) => c.index === lap.index);
+          return match ?? { ...lap, kind: "work" as const };
+        });
       }
-      // First file clearly slower than the second -> warmup
+      // First file clearly slower than the second -> warmup. Same reasoning
+      // applied to file1 (the actual work file) here.
       if (pace0 >= pace1 * 1.15) {
-        return laps.map((lap) => ({
-          ...lap,
-          kind: lap.sourceFileIndex === 0 ? ("warmup" as const) : ("work" as const),
-        }));
+        const workFileClassified = classifyLapsByDistance(laps.filter((l) => l.sourceFileIndex === 1));
+        return laps.map((lap) => {
+          if (lap.sourceFileIndex === 0) return { ...lap, kind: "warmup" as const };
+          const match = workFileClassified.find((c) => c.index === lap.index);
+          return match ?? { ...lap, kind: "work" as const };
+        });
       }
     }
   }
 
   return classifyLapsByDistance(laps);
+}
+
+// Splits a set of laps into a "fast" (work) cluster vs a "slow" (recovery)
+// cluster using pace contrast, not distance matching. A distance-matching
+// heuristic breaks down the moment a session mixes rep distances within one
+// recording — e.g. "1 x 2km then 5 x 1km" — because the 2km rep doesn't
+// match the "dominant" 1km bucket even though it's clearly real work.
+// Recovery laps are dramatically slower (sec/km) than work laps regardless
+// of how far either one covers, so pace is what actually distinguishes them.
+// Returns the set of lap indices judged to be "work", plus whether a
+// genuine two-cluster contrast was found at all (a real continuous run with
+// a couple of incidental pauses shouldn't be fragmented into fake reps).
+function splitLapsByPaceContrast(candidates: ParsedLap[]): { workIndices: Set<number>; isGenuine: boolean } {
+  const withPace = candidates
+    .map((l) => ({ lap: l, pace: paceSecPerKm(l) }))
+    .filter((x): x is { lap: ParsedLap; pace: number } => x.pace != null)
+    .sort((a, b) => a.pace - b.pace);
+
+  if (withPace.length < 2) return { workIndices: new Set(), isGenuine: false };
+
+  // Find the largest proportional jump between consecutive paces (sorted
+  // fastest to slowest) — the natural boundary between a "work effort"
+  // cluster and a "recovery effort" cluster, if one exists.
+  let bestGapRatio = 1;
+  let splitAt = -1; // laps [0..splitAt] (inclusive) are the fast/work cluster
+
+  for (let i = 0; i < withPace.length - 1; i++) {
+    const ratio = withPace[i + 1].pace / withPace[i].pace;
+    if (ratio > bestGapRatio) {
+      bestGapRatio = ratio;
+      splitAt = i;
+    }
+  }
+
+  // Require genuine contrast (recovery clearly slower than work) — same
+  // 15% threshold used elsewhere in this file for the same judgment.
+  if (splitAt < 0 || bestGapRatio < 1.15) return { workIndices: new Set(), isGenuine: false };
+
+  const workIndices = new Set(
+    withPace
+      .slice(0, splitAt + 1)
+      // Guard against a brief lap-button blip computing a fluky fast pace
+      // over a couple of seconds — a real work rep is sustained.
+      .filter((x) => x.lap.total_elapsed_time >= 20)
+      .map((x) => x.lap.index),
+  );
+
+  return { workIndices, isGenuine: true };
 }
 
 // The original distance-bucket heuristic, used for a single continuous
@@ -580,69 +638,17 @@ function classifyLapsByDistance(laps: ParsedLap[]): ParsedLap[] {
     (l) => l.intensity !== "rest" && l.total_distance > 50 && l.total_elapsed_time > 10,
   );
 
-  const buckets = new Map<number, number>();
-  for (const lap of nonRestCandidates) {
-    const bucket = Math.round(lap.total_distance / 10) * 10;
-    buckets.set(bucket, (buckets.get(bucket) ?? 0) + 1);
-  }
+  const { workIndices, isGenuine } = splitLapsByPaceContrast(nonRestCandidates);
 
-  let dominantDistance = 0;
-  let dominantCount = 0;
-  for (const [bucket, count] of buckets.entries()) {
-    if (count > dominantCount) {
-      dominantDistance = bucket;
-      dominantCount = count;
-    }
-  }
-
-  const tolerance = Math.max(20, dominantDistance * 0.25);
-
-  // Distance alone can't tell "watch auto-lapping a continuous run every 1km"
-  // apart from "genuine 1km work reps" — both produce a sequence of similar
-  // distance laps. Pace is what actually distinguishes them: real intervals
-  // have a clear, deliberate contrast between work and recovery effort. If
-  // the laps matching the dominant distance aren't meaningfully faster than
-  // the rest, this is one continuous effort (e.g. a run with a couple of
-  // real-world pauses for traffic/a toilet break, not structured intervals)
-  // and shouldn't be fragmented into a fake warmup/work/cooldown structure.
-
-  if (dominantDistance > 0) {
-    const candidateWorkPaces = nonRestCandidates
-      .filter((l) => Math.abs(l.total_distance - dominantDistance) <= tolerance)
-      .map(paceSecPerKm)
-      .filter((p): p is number => p != null);
-    const otherPaces = nonRestCandidates
-      .filter((l) => Math.abs(l.total_distance - dominantDistance) > tolerance)
-      .map(paceSecPerKm)
-      .filter((p): p is number => p != null);
-
-    const workMedian = median(candidateWorkPaces);
-    const otherMedian = median(otherPaces);
-
-    // "Recovery" laps should be clearly slower (higher sec/km) than work laps
-    // in genuine intervals — require at least 15% slower. If not, or if there
-    // aren't enough non-matching laps to compare against, treat this as one
-    // continuous session instead of fragmenting it.
-    const isGenuineIntervals =
-      workMedian != null && otherMedian != null && otherPaces.length >= 2 && otherMedian >= workMedian * 1.15;
-
-    if (!isGenuineIntervals) {
-      return laps.map((l) => ({ ...l, kind: l.intensity === "rest" ? ("recovery" as const) : ("work" as const) }));
-    }
+  if (!isGenuine) {
+    return laps.map((l) => ({ ...l, kind: l.intensity === "rest" ? ("recovery" as const) : ("work" as const) }));
   }
 
   let classified: ParsedLap[] = laps.map((lap) => {
     if (lap.intensity === "rest") {
       return { ...lap, kind: "recovery" as const };
     }
-
-    if (dominantDistance > 0) {
-      const isWork = Math.abs(lap.total_distance - dominantDistance) <= tolerance && lap.total_elapsed_time >= 20;
-
-      return { ...lap, kind: isWork ? ("work" as const) : ("recovery" as const) };
-    }
-
-    return { ...lap, kind: "work" as const };
+    return { ...lap, kind: workIndices.has(lap.index) ? ("work" as const) : ("recovery" as const) };
   });
 
   const workIdxs = classified.map((l, i) => (l.kind === "work" ? i : -1)).filter((i) => i >= 0);
