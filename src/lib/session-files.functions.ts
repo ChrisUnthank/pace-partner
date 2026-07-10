@@ -374,7 +374,7 @@ async function parseFIT(buffer: ArrayBuffer): Promise<ParsedFile> {
           total_elapsed_time: Number(lap.total_elapsed_time ?? 0),
           avg_heart_rate: lap.avg_heart_rate ?? null,
           max_heart_rate: lap.max_heart_rate ?? null,
-          avg_cadence: normalizeCadence(lap.avg_cadence) ?? null,
+          avg_cadence: normalizeCadence(lap.avg_running_cadence ?? lap.avg_cadence) ?? null,
         };
       });
 
@@ -727,6 +727,44 @@ function buildWorkRecoveryPairs(classifiedLaps: ParsedLap[]): WorkRecoveryPair[]
   return pairs;
 }
 
+// Splits a work block into consecutive groups of similar-distance reps —
+// e.g. a "1 x 2km then 5 x 1km" workout — so each group can become its own
+// accurate step instead of one step whose target_distance_m is a flat
+// average across every rep regardless of length (which turned "1 x 2km,
+// 5 x 1km" into a meaningless "6 x 1.2km"). Grouping is sequential (in the
+// order reps actually happened), not a global sort — real structured
+// workouts run same-length reps back to back, so this also naturally
+// handles pyramids/ladders (e.g. 400/800/1200/1200/800/400) as multiple
+// groups without needing to assume there are only two distinct lengths.
+function splitBlockIntoDistanceGroups(blockPairs: WorkRecoveryPair[]): WorkRecoveryPair[][] {
+  if (blockPairs.length <= 1) return [blockPairs];
+
+  const DISTANCE_GROUP_TOLERANCE = 0.2; // reps within a group should be within ~20% of each other
+
+  const groups: WorkRecoveryPair[][] = [];
+  let current: WorkRecoveryPair[] = [blockPairs[0]];
+  let currentAvgDist = Number(blockPairs[0].work.total_distance ?? 0);
+
+  for (let i = 1; i < blockPairs.length; i++) {
+    const dist = Number(blockPairs[i].work.total_distance ?? 0);
+    const diffRatio = currentAvgDist > 0 ? Math.abs(dist - currentAvgDist) / currentAvgDist : 0;
+
+    if (diffRatio <= DISTANCE_GROUP_TOLERANCE) {
+      current.push(blockPairs[i]);
+      // Rolling average so the group's reference distance stays stable as
+      // more same-length reps join it, rather than drifting rep-to-rep.
+      currentAvgDist = current.reduce((s, p) => s + Number(p.work.total_distance ?? 0), 0) / current.length;
+    } else {
+      groups.push(current);
+      current = [blockPairs[i]];
+      currentAvgDist = dist;
+    }
+  }
+  groups.push(current);
+
+  return groups;
+}
+
 function splitWorkPairsIntoBlocks(pairs: WorkRecoveryPair[], plannedSteps: any[]) {
   const recoverySteps = getPlannedBlockRecoverySteps(plannedSteps);
 
@@ -781,8 +819,6 @@ function inferRecoveryMode(recoveryLap: ParsedLap | null): string | null {
 
   if (dur <= 0) return null;
 
-  const paceSecPerKm = dist > 0 ? (dur / dist) * 1000 : null;
-
   if (dist < 10) return "rest";
 
   // A genuine "walk" recovery involves real ambulation — at least 100m
@@ -791,9 +827,26 @@ function inferRecoveryMode(recoveryLap: ParsedLap | null): string | null {
   // actually happened; "standing" is the honest label.
   const MIN_WALK_DISTANCE_M = 100;
   const MIN_WALK_DURATION_S = 30;
+  const movedEnoughToCount = dist >= MIN_WALK_DISTANCE_M && dur >= MIN_WALK_DURATION_S;
 
-  if (paceSecPerKm != null && paceSecPerKm > 500) {
-    return dist >= MIN_WALK_DISTANCE_M && dur >= MIN_WALK_DURATION_S ? "walk" : "standing";
+  // Cadence is a far more reliable jog-vs-walk signal than pace: genuine
+  // recovery jogging (especially straight after a hard rep) is very
+  // commonly just as slow as brisk walking pace-wise, but running gait
+  // keeps a flight phase and essentially never drops below ~140 total
+  // steps/min, while walking gait — however brisk — essentially never
+  // reaches it. Prefer cadence whenever the device recorded it; only fall
+  // back to the pace-based guess for files with no cadence sensor data.
+  const cadence = recoveryLap.avg_cadence;
+  if (cadence != null && cadence > 0) {
+    const JOG_CADENCE_FLOOR_SPM = 140;
+    if (cadence >= JOG_CADENCE_FLOOR_SPM) return "jog";
+    return movedEnoughToCount ? "walk" : "standing";
+  }
+
+  const paceSecPerKm = dist > 0 ? (dur / dist) * 1000 : null;
+
+  if (paceSecPerKm != null && paceSecPerKm > 700) {
+    return movedEnoughToCount ? "walk" : "standing";
   }
 
   return "jog";
@@ -1235,24 +1288,49 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
       }
 
       const pushWorkStep = (blockPairs: WorkRecoveryPair[]) => {
-        const blockWorkLaps = blockPairs.map((p) => p.work);
-        const blockDist = blockWorkLaps.reduce((s, l) => s + Number(l.total_distance ?? 0), 0);
-        const blockTime = blockWorkLaps.reduce((s, l) => s + Number(l.total_elapsed_time ?? 0), 0);
+        const distanceGroups = splitBlockIntoDistanceGroups(blockPairs);
 
-        stepsToInsert.push({
-          session_id: sessionId,
-          step_order: stepOrder++,
-          kind: "work",
-          reps: blockPairs.length,
-          set_count: 1,
-          target_kind: blockDist > 0 ? "distance" : "time",
-          target_distance_m: blockDist > 0 ? Math.round(blockDist / Math.max(1, blockPairs.length)) : null,
-          target_time_seconds: blockDist > 0 ? null : Math.round(blockTime / Math.max(1, blockPairs.length)),
-          counts_toward_distance: true,
-          recovery_between_reps_seconds: avgRecovery,
-          recovery_between_reps_target_kind: avgRecovery != null ? "time" : null,
-          recovery_between_reps_mode: recoveryMode,
-        });
+        for (const groupPairs of distanceGroups) {
+          const groupWorkLaps = groupPairs.map((p) => p.work);
+          const groupDist = groupWorkLaps.reduce((s, l) => s + Number(l.total_distance ?? 0), 0);
+          const groupTime = groupWorkLaps.reduce((s, l) => s + Number(l.total_elapsed_time ?? 0), 0);
+
+          // Recovery stats scoped to THIS group's own reps — a group only
+          // has "between rep" recovery among its own members, not whatever
+          // recovery happened to come first across the whole block. A
+          // group's last member's `.recovery` is the transition into the
+          // NEXT group (or into cooldown) rather than a same-distance
+          // internal recovery, so it's naturally excluded here since only
+          // reps before the last one within a group have a same-group
+          // "next rep" to recover into.
+          const groupRecoveryPairs = groupPairs.slice(0, -1);
+          const groupRecoveryDurations = groupRecoveryPairs
+            .map((p) => Number(p.recovery?.total_elapsed_time ?? 0))
+            .filter((x) => x > 0);
+
+          const groupAvgRecovery =
+            groupRecoveryDurations.length > 0
+              ? Math.round(groupRecoveryDurations.reduce((a, b) => a + b, 0) / groupRecoveryDurations.length)
+              : null;
+
+          const groupRecoveryMode =
+            groupRecoveryPairs.length > 0 ? inferRecoveryMode(groupRecoveryPairs[0]?.recovery ?? null) : null;
+
+          stepsToInsert.push({
+            session_id: sessionId,
+            step_order: stepOrder++,
+            kind: "work",
+            reps: groupPairs.length,
+            set_count: 1,
+            target_kind: groupDist > 0 ? "distance" : "time",
+            target_distance_m: groupDist > 0 ? Math.round(groupDist / Math.max(1, groupPairs.length)) : null,
+            target_time_seconds: groupDist > 0 ? null : Math.round(groupTime / Math.max(1, groupPairs.length)),
+            counts_toward_distance: true,
+            recovery_between_reps_seconds: groupAvgRecovery ?? avgRecovery,
+            recovery_between_reps_target_kind: (groupAvgRecovery ?? avgRecovery) != null ? "time" : null,
+            recovery_between_reps_mode: groupRecoveryMode ?? recoveryMode,
+          });
+        }
       };
 
       if (pairs.length > 0) {
