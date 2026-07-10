@@ -230,6 +230,15 @@ function CalendarPage() {
           intent: "easy",
           structure: "continuous",
           is_planned: false,
+          // This is a completed FIT/GPX upload, not a placeholder for a
+          // future session — completed_at is what the UI (SessionPill,
+          // day-sheet) actually checks to show "Completed" vs "Planned",
+          // not is_planned. Without this the session sat labeled "Planned"
+          // forever, since uploadAndParseSessionFile only stamps
+          // completed_at when it creates the session itself (no sessionId
+          // passed in) — here we already created the row, so that branch
+          // never runs.
+          completed_at: new Date().toISOString(),
           source: "fit_import",
           title: "Morning session",
           created_by: user.id,
