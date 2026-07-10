@@ -132,13 +132,14 @@ function SessionDetail() {
     },
   });
 
-  // Work step for the "Workout" summary line (e.g. "8 × 1km + 90s jog
-  // recovery") on the Overview card. Only grabs the first work step — for
-  // sessions with a single block of reps (the common case) that's the whole
-  // picture; a multi-set session (e.g. "2 sets of 4 × 400m") would need
-  // extending this to detect and summarize multiple work steps.
-  const { data: workStep } = useQuery({
-    queryKey: ["overview-work-step", sessionId],
+  // Work steps for the "Workout" summary on the Overview card, e.g.
+  // "8 × 1km + 90s jog recovery". Fetches every work step, not just the
+  // first — a session can legitimately have more than one (e.g. a 2km
+  // opener followed by 5 x 1km reps produces two separate work steps, one
+  // per distinct rep distance), and showing only the first used to
+  // silently drop the rest of the workout from this summary.
+  const { data: workSteps } = useQuery({
+    queryKey: ["overview-work-steps", sessionId],
     enabled: !!sessionId,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -146,19 +147,20 @@ function SessionDetail() {
         .select("*")
         .eq("session_id", sessionId)
         .eq("kind", "work")
-        .order("step_order")
-        .limit(1)
-        .maybeSingle();
+        .order("step_order");
 
       if (error) throw error;
-      return data;
+      return data ?? [];
     },
   });
 
   // Computed once here rather than inline in JSX — formatWorkoutStructure
-  // now returns {main, recovery} so the recovery portion can be styled
-  // smaller than the main "N × distance" part.
-  const workoutStructure = useMemo(() => formatWorkoutStructure(workStep), [workStep]);
+  // now returns {main, recovery} per step so the recovery portion can be
+  // styled smaller than the main "N × distance" part.
+  const workoutStructures = useMemo(
+    () => (workSteps ?? []).map((s) => formatWorkoutStructure(s)).filter((x): x is { main: string; recovery: string | null } => !!x),
+    [workSteps],
+  );
 
   // Raw points + GPS reconstruction, purely to decide whether the manual
   // "Split corrections" UI needs to be shown at all. If reconstruction ran
@@ -820,15 +822,21 @@ function SessionDetail() {
               </div>
             )}
 
-            {/* Workout structure — e.g. "8 × 1km" + smaller "1 min Recovery (standing)" */}
-            {workoutStructure && (
+            {/* Workout structure — one line per work step, e.g.
+                "2 km" then "5 × 1km" + smaller "1 min Recovery (standing)"
+                for a session with more than one distinct rep distance. */}
+            {workoutStructures.length > 0 && (
               <div className="border rounded-lg px-3 py-2">
                 <div className="text-xs text-muted-foreground">Workout</div>
-                <div className="text-lg font-semibold">
-                  {workoutStructure.main}
-                  {workoutStructure.recovery && (
-                    <span className="text-sm font-normal text-muted-foreground"> + {workoutStructure.recovery}</span>
-                  )}
+                <div className="space-y-0.5">
+                  {workoutStructures.map((ws, i) => (
+                    <div key={i} className="text-lg font-semibold">
+                      {ws.main}
+                      {ws.recovery && (
+                        <span className="text-sm font-normal text-muted-foreground"> + {ws.recovery}</span>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
