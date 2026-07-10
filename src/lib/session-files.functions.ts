@@ -478,12 +478,27 @@ function classifyLaps(
   }
 
   if (hasPlannedWork) {
+    // The loose "distance >= 150m OR time >= 60s" floor below was meant to
+    // just weed out obvious lap-button blips, but real recovery jogs
+    // between reps routinely run 150-300m over 60-165s — comfortably past
+    // both thresholds — so they were getting swept into "work" wholesale.
+    // Use the same pace-contrast split as the no-plan path first; only fall
+    // back to the loose floor if there's no genuine work/recovery pace
+    // contrast to find (e.g. a single continuous planned tempo effort with
+    // no recovery laps at all, where "contrast" is meaningless).
+    const nonRestCandidates = laps.filter(
+      (l) => l.intensity !== "rest" && l.total_distance > 50 && l.total_elapsed_time > 10,
+    );
+    const { workIndices, isGenuine } = splitLapsByPaceContrast(nonRestCandidates);
+
     let classified: ParsedLap[] = laps.map((lap) => {
       if (lap.intensity === "rest") {
         return { ...lap, kind: "recovery" as const };
       }
 
-      const isWork = lap.total_distance >= 150 || lap.total_elapsed_time >= 60;
+      const isWork = isGenuine
+        ? workIndices.has(lap.index)
+        : lap.total_distance >= 150 || lap.total_elapsed_time >= 60;
 
       return { ...lap, kind: isWork ? ("work" as const) : ("recovery" as const) };
     });
@@ -502,7 +517,13 @@ function classifyLaps(
       });
     }
 
-    if (hasLadderPlan) return classified;
+    // hasLadderPlan doesn't change classification behavior today — flagged
+    // here for whenever per-rep targets ship (see is_ladder checkbox in
+    // sessions.new.tsx), at which point a ladder plan should probably match
+    // each rep's recorded lap against its own planned distance instead of
+    // relying on pace contrast alone.
+    void hasLadderPlan;
+
     return classified;
   }
 
