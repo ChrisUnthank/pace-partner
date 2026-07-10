@@ -1586,9 +1586,7 @@ function StepBlock({
                           return (
                             <div key={`${setN}-${rep}`}>
                               <RepRow step={step} rep={rep} result={r} onSave={(p) => saveRep(setN, rep, p)} />
-                              {step.reps > 1 && rep < reps.length && (
-                                <RecoveryBetweenReps step={step} session={session} />
-                              )}
+                              {step.reps > 1 && rep < reps.length && <RecoveryBetweenReps step={step} session={session} />}
                             </div>
                           );
                         })}
@@ -1862,12 +1860,7 @@ function RecoveryBetweenReps({ step, session }: { step: any; session: any }) {
     setTimeText(secToClock(step.recovery_between_reps_seconds || 0));
     setDistanceText(step.recovery_between_reps_distance_m ?? "");
     setMode(step.recovery_between_reps_mode ?? "standing");
-  }, [
-    step.id,
-    step.recovery_between_reps_seconds,
-    step.recovery_between_reps_distance_m,
-    step.recovery_between_reps_mode,
-  ]);
+  }, [step.id, step.recovery_between_reps_seconds, step.recovery_between_reps_distance_m, step.recovery_between_reps_mode]);
 
   async function commit() {
     const patch: any = { recovery_between_reps_mode: mode || null };
