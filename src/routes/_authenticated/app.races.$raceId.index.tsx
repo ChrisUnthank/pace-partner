@@ -58,7 +58,35 @@ export const Route = createFileRoute("/_authenticated/app/races/$raceId/")({
 });
 
 function SessionDetail() {
-  const { sessionId } = Route.useParams();
+  // This route's only param is `raceId` (performances.id) — there is no
+  // `sessionId` in it. This page was adapted from the session detail page,
+  // which destructured `sessionId` directly off the route params; that
+  // property simply doesn't exist here, so it was always undefined, and
+  // every query keyed off it silently matched nothing — hence "Session not
+  // found" on every single race. Resolve the real session id from the
+  // race's own session_id first, the same way the sibling analysis page
+  // already does it correctly.
+  const { raceId } = Route.useParams();
+
+  const {
+    data: raceForLookup,
+    isLoading: raceLookupLoading,
+    error: raceLookupError,
+  } = useQuery({
+    queryKey: ["race-for-detail-lookup", raceId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("performances")
+        .select("id, session_id")
+        .eq("id", raceId)
+        .maybeSingle();
+
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const sessionId = raceForLookup?.session_id ?? null;
   const qc = useQueryClient();
   const removeSession = useServerFn(deleteSession);
   const mergeSession = useServerFn(mergeSessionIntoAnother);
@@ -86,6 +114,7 @@ function SessionDetail() {
     error,
   } = useQuery({
     queryKey: ["session", sessionId],
+    enabled: !!sessionId,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sessions")
@@ -495,12 +524,33 @@ function SessionDetail() {
     }
   }, [session?.title]);
 
-  if (isLoading)
+  if (raceLookupLoading || (isLoading && !!sessionId))
     return (
       <AppShell>
         <p>Loading…</p>
       </AppShell>
     );
+  if (raceLookupError || !raceForLookup) {
+    return (
+      <AppShell>
+        <div className="space-y-3 max-w-lg">
+          <h1 className="text-lg font-semibold">Race not found</h1>
+          <p className="text-sm text-muted-foreground">
+            This race may have been deleted, or you may not have access to it.
+            {raceLookupError ? (
+              <>
+                {" "}
+                <span className="block mt-1 text-xs">({(raceLookupError as any).message})</span>
+              </>
+            ) : null}
+          </p>
+          <Button asChild variant="outline" size="sm">
+            <Link to="/app/races">← Back to races</Link>
+          </Button>
+        </div>
+      </AppShell>
+    );
+  }
   if (error || !session) {
     return (
       <AppShell>
