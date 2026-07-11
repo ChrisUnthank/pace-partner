@@ -15,6 +15,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ClaimTokenRouteImport } from './routes/claim.$token'
 import { Route as CSlugRouteImport } from './routes/c.$slug'
 import { Route as AuthenticatedAppIndexRouteImport } from './routes/_authenticated/app.index'
+import { Route as AuthenticatedAppZonesRouteImport } from './routes/_authenticated/app.zones'
 import { Route as AuthenticatedAppVitalsRouteImport } from './routes/_authenticated/app.vitals'
 import { Route as AuthenticatedAppTodayRouteImport } from './routes/_authenticated/app.today'
 import { Route as AuthenticatedAppTemplatesRouteImport } from './routes/_authenticated/app.templates'
@@ -71,6 +72,11 @@ const CSlugRoute = CSlugRouteImport.update({
 const AuthenticatedAppIndexRoute = AuthenticatedAppIndexRouteImport.update({
   id: '/app/',
   path: '/app/',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedAppZonesRoute = AuthenticatedAppZonesRouteImport.update({
+  id: '/app/zones',
+  path: '/app/zones',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedAppVitalsRoute = AuthenticatedAppVitalsRouteImport.update({
@@ -255,6 +261,7 @@ export interface FileRoutesByFullPath {
   '/app/templates': typeof AuthenticatedAppTemplatesRoute
   '/app/today': typeof AuthenticatedAppTodayRoute
   '/app/vitals': typeof AuthenticatedAppVitalsRoute
+  '/app/zones': typeof AuthenticatedAppZonesRoute
   '/app/': typeof AuthenticatedAppIndexRoute
   '/app/athletes/$athleteId': typeof AuthenticatedAppAthletesAthleteIdRoute
   '/app/coach/$slug': typeof AuthenticatedAppCoachSlugRoute
@@ -287,6 +294,7 @@ export interface FileRoutesByTo {
   '/app/templates': typeof AuthenticatedAppTemplatesRoute
   '/app/today': typeof AuthenticatedAppTodayRoute
   '/app/vitals': typeof AuthenticatedAppVitalsRoute
+  '/app/zones': typeof AuthenticatedAppZonesRoute
   '/app': typeof AuthenticatedAppIndexRoute
   '/app/athletes/$athleteId': typeof AuthenticatedAppAthletesAthleteIdRoute
   '/app/coach/$slug': typeof AuthenticatedAppCoachSlugRoute
@@ -322,6 +330,7 @@ export interface FileRoutesById {
   '/_authenticated/app/templates': typeof AuthenticatedAppTemplatesRoute
   '/_authenticated/app/today': typeof AuthenticatedAppTodayRoute
   '/_authenticated/app/vitals': typeof AuthenticatedAppVitalsRoute
+  '/_authenticated/app/zones': typeof AuthenticatedAppZonesRoute
   '/_authenticated/app/': typeof AuthenticatedAppIndexRoute
   '/_authenticated/app/athletes/$athleteId': typeof AuthenticatedAppAthletesAthleteIdRoute
   '/_authenticated/app/coach/$slug': typeof AuthenticatedAppCoachSlugRoute
@@ -359,6 +368,7 @@ export interface FileRouteTypes {
     | '/app/templates'
     | '/app/today'
     | '/app/vitals'
+    | '/app/zones'
     | '/app/'
     | '/app/athletes/$athleteId'
     | '/app/coach/$slug'
@@ -391,6 +401,7 @@ export interface FileRouteTypes {
     | '/app/templates'
     | '/app/today'
     | '/app/vitals'
+    | '/app/zones'
     | '/app'
     | '/app/athletes/$athleteId'
     | '/app/coach/$slug'
@@ -425,6 +436,7 @@ export interface FileRouteTypes {
     | '/_authenticated/app/templates'
     | '/_authenticated/app/today'
     | '/_authenticated/app/vitals'
+    | '/_authenticated/app/zones'
     | '/_authenticated/app/'
     | '/_authenticated/app/athletes/$athleteId'
     | '/_authenticated/app/coach/$slug'
@@ -496,6 +508,13 @@ declare module '@tanstack/react-router' {
       path: '/app'
       fullPath: '/app/'
       preLoaderRoute: typeof AuthenticatedAppIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/zones': {
+      id: '/_authenticated/app/zones'
+      path: '/app/zones'
+      fullPath: '/app/zones'
+      preLoaderRoute: typeof AuthenticatedAppZonesRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/app/vitals': {
@@ -801,6 +820,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAppTemplatesRoute: typeof AuthenticatedAppTemplatesRoute
   AuthenticatedAppTodayRoute: typeof AuthenticatedAppTodayRoute
   AuthenticatedAppVitalsRoute: typeof AuthenticatedAppVitalsRoute
+  AuthenticatedAppZonesRoute: typeof AuthenticatedAppZonesRoute
   AuthenticatedAppIndexRoute: typeof AuthenticatedAppIndexRoute
   AuthenticatedAppCoachSlugRoute: typeof AuthenticatedAppCoachSlugRoute
   AuthenticatedAppCoachIndexRoute: typeof AuthenticatedAppCoachIndexRoute
@@ -819,6 +839,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAppTemplatesRoute: AuthenticatedAppTemplatesRoute,
   AuthenticatedAppTodayRoute: AuthenticatedAppTodayRoute,
   AuthenticatedAppVitalsRoute: AuthenticatedAppVitalsRoute,
+  AuthenticatedAppZonesRoute: AuthenticatedAppZonesRoute,
   AuthenticatedAppIndexRoute: AuthenticatedAppIndexRoute,
   AuthenticatedAppCoachSlugRoute: AuthenticatedAppCoachSlugRoute,
   AuthenticatedAppCoachIndexRoute: AuthenticatedAppCoachIndexRoute,
