@@ -189,7 +189,7 @@ function CalendarPage() {
         supabase
           .from("sessions")
           .select(
-            "id, title, session_date, day_type, intent, structure, is_long_run, completed_at, is_planned, activity_type, total_distance_m, total_time_seconds",
+            "id, title, session_date, day_type, intent, structure, is_long_run, completed_at, is_planned, activity_type, total_distance_m, total_time_seconds, total_moving_time_seconds",
           )
           .eq("athlete_id", selectedAthleteId)
           .gte("session_date", rangeStart)
