@@ -16,6 +16,7 @@ import {
   WeekTotalCell,
   type CalendarSession,
   type DayData,
+  type DayForecast,
   sessionColorClass,
   sessionShortLabel,
 } from "@/components/calendar-day-cell";
@@ -99,6 +100,70 @@ function CalendarPage() {
   });
 
   const selectedAthleteId = search.athleteId ?? myAthlete?.id ?? roster?.[0]?.id ?? "";
+
+  // Home location for forecasting, auto-detected from the athlete's most
+  // recent completed GPS session — there's no dedicated "home location"
+  // field on athletes today, and this avoids needing one just to show a
+  // forecast. A brand-new athlete with no uploaded runs yet simply won't
+  // have a forecast until their first GPS session exists; that's an
+  // acceptable gap for a first pass rather than a blocker.
+  const { data: homeLocation } = useQuery({
+    queryKey: ["calendar-home-location", selectedAthleteId],
+    enabled: !!selectedAthleteId,
+    queryFn: async () => {
+      const { data: recentSession } = await supabase
+        .from("sessions")
+        .select("id")
+        .eq("athlete_id", selectedAthleteId)
+        .not("completed_at", "is", null)
+        .order("session_date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!recentSession) return null;
+
+      const { data: point } = await supabase
+        .from("raw_session_points")
+        .select("lat, lng")
+        .eq("session_id", recentSession.id)
+        .not("lat", "is", null)
+        .not("lng", "is", null)
+        .limit(1)
+        .maybeSingle();
+      if (!point?.lat || !point?.lng) return null;
+
+      return { lat: Number(point.lat), lng: Number(point.lng) };
+    },
+  });
+
+  // Open-Meteo's forecast endpoint is free, keyless, and CORS-enabled —
+  // fetched directly from the browser rather than through a server
+  // function, same provider already used server-side for past-session
+  // weather (fetchWeather in session-files.functions.ts), just the daily
+  // aggregate shape instead of hourly (a day cell only has room for one
+  // number, not an hour-by-hour breakdown). staleTime keeps this from
+  // re-fetching every time the athlete flips between week/month or
+  // navigates a few days — a forecast doesn't meaningfully change that often.
+  const { data: forecast } = useQuery({
+    queryKey: ["calendar-forecast", homeLocation?.lat, homeLocation?.lng],
+    enabled: !!homeLocation,
+    staleTime: 60 * 60 * 1000,
+    queryFn: async () => {
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${homeLocation!.lat}&longitude=${homeLocation!.lng}&daily=temperature_2m_max,temperature_2m_min,wind_speed_10m_max&forecast_days=16&timezone=auto`;
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const data = await res.json();
+      const days: string[] = data?.daily?.time ?? [];
+      const tempMax: (number | null)[] = data?.daily?.temperature_2m_max ?? [];
+      const tempMin: (number | null)[] = data?.daily?.temperature_2m_min ?? [];
+      const windMax: (number | null)[] = data?.daily?.wind_speed_10m_max ?? [];
+
+      const map = new Map<string, DayForecast>();
+      days.forEach((d, i) => {
+        map.set(d, { tempMax: tempMax[i] ?? null, tempMin: tempMin[i] ?? null, windMax: windMax[i] ?? null });
+      });
+      return map;
+    },
+  });
 
   // Date range to load
   const { rangeStart, rangeEnd, gridDays, weekStart } = useMemo(() => {
@@ -431,6 +496,7 @@ function CalendarPage() {
                             inMonth={inMonth}
                             isToday={iso === todayISO}
                             compact={false}
+                            weather={forecast?.get(iso) ?? null}
                             onMultiClick={(dd) => setSheetDay(dd)}
                             onAdd={(date) => setAddMenuDate(date)}
                           />
