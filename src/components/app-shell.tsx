@@ -6,6 +6,7 @@ import { useMyRoles, useAuthUser } from "@/lib/use-auth";
 import { Button } from "@/components/ui/button";
 import {
   CalendarDays,
+  CalendarRange,
   Users,
   User2,
   LogOut,
@@ -62,6 +63,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     { to: "/app/daily-log", label: "Daily Log", icon: ClipboardList, show: isAthlete },
     { to: "/app/zones", label: "Zones", icon: Gauge, show: isAthlete || isCoach },
     { to: "/app/sessions", label: "Sessions", icon: CalendarDays, show: true },
+    { to: "/app/sessions/calendar", label: "Calendar", icon: CalendarRange, show: true },
     { to: "/app/analytics", label: "Analytics", icon: LineChart, show: true },
     { to: "/app/races", label: "Races", icon: Trophy, show: true },
     { to: "/app/athletes", label: "Athletes", icon: Users, show: isCoach },
