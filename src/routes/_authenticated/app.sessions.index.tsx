@@ -13,6 +13,8 @@ import { ActivityIcon } from "@/lib/activity-icon";
 import { useState, useMemo } from "react";
 import { BulkFitUpload } from "@/components/bulk-fit-upload";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { sessionColorClass } from "@/components/calendar-day-cell";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/")({
   component: SessionsList,
@@ -173,20 +175,23 @@ function SessionsList() {
                 const localTime = startedAt ? formatLocalTime(startedAt, s.athletes?.timezone) : null;
                 return (
                   <Link key={s.id} to="/app/sessions/$sessionId" params={{ sessionId: s.id }}
-                    className="flex items-center justify-between px-4 py-3 hover:bg-accent/40">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <ActivityIcon session={s} size={18} className="text-muted-foreground shrink-0" />
-                      <div className="min-w-0">
-                      <div className="font-medium truncate">{s.title}</div>
-                      <div className="text-xs text-muted-foreground truncate">
-                        {new Date(s.session_date + "T00:00:00").toLocaleDateString(undefined, { weekday: "long" })}, {s.session_date}{localTime ? ` · ${localTime}` : ""} · {s.athletes?.name} · {sessionClassificationLabel(s)}
+                    className="flex items-stretch gap-3 hover:bg-accent/40 overflow-hidden">
+                    <span className={cn("w-1.5 shrink-0", sessionColorClass(s))} />
+                    <div className="flex-1 flex items-center justify-between gap-2 py-3 pr-4 min-w-0">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <ActivityIcon session={s} size={18} className="text-muted-foreground shrink-0" />
+                        <div className="min-w-0">
+                        <div className="font-medium truncate">{s.title}</div>
+                        <div className="text-xs text-muted-foreground truncate">
+                          {new Date(s.session_date + "T00:00:00").toLocaleDateString(undefined, { weekday: "long" })}, {s.session_date}{localTime ? ` · ${localTime}` : ""} · {s.athletes?.name} · {sessionClassificationLabel(s)}
+                        </div>
+                        </div>
                       </div>
+                      <div className="flex gap-2 items-center text-sm">
+                        {s.total_distance_m && <span className="text-muted-foreground">{metersFmt(s.total_distance_m)}</span>}
+                        {s.total_time_seconds && <span className="text-muted-foreground">{secToClock(s.total_time_seconds)}</span>}
+                        <Badge variant={s.completed_at ? "default" : "outline"}>{s.completed_at ? "Done" : "Planned"}</Badge>
                       </div>
-                    </div>
-                    <div className="flex gap-2 items-center text-sm">
-                      {s.total_distance_m && <span className="text-muted-foreground">{metersFmt(s.total_distance_m)}</span>}
-                      {s.total_time_seconds && <span className="text-muted-foreground">{secToClock(s.total_time_seconds)}</span>}
-                      <Badge variant={s.completed_at ? "default" : "outline"}>{s.completed_at ? "Done" : "Planned"}</Badge>
                     </div>
                   </Link>
                 );
