@@ -1,12 +1,14 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useMyAthlete } from "@/lib/use-auth";
+import { useMyAthlete, useMyRoles, useCoachRoster } from "@/lib/use-auth";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { ZoneBoundariesCard } from "@/components/zone-boundaries-card";
 import { paceFmt, secToClock } from "@/lib/format";
+import { AlertTriangle, Search } from "lucide-react";
 import {
   ResponsiveContainer,
   BarChart,
@@ -61,6 +63,30 @@ function dayLabel(dateStr: string) {
 }
 
 function ZonesPage() {
+  const { data: roles = [] } = useMyRoles();
+  const isCoach = roles.includes("coach");
+
+  // Coaches get a roster overview instead of the self-service editor below —
+  // same page, same nav entry, branching by role like the Analytics page
+  // already does. Deliberately not a second route: a coach who is also an
+  // athlete edits their own zones from their athlete row / Profile page,
+  // same as everyone else, rather than this page trying to be both at once.
+  if (isCoach) {
+    return (
+      <AppShell>
+        <CoachZonesRoster />
+      </AppShell>
+    );
+  }
+
+  return (
+    <AppShell>
+      <AthleteZonesView />
+    </AppShell>
+  );
+}
+
+function AthleteZonesView() {
   const { data: athlete } = useMyAthlete();
   const [range, setRange] = useState<RangeKey>("6m");
 
@@ -173,20 +199,19 @@ function ZonesPage() {
   const hasAnyZoneTime = (zoneTimeRaw ?? []).length > 0;
 
   return (
-    <AppShell>
-      <div className="space-y-6">
-        <div>
-          <h1 className="font-display text-3xl font-extrabold tracking-tight">Zones</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Your training zones, how your time breaks down across them, and how your boundaries have shifted over time.
-          </p>
-        </div>
+    <div className="space-y-6">
+      <div>
+        <h1 className="font-display text-3xl font-extrabold tracking-tight">Zones</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Your training zones, how your time breaks down across them, and how your boundaries have shifted over time.
+        </p>
+      </div>
 
-        {athlete ? (
-          <>
-            <ZoneBoundariesCard athleteId={athlete.id} profile={zoneProfile} />
+      {athlete ? (
+        <>
+          <ZoneBoundariesCard athleteId={athlete.id} profile={zoneProfile} />
 
-            <div className="flex items-center justify-end gap-1">
+          <div className="flex items-center justify-end gap-1">
               {(Object.keys(RANGES) as RangeKey[]).map((r) => (
                 <button
                   key={r}
@@ -288,8 +313,7 @@ function ZonesPage() {
             </CardHeader>
           </Card>
         )}
-      </div>
-    </AppShell>
+    </div>
   );
 }
 
@@ -325,5 +349,192 @@ function TimeInZoneCard({ title, data }: { title: string; data: any[] }) {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// Coach view: roster overview
+// ----------------------------------------------------------------------------
+
+function CoachZonesRoster() {
+  const { data: roster } = useCoachRoster();
+  const [search, setSearch] = useState("");
+
+  const athletes = useMemo(() => (roster ?? []).map((r: any) => r.athletes).filter(Boolean), [roster]);
+  const athleteIds = useMemo(() => athletes.map((a: any) => a.id), [athletes]);
+
+  const { data: zoneProfiles } = useQuery({
+    queryKey: ["roster-zone-profiles", athleteIds.join(",")],
+    enabled: athleteIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("athlete_zone_profiles").select("*").in("athlete_id", athleteIds);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+  const profileByAthlete = useMemo(
+    () => new Map((zoneProfiles ?? []).map((p: any) => [p.athlete_id, p])),
+    [zoneProfiles],
+  );
+
+  // Time-in-zone, last 30 days, across the whole roster — same two-step
+  // (sessions, then session_zone_time) pattern as the athlete's own Zones
+  // page, just fanned out over every athlete_id at once instead of one.
+  const { data: zoneTimeRaw } = useQuery({
+    queryKey: ["roster-zone-time-30d", athleteIds.join(",")],
+    enabled: athleteIds.length > 0,
+    queryFn: async () => {
+      const since = new Date();
+      since.setDate(since.getDate() - 30);
+      const sinceStr = since.toISOString().slice(0, 10);
+
+      const { data: sessions, error: sessErr } = await supabase
+        .from("sessions")
+        .select("id, athlete_id")
+        .in("athlete_id", athleteIds)
+        .gte("session_date", sinceStr);
+      if (sessErr) throw sessErr;
+      const ids = (sessions ?? []).map((s) => s.id);
+      if (ids.length === 0) return [];
+
+      const { data: rows, error: zoneErr } = await supabase
+        .from("session_zone_time")
+        .select("session_id, zone, source, seconds")
+        .in("session_id", ids);
+      if (zoneErr) throw zoneErr;
+
+      const athleteBySession = new Map((sessions ?? []).map((s) => [s.id, s.athlete_id]));
+      return (rows ?? []).map((r) => ({ ...r, athlete_id: athleteBySession.get(r.session_id) }));
+    },
+  });
+
+  // Per athlete: total seconds per zone, preferring pace over HR when both
+  // exist — pace is captured on essentially every GPS session, HR only
+  // when a strap was worn, so pace gives the fuller picture when available.
+  const zoneTimeByAthlete = useMemo(() => {
+    const paceTotals = new Map<string, Record<string, number>>();
+    const hrTotals = new Map<string, Record<string, number>>();
+    for (const r of zoneTimeRaw ?? []) {
+      if (!r.athlete_id) continue;
+      const target = r.source === "pace" ? paceTotals : hrTotals;
+      if (!target.has(r.athlete_id)) target.set(r.athlete_id, { z1: 0, z2: 0, z3: 0, z4: 0, z5: 0 });
+      const bucket = target.get(r.athlete_id)!;
+      bucket[r.zone] = (bucket[r.zone] ?? 0) + Number(r.seconds ?? 0);
+    }
+    const result = new Map<string, { zones: Record<string, number>; totalSec: number }>();
+    for (const id of athleteIds) {
+      const pace = paceTotals.get(id);
+      const hr = hrTotals.get(id);
+      const paceTotal = pace ? Object.values(pace).reduce((a, b) => a + b, 0) : 0;
+      const hrTotal = hr ? Object.values(hr).reduce((a, b) => a + b, 0) : 0;
+      if (paceTotal >= hrTotal && paceTotal > 0) {
+        result.set(id, { zones: pace!, totalSec: paceTotal });
+      } else if (hrTotal > 0) {
+        result.set(id, { zones: hr!, totalSec: hrTotal });
+      } else {
+        result.set(id, { zones: { z1: 0, z2: 0, z3: 0, z4: 0, z5: 0 }, totalSec: 0 });
+      }
+    }
+    return result;
+  }, [zoneTimeRaw, athleteIds]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const list = q ? athletes.filter((a: any) => a.name?.toLowerCase().includes(q)) : athletes;
+    return [...list].sort((a: any, b: any) => (a.name ?? "").localeCompare(b.name ?? ""));
+  }, [athletes, search]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-end justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="font-display text-3xl font-extrabold tracking-tight">Zones</h1>
+          <p className="text-sm text-muted-foreground mt-1">Threshold values and recent time-in-zone across your roster.</p>
+        </div>
+        <div className="relative w-full sm:w-64">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Filter by name…" className="pl-8 h-9" />
+        </div>
+      </div>
+
+      <Card>
+        <CardContent className="p-0">
+          {filtered.length === 0 ? (
+            <p className="p-6 text-sm text-muted-foreground text-center">
+              {athletes.length === 0 ? "No athletes on your roster yet." : "No athletes match that search."}
+            </p>
+          ) : (
+            <div className="divide-y">
+              {filtered.map((a: any) => {
+                const profile = profileByAthlete.get(a.id);
+                const hasZoneData = !!profile && (profile.hr_threshold != null || profile.pace_threshold_sec_per_km != null);
+                const zt = zoneTimeByAthlete.get(a.id);
+                return (
+                  <Link
+                    key={a.id}
+                    to="/app/athletes/$athleteId"
+                    params={{ athleteId: a.id }}
+                    className="flex items-center gap-4 px-4 py-3 hover:bg-accent/40 transition-colors flex-wrap"
+                  >
+                    <div className="min-w-0 w-40 shrink-0">
+                      <div className="font-medium truncate">{a.name}</div>
+                      {a.primary_event && <div className="text-xs text-muted-foreground truncate">{a.primary_event}</div>}
+                    </div>
+
+                    {!hasZoneData ? (
+                      <div className="flex items-center gap-1.5 text-xs text-amber-600 font-medium">
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        No zone data yet
+                      </div>
+                    ) : (
+                      <>
+                        <div className="w-32 shrink-0">
+                          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">HR threshold</div>
+                          <div className="text-sm tabular-nums">
+                            {profile?.hr_threshold != null ? `${profile.hr_threshold} bpm` : "—"}
+                            {profile?.hr_zones_manual && <span className="ml-1 text-[10px] text-amber-600">manual</span>}
+                          </div>
+                        </div>
+                        <div className="w-32 shrink-0">
+                          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Pace threshold</div>
+                          <div className="text-sm tabular-nums">
+                            {profile?.pace_threshold_sec_per_km != null ? paceFmt(profile.pace_threshold_sec_per_km) : "—"}
+                            {profile?.pace_zones_manual && <span className="ml-1 text-[10px] text-amber-600">manual</span>}
+                          </div>
+                        </div>
+                        <div className="flex-1 min-w-[120px]">
+                          <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
+                            Last 30 days{zt && zt.totalSec > 0 ? ` · ${Math.round(zt.totalSec / 60)} min` : ""}
+                          </div>
+                          <MiniZoneBar zones={zt?.zones} />
+                        </div>
+                      </>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function MiniZoneBar({ zones }: { zones?: Record<string, number> }) {
+  const total = zones ? Object.values(zones).reduce((a, b) => a + b, 0) : 0;
+  if (!zones || total === 0) {
+    return <div className="h-2 w-full rounded-full bg-muted" title="No zone time logged in this period" />;
+  }
+  return (
+    <div className="h-2 w-full rounded-full overflow-hidden flex bg-muted">
+      {ZONE_KEYS.map((z) => {
+        const pct = (zones[z] / total) * 100;
+        if (pct <= 0) return null;
+        return (
+          <div key={z} style={{ width: `${pct}%`, background: ZONE_COLORS[z] }} title={`${ZONE_LABELS[z]}: ${Math.round(zones[z] / 60)} min`} />
+        );
+      })}
+    </div>
   );
 }
