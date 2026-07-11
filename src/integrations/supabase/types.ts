@@ -460,6 +460,7 @@ export type Database = {
           athlete_id: string
           auto_derived: boolean
           hr_max: number | null
+          hr_threshold: number | null
           hr_z1_max: number | null
           hr_z2_max: number | null
           hr_z3_max: number | null
@@ -471,6 +472,11 @@ export type Database = {
           pace_easy_sec_per_km: number | null
           pace_rep_sec_per_km: number | null
           pace_threshold_sec_per_km: number | null
+          pace_z1_max_sec_per_km: number | null
+          pace_z2_max_sec_per_km: number | null
+          pace_z3_max_sec_per_km: number | null
+          pace_z4_max_sec_per_km: number | null
+          pace_z5_max_sec_per_km: number | null
           pace_zones_manual: boolean
           updated_at: string
         }
@@ -478,6 +484,7 @@ export type Database = {
           athlete_id: string
           auto_derived?: boolean
           hr_max?: number | null
+          hr_threshold?: number | null
           hr_z1_max?: number | null
           hr_z2_max?: number | null
           hr_z3_max?: number | null
@@ -489,6 +496,11 @@ export type Database = {
           pace_easy_sec_per_km?: number | null
           pace_rep_sec_per_km?: number | null
           pace_threshold_sec_per_km?: number | null
+          pace_z1_max_sec_per_km?: number | null
+          pace_z2_max_sec_per_km?: number | null
+          pace_z3_max_sec_per_km?: number | null
+          pace_z4_max_sec_per_km?: number | null
+          pace_z5_max_sec_per_km?: number | null
           pace_zones_manual?: boolean
           updated_at?: string
         }
@@ -496,6 +508,7 @@ export type Database = {
           athlete_id?: string
           auto_derived?: boolean
           hr_max?: number | null
+          hr_threshold?: number | null
           hr_z1_max?: number | null
           hr_z2_max?: number | null
           hr_z3_max?: number | null
@@ -507,6 +520,11 @@ export type Database = {
           pace_easy_sec_per_km?: number | null
           pace_rep_sec_per_km?: number | null
           pace_threshold_sec_per_km?: number | null
+          pace_z1_max_sec_per_km?: number | null
+          pace_z2_max_sec_per_km?: number | null
+          pace_z3_max_sec_per_km?: number | null
+          pace_z4_max_sec_per_km?: number | null
+          pace_z5_max_sec_per_km?: number | null
           pace_zones_manual?: boolean
           updated_at?: string
         }
@@ -2029,6 +2047,7 @@ export type Database = {
           race_step_id: string | null
           review_dismissed_at: string | null
           rpe: number | null
+          same_day_ignored_ids: string[]
           session_date: string
           source: Database["public"]["Enums"]["session_source"]
           structure: Database["public"]["Enums"]["session_structure"] | null
@@ -2078,6 +2097,7 @@ export type Database = {
           race_step_id?: string | null
           review_dismissed_at?: string | null
           rpe?: number | null
+          same_day_ignored_ids?: string[]
           session_date: string
           source?: Database["public"]["Enums"]["session_source"]
           structure?: Database["public"]["Enums"]["session_structure"] | null
@@ -2127,6 +2147,7 @@ export type Database = {
           race_step_id?: string | null
           review_dismissed_at?: string | null
           rpe?: number | null
+          same_day_ignored_ids?: string[]
           session_date?: string
           source?: Database["public"]["Enums"]["session_source"]
           structure?: Database["public"]["Enums"]["session_structure"] | null
@@ -2542,11 +2563,27 @@ export type Database = {
         Args: { _athlete_name?: string; _email: string; _message?: string }
         Returns: Json
       }
+      reset_hr_zones_to_auto: {
+        Args: { _athlete_id: string }
+        Returns: undefined
+      }
+      reset_pace_zones_to_auto: {
+        Args: { _athlete_id: string }
+        Returns: undefined
+      }
       respond_to_join_request: {
         Args: { _accept: boolean; _request_id: string }
         Returns: Json
       }
       session_training_load: { Args: { _session_id: string }; Returns: number }
+      set_hr_threshold_manual: {
+        Args: { _athlete_id: string; _hr_threshold: number }
+        Returns: undefined
+      }
+      set_pace_threshold_manual: {
+        Args: { _athlete_id: string; _threshold_sec_per_km: number }
+        Returns: undefined
+      }
       submit_coach_inquiry: {
         Args: {
           p_discipline: string
@@ -2560,6 +2597,26 @@ export type Database = {
       toggle_coach_athlete_visibility: {
         Args: { p_coach_athlete_id: string; p_visible: boolean }
         Returns: undefined
+      }
+      zones_from_hr_threshold: {
+        Args: { _hr_threshold: number }
+        Returns: {
+          z1_max: number
+          z2_max: number
+          z3_max: number
+          z4_max: number
+          z5_max: number
+        }[]
+      }
+      zones_from_pace_threshold: {
+        Args: { _threshold_sec_per_km: number }
+        Returns: {
+          z1_max: number
+          z2_max: number
+          z3_max: number
+          z4_max: number
+          z5_max: number
+        }[]
       }
     }
     Enums: {
