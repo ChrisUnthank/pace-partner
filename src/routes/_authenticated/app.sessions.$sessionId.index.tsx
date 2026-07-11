@@ -660,9 +660,14 @@ function SessionDetail() {
               </>
             ) : null}
           </p>
-          <Button asChild variant="outline" size="sm">
-            <Link to="/app/sessions">← Back to sessions</Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button asChild variant="outline" size="sm">
+              <Link to="/app/sessions">← Back to sessions</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link to="/app/sessions/calendar">Calendar</Link>
+            </Button>
+          </div>
         </div>
       </AppShell>
     );
@@ -703,9 +708,15 @@ function SessionDetail() {
     <AppShell>
       <div className="space-y-6 max-w-5xl mx-auto">
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <Link to="/app/sessions" className="text-sm text-muted-foreground underline">
-            ← Sessions
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link to="/app/sessions" className="text-sm text-muted-foreground underline">
+              ← Sessions
+            </Link>
+            <span className="text-muted-foreground/40">·</span>
+            <Link to="/app/sessions/calendar" className="text-sm text-muted-foreground underline">
+              Calendar
+            </Link>
+          </div>
 
           <div className="flex items-center gap-1">
             <Button
