@@ -129,7 +129,7 @@ function SessionDetail() {
   average_temp_c,
   wind_kph,
   *,
-  athletes(name, profile_image_url)
+  athletes(name, profile_image_url, timezone)
 `,
         )
 
@@ -154,6 +154,28 @@ function SessionDetail() {
 
       if (error) throw error;
       return data;
+    },
+  });
+
+  // Real clock start-time for the header, e.g. "6:42 PM" next to the date.
+  // `sessions.session_date` is date-only — the actual recorded start
+  // instant lives on session_files (earliest of however many files this
+  // session merged). Manually-created sessions with no uploaded file have
+  // no time to show, which is correct — nothing was actually recorded.
+  const { data: earliestFileStart } = useQuery({
+    queryKey: ["session-start-time", sessionId],
+    enabled: !!sessionId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("session_files")
+        .select("started_at")
+        .eq("session_id", sessionId)
+        .not("started_at", "is", null)
+        .order("started_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data?.started_at ?? null;
     },
   });
 
@@ -574,6 +596,25 @@ function SessionDetail() {
       })
     : null;
 
+  // "6:42 PM" — converted via the athlete's own timezone, falling back to
+  // UTC to match the same fallback session-files.functions.ts uses server
+  // side, so this display can never disagree with how the session's own
+  // Morning/Afternoon/Evening title got picked.
+  const localTime = earliestFileStart
+    ? (() => {
+        try {
+          return new Intl.DateTimeFormat("en-AU", {
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true,
+            timeZone: (session.athletes as any)?.timezone || "UTC",
+          }).format(new Date(earliestFileStart));
+        } catch {
+          return null;
+        }
+      })()
+    : null;
+
   return (
     <AppShell>
       <div className="space-y-6 max-w-5xl mx-auto">
@@ -645,6 +686,12 @@ function SessionDetail() {
                   {/* Day, date, athlete, classification, and status badges */}
                   <div className="flex items-center gap-2 flex-wrap text-sm text-muted-foreground mt-1">
                     <span className="font-medium text-foreground">{formattedDate ?? session.session_date}</span>
+                    {localTime && (
+                      <>
+                        <span>·</span>
+                        <span>{localTime}</span>
+                      </>
+                    )}
                     <span>·</span>
                     <span>{session.athletes?.name}</span>
                     <span>·</span>
