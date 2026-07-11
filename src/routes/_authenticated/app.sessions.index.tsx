@@ -18,6 +18,23 @@ export const Route = createFileRoute("/_authenticated/app/sessions/")({
   component: SessionsList,
 });
 
+// "6:42 PM" style local time for a session, converted via the athlete's own
+// timezone (falls back to UTC, matching the same fallback used server-side
+// in session-files.functions.ts, so a display and a classification never
+// disagree about which zone "no timezone set" means).
+function formatLocalTime(iso: string, timezone?: string | null): string {
+  try {
+    return new Intl.DateTimeFormat("en-AU", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+      timeZone: timezone || "UTC",
+    }).format(new Date(iso));
+  } catch {
+    return "";
+  }
+}
+
 function SessionsList() {
   const { user } = useAuthUser();
   const { data: roles = [], isLoading: rolesLoading } = useMyRoles();
@@ -52,12 +69,41 @@ function SessionsList() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sessions")
-        .select("*, athletes(name)")
+        .select("*, athletes(name, timezone)")
         .in("athlete_id", athleteIds!)
         .order("session_date", { ascending: false })
         .limit(100);
       if (error) throw error;
       return data;
+    },
+  });
+
+  // Real clock start-time for each session, e.g. "6:42 PM" next to the date
+  // — the `sessions` row itself only ever stores a date, not a time; the
+  // actual recorded start instant lives on session_files (one row per
+  // uploaded file). Batched into a single extra query keyed off whichever
+  // sessions just loaded, rather than one query per row. Manually-created
+  // sessions with no uploaded file simply have no time to show, which is
+  // correct — there's nothing to display.
+  const sessionIds = useMemo(() => (sessions ?? []).map((s: any) => s.id), [sessions]);
+  const { data: sessionStartTimes } = useQuery({
+    queryKey: ["session-start-times", sessionIds.join(",")],
+    enabled: sessionIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("session_files")
+        .select("session_id, started_at")
+        .in("session_id", sessionIds)
+        .not("started_at", "is", null);
+      if (error) throw error;
+      const earliest = new Map<string, string>();
+      for (const f of data ?? []) {
+        const existing = earliest.get(f.session_id);
+        if (!existing || new Date(f.started_at).getTime() < new Date(existing).getTime()) {
+          earliest.set(f.session_id, f.started_at);
+        }
+      }
+      return earliest;
     },
   });
 
@@ -121,25 +167,29 @@ function SessionsList() {
             <p className="p-6 text-sm text-muted-foreground">No sessions match the current filter.</p>
           ) : (
             <div className="divide-y">
-              {filtered.map((s: any) => (
-                <Link key={s.id} to="/app/sessions/$sessionId" params={{ sessionId: s.id }}
-                  className="flex items-center justify-between px-4 py-3 hover:bg-accent/40">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <ActivityIcon session={s} size={18} className="text-muted-foreground shrink-0" />
-                    <div className="min-w-0">
-                    <div className="font-medium truncate">{s.title}</div>
-                    <div className="text-xs text-muted-foreground truncate">
-                      {s.session_date} · {s.athletes?.name} · {sessionClassificationLabel(s)}
+              {filtered.map((s: any) => {
+                const startedAt = sessionStartTimes?.get(s.id);
+                const localTime = startedAt ? formatLocalTime(startedAt, s.athletes?.timezone) : null;
+                return (
+                  <Link key={s.id} to="/app/sessions/$sessionId" params={{ sessionId: s.id }}
+                    className="flex items-center justify-between px-4 py-3 hover:bg-accent/40">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <ActivityIcon session={s} size={18} className="text-muted-foreground shrink-0" />
+                      <div className="min-w-0">
+                      <div className="font-medium truncate">{s.title}</div>
+                      <div className="text-xs text-muted-foreground truncate">
+                        {s.session_date}{localTime ? ` · ${localTime}` : ""} · {s.athletes?.name} · {sessionClassificationLabel(s)}
+                      </div>
+                      </div>
                     </div>
+                    <div className="flex gap-2 items-center text-sm">
+                      {s.total_distance_m && <span className="text-muted-foreground">{metersFmt(s.total_distance_m)}</span>}
+                      {s.total_time_seconds && <span className="text-muted-foreground">{secToClock(s.total_time_seconds)}</span>}
+                      <Badge variant={s.completed_at ? "default" : "outline"}>{s.completed_at ? "Done" : "Planned"}</Badge>
                     </div>
-                  </div>
-                  <div className="flex gap-2 items-center text-sm">
-                    {s.total_distance_m && <span className="text-muted-foreground">{metersFmt(s.total_distance_m)}</span>}
-                    {s.total_time_seconds && <span className="text-muted-foreground">{secToClock(s.total_time_seconds)}</span>}
-                    <Badge variant={s.completed_at ? "default" : "outline"}>{s.completed_at ? "Done" : "Planned"}</Badge>
-                  </div>
-                </Link>
-              ))}
+                  </Link>
+                );
+              })}
             </div>
           )}
         </CardContent>
