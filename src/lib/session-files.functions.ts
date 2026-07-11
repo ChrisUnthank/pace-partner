@@ -1787,6 +1787,60 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   const easyTime = (warmupMetrics.time ?? 0) + (cooldownMetrics.time ?? 0);
   const easyPaceSecPerKm = easyDistance > 0 && easyTime > 0 ? (easyTime / easyDistance) * 1000 : null;
 
+  // Derive the session's intent (easy/aerobic/tempo/threshold/vo2) from the
+  // WORK-ONLY pace against the athlete's own pace zones — the same
+  // threshold-first model the Zones page and recompute_session_zones (DB)
+  // already use, rather than a second copy of zone-percentage math living
+  // here. `intent` previously had no real classification at all: every
+  // FIT-derived session was hardcoded to "aerobic" at creation and nothing
+  // ever revisited it afterward, regardless of how fast the actual work
+  // was — an interval or threshold session on the calendar showed
+  // "Aerobic" purely because that placeholder was never replaced, not
+  // because of any warmup/cooldown dilution.
+  //
+  // Guarded to only overwrite when intent is still the untouched "aerobic"
+  // placeholder (or unset) — if a coach has ever manually picked a
+  // different intent for this session, a later recompute won't stomp on
+  // that choice. This isn't perfect (a genuinely, manually-chosen "aerobic"
+  // easy run looks identical to an unclassified one and could get
+  // reclassified on a future recompute), but given every session sits at
+  // "aerobic" today with no exceptions, it's a safe starting point rather
+  // than risking silently overwriting real coach input.
+  let derivedIntent: string | null = null;
+  if (workPaceSecPerKm != null) {
+    const { data: zoneProfile } = await sb
+      .from("athlete_zone_profiles")
+      .select("pace_z1_max_sec_per_km, pace_z2_max_sec_per_km, pace_z3_max_sec_per_km, pace_z4_max_sec_per_km")
+      .eq("athlete_id", sess.athlete_id)
+      .maybeSingle();
+
+    if (zoneProfile?.pace_z1_max_sec_per_km != null) {
+      // Same ascending "slower sec/km = easier zone" bucketing as
+      // recompute_session_zones in the DB: walk z1 (slowest) up to z4,
+      // anything faster than the z4 boundary falls through to z5.
+      const zone: "z1" | "z2" | "z3" | "z4" | "z5" =
+        workPaceSecPerKm >= zoneProfile.pace_z1_max_sec_per_km
+          ? "z1"
+          : zoneProfile.pace_z2_max_sec_per_km != null && workPaceSecPerKm >= zoneProfile.pace_z2_max_sec_per_km
+            ? "z2"
+            : zoneProfile.pace_z3_max_sec_per_km != null && workPaceSecPerKm >= zoneProfile.pace_z3_max_sec_per_km
+              ? "z3"
+              : zoneProfile.pace_z4_max_sec_per_km != null && workPaceSecPerKm >= zoneProfile.pace_z4_max_sec_per_km
+                ? "z4"
+                : "z5";
+
+      const ZONE_TO_INTENT: Record<"z1" | "z2" | "z3" | "z4" | "z5", string> = {
+        z1: "easy",
+        z2: "aerobic",
+        z3: "tempo",
+        z4: "threshold",
+        z5: "vo2",
+      };
+      derivedIntent = ZONE_TO_INTENT[zone];
+    }
+  }
+  const shouldUpdateIntent = derivedIntent != null && (sess.intent === "aerobic" || !sess.intent);
+
   // Recompute the Morning/Afternoon/Evening title using the athlete's actual
   // timezone. This runs on every rebuild (not just initial creation) since a
   // session that started life as just a Warm Up file gets its title merged
@@ -1824,6 +1878,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
       easy_avg_pace_sec_per_km: easyPaceSecPerKm,
       structure: isIntervals ? "intervals" : "continuous",
       needs_review: isIntervals,
+      ...(shouldUpdateIntent ? { intent: derivedIntent } : {}),
       ...(recomputedTitle ? { title: recomputedTitle } : {}),
     } as any)
     .eq("id", sessionId);
