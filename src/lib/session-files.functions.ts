@@ -409,11 +409,73 @@ function median(nums: number[]) {
   return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
+// A gap between consecutive recorded points beyond a normal GPS sampling
+// interval means the athlete actually stopped (road crossing, grabbing a
+// gel, a toilet break, etc) rather than just kept running slowly. 20s
+// matches the threshold already used elsewhere in this codebase's own
+// gap-handling reasoning for "this is a real stop, not just slow running".
+const STOP_GAP_THRESHOLD_S = 20;
+
+// Attributes each detected stop's duration to whichever lap's time window
+// it falls inside (by the gap's midpoint, so a gap that happens to straddle
+// a lap boundary isn't double-counted or misattributed to the wrong side).
+// This is ONLY used to correct a lap's pace for classification purposes —
+// a lap that absorbed a real stop has an inflated total_elapsed_time
+// relative to how far it actually covers, which otherwise makes it look
+// like a deliberate slow recovery lap and can flip an entire continuous
+// run into "intervals" (e.g. a 574s stop baked into one auto-lap producing
+// a lap that "paced" at 9:37/km, when the athlete was simply stationary
+// for most of it). Stored/displayed durations elsewhere are untouched —
+// this never changes what a lap's real total_elapsed_time actually was.
+function computeStoppedSecondsPerLap(laps: ParsedLap[], points: MergedPoint[]): Map<number, number> {
+  const stopped = new Map<number, number>();
+  if (points.length < 2 || laps.length === 0) return stopped;
+
+  const windows = laps
+    .map((l) => ({ index: l.index, start: l.startMs ?? null, end: getLapEndMs(l) }))
+    .filter((w): w is { index: number; start: number; end: number } => w.start != null && w.end != null);
+  if (windows.length === 0) return stopped;
+
+  const sorted = [...points].sort((a, b) => a.elapsed_s - b.elapsed_s);
+
+  let prev: MergedPoint | null = null;
+  for (const p of sorted) {
+    if (prev && p.timestamp && prev.timestamp) {
+      const prevMs = new Date(prev.timestamp).getTime();
+      const curMs = new Date(p.timestamp).getTime();
+      const gapS = (curMs - prevMs) / 1000;
+
+      if (gapS >= STOP_GAP_THRESHOLD_S) {
+        const midMs = (prevMs + curMs) / 2;
+        const win = windows.find((w) => midMs >= w.start && midMs <= w.end);
+        if (win) {
+          stopped.set(win.index, (stopped.get(win.index) ?? 0) + gapS);
+        }
+      }
+    }
+    prev = p;
+  }
+  return stopped;
+}
+
+// Pace used specifically for work/recovery classification — subtracts any
+// known stopped time from this lap before computing sec/km, so a lap that
+// merely absorbed a real-world pause doesn't read as a slow recovery jog.
+// Falls back to the lap's raw pace when no stopped-time map is available
+// (e.g. callers that haven't been updated to pass one), which matches the
+// previous unconditional behavior exactly.
+function classificationPaceSecPerKm(lap: ParsedLap, stoppedSecondsByLapIndex?: Map<number, number>): number | null {
+  const stopped = stoppedSecondsByLapIndex?.get(lap.index) ?? 0;
+  const movingTime = Math.max(0, lap.total_elapsed_time - stopped);
+  return lap.total_distance > 0 && movingTime > 0 ? (movingTime / lap.total_distance) * 1000 : null;
+}
+
 function classifyLaps(
   laps: ParsedLap[],
   plannedSteps: any[] = [],
   numFiles: number = 1,
   isRace: boolean = false,
+  stoppedSecondsByLapIndex?: Map<number, number>,
 ): ParsedLap[] {
   if (!Array.isArray(laps) || laps.length === 0) return [];
 
@@ -497,16 +559,14 @@ function classifyLaps(
     const nonRestCandidates = laps.filter(
       (l) => l.intensity !== "rest" && l.total_distance > 50 && l.total_elapsed_time > 10,
     );
-    const { workIndices, isGenuine } = splitLapsByPaceContrast(nonRestCandidates);
+    const { workIndices, isGenuine } = splitLapsByPaceContrast(nonRestCandidates, stoppedSecondsByLapIndex);
 
     let classified: ParsedLap[] = laps.map((lap) => {
       if (lap.intensity === "rest") {
         return { ...lap, kind: "recovery" as const };
       }
 
-      const isWork = isGenuine
-        ? workIndices.has(lap.index)
-        : lap.total_distance >= 150 || lap.total_elapsed_time >= 60;
+      const isWork = isGenuine ? workIndices.has(lap.index) : lap.total_distance >= 150 || lap.total_elapsed_time >= 60;
 
       return { ...lap, kind: isWork ? ("work" as const) : ("recovery" as const) };
     });
@@ -549,7 +609,7 @@ function classifyLaps(
     const lastFileLaps = laps.filter((l) => l.sourceFileIndex === numFiles - 1);
     const middleLaps = laps.filter((l) => l.sourceFileIndex !== 0 && l.sourceFileIndex !== numFiles - 1);
 
-    const classifiedMiddle = classifyLapsByDistance(middleLaps);
+    const classifiedMiddle = classifyLapsByDistance(middleLaps, stoppedSecondsByLapIndex);
 
     return laps.map((lap) => {
       if (lap.sourceFileIndex === 0) return { ...lap, kind: "warmup" as const };
@@ -581,7 +641,10 @@ function classifyLaps(
       // blanket-tagged "work", or every recovery jog inside it silently gets
       // folded into the work total.
       if (pace1 >= pace0 * 1.15) {
-        const workFileClassified = classifyLapsByDistance(laps.filter((l) => l.sourceFileIndex === 0));
+        const workFileClassified = classifyLapsByDistance(
+          laps.filter((l) => l.sourceFileIndex === 0),
+          stoppedSecondsByLapIndex,
+        );
         return laps.map((lap) => {
           if (lap.sourceFileIndex === 1) return { ...lap, kind: "cooldown" as const };
           const match = workFileClassified.find((c) => c.index === lap.index);
@@ -591,7 +654,10 @@ function classifyLaps(
       // First file clearly slower than the second -> warmup. Same reasoning
       // applied to file1 (the actual work file) here.
       if (pace0 >= pace1 * 1.15) {
-        const workFileClassified = classifyLapsByDistance(laps.filter((l) => l.sourceFileIndex === 1));
+        const workFileClassified = classifyLapsByDistance(
+          laps.filter((l) => l.sourceFileIndex === 1),
+          stoppedSecondsByLapIndex,
+        );
         return laps.map((lap) => {
           if (lap.sourceFileIndex === 0) return { ...lap, kind: "warmup" as const };
           const match = workFileClassified.find((c) => c.index === lap.index);
@@ -601,7 +667,7 @@ function classifyLaps(
     }
   }
 
-  return classifyLapsByDistance(laps);
+  return classifyLapsByDistance(laps, stoppedSecondsByLapIndex);
 }
 
 // Splits a set of laps into a "fast" (work) cluster vs a "slow" (recovery)
@@ -614,9 +680,12 @@ function classifyLaps(
 // Returns the set of lap indices judged to be "work", plus whether a
 // genuine two-cluster contrast was found at all (a real continuous run with
 // a couple of incidental pauses shouldn't be fragmented into fake reps).
-function splitLapsByPaceContrast(candidates: ParsedLap[]): { workIndices: Set<number>; isGenuine: boolean } {
+function splitLapsByPaceContrast(
+  candidates: ParsedLap[],
+  stoppedSecondsByLapIndex?: Map<number, number>,
+): { workIndices: Set<number>; isGenuine: boolean } {
   const withPace = candidates
-    .map((l) => ({ lap: l, pace: paceSecPerKm(l) }))
+    .map((l) => ({ lap: l, pace: classificationPaceSecPerKm(l, stoppedSecondsByLapIndex) }))
     .filter((x): x is { lap: ParsedLap; pace: number } => x.pace != null)
     .sort((a, b) => a.pace - b.pace);
 
@@ -656,7 +725,7 @@ function splitLapsByPaceContrast(candidates: ParsedLap[]): { workIndices: Set<nu
 // recording (or the "work" portion once explicit warmup/cooldown files have
 // already been pulled out above) where there's no other signal available to
 // tell warmup/recovery/cooldown apart besides pace and distance patterns.
-function classifyLapsByDistance(laps: ParsedLap[]): ParsedLap[] {
+function classifyLapsByDistance(laps: ParsedLap[], stoppedSecondsByLapIndex?: Map<number, number>): ParsedLap[] {
   if (laps.length === 0) return [];
 
   if (laps.length < 4) {
@@ -667,7 +736,7 @@ function classifyLapsByDistance(laps: ParsedLap[]): ParsedLap[] {
     (l) => l.intensity !== "rest" && l.total_distance > 50 && l.total_elapsed_time > 10,
   );
 
-  const { workIndices, isGenuine } = splitLapsByPaceContrast(nonRestCandidates);
+  const { workIndices, isGenuine } = splitLapsByPaceContrast(nonRestCandidates, stoppedSecondsByLapIndex);
 
   if (!isGenuine) {
     return laps.map((l) => ({ ...l, kind: l.intensity === "rest" ? ("recovery" as const) : ("work" as const) }));
@@ -855,7 +924,8 @@ function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number)
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLng = ((lng2 - lng1) * Math.PI) / 180;
   const a =
-    Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
@@ -921,8 +991,6 @@ function getLapEndMs(lap: ParsedLap | null): number | null {
   }
   return null;
 }
-
-
 
 function getEndHrForLap(points: MergedPoint[], lap: ParsedLap | null): number | null {
   if (!lap) return null;
@@ -1223,11 +1291,19 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
     l.index = i;
   });
 
+  // Real-world stops (traffic, a gel, a toilet break) get baked into
+  // whichever lap's total_elapsed_time they fell inside, inflating that
+  // lap's apparent pace enough to look like a deliberate slow recovery jog
+  // — this corrects for that before classification runs, without touching
+  // any stored/displayed duration.
+  const stoppedSecondsByLapIndex = computeStoppedSecondsPerLap(mergedLaps, mergedPoints);
+
   const classifiedLaps = classifyLaps(
     mergedLaps,
     hasManualPlan ? safePlannedSteps : [],
     parsedFiles.length,
     sess.day_type === "race",
+    stoppedSecondsByLapIndex,
   );
   const pairs = buildWorkRecoveryPairs(classifiedLaps);
 
@@ -1413,7 +1489,9 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
               : null;
 
           const groupRecoveryMode =
-            groupRecoveryPairs.length > 0 ? inferRecoveryMode(groupRecoveryPairs[0]?.recovery ?? null, mergedPoints) : null;
+            groupRecoveryPairs.length > 0
+              ? inferRecoveryMode(groupRecoveryPairs[0]?.recovery ?? null, mergedPoints)
+              : null;
 
           stepsToInsert.push({
             session_id: sessionId,
