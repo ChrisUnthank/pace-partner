@@ -458,6 +458,27 @@ function computeStoppedSecondsPerLap(laps: ParsedLap[], points: MergedPoint[]): 
   return stopped;
 }
 
+// Same gap detection as computeStoppedSecondsPerLap, but summed across the
+// whole session rather than attributed to individual laps — used for the
+// session-level "moving time" that Total Avg Pace is based on. A session's
+// raw elapsed time (last point's timestamp minus first) always includes
+// every real-world stop by definition; moving time is what a coach
+// actually means by "pace" when scanning the calendar.
+function computeTotalStoppedSeconds(points: MergedPoint[]): number {
+  if (points.length < 2) return 0;
+  const sorted = [...points].sort((a, b) => a.elapsed_s - b.elapsed_s);
+  let total = 0;
+  let prev: MergedPoint | null = null;
+  for (const p of sorted) {
+    if (prev && p.timestamp && prev.timestamp) {
+      const gapS = (new Date(p.timestamp).getTime() - new Date(prev.timestamp).getTime()) / 1000;
+      if (gapS >= STOP_GAP_THRESHOLD_S) total += gapS;
+    }
+    prev = p;
+  }
+  return total;
+}
+
 // Pace used specifically for work/recovery classification — subtracts any
 // known stopped time from this lap before computing sec/km, so a lap that
 // merely absorbed a real-world pause doesn't read as a slow recovery jog.
@@ -1037,9 +1058,24 @@ function summarizeImportedPoints(points: ParsedPoint[]) {
   return { avgHr, maxHr, avgPace, avgCad, avgTemp };
 }
 
-function summarizeLapsMetrics(laps: ParsedLap[], points: MergedPoint[]) {
+function summarizeLapsMetrics(
+  laps: ParsedLap[],
+  points: MergedPoint[],
+  stoppedSecondsByLapIndex?: Map<number, number>,
+) {
   const totalDistance = laps.reduce((s, l) => s + Number(l.total_distance ?? 0), 0);
-  const totalTime = laps.reduce((s, l) => s + Number(l.total_elapsed_time ?? 0), 0);
+  // Subtract any real-world stop time (traffic, a gel, a toilet break)
+  // that a lap absorbed into its own total_elapsed_time — otherwise a
+  // session's "work pace" (and everything downstream of it, including
+  // intent classification) reads as much slower than the athlete actually
+  // ran, purely because a stop happened to land inside a work-classified
+  // lap. This is the same stoppedSecondsByLapIndex map already computed
+  // once for classification purposes (computeStoppedSecondsPerLap) — reused
+  // here rather than detecting gaps a second time.
+  const totalTime = laps.reduce((s, l) => {
+    const stopped = stoppedSecondsByLapIndex?.get(l.index) ?? 0;
+    return s + Math.max(0, Number(l.total_elapsed_time ?? 0) - stopped);
+  }, 0);
 
   const hrWeighted = laps.reduce((s, l) => {
     if (l.avg_heart_rate == null) return s;
@@ -1315,9 +1351,9 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   // are in scope for the final sessions.update() — previously work_avg_pace_
   // sec_per_km etc. fell back to the whole-session blended average because
   // work-specific metrics were never computed outside that branch.
-  const warmupMetrics = summarizeLapsMetrics(warmupLaps, mergedPoints);
-  const cooldownMetrics = summarizeLapsMetrics(cooldownLaps, mergedPoints);
-  const workMetrics = summarizeLapsMetrics(workLaps, mergedPoints);
+  const warmupMetrics = summarizeLapsMetrics(warmupLaps, mergedPoints, stoppedSecondsByLapIndex);
+  const cooldownMetrics = summarizeLapsMetrics(cooldownLaps, mergedPoints, stoppedSecondsByLapIndex);
+  const workMetrics = summarizeLapsMetrics(workLaps, mergedPoints, stoppedSecondsByLapIndex);
 
   // Same fix as isContinuous below: "intervals" means genuine recovery
   // breaks occurred, not "more than one work lap exists". A watch
@@ -1338,6 +1374,17 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
     mergedPoints.length > 0
       ? Number(mergedPoints[mergedPoints.length - 1].elapsed_s ?? 0)
       : parsedFiles.reduce((s, p) => s + Number(p.parsed.totalTimeS ?? 0), 0);
+
+  // "Total Time" (totalTimeS above) intentionally stays as true elapsed
+  // duration — how long the athlete was actually out there, stops
+  // included, which is its own useful number. "Total Avg Pace" on the
+  // Overview divides distance by time with no separate moving-time concept
+  // to fall back on, so a 574s stop for a mid-run break inflated the whole
+  // session's average pace by nearly a minute per km. total_moving_time_s
+  // gives that calculation something better to divide by, without changing
+  // what total_time_seconds itself means.
+  const totalStoppedS = computeTotalStoppedSeconds(mergedPoints);
+  const totalMovingTimeS = Math.max(0, totalTimeS - totalStoppedS);
 
   const { avgHr, maxHr, avgPace, avgCad, avgTemp } = summarizeImportedPoints(mergedPoints);
 
@@ -1869,6 +1916,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
     .update({
       total_distance_m: totalDistanceM || null,
       total_time_seconds: totalTimeS || null,
+      total_moving_time_seconds: totalMovingTimeS || null,
       avg_hr: avgHr,
       max_hr: maxHr,
       average_temp_c: weatherTemp ?? avgTemp,
