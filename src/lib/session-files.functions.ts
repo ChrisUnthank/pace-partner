@@ -1611,7 +1611,20 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
       });
     }
 
-    if (pairs.length > 0) {
+    // Must mirror the isContinuous gate used for the steps insert above,
+    // not just "were there any work-classified pairs" — isContinuous=true
+    // inserts exactly ONE work step (reps: 1) regardless of how many raw
+    // laps/pairs the watch recorded, but splitBlockIntoDistanceGroups()
+    // below has no idea isContinuous exists and will still happily carve
+    // those same laps into several distance groups. That produces more
+    // "groups" than there were actual inserted work steps, so groups past
+    // the first one fall back to reusing workSteps[0], stamping
+    // duplicate/overlapping (step_id, rep_number) rows for a single
+    // continuous run and leaving the session with no coherent rep data —
+    // empty Time/Distance/HR fields in the UI. A continuous session takes
+    // the single-row fallback below instead, the same one already used
+    // when there are zero pairs at all.
+    if (!isContinuous && pairs.length > 0) {
       if (workSteps.length === 0) {
         throw new Error("Uploaded session did not create a work step");
       }
