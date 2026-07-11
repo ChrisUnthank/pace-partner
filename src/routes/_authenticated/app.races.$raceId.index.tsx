@@ -86,7 +86,7 @@ function SessionDetail() {
     },
   });
 
-  const sessionId = raceForLookup?.session_id ?? null;
+  const sessionId = (raceForLookup?.session_id ?? "") as string;
   const qc = useQueryClient();
   const removeSession = useServerFn(deleteSession);
   const mergeSession = useServerFn(mergeSessionIntoAnother);
