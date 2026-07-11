@@ -17,6 +17,8 @@ import { ClipboardList, CalendarDays, Megaphone, MessageSquare, Trophy } from "l
 import { listPosts } from "@/lib/noticeboard.functions";
 import { listMessageContacts } from "@/lib/messages.functions";
 import { ActivityIcon } from "@/lib/activity-icon";
+import { AthleteSummaryPanel } from "@/components/athlete-summary-panel";
+import { useState } from "react";
 
 export const Route = createFileRoute("/_authenticated/app/")({
   component: AppHome,
@@ -30,6 +32,9 @@ function AppHome() {
   const isCoach = roles.includes("coach");
   const isAthlete = roles.includes("athlete");
   const isManager = rawRoles.includes("manager");
+  // Clicking an athlete in "Your athletes" opens the same quick-look
+  // summary panel used on the Athletes page, instead of navigating away.
+  const [selectedAthleteId, setSelectedAthleteId] = useState<string | null>(null);
 
   const { data: myProfile } = useQuery({
     queryKey: ["my-profile-image", user?.id],
@@ -256,11 +261,13 @@ function AppHome() {
                       {roster.map((r: any) => {
                         const ready = readiness?.find((x) => x.athlete_id === r.athlete_id);
                         return (
-                          <Link
+                          <button
                             key={r.athlete_id}
-                            to="/app/athletes/$athleteId"
-                            params={{ athleteId: r.athlete_id }}
-                            className="flex items-center justify-between py-3 hover:bg-accent/50 px-2 rounded gap-3"
+                            type="button"
+                            onClick={() => setSelectedAthleteId(r.athlete_id)}
+                            className={`w-full flex items-center justify-between py-3 hover:bg-accent/50 px-2 rounded gap-3 text-left ${
+                              selectedAthleteId === r.athlete_id ? "bg-accent/60" : ""
+                            }`}
                           >
                             <div className="flex items-center gap-3 min-w-0">
                               <UserAvatar name={r.athletes?.name} imageUrl={r.athletes?.profile_image_url} size="sm" />
@@ -277,7 +284,7 @@ function AppHome() {
                               score={ready?.readiness_score as any}
                               confidence={ready?.confidence as any}
                             />
-                          </Link>
+                          </button>
                         );
                       })}
                     </div>
@@ -287,6 +294,13 @@ function AppHome() {
             </div>
 
             <div className="space-y-6 lg:col-span-1">
+              {selectedAthleteId && (
+                <AthleteSummaryPanel
+                  athlete={roster?.find((r: any) => r.athlete_id === selectedAthleteId)?.athletes ?? null}
+                  onClose={() => setSelectedAthleteId(null)}
+                />
+              )}
+
               <DashboardAlertsPanel />
 
               {upcomingRaces && upcomingRaces.length > 0 && (
