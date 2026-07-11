@@ -1656,9 +1656,8 @@ function stepStructureSummary(step: any): string {
   if (step.kind === "work" && step.target_kind === "time" && step.target_time_seconds) {
     return `${kindLabel} · ${step.reps}×${secToClock(step.target_time_seconds)}`;
   }
-  if (step.kind === "strides" && step.target_distance_m) {
-    return `${kindLabel} · ${step.reps}×${metersFmt(roundDistanceForDisplay(step.target_distance_m))}`;
-  }
+  // Strides intentionally show no "reps × distance" suffix here either —
+  // see the matching note in StepBlock's header above.
   return kindLabel;
 }
 
@@ -1892,7 +1891,11 @@ function StepBlock({
 
             {isWork && step.target_kind === "time" && ` · ${step.reps}×${secToClock(step.target_time_seconds)}`}
 
-            {isStrides && ` · ${step.reps}×${metersFmt(roundDistanceForDisplay(step.target_distance_m))}`}
+            {/* Strides intentionally show no "reps × distance" suffix — unlike
+                a work block's reps, individual strides commonly vary in
+                distance from each other (a coach eyeballing 80-100m pickups,
+                not a fixed track distance), so a single uniform figure here
+                would misrepresent the block. */}
           </CardTitle>
 
           <div className="flex items-center gap-2">
