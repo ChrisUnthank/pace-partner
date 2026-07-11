@@ -1486,7 +1486,7 @@ function WorkoutStructureOrderEditor({ session, steps, qc }: { session: any; ste
     setSaving(true);
     const nextOrder = localSteps.reduce((max, s) => Math.max(max, s.step_order ?? 0), 0) + 1;
     const row = buildNewStepRow(session.id, kind, nextOrder);
-    const { error } = await supabase.from("steps").insert(row);
+    const { error } = await supabase.from("steps").insert(row as any);
     setSaving(false);
     if (error) {
       toast.error(error.message);
@@ -2263,8 +2263,8 @@ function RecoveryBetweenReps({ step, session }: { step: any; session: any }) {
   const summary =
     isDistanceTarget && Number(distanceText) > 0
       ? `${metersFmt(roundDistanceForDisplay(Number(distanceText)))} Recovery${mode ? ` (${mode})` : ""}`
-      : clockToSec(timeText as any) > 0
-        ? `${formatRecoveryDuration(roundRecoverySeconds(clockToSec(timeText as any)))} Recovery${mode ? ` (${mode})` : ""}`
+      : (clockToSec(timeText as any) ?? 0) > 0
+        ? `${formatRecoveryDuration(roundRecoverySeconds(clockToSec(timeText as any) ?? 0))} Recovery${mode ? ` (${mode})` : ""}`
         : "Recovery (not set)";
 
   if (!editing) {
