@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { ChevronLeft, ChevronRight, List as ListIcon, Upload, CalendarPlus, PencilLine } from "lucide-react";
+import { ChevronLeft, ChevronRight, List as ListIcon, Upload, CalendarPlus, PencilLine, Trophy } from "lucide-react";
 import {
   CalendarDayCell,
   WeekTotalCell,
@@ -665,6 +665,24 @@ function CalendarPage() {
               }}
             >
               <PencilLine className="h-4 w-4 mr-2" /> Manual Session Entry
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full justify-start"
+              onClick={() => {
+                const d = addMenuDate;
+                setAddMenuDate(null);
+                // Same pre-fill assumption as "Create Session" above — plus
+                // dayType, which app.sessions.new.tsx doesn't read from
+                // search params yet (it currently only ever defaults to
+                // "training"). Until that's wired up, this correctly lands
+                // on the new-session form with the date set, but "Day type"
+                // still needs picking manually (Race is already one of the
+                // existing dropdown options).
+                navigate({ to: "/app/sessions/new", search: { date: d, mode: "planned", dayType: "race" } as any });
+              }}
+            >
+              <Trophy className="h-4 w-4 mr-2" /> Add Race
             </Button>
           </div>
         </DialogContent>
