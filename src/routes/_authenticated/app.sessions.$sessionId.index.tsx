@@ -36,6 +36,8 @@ import {
   GripVertical,
   Plus,
   Trash2,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import {
   DndContext,
@@ -179,7 +181,48 @@ function SessionDetail() {
     },
   });
 
-  // Work steps for the "Workout" summary on the Overview card, e.g.
+  // Previous/next session for this athlete, ordered by date then id as a
+  // tiebreak for same-day sessions — powers the < > navigation in the
+  // header so a coach can step through an athlete's history without
+  // returning to the calendar between each one. Two separate small queries
+  // rather than one clever one: keeps each side's ordering/limit trivial to
+  // read, and both are cheap (indexed on athlete_id + session_date).
+  const { data: adjacentSessions } = useQuery({
+    queryKey: ["session-adjacent", sessionId, session?.athlete_id, session?.session_date],
+    enabled: !!session?.athlete_id && !!session?.session_date,
+    queryFn: async () => {
+      const athleteId = (session as any).athlete_id;
+      const date = session!.session_date;
+
+      const [{ data: prevRows, error: prevErr }, { data: nextRows, error: nextErr }] = await Promise.all([
+        supabase
+          .from("sessions")
+          .select("id, session_date, title")
+          .eq("athlete_id", athleteId)
+          .or(`session_date.lt.${date},and(session_date.eq.${date},id.lt.${sessionId})`)
+          .order("session_date", { ascending: false })
+          .order("id", { ascending: false })
+          .limit(1),
+        supabase
+          .from("sessions")
+          .select("id, session_date, title")
+          .eq("athlete_id", athleteId)
+          .or(`session_date.gt.${date},and(session_date.eq.${date},id.gt.${sessionId})`)
+          .order("session_date", { ascending: true })
+          .order("id", { ascending: true })
+          .limit(1),
+      ]);
+      if (prevErr) throw prevErr;
+      if (nextErr) throw nextErr;
+
+      return {
+        prev: prevRows?.[0] ?? null,
+        next: nextRows?.[0] ?? null,
+      };
+    },
+  });
+
+
   // "8 × 1km + 90s jog recovery". Fetches every work step, not just the
   // first — a session can legitimately have more than one (e.g. a 2km
   // opener followed by 5 x 1km reps produces two separate work steps, one
@@ -618,9 +661,48 @@ function SessionDetail() {
   return (
     <AppShell>
       <div className="space-y-6 max-w-5xl mx-auto">
-        <Link to="/app/sessions" className="text-sm text-muted-foreground underline">
-          ← Sessions
-        </Link>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <Link to="/app/sessions" className="text-sm text-muted-foreground underline">
+            ← Sessions
+          </Link>
+
+          <div className="flex items-center gap-1">
+            <Button
+              asChild={!!adjacentSessions?.prev}
+              size="sm"
+              variant="outline"
+              disabled={!adjacentSessions?.prev}
+              title={adjacentSessions?.prev ? adjacentSessions.prev.title ?? "Previous session" : "No earlier session"}
+            >
+              {adjacentSessions?.prev ? (
+                <Link to="/app/sessions/$sessionId" params={{ sessionId: adjacentSessions.prev.id }}>
+                  <ChevronLeft className="h-4 w-4" />
+                </Link>
+              ) : (
+                <span>
+                  <ChevronLeft className="h-4 w-4" />
+                </span>
+              )}
+            </Button>
+            <Button
+              asChild={!!adjacentSessions?.next}
+              size="sm"
+              variant="outline"
+              disabled={!adjacentSessions?.next}
+              title={adjacentSessions?.next ? adjacentSessions.next.title ?? "Next session" : "No later session"}
+            >
+              {adjacentSessions?.next ? (
+                <Link to="/app/sessions/$sessionId" params={{ sessionId: adjacentSessions.next.id }}>
+                  <ChevronRight className="h-4 w-4" />
+                </Link>
+              ) : (
+                <span>
+                  <ChevronRight className="h-4 w-4" />
+                </span>
+              )}
+            </Button>
+          </div>
+        </div>
 
         {/* ───────────────── Header card: who / what / when + primary actions ───────────────── */}
         <Card>
