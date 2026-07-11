@@ -13,6 +13,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { toast } from "sonner";
 import { CalendarDays } from "lucide-react";
 import { AthleteSummaryPanel } from "@/components/athlete-summary-panel";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { TIMEZONE_OPTIONS, guessLocalTimezone } from "@/lib/timezones";
 
 export const Route = createFileRoute("/_authenticated/app/athletes/")({
   component: AthletesPage,
@@ -26,6 +28,13 @@ function AthletesPage() {
   const [name, setName] = useState("");
   const [event, setEvent] = useState("");
   const [email, setEmail] = useState("");
+  // Defaults to the coach's own browser-detected timezone — a reasonable
+  // guess for a new athlete, and adjustable right here before saving.
+  // Previously there was no way to set this at all, so every new athlete
+  // silently landed on the DB default (UTC), which threw off session-time
+  // classification (Morning/Afternoon/Evening) for every session they
+  // ever uploaded until someone corrected it directly in the database.
+  const [timezone, setTimezone] = useState(guessLocalTimezone());
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [joinEmail, setJoinEmail] = useState("");
   const [joinName, setJoinName] = useState("");
@@ -68,7 +77,7 @@ function AthletesPage() {
   async function addAthlete() {
     if (!name) { toast.error("Name required"); return; }
     const { data: ath, error } = await supabase.from("athletes").insert({
-      name, primary_event: event || null, created_by: user!.id,
+      name, primary_event: event || null, created_by: user!.id, timezone,
     }).select().single();
     if (error || !ath) { toast.error(error?.message ?? "Failed"); return; }
     await supabase.from("coach_athletes").insert({ coach_user_id: user!.id, athlete_id: ath.id });
@@ -196,6 +205,17 @@ function AthletesPage() {
                 <div><Label>Name</Label><Input value={name} onChange={(e) => setName(e.target.value)} /></div>
                 <div><Label>Primary event</Label><Input placeholder="800m" value={event} onChange={(e) => setEvent(e.target.value)} /></div>
                 <div><Label>Invite email (optional)</Label><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+                <div>
+                  <Label>Time zone</Label>
+                  <Select value={timezone} onValueChange={setTimezone}>
+                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {TIMEZONE_OPTIONS.map((z) => (
+                        <SelectItem key={z.value} value={z.value}>{z.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="sm:col-span-3"><Button onClick={addAthlete}>Add</Button></div>
               </CardContent>
             </Card>
