@@ -16,6 +16,7 @@ import { ProfileImageUploader } from "@/components/profile-image-uploader";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { setStoredUnits } from "@/lib/units";
 import { TIMEZONE_OPTIONS, guessLocalTimezone } from "@/lib/timezones";
+import { ZoneBoundariesCard } from "@/components/zone-boundaries-card";
 
 export const Route = createFileRoute("/_authenticated/app/profile")({
   component: Profile,
@@ -28,7 +29,7 @@ function Profile() {
   const qc = useQueryClient();
 
   const { data: zones } = useQuery({
-    queryKey: ["zones", athlete?.id],
+    queryKey: ["zone-profile", athlete?.id],
     enabled: !!athlete,
     queryFn: async () => {
       const { data } = await supabase.from("athlete_zone_profiles").select("*").eq("athlete_id", athlete!.id).maybeSingle();
@@ -64,7 +65,7 @@ function Profile() {
         {athlete && (
           <>
             <AthleteForm athlete={athlete} />
-            <ZonesCard athleteId={athlete.id} zones={zones} pbs={pbs ?? []} onChange={() => qc.invalidateQueries({ queryKey: ["zones"] })} />
+            <ZoneBoundariesCard athleteId={athlete.id} profile={zones} />
             <PBsCard athleteId={athlete.id} pbs={pbs ?? []} onChange={() => qc.invalidateQueries({ queryKey: ["my-pbs"] })} />
           </>
         )}
@@ -329,58 +330,6 @@ function PBsCard({ athleteId, pbs, onChange }: { athleteId: string; pbs: any[]; 
         )}
       </CardContent>
     </Card>
-  );
-}
-
-function ZonesCard({ athleteId, zones, pbs, onChange }: { athleteId: string; zones: any; pbs: any[]; onChange: () => void }) {
-  const pb1500 = pbs.filter((p) => p.distance_m === 1500).sort((a, b) => a.time_seconds - b.time_seconds)[0];
-  const pb5000 = pbs.filter((p) => p.distance_m === 5000).sort((a, b) => a.time_seconds - b.time_seconds)[0];
-
-  async function autoDerive() {
-    if (!pb1500 && !pb5000) { toast.error("Add a 1500m or 5000m PB first"); return; }
-    const pace1500 = pb1500 ? pb1500.time_seconds / 1.5 : null;
-    const pace5k = pb5000 ? pb5000.time_seconds / 5 : (pace1500 ? pace1500 * 1.10 : null);
-    const threshold = pace5k ? pace5k * 1.06 : null;
-    const easy = pace5k ? pace5k * 1.25 : null;
-    const rep = pace1500 ? pace1500 * 0.97 : null;
-
-    const { error } = await supabase.from("athlete_zone_profiles").upsert({
-      athlete_id: athleteId,
-      pace_1500_sec_per_km: pace1500,
-      pace_5k_sec_per_km: pace5k,
-      pace_threshold_sec_per_km: threshold,
-      pace_easy_sec_per_km: easy,
-      pace_rep_sec_per_km: rep,
-      auto_derived: true,
-    });
-    if (error) toast.error(error.message); else { toast.success("Zones derived"); onChange(); }
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Pace zones</CardTitle>
-        <CardDescription>Auto-derived from your 1500m and 5000m PBs. Coach can override later.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="grid grid-cols-2 gap-2 text-sm">
-          <Row label="1500m pace" v={zones?.pace_1500_sec_per_km} />
-          <Row label="5k pace" v={zones?.pace_5k_sec_per_km} />
-          <Row label="Threshold" v={zones?.pace_threshold_sec_per_km} />
-          <Row label="Easy" v={zones?.pace_easy_sec_per_km} />
-          <Row label="Rep" v={zones?.pace_rep_sec_per_km} />
-        </div>
-        <Button variant="outline" onClick={autoDerive}>Auto-derive from PBs</Button>
-      </CardContent>
-    </Card>
-  );
-}
-function Row({ label, v }: { label: string; v?: number | null }) {
-  return (
-    <div className="flex justify-between border rounded px-3 py-2">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="tabular-nums">{v ? `${secToClock(v)} /km` : "—"}</span>
-    </div>
   );
 }
 
