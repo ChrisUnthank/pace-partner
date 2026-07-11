@@ -705,11 +705,34 @@ function splitLapsByPaceContrast(
   candidates: ParsedLap[],
   stoppedSecondsByLapIndex?: Map<number, number>,
 ): { workIndices: Set<number>; isGenuine: boolean } {
-  const withPace = candidates
+  // A lap whose distance dwarfs the rest of the candidate set — e.g. a
+  // multi-km continuous run merged into the same session as a short
+  // strides set uploaded afterward — isn't part of the same "which of
+  // these laps are the real reps" comparison. Left in, its in-between pace
+  // (faster than a recovery walk, slower than a genuine short rep) can
+  // become the anchor for the "biggest gap" split instead of the boundary
+  // that actually separates work from recovery, pulling the run itself
+  // into the work cluster while pushing genuine short reps out. Excluded
+  // from THIS clustering step only — 5x the candidate set's median
+  // distance comfortably separates "one dominant continuous effort" from
+  // legitimate rep-length variation (even a 2km rep among 1km reps is
+  // nowhere near 5x a ~1km median).
+  const candidateDistances = candidates.map((l) => Number(l.total_distance ?? 0)).filter((d) => d > 0).sort((a, b) => a - b);
+  const medianDistance = candidateDistances.length > 0 ? candidateDistances[Math.floor(candidateDistances.length / 2)] : 0;
+  const outlierLaps = medianDistance > 0 ? candidates.filter((l) => Number(l.total_distance ?? 0) > medianDistance * 5) : [];
+  const clusteringCandidates =
+    medianDistance > 0 ? candidates.filter((l) => Number(l.total_distance ?? 0) <= medianDistance * 5) : candidates;
+
+  const withPace = clusteringCandidates
     .map((l) => ({ lap: l, pace: classificationPaceSecPerKm(l, stoppedSecondsByLapIndex) }))
     .filter((x): x is { lap: ParsedLap; pace: number } => x.pace != null)
     .sort((a, b) => a.pace - b.pace);
 
+  // Too few remaining candidates for a real contrast comparison (e.g. the
+  // whole set WAS the outlier, with nothing short left to compare it
+  // against). Falls through to isGenuine=false, whose caller already
+  // defaults every non-rest lap — outlier included — to "work", so the
+  // outlier lap is never lost here even without special-casing it.
   if (withPace.length < 2) return { workIndices: new Set(), isGenuine: false };
 
   // Find the largest proportional jump between consecutive paces (sorted
@@ -730,14 +753,32 @@ function splitLapsByPaceContrast(
   // 15% threshold used elsewhere in this file for the same judgment.
   if (splitAt < 0 || bestGapRatio < 1.15) return { workIndices: new Set(), isGenuine: false };
 
-  const workIndices = new Set(
-    withPace
+  // A genuine split WAS found among the clustering candidates — the
+  // outlier lap(s) excluded above need to be added back in explicitly here.
+  // Unlike the withPace.length < 2 case above, the caller checks
+  // workIndices.has(index) directly rather than defaulting everything to
+  // "work" — an outlier lap absent from workIndices would otherwise fall
+  // through to "recovery", misclassifying a genuine 45-minute continuous
+  // run as a rest period simply because it was excluded from a pace
+  // clustering it was never really part of.
+  const workIndices = new Set([
+    ...withPace
       .slice(0, splitAt + 1)
       // Guard against a brief lap-button blip computing a fluky fast pace
-      // over a couple of seconds — a real work rep is sustained.
-      .filter((x) => x.lap.total_elapsed_time >= 20)
+      // over a couple of seconds — a real work rep is sustained. This was
+      // previously 20s, which is nowhere close to "a couple of seconds" and
+      // ended up excluding entirely genuine short reps — a fast 85-90m
+      // stride commonly finishes in 14-15s, well under 20 but nothing like
+      // an accidental blip. That left the actual stride laps thrown out of
+      // the work cluster while a much longer recovery-walk lap survived the
+      // filter and got miscategorized as the work instead (a 4-rep strides
+      // session showing as "1 x 150" — the one surviving recovery lap's
+      // own distance, not the strides at all). 5s comfortably still catches
+      // a genuine accidental double-tap of the lap button.
+      .filter((x) => x.lap.total_elapsed_time >= 5)
       .map((x) => x.lap.index),
-  );
+    ...outlierLaps.map((l) => l.index),
+  ]);
 
   return { workIndices, isGenuine: true };
 }
