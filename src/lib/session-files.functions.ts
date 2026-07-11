@@ -1798,14 +1798,19 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   // "Aerobic" purely because that placeholder was never replaced, not
   // because of any warmup/cooldown dilution.
   //
-  // Guarded to only overwrite when intent is still the untouched "aerobic"
-  // placeholder (or unset) — if a coach has ever manually picked a
-  // different intent for this session, a later recompute won't stomp on
-  // that choice. This isn't perfect (a genuinely, manually-chosen "aerobic"
-  // easy run looks identical to an unclassified one and could get
-  // reclassified on a future recompute), but given every session sits at
-  // "aerobic" today with no exceptions, it's a safe starting point rather
-  // than risking silently overwriting real coach input.
+  // Guarded to only overwrite intent on sessions that were never actually
+  // planned (is_planned = false) — i.e. bare uploads with no real coach
+  // input behind their current intent value, regardless of which
+  // placeholder they happened to get. This matters because there turned
+  // out to be TWO different hardcoded placeholders in two different
+  // upload paths: session-files.functions.ts's own session-creation branch
+  // defaults to "aerobic", while the Calendar page's "+ Upload file" flow
+  // (app.sessions.calendar.tsx, handleCalendarUpload) separately defaults
+  // to "easy". Checking for one specific string would silently treat the
+  // other placeholder as if a coach had deliberately chosen it and never
+  // reclassify those sessions at all. A genuinely planned session
+  // (is_planned = true, created via "Create Session" with a real
+  // coach-picked intent) is never touched here.
   let derivedIntent: string | null = null;
   if (workPaceSecPerKm != null) {
     const { data: zoneProfile } = await sb
@@ -1839,7 +1844,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
       derivedIntent = ZONE_TO_INTENT[zone];
     }
   }
-  const shouldUpdateIntent = derivedIntent != null && (sess.intent === "aerobic" || !sess.intent);
+  const shouldUpdateIntent = derivedIntent != null && sess.is_planned === false;
 
   // Recompute the Morning/Afternoon/Evening title using the athlete's actual
   // timezone. This runs on every rebuild (not just initial creation) since a
