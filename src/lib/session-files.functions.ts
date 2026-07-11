@@ -145,9 +145,17 @@ function stepIsLadder(step: any): boolean {
   );
 }
 
+// Planned "effort" blocks that get matched against classified work/recovery
+// lap pairs from an uploaded file. Includes both "work" and "strides" —
+// both represent a real effort block the athlete ran, just at different
+// intensities/distances; only "warmup"/"cooldown"/"recovery" are structural
+// rather than effort blocks. Excluding "strides" here left any planned
+// Strides block (e.g. "4×75m") with zero interval_results after a real FIT
+// upload — its target showed correctly (it came straight from the plan),
+// but nothing ever matched laps to it, so every rep row stayed empty.
 function getPlannedWorkSteps(plannedSteps: any[]) {
   return [...plannedSteps]
-    .filter((s) => s.kind === "work")
+    .filter((s) => s.kind === "work" || s.kind === "strides")
     .sort((a, b) => Number(a.step_order ?? 0) - Number(b.step_order ?? 0));
 }
 
