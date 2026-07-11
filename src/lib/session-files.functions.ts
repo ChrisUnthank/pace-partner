@@ -811,7 +811,47 @@ function splitWorkPairsIntoBlocks(pairs: WorkRecoveryPair[], plannedSteps: any[]
   return blocks.length > 0 ? blocks : [pairs];
 }
 
-function inferRecoveryMode(recoveryLap: ParsedLap | null): string | null {
+// Furthest any recorded point during this lap strayed from the lap's own
+// centroid, in metres — i.e. how far the runner actually *ranged* from a
+// single spot, independent of how much cumulative GPS distance or cadence
+// was recorded getting there. A runner pacing/shuffling near the start
+// line between reps can rack up real distance and walk-range cadence
+// without ever actually going anywhere; a genuine "walk to a recovery
+// point" moves the centroid meaningfully. Returns null when there aren't
+// enough located points during the lap window to make the call, so the
+// caller can fall back to the distance/cadence heuristic.
+function computeRecoverySpatialExtentM(points: MergedPoint[], lap: ParsedLap): number | null {
+  if (!lap.startMs) return null;
+  const endMs = getLapEndMs(lap);
+  if (endMs == null) return null;
+
+  const lapPoints = points.filter((p) => {
+    if (!p.timestamp || typeof p.lat !== "number" || typeof p.lng !== "number") return false;
+    const t = new Date(p.timestamp).getTime();
+    return t >= lap.startMs! && t <= endMs;
+  });
+
+  if (lapPoints.length < 3) return null;
+
+  const centroidLat = lapPoints.reduce((s, p) => s + (p.lat as number), 0) / lapPoints.length;
+  const centroidLng = lapPoints.reduce((s, p) => s + (p.lng as number), 0) / lapPoints.length;
+
+  return lapPoints.reduce(
+    (max, p) => Math.max(max, haversineMeters(centroidLat, centroidLng, p.lat as number, p.lng as number)),
+    0,
+  );
+}
+
+function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function inferRecoveryMode(recoveryLap: ParsedLap | null, points: MergedPoint[] = []): string | null {
   if (!recoveryLap) return null;
 
   const dist = Number(recoveryLap.total_distance ?? 0);
@@ -820,6 +860,19 @@ function inferRecoveryMode(recoveryLap: ParsedLap | null): string | null {
   if (dur <= 0) return null;
 
   if (dist < 10) return "rest";
+
+  // Spatial-extent check first: distance/cadence alone can't tell a
+  // deliberate "walk 100m" recovery from a runner pacing/shuffling in a
+  // tight area near the start line, waiting for the next rep — both can
+  // post real GPS distance and walk-range (or even higher, noisy) cadence.
+  // If every located point during this recovery stays within a small
+  // radius of the group's own centroid, the runner never actually left
+  // the spot, whatever the odometer says — that's standing, not a walk.
+  const spatialExtentM = computeRecoverySpatialExtentM(points, recoveryLap);
+  const STATIONARY_RADIUS_M = 15;
+  if (spatialExtentM != null && spatialExtentM <= STATIONARY_RADIUS_M) {
+    return "standing";
+  }
 
   // A genuine "walk" recovery involves real ambulation — at least 100m
   // covered over at least 30s. Below that (a brief shuffle, GPS jitter,
@@ -860,6 +913,8 @@ function getLapEndMs(lap: ParsedLap | null): number | null {
   }
   return null;
 }
+
+
 
 function getEndHrForLap(points: MergedPoint[], lap: ParsedLap | null): number | null {
   if (!lap) return null;
@@ -1240,6 +1295,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
       )?.recovery ??
         pairs[0]?.recovery ??
         null,
+      mergedPoints,
     );
 
     const workBlocks: WorkRecoveryPair[][] = [];
@@ -1314,7 +1370,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
               : null;
 
           const groupRecoveryMode =
-            groupRecoveryPairs.length > 0 ? inferRecoveryMode(groupRecoveryPairs[0]?.recovery ?? null) : null;
+            groupRecoveryPairs.length > 0 ? inferRecoveryMode(groupRecoveryPairs[0]?.recovery ?? null, mergedPoints) : null;
 
           stepsToInsert.push({
             session_id: sessionId,
