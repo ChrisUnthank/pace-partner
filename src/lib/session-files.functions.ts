@@ -1441,31 +1441,53 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
 
       const blocksForReps = haveBetweenSet ? workBlocks : [pairs];
 
+      // `workSteps` is a flat list with one entry per distance group, in
+      // the exact order pushWorkStep created them: for each between-set
+      // block, one step per distance group inside it (see
+      // splitBlockIntoDistanceGroups). Previously this loop assigned reps
+      // using only the between-set block index (`workSteps[bi]`), which is
+      // correct when a block contains a single distance group but silently
+      // dumped every rep from a multi-distance-group block (e.g. a 2km
+      // opener + 5×1km reps with no long recovery between them, so
+      // haveBetweenSet is false and blocksForReps is just one block) onto
+      // workSteps[0] — the block's *first* step got every rep's results,
+      // and every subsequent distance-group step (the "5×1km" one) was
+      // created with the right target/reps but zero interval_results.
+      // Walking the same per-block distance-group split here keeps the
+      // step assignment and rep numbering in lockstep with how the steps
+      // themselves were created.
+      let workStepCursor = 0;
+
       for (let bi = 0; bi < blocksForReps.length; bi++) {
-        const ws = workSteps[bi] ?? workSteps[workSteps.length - 1];
         const blk = blocksForReps[bi];
+        const distanceGroupsForBlock = splitBlockIntoDistanceGroups(blk);
 
-        blk.forEach((pair, idx) => {
-          const lap = pair.work;
-          const recovery = pair.recovery;
+        for (const groupPairs of distanceGroupsForBlock) {
+          const ws = workSteps[workStepCursor] ?? workSteps[workSteps.length - 1];
+          workStepCursor++;
 
-          intervalRows.push({
-            step_id: ws.id,
-            set_number: 1,
-            rep_number: idx + 1,
-            actual_time_seconds: lap.total_elapsed_time || null,
-            actual_distance_m: lap.total_distance || null,
-            actual_pace_sec_per_km:
-              lap.total_distance > 0 && lap.total_elapsed_time > 0
-                ? (lap.total_elapsed_time / lap.total_distance) * 1000
-                : null,
-            hr_avg: lap.avg_heart_rate ?? null,
-            hr_max: lap.max_heart_rate ?? null,
-            hr_end: getEndHrForLap(mergedPoints, lap) ?? lap.max_heart_rate ?? lap.avg_heart_rate ?? null,
-            hr_end_recovery: getEndHrForLap(mergedPoints, recovery) ?? recovery?.avg_heart_rate ?? null,
-            cadence: lap.avg_cadence ?? null,
+          groupPairs.forEach((pair, idx) => {
+            const lap = pair.work;
+            const recovery = pair.recovery;
+
+            intervalRows.push({
+              step_id: ws.id,
+              set_number: 1,
+              rep_number: idx + 1,
+              actual_time_seconds: lap.total_elapsed_time || null,
+              actual_distance_m: lap.total_distance || null,
+              actual_pace_sec_per_km:
+                lap.total_distance > 0 && lap.total_elapsed_time > 0
+                  ? (lap.total_elapsed_time / lap.total_distance) * 1000
+                  : null,
+              hr_avg: lap.avg_heart_rate ?? null,
+              hr_max: lap.max_heart_rate ?? null,
+              hr_end: getEndHrForLap(mergedPoints, lap) ?? lap.max_heart_rate ?? lap.avg_heart_rate ?? null,
+              hr_end_recovery: getEndHrForLap(mergedPoints, recovery) ?? recovery?.avg_heart_rate ?? null,
+              cadence: lap.avg_cadence ?? null,
+            });
           });
-        });
+        }
 
         if (haveBetweenSet && bi < recoverySteps.length) {
           const recLap = blk[blk.length - 1]?.recovery;
