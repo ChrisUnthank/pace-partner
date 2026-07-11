@@ -152,6 +152,7 @@ type ZoneProfile = {
   pace_z2_max_sec_per_km: number | null;
   pace_z3_max_sec_per_km: number | null;
   pace_z4_max_sec_per_km: number | null;
+  pace_z5_max_sec_per_km: number | null;
   pace_zones_manual: boolean;
 } | null | undefined;
 
