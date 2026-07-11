@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Plus } from "lucide-react";
+import { Plus, Thermometer, Wind } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { sessionClassificationLabel, INTENT_LABEL, DAY_TYPE_LABEL } from "@/lib/session-categories";
 import { ActivityIcon } from "@/lib/activity-icon";
@@ -27,6 +27,17 @@ export type DayData = {
   readiness_score?: number | null;
   training_load?: number | null;
   efficiencyBySession?: Record<string, number | null>;
+};
+
+// Forecast for a single future day — only ever populated for days ahead of
+// today within Open-Meteo's free forecast horizon (~14-16 days). Deliberately
+// separate from DayData rather than folded into it: forecast is fetched
+// once per athlete location and applies independent of whatever sessions
+// exist that day, whereas DayData is entirely session/load-driven.
+export type DayForecast = {
+  tempMax: number | null;
+  tempMin: number | null;
+  windMax: number | null;
 };
 
 // Tailwind colors keyed by intent/day_type — reused from session-categories vocabulary.
@@ -70,6 +81,7 @@ export function CalendarDayCell({
   inMonth,
   isToday,
   compact = false,
+  weather,
   onMultiClick,
   onAdd,
 }: {
@@ -77,6 +89,8 @@ export function CalendarDayCell({
   inMonth: boolean;
   isToday: boolean;
   compact?: boolean;
+  /** Forecast for this specific day — only ever passed for future days within the forecast horizon. */
+  weather?: DayForecast | null;
   onMultiClick?: (day: DayData) => void;
   /** Opens the "add to this day" menu (upload file / create session / manual entry). Works on any day, not just empty ones — existing sessions stay reachable via their own pills/sheet. */
   onAdd?: (date: string) => void;
@@ -168,6 +182,23 @@ export function CalendarDayCell({
       )}
     >
       {header}
+      {weather && (weather.tempMax != null || weather.windMax != null) && (
+        <div className="flex items-center gap-2 px-1.5 text-[9px] text-muted-foreground">
+          {weather.tempMax != null && (
+            <span className="flex items-center gap-0.5">
+              <Thermometer className="h-2.5 w-2.5" />
+              {Math.round(weather.tempMax)}°
+              {weather.tempMin != null && <span className="opacity-70">/{Math.round(weather.tempMin)}°</span>}
+            </span>
+          )}
+          {weather.windMax != null && (
+            <span className="flex items-center gap-0.5">
+              <Wind className="h-2.5 w-2.5" />
+              {Math.round(weather.windMax)}
+            </span>
+          )}
+        </div>
+      )}
       <div className="flex-1 flex flex-col gap-1 px-1.5 pb-1.5 mt-1">
         {sessions.slice(0, 2).map((s) => (
           <SessionPill
