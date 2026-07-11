@@ -2221,7 +2221,21 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
       return { file: fileRow, points: 0, error: parseError };
     }
 
-    await rebuildSessionFromAllFiles(sb, sess.id);
+    try {
+      await rebuildSessionFromAllFiles(sb, sess.id);
+    } catch (rebuildErr) {
+      // Roll back the file row just inserted above — otherwise it sits
+      // there as an orphan that never actually finished attaching, and the
+      // duplicate-detection check further up (same start time, distance,
+      // duration) permanently flags any retry of this exact file as
+      // "already attached to this session", blocking re-upload until
+      // someone manually finds and deletes the stray row. Also clears any
+      // raw_session_points this file contributed before the failure, so a
+      // retry starts genuinely clean rather than layering on partial data.
+      await sb.from("raw_session_points").delete().eq("file_id", fileRow.id);
+      await sb.from("session_files").delete().eq("id", fileRow.id);
+      throw rebuildErr;
+    }
 
     return {
       file: fileRow,
