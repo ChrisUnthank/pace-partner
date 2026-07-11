@@ -1229,7 +1229,15 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   const cooldownMetrics = summarizeLapsMetrics(cooldownLaps, mergedPoints);
   const workMetrics = summarizeLapsMetrics(workLaps, mergedPoints);
 
-  const isIntervals = pairs.length > 1;
+  // Same fix as isContinuous below: "intervals" means genuine recovery
+  // breaks occurred, not "more than one work lap exists". A watch
+  // auto-lapping a plain continuous run every ~1km produces many pairs
+  // with zero real recovery between them — `pairs.length > 1` alone can't
+  // tell that apart from an actual interval session, which is exactly what
+  // was mislabeling ordinary continuous runs as "intervals" (and flagging
+  // them needs_review) whenever a stop for traffic/a gel/etc happened to
+  // land on an auto-lap boundary.
+  const isIntervals = pairs.some((p) => p.recovery != null);
 
   const totalDistanceM =
     mergedPoints.length > 0
@@ -1322,7 +1330,20 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
 
     const haveBetweenSet = workBlocks.length > 1;
 
-    const isContinuous = pairs.length <= 1 && !hasWarmup && !hasCooldown;
+    // "Continuous" means no genuine recovery break ever occurred — NOT "the
+    // file only had one lap". buildWorkRecoveryPairs() creates one pair per
+    // work-classified lap, so a normal watch auto-lapping every ~1km on a
+    // plain easy run produces many pairs even when every lap is "work" with
+    // zero real recovery between them (e.g. after classifyLapsByDistance
+    // correctly found no genuine work/recovery pace contrast at all). The
+    // old `pairs.length <= 1` check only caught a file with a single lap
+    // total, so a multi-auto-lap continuous run fell through to the
+    // block-splitting branch below and got fragmented into fake "N x
+    // distance" reps around ordinary GPS/lap-timing noise (e.g. a short lap
+    // left over from a brief real-world stop for traffic, a gel, etc).
+    // Reuses isIntervals (same underlying test, computed above) rather than
+    // a second copy of the same check, so the two can't drift apart again.
+    const isContinuous = !isIntervals && !hasWarmup && !hasCooldown;
 
     if (isContinuous) {
       stepsToInsert.push({
