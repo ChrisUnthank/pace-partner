@@ -514,15 +514,31 @@ function AthleteAnalytics({
   const intentData = useMemo(() => {
     const buckets = new Map<string, number>();
     for (const r of (intentRollup as any[]) ?? []) {
-      if (!r.intent || r.day_type !== "training") continue;
-      buckets.set(r.intent, (buckets.get(r.intent) ?? 0) + Number(r.total_time_seconds ?? 0));
+      // Non-training days (race, recovery, cross_training, rest) have no
+      // `intent` value at all — they were being silently dropped entirely,
+      // which is why Race never showed up here despite race sessions
+      // clearly existing. day_type takes priority for anything not
+      // "training", matching the same logic sessionColorClass already uses
+      // for the calendar.
+      const key = r.day_type && r.day_type !== "training" ? r.day_type : r.intent;
+      if (!key) continue;
+      buckets.set(key, (buckets.get(key) ?? 0) + Number(r.total_time_seconds ?? 0));
     }
-    const order = ["easy", "aerobic", "tempo", "threshold", "vo2", "anaerobic", "speed"];
+    const order = [
+      "easy", "aerobic", "tempo", "threshold", "vo2", "anaerobic", "speed",
+      "race", "recovery", "cross_training", "rest",
+    ];
+    const LABELS: Record<string, string> = {
+      easy: "Easy", aerobic: "Aerobic", tempo: "Tempo", threshold: "Threshold", vo2: "VO2",
+      anaerobic: "Anaerobic", speed: "Speed", race: "Race", recovery: "Recovery",
+      cross_training: "Cross-training", rest: "Rest",
+    };
     return order
       .filter((k) => buckets.has(k))
-      .map((intent) => ({
-        intent: intent.charAt(0).toUpperCase() + intent.slice(1),
-        minutes: Math.round((buckets.get(intent) ?? 0) / 60),
+      .map((key) => ({
+        key,
+        intent: LABELS[key] ?? key,
+        minutes: Math.round((buckets.get(key) ?? 0) / 60),
       }));
   }, [intentRollup]);
 
@@ -786,7 +802,7 @@ function AthleteAnalytics({
         <Card>
           <CardHeader>
             <CardTitle>Time by Training Intent</CardTitle>
-            <CardDescription>Session-level total time grouped by planned intent.</CardDescription>
+            <CardDescription>Session-level total time grouped by intent — race days included, colors match the calendar.</CardDescription>
           </CardHeader>
           <CardContent>
             {intentData.length === 0 ? (
@@ -794,19 +810,22 @@ function AthleteAnalytics({
             ) : (
               <div className="h-[220px] w-full">
                 <ResponsiveContainer>
-                  <BarChart data={intentData} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
-                    <XAxis dataKey="intent" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} />
+                  <PieChart>
+                    <Pie data={intentData} dataKey="minutes" nameKey="intent" innerRadius={45} outerRadius={80} paddingAngle={2}>
+                      {intentData.map((d) => (
+                        <Cell key={d.key} fill={INTENT_PIE_COLORS[d.key] ?? "#8b5cf6"} />
+                      ))}
+                    </Pie>
                     <Tooltip
                       contentStyle={{
                         background: "hsl(var(--background))",
                         border: "1px solid hsl(var(--border))",
                         fontSize: 12,
                       }}
+                      formatter={(value: number) => [`${value} min`, ""]}
                     />
-                    <Bar dataKey="minutes" name="min" fill="#8b5cf6" radius={[3, 3, 0, 0]} />
-                  </BarChart>
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                  </PieChart>
                 </ResponsiveContainer>
               </div>
             )}
@@ -997,6 +1016,23 @@ function ZoneBarCard({
     </Card>
   );
 }
+
+// Matches the exact hex values behind sessionColorClass in
+// calendar-day-cell.tsx, so a zone/intent reads the same color on the
+// calendar and here.
+const INTENT_PIE_COLORS: Record<string, string> = {
+  easy: "#10b981", // emerald-500
+  aerobic: "#14b8a6", // teal-500
+  tempo: "#f59e0b", // amber-500
+  threshold: "#f97316", // orange-500
+  vo2: "#ef4444", // red-500
+  anaerobic: "#e11d48", // rose-600
+  speed: "#d946ef", // fuchsia-500
+  race: "#9333ea", // purple-600
+  recovery: "#38bdf8", // sky-400
+  cross_training: "#94a3b8", // slate-400
+  rest: "#d6d3d1", // stone-300
+};
 
 const KIND_COLORS: Record<string, string> = {
   Warmup: "#0ea5e9",
