@@ -18,6 +18,7 @@ export type CalendarSession = {
   activity_type?: string | null;
   total_distance_m?: number | null;
   total_time_seconds?: number | null;
+  total_moving_time_seconds?: number | null;
 };
 
 export type DayData = {
@@ -244,7 +245,11 @@ function SessionPill({
   // those — just the intent label as before.
   const distanceM = s.total_distance_m ?? null;
   const timeS = s.total_time_seconds ?? null;
-  const paceSecPerKm = distanceM && timeS && distanceM > 0 ? (timeS / distanceM) * 1000 : null;
+  // Same moving-time preference as the session detail page's Total Avg
+  // Pace — a mid-run stop shouldn't make a calendar card's pace look a
+  // minute per km slower than the run actually was.
+  const timeForPace = s.total_moving_time_seconds ?? timeS;
+  const paceSecPerKm = distanceM && timeForPace && distanceM > 0 ? (timeForPace / distanceM) * 1000 : null;
 
   return (
     <Link
