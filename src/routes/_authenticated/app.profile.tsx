@@ -15,6 +15,7 @@ import { Trash2, Sparkles } from "lucide-react";
 import { ProfileImageUploader } from "@/components/profile-image-uploader";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { setStoredUnits } from "@/lib/units";
+import { TIMEZONE_OPTIONS, guessLocalTimezone } from "@/lib/timezones";
 
 export const Route = createFileRoute("/_authenticated/app/profile")({
   component: Profile,
@@ -82,7 +83,7 @@ function PreferencesCard({ userId }: { userId: string }) {
     },
   });
   const [units, setUnits] = useState<string>((profile?.units as string) ?? "metric");
-  const [tz, setTz] = useState<string>((profile?.timezone as string) ?? (typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "UTC"));
+  const [tz, setTz] = useState<string>((profile?.timezone as string) ?? guessLocalTimezone());
   // Re-sync when query loads
   if (profile && profile.units && profile.units !== units && units === "metric") {
     setUnits(profile.units);
@@ -98,7 +99,10 @@ function PreferencesCard({ userId }: { userId: string }) {
     <Card>
       <CardHeader>
         <CardTitle>Display preferences</CardTitle>
-        <CardDescription>Choose units and time zone used across the app.</CardDescription>
+        <CardDescription>
+          Units and time zone used when this account views the app. This doesn't affect how an athlete's own session
+          times are classified — that uses the timezone set on each athlete's own details, below.
+        </CardDescription>
       </CardHeader>
       <CardContent className="grid sm:grid-cols-2 gap-3">
         <div>
@@ -113,7 +117,14 @@ function PreferencesCard({ userId }: { userId: string }) {
         </div>
         <div>
           <Label>Time zone</Label>
-          <Input value={tz} onChange={(e) => setTz(e.target.value)} placeholder="e.g. Europe/London" className="mt-1" />
+          <Select value={tz} onValueChange={setTz}>
+            <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {TIMEZONE_OPTIONS.map((z) => (
+                <SelectItem key={z.value} value={z.value}>{z.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="sm:col-span-2"><Button onClick={save}>Save preferences</Button></div>
       </CardContent>
@@ -232,12 +243,19 @@ function AthleteForm({ athlete }: { athlete: any }) {
   const [dob, setDob] = useState(athlete.dob ?? "");
   const [trainingAge, setTrainingAge] = useState(athlete.training_age_years ?? "");
   const [hrMax, setHrMax] = useState(athlete.hr_max ?? "");
+  // This is the timezone that actually matters for how this athlete's
+  // uploaded sessions get classified (Morning/Afternoon/Evening title,
+  // and any other local-time display) — a separate column from the
+  // logged-in account's own display timezone above. Was previously never
+  // editable anywhere, so new athletes silently defaulted to UTC.
+  const [timezone, setTimezone] = useState(athlete.timezone ?? guessLocalTimezone());
 
   async function save() {
     const { error } = await supabase.from("athletes").update({
       name, primary_event: event || null, dob: dob || null,
       training_age_years: trainingAge === "" ? null : Number(trainingAge),
       hr_max: hrMax === "" ? null : Number(hrMax),
+      timezone,
     }).eq("id", athlete.id);
     if (error) toast.error(error.message); else { toast.success("Saved"); qc.invalidateQueries({ queryKey: ["my-athlete"] }); }
   }
@@ -251,6 +269,18 @@ function AthleteForm({ athlete }: { athlete: any }) {
         <div><Label>DOB</Label><Input type="date" value={dob} onChange={(e) => setDob(e.target.value)} /></div>
         <div><Label>Training age (years)</Label><Input type="number" value={trainingAge} onChange={(e) => setTrainingAge(e.target.value)} /></div>
         <div><Label>HR max</Label><Input type="number" value={hrMax} onChange={(e) => setHrMax(e.target.value)} /></div>
+        <div>
+          <Label>Time zone</Label>
+          <Select value={timezone} onValueChange={setTimezone}>
+            <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {TIMEZONE_OPTIONS.map((z) => (
+                <SelectItem key={z.value} value={z.value}>{z.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground mt-1">Used to classify session times (Morning/Afternoon/Evening) and to show local session times correctly.</p>
+        </div>
         <div className="sm:col-span-2"><Button onClick={save}>Save</Button></div>
       </CardContent>
     </Card>
