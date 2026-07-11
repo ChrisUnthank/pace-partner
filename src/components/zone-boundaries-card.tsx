@@ -168,7 +168,7 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
     qc.invalidateQueries({ queryKey: ["zone-profile", athleteId] });
   }
 
-  async function run(key: string, fn: () => Promise<{ error: any }>, successMsg?: string) {
+  async function run(key: string, fn: () => PromiseLike<{ error: any }>, successMsg?: string) {
     setSavingKey(key);
     const { error } = await fn();
     setSavingKey(null);
@@ -211,13 +211,13 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
   // allowed to write for this athlete_id, coach or athlete alike.
   async function saveHrBoundary(field: string, bpm: number) {
     await run(field, () =>
-      supabase.from("athlete_zone_profiles").update({ [field]: bpm, hr_zones_manual: true }).eq("athlete_id", athleteId),
+      supabase.from("athlete_zone_profiles").update({ [field]: bpm, hr_zones_manual: true } as any).eq("athlete_id", athleteId),
     );
   }
 
   async function savePaceBoundary(field: string, secPerKm: number) {
     await run(field, () =>
-      supabase.from("athlete_zone_profiles").update({ [field]: secPerKm, pace_zones_manual: true }).eq("athlete_id", athleteId),
+      supabase.from("athlete_zone_profiles").update({ [field]: secPerKm, pace_zones_manual: true } as any).eq("athlete_id", athleteId),
     );
   }
 
