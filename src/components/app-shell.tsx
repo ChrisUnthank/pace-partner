@@ -60,7 +60,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const navItems: { to: string; label: string; icon: any; show: boolean }[] = [
     { to: "/app", label: "Home", icon: Home, show: true },
     { to: "/app/daily-log", label: "Daily Log", icon: ClipboardList, show: isAthlete },
-    { to: "/app/zones", label: "Zones", icon: Gauge, show: isAthlete },
+    { to: "/app/zones", label: "Zones", icon: Gauge, show: isAthlete || isCoach },
     { to: "/app/sessions", label: "Sessions", icon: CalendarDays, show: true },
     { to: "/app/analytics", label: "Analytics", icon: LineChart, show: true },
     { to: "/app/races", label: "Races", icon: Trophy, show: true },
