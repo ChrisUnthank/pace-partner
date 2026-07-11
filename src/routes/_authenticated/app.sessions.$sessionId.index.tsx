@@ -1068,6 +1068,18 @@ function SessionDetail() {
                   <div className="text-lg font-semibold tabular-nums">
                     {secToClock(session.total_time_seconds || 0)}
                   </div>
+                  {(() => {
+                    // Only worth a second line when there was a real stop —
+                    // ordinary GPS/lap-boundary noise (a couple of seconds)
+                    // shouldn't clutter every session with two near-identical
+                    // numbers. 15s threshold keeps this to genuine pauses.
+                    const movingS = (session as any).total_moving_time_seconds;
+                    const totalS = session.total_time_seconds;
+                    const hasRealStop = movingS != null && totalS != null && totalS - movingS >= 15;
+                    return hasRealStop ? (
+                      <div className="text-xs text-muted-foreground mt-0.5">Moving: {secToClock(movingS)}</div>
+                    ) : null;
+                  })()}
                 </div>
 
                 {/* Distance */}
@@ -1111,9 +1123,16 @@ function SessionDetail() {
                 <div className="border rounded-lg px-3 py-2">
                   <div className="text-xs text-muted-foreground">Total Avg Pace</div>
                   <div className="text-lg font-semibold tabular-nums">
-                    {session.total_time_seconds && (session.total_distance_m ?? 0) > 0
-                      ? secToClock((session.total_time_seconds / (session.total_distance_m ?? 0)) * 1000)
-                      : "—"}
+                    {(() => {
+                      // Prefer moving time (elapsed minus detected stops) so a
+                      // mid-run pause doesn't inflate the displayed pace — falls
+                      // back to raw elapsed time for sessions uploaded before
+                      // this was tracked, which haven't been recomputed yet.
+                      const timeForPace = (session as any).total_moving_time_seconds ?? session.total_time_seconds;
+                      return timeForPace && (session.total_distance_m ?? 0) > 0
+                        ? secToClock((timeForPace / (session.total_distance_m ?? 0)) * 1000)
+                        : "—";
+                    })()}
                   </div>
                 </div>
 
