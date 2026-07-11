@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { ChevronLeft, ChevronRight, List as ListIcon, Upload, CalendarPlus, PencilLine } from "lucide-react";
 import {
   CalendarDayCell,
+  WeekTotalCell,
   type CalendarSession,
   type DayData,
   sessionColorClass,
@@ -123,7 +124,7 @@ function CalendarPage() {
         supabase
           .from("sessions")
           .select(
-            "id, title, session_date, day_type, intent, structure, is_long_run, completed_at, is_planned, activity_type",
+            "id, title, session_date, day_type, intent, structure, is_long_run, completed_at, is_planned, activity_type, total_distance_m, total_time_seconds",
           )
           .eq("athlete_id", selectedAthleteId)
           .gte("session_date", rangeStart)
@@ -183,6 +184,35 @@ function CalendarPage() {
     }
     return map;
   }, [bundle, gridDays]);
+
+  // gridDays always starts on a Sunday and is a whole number of weeks (both
+  // the month grid's padding and the single-week view guarantee this), so a
+  // straight chunk-into-7s is safe here without any remainder handling.
+  const weeks = useMemo(() => {
+    const chunks: Date[][] = [];
+    for (let i = 0; i < gridDays.length; i += 7) {
+      chunks.push(gridDays.slice(i, i + 7));
+    }
+    return chunks.map((days) => {
+      let distanceM = 0;
+      let timeS = 0;
+      let sessionCount = 0;
+      for (const d of days) {
+        const day = byDate.get(toISO(d));
+        if (!day) continue;
+        for (const s of day.sessions) {
+          // Only completed sessions count toward the weekly total — a
+          // planned-but-not-yet-run session hasn't actually happened, and
+          // including its target distance would overstate the week.
+          if (!s.completed_at) continue;
+          if (s.total_distance_m) distanceM += s.total_distance_m;
+          if (s.total_time_seconds) timeS += s.total_time_seconds;
+          sessionCount++;
+        }
+      }
+      return { days, distanceM, timeS, sessionCount };
+    });
+  }, [gridDays, byDate]);
 
   const todayISO = toISO(new Date());
   const monthLabel = anchor.toLocaleDateString(undefined, { month: "long", year: "numeric" });
@@ -285,6 +315,10 @@ function CalendarPage() {
   }
 
   const isMobile = typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches;
+  // Same condition that already drives compact cells — an 8th "totals"
+  // column has no room next to already-cramped mobile month cells, so it
+  // only shows wherever cells are already full-size.
+  const showWeekTotals = !(isMobile && view === "month");
 
   return (
     <AppShell>
@@ -373,31 +407,69 @@ function CalendarPage() {
 
         <Card>
           <CardContent className="p-2 sm:p-3">
-            <div className="grid grid-cols-7 gap-1 mb-1 text-[10px] text-muted-foreground">
-              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
-                <div key={d} className="text-center uppercase tracking-wide">
-                  {d}
+            {showWeekTotals ? (
+              <>
+                <div className="grid grid-cols-8 gap-1 mb-1 text-[10px] text-muted-foreground">
+                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+                    <div key={d} className="text-center uppercase tracking-wide">
+                      {d}
+                    </div>
+                  ))}
+                  <div className="text-center uppercase tracking-wide">Total</div>
                 </div>
-              ))}
-            </div>
-            <div className={cn("grid gap-1", view === "week" ? "grid-cols-7" : "grid-cols-7")}>
-              {gridDays.map((d) => {
-                const iso = toISO(d);
-                const day = byDate.get(iso)!;
-                const inMonth = view === "week" ? true : d.getMonth() === anchor.getMonth();
-                return (
-                  <CalendarDayCell
-                    key={iso}
-                    day={day}
-                    inMonth={inMonth}
-                    isToday={iso === todayISO}
-                    compact={isMobile && view === "month"}
-                    onMultiClick={(dd) => setSheetDay(dd)}
-                    onAdd={(date) => setAddMenuDate(date)}
-                  />
-                );
-              })}
-            </div>
+                <div className="space-y-1">
+                  {weeks.map((week, wi) => (
+                    <div key={wi} className="grid grid-cols-8 gap-1">
+                      {week.days.map((d) => {
+                        const iso = toISO(d);
+                        const day = byDate.get(iso)!;
+                        const inMonth = view === "week" ? true : d.getMonth() === anchor.getMonth();
+                        return (
+                          <CalendarDayCell
+                            key={iso}
+                            day={day}
+                            inMonth={inMonth}
+                            isToday={iso === todayISO}
+                            compact={false}
+                            onMultiClick={(dd) => setSheetDay(dd)}
+                            onAdd={(date) => setAddMenuDate(date)}
+                          />
+                        );
+                      })}
+                      <WeekTotalCell distanceM={week.distanceM} timeS={week.timeS} sessionCount={week.sessionCount} />
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="grid grid-cols-7 gap-1 mb-1 text-[10px] text-muted-foreground">
+                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+                    <div key={d} className="text-center uppercase tracking-wide">
+                      {d}
+                    </div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-7 gap-1">
+                  {gridDays.map((d) => {
+                    const iso = toISO(d);
+                    const day = byDate.get(iso)!;
+                    const inMonth = view === "week" ? true : d.getMonth() === anchor.getMonth();
+                    return (
+                      <CalendarDayCell
+                        key={iso}
+                        day={day}
+                        inMonth={inMonth}
+                        isToday={iso === todayISO}
+                        compact={true}
+                        onMultiClick={(dd) => setSheetDay(dd)}
+                        onAdd={(date) => setAddMenuDate(date)}
+                      />
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
 
