@@ -1041,6 +1041,12 @@ function buildIntervalRowsFromPlan(
 ) {
   const workSteps = getPlannedWorkSteps(plannedSteps);
   const rows: any[] = [];
+  // Track rep/set counters per step_id so that when multiple work blocks
+  // fall back to the same planned step (blockIdx >= workSteps.length), we
+  // don't restart at set=1/rep=1 and collide with the earlier block's rows
+  // — the (step_id, set_number, rep_number) unique constraint would reject
+  // the whole insert.
+  const counters = new Map<string, { setNumber: number; repNumber: number; ladderIndex: number }>();
 
   for (let blockIdx = 0; blockIdx < workBlocks.length; blockIdx++) {
     const pairs = workBlocks[blockIdx] ?? [];
@@ -1052,18 +1058,16 @@ function buildIntervalRowsFromPlan(
     const setCount = Math.max(1, Number(workStep.set_count ?? 1));
     const ladder = stepIsLadder(workStep);
 
-    let setNumber = 1;
-    let repNumber = 0;
+    const c = counters.get(workStep.id) ?? { setNumber: 1, repNumber: 0, ladderIndex: 0 };
 
     for (let i = 0; i < pairs.length; i++) {
-      repNumber += 1;
+      c.repNumber += 1;
+      c.ladderIndex += 1;
 
-      if (!ladder && repNumber > repsPerSet) {
-        setNumber += 1;
-        repNumber = 1;
+      if (!ladder && c.repNumber > repsPerSet) {
+        c.setNumber += 1;
+        c.repNumber = 1;
       }
-
-      if (setNumber > setCount) setNumber = setCount;
 
       const pair = pairs[i];
       const lap = pair.work;
@@ -1071,8 +1075,8 @@ function buildIntervalRowsFromPlan(
 
       rows.push({
         step_id: workStep.id,
-        set_number: setNumber,
-        rep_number: ladder ? i + 1 : repNumber,
+        set_number: Math.min(c.setNumber, setCount),
+        rep_number: ladder ? c.ladderIndex : c.repNumber,
         actual_time_seconds: lap.total_elapsed_time || null,
         actual_distance_m: lap.total_distance || null,
         actual_pace_sec_per_km:
@@ -1086,9 +1090,19 @@ function buildIntervalRowsFromPlan(
         cadence: lap.avg_cadence ?? null,
       });
     }
+
+    counters.set(workStep.id, c);
   }
 
-  return rows;
+  // Final safety net: if any duplicate (step_id, set_number, rep_number)
+  // survives — e.g. clamping to setCount collapsed two rows to the same
+  // slot — keep the last one so the insert doesn't hit the unique
+  // constraint.
+  const dedup = new Map<string, any>();
+  for (const r of rows) {
+    dedup.set(`${r.step_id}|${r.set_number}|${r.rep_number}`, r);
+  }
+  return Array.from(dedup.values());
 }
 
 /**

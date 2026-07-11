@@ -98,6 +98,7 @@ function SessionsList() {
       if (error) throw error;
       const earliest = new Map<string, string>();
       for (const f of data ?? []) {
+        if (!f.session_id || !f.started_at) continue;
         const existing = earliest.get(f.session_id);
         if (!existing || new Date(f.started_at).getTime() < new Date(existing).getTime()) {
           earliest.set(f.session_id, f.started_at);
