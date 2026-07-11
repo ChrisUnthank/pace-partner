@@ -2027,6 +2027,7 @@ export type Database = {
           notes: string | null
           pace_decay_pct: number | null
           race_step_id: string | null
+          review_dismissed_at: string | null
           rpe: number | null
           session_date: string
           source: Database["public"]["Enums"]["session_source"]
@@ -2075,6 +2076,7 @@ export type Database = {
           notes?: string | null
           pace_decay_pct?: number | null
           race_step_id?: string | null
+          review_dismissed_at?: string | null
           rpe?: number | null
           session_date: string
           source?: Database["public"]["Enums"]["session_source"]
@@ -2123,6 +2125,7 @@ export type Database = {
           notes?: string | null
           pace_decay_pct?: number | null
           race_step_id?: string | null
+          review_dismissed_at?: string | null
           rpe?: number | null
           session_date?: string
           source?: Database["public"]["Enums"]["session_source"]
