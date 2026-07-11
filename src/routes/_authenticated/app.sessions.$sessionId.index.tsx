@@ -33,7 +33,25 @@ import {
   Mountain,
   Thermometer,
   Wind,
+  GripVertical,
 } from "lucide-react";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { PostSessionInsightModal } from "@/components/post-session-insight-modal";
 import { useServerFn } from "@tanstack/react-start";
 import { getLatestAthleteNote, generateSessionNote, getAiAccessStatus } from "@/lib/ai.functions";
@@ -75,6 +93,11 @@ function SessionDetail() {
   const [savingTitle, setSavingTitle] = useState(false);
   const [allOpen, setAllOpen] = useState(false);
   const [distanceInput, setDistanceInput] = useState("");
+  // Toggles the Workout structure card between its normal read/edit-reps
+  // view and a drag-and-drop reorder view (warmup/work/recovery/cooldown
+  // blocks can all move relative to each other — no anchoring). Scoped
+  // to block order only; rep editing still happens in the normal view.
+  const [structureEditMode, setStructureEditMode] = useState(false);
 
   // ✅ FIT upload setup
   const uploadFile = useServerFn(uploadAndParseSessionFile);
@@ -1073,9 +1096,21 @@ function SessionDetail() {
         <div>
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-lg font-semibold">Workout structure</h2>
-            <Button size="sm" variant="ghost" onClick={() => setAllOpen((v) => !v)}>
-              {allOpen ? "Collapse all" : "Expand all"}
-            </Button>
+            <div className="flex items-center gap-2">
+              {!structureEditMode && (
+                <Button size="sm" variant="ghost" onClick={() => setAllOpen((v) => !v)}>
+                  {allOpen ? "Collapse all" : "Expand all"}
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant={structureEditMode ? "default" : "outline"}
+                disabled={(steps ?? []).length < 2}
+                onClick={() => setStructureEditMode((v) => !v)}
+              >
+                {structureEditMode ? "Done reordering" : "Reorder blocks"}
+              </Button>
+            </div>
           </div>
 
           <div className="space-y-3">
@@ -1083,6 +1118,8 @@ function SessionDetail() {
               <Card>
                 <CardContent className="pt-4 text-sm text-muted-foreground">Loading session data…</CardContent>
               </Card>
+            ) : structureEditMode ? (
+              <WorkoutStructureOrderEditor session={session} steps={steps ?? []} qc={qc} />
             ) : (
               (steps ?? []).map((step: any) => (
                 <StepBlock
@@ -1302,6 +1339,128 @@ function SessionAINote({ sessionId, athleteId }: { sessionId: string; athleteId:
       </CardContent>
     </Card>
   );
+}
+
+// Drag-and-drop reordering of the whole Workout structure — warmup, work,
+// recovery, and cooldown blocks can all move relative to each other (unlike
+// the New Session builder, which anchors warmup/cooldown in place; a coach
+// editing an already-uploaded/parsed session may need to fix a genuinely
+// mislabeled or misordered block, e.g. a cooldown that got split off and
+// merged back in the wrong spot). Reordering only rewrites `step_order` —
+// it never touches `kind`, reps, or results — so the rest of the Overview
+// (pace/distance aggregates, Workout summary) simply re-reads in the new
+// order once the steps query is invalidated; nothing needs recomputing.
+function WorkoutStructureOrderEditor({ session, steps, qc }: { session: any; steps: any[]; qc: ReturnType<typeof useQueryClient> }) {
+  const [localSteps, setLocalSteps] = useState(steps);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setLocalSteps(steps);
+  }, [steps]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  async function persistOrder(next: any[]) {
+    setSaving(true);
+    const results = await Promise.all(
+      next.map((s, i) => supabase.from("steps").update({ step_order: i + 1 }).eq("id", s.id)),
+    );
+    const failed = results.find((r) => r.error);
+    if (failed?.error) {
+      toast.error(failed.error.message);
+      setLocalSteps(steps); // revert to last known-good order
+    } else {
+      qc.invalidateQueries({ queryKey: ["steps", session.id] });
+      qc.invalidateQueries({ queryKey: ["overview-work-steps", session.id] });
+      toast.success("Workout order updated");
+    }
+    setSaving(false);
+  }
+
+  function handleDragEnd(ev: DragEndEvent) {
+    const { active, over } = ev;
+    if (!over || active.id === over.id) return;
+    const ids = localSteps.map((s) => s.id);
+    const from = ids.indexOf(String(active.id));
+    const to = ids.indexOf(String(over.id));
+    if (from === -1 || to === -1) return;
+    const next = arrayMove(localSteps, from, to);
+    setLocalSteps(next);
+    persistOrder(next);
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-muted-foreground">
+        Drag any block — warmup, work, recovery, or cooldown — to reorder the session. Changes save immediately.
+      </p>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={localSteps.map((s) => s.id)} strategy={verticalListSortingStrategy}>
+          {localSteps.map((step, i) => (
+            <SortableStructureRow key={step.id} id={step.id} step={step} position={i + 1} disabled={saving} />
+          ))}
+        </SortableContext>
+      </DndContext>
+    </div>
+  );
+}
+
+function SortableStructureRow({
+  id,
+  step,
+  position,
+  disabled,
+}: {
+  id: string;
+  step: any;
+  position: number;
+  disabled?: boolean;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+  return (
+    <div ref={setNodeRef} style={style} className="border rounded-md px-3 py-2.5 flex items-center gap-3 bg-background">
+      <button
+        type="button"
+        className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+        disabled={disabled}
+        {...attributes}
+        {...listeners}
+        aria-label="Drag to reorder"
+      >
+        <GripVertical className="h-4 w-4" />
+      </button>
+      <span className="text-sm text-muted-foreground w-5 shrink-0 tabular-nums">{position}.</span>
+      <span className="text-sm font-medium">{stepStructureSummary(step)}</span>
+    </div>
+  );
+}
+
+// Short one-line label for a step in the reorder view, e.g.
+// "Work · 6×400m" or "Cooldown". Mirrors the summary already shown in
+// StepBlock's collapsed header, kept separate since the reorder row has
+// no expand/collapse state of its own.
+function stepStructureSummary(step: any): string {
+  const kindLabel = step.kind === "recovery" ? "Recovery" : step.kind.charAt(0).toUpperCase() + step.kind.slice(1);
+  const setCount = Math.max(1, step.set_count ?? 1);
+
+  if (step.kind === "work" && step.target_kind === "distance" && step.target_distance_m) {
+    return `${kindLabel} · ${setCount > 1 ? `${setCount}×` : ""}${step.reps}×${metersFmt(roundDistanceForDisplay(step.target_distance_m))}`;
+  }
+  if (step.kind === "work" && step.target_kind === "time" && step.target_time_seconds) {
+    return `${kindLabel} · ${step.reps}×${secToClock(step.target_time_seconds)}`;
+  }
+  if (step.kind === "strides" && step.target_distance_m) {
+    return `${kindLabel} · ${step.reps}×${metersFmt(roundDistanceForDisplay(step.target_distance_m))}`;
+  }
+  return kindLabel;
 }
 
 function StepBlock({
