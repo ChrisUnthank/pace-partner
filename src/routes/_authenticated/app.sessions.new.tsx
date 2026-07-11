@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { z } from "zod";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuthUser, useMyRoles, useMyRawRoles, useMyAthlete } from "@/lib/use-auth";
@@ -40,7 +41,22 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
+// This route previously had no search-param handling at all — the
+// Calendar page's "+" menu has been passing date/mode/dayType here for a
+// while, but none of it was ever read, so every link silently landed on
+// today's date with "Training" pre-selected regardless of what was
+// clicked. `mode` is accepted here but not yet acted on (Manual Session
+// Entry vs. Create Session don't currently render anything different on
+// this page) — flagged rather than guessed at, since building that
+// distinction is a separate piece of work from what actually broke.
+const searchSchema = z.object({
+  date: z.string().optional(),
+  mode: z.string().optional(),
+  dayType: z.string().optional(),
+});
+
 export const Route = createFileRoute("/_authenticated/app/sessions/new")({
+  validateSearch: searchSchema,
   component: NewSession,
 });
 
@@ -97,6 +113,7 @@ const withUid = (s: StepDraft): StepDraft => ({ ...s, _uid: s._uid ?? `s${++_uid
 
 function NewSession() {
   const navigate = useNavigate();
+  const search = Route.useSearch();
   const { user } = useAuthUser();
   const { data: roles = [] } = useMyRoles();
   const { data: rawRoles = [] } = useMyRawRoles();
@@ -130,9 +147,9 @@ function NewSession() {
   });
 
   const [athleteId, setAthleteId] = useState<string>("");
-  const [sessionDate, setSessionDate] = useState(todayISO());
+  const [sessionDate, setSessionDate] = useState(search.date || todayISO());
   const [title, setTitle] = useState("");
-  const [dayType, setDayType] = useState<string>("training");
+  const [dayType, setDayType] = useState<string>(search.dayType || "training");
   const [intent, setIntent] = useState<string>("threshold");
   const [structure, setStructure] = useState<string>("reps_intervals");
   const [isLongRun, setIsLongRun] = useState<boolean>(false);
@@ -143,6 +160,21 @@ function NewSession() {
     withUid(defaultStep("work")),
     withUid(defaultStep("cooldown")),
   ]);
+
+  // The useState initializers above only ever read search.date/search.dayType
+  // on this component's FIRST mount. TanStack Router doesn't remount this
+  // page just because search params changed on a second visit to the same
+  // route — it reuses the existing instance — so a coach who'd already
+  // opened this page once (any date) and then clicked "+", say, "Add Race"
+  // on a different day later in the same session got a form still holding
+  // the date/day-type from that first visit, silently ignoring the new
+  // one. This keeps both in sync on every navigation, not just the first.
+  useEffect(() => {
+    if (search.date) setSessionDate(search.date);
+  }, [search.date]);
+  useEffect(() => {
+    if (search.dayType) setDayType(search.dayType);
+  }, [search.dayType]);
 
   const effectiveAthleteId = athleteId || myAthlete?.id || "";
 
