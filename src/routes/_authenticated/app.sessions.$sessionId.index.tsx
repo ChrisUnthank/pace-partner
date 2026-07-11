@@ -34,6 +34,8 @@ import {
   Thermometer,
   Wind,
   GripVertical,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import {
   DndContext,
@@ -1341,18 +1343,98 @@ function SessionAINote({ sessionId, athleteId }: { sessionId: string; athleteId:
   );
 }
 
-// Drag-and-drop reordering of the whole Workout structure — warmup, work,
+// Default field values for a newly-added block, mirroring defaultStep() in
+// sessions.new.tsx — kept in sync manually since this page builds one row
+// directly (via insert) rather than staging drafts client-side like the
+// New Session builder does.
+function defaultFieldsForKind(kind: string) {
+  if (kind === "recovery") {
+    return { reps: 1, set_count: 1, recovery_mode: "jog", recovery_target_kind: "time", recovery_target_seconds: 90 };
+  }
+  if (kind === "work") {
+    return {
+      reps: 6,
+      set_count: 1,
+      target_kind: "distance",
+      target_distance_m: 400,
+      recovery_between_reps_seconds: 90,
+      recovery_between_reps_mode: "jog",
+      recovery_between_reps_target_kind: "time",
+      recovery_between_sets_seconds: 180,
+      recovery_between_sets_mode: "walk",
+      recovery_between_sets_target_kind: "time",
+    };
+  }
+  if (kind === "strides") {
+    return { reps: 4, set_count: 1, target_kind: "distance", target_distance_m: 80 };
+  }
+  // warmup / cooldown
+  return { reps: 1, set_count: 1, target_kind: "time", target_time_seconds: 600 };
+}
+
+// Builds a full `steps` insert row for a newly-added block, matching the
+// exact column shape sessions.new.tsx writes on session creation — so a
+// manually-added block on an existing session satisfies the same
+// constraints as one created through the builder.
+function buildNewStepRow(sessionId: string, kind: string, stepOrder: number) {
+  const d: any = defaultFieldsForKind(kind);
+  const setCount = kind === "work" ? Math.max(1, d.set_count ?? 1) : 1;
+  return {
+    session_id: sessionId,
+    step_order: stepOrder,
+    kind,
+    reps: d.reps,
+    set_count: setCount,
+    target_kind: d.target_kind ?? null,
+    target_distance_m: d.target_distance_m ?? null,
+    target_time_seconds: d.target_time_seconds ?? null,
+    target_pace_sec_per_km: null,
+    is_ladder: false,
+    counts_toward_distance: true,
+    recovery_between_reps_seconds: kind === "work" ? (d.recovery_between_reps_seconds ?? null) : null,
+    recovery_between_reps_mode: kind === "work" ? (d.recovery_between_reps_mode ?? null) : null,
+    recovery_between_reps_target_kind: kind === "work" ? (d.recovery_between_reps_target_kind ?? "time") : "time",
+    recovery_between_reps_distance_m: kind === "work" ? (d.recovery_between_reps_distance_m ?? null) : null,
+    recovery_between_sets_seconds: kind === "work" && setCount > 1 ? (d.recovery_between_sets_seconds ?? null) : null,
+    recovery_between_sets_mode: kind === "work" && setCount > 1 ? (d.recovery_between_sets_mode ?? null) : null,
+    recovery_between_sets_target_kind:
+      kind === "work" && setCount > 1 ? (d.recovery_between_sets_target_kind ?? "time") : "time",
+    recovery_between_sets_distance_m: kind === "work" && setCount > 1 ? (d.recovery_between_sets_distance_m ?? null) : null,
+    recovery_mode: d.recovery_mode ?? null,
+    recovery_target_kind: d.recovery_target_kind ?? null,
+    recovery_target_seconds: d.recovery_target_seconds ?? null,
+    recovery_target_distance_m: d.recovery_target_distance_m ?? null,
+    notes: null,
+  };
+}
+
+const BLOCK_KIND_LABEL: Record<string, string> = {
+  warmup: "Warmup",
+  work: "Work block",
+  recovery: "Recovery",
+  cooldown: "Cooldown",
+  strides: "Strides / Run-throughs",
+};
+
+// Drag-and-drop editing of the whole Workout structure — warmup, work,
 // recovery, and cooldown blocks can all move relative to each other (unlike
 // the New Session builder, which anchors warmup/cooldown in place; a coach
 // editing an already-uploaded/parsed session may need to fix a genuinely
 // mislabeled or misordered block, e.g. a cooldown that got split off and
-// merged back in the wrong spot). Reordering only rewrites `step_order` —
-// it never touches `kind`, reps, or results — so the rest of the Overview
-// (pace/distance aggregates, Workout summary) simply re-reads in the new
-// order once the steps query is invalidated; nothing needs recomputing.
+// merged back in the wrong spot). Also supports adding a new block, deleting
+// one, and reassigning a block's kind (e.g. turning a work block into
+// Strides) — all from this same view, so a coach doesn't need to bounce
+// between a reorder mode and the normal expanded view for structural edits.
+// Reordering/reassigning only ever rewrites `step_order`/`kind` — never
+// results — so the rest of the Overview (pace/distance aggregates, Workout
+// summary) simply re-reads once the steps query is invalidated; nothing
+// needs recomputing there. Adding/deleting a block is the one case that can
+// change aggregates (a deleted block's results go with it), so both call
+// the same session-level query invalidations the rest of the page uses.
 function WorkoutStructureOrderEditor({ session, steps, qc }: { session: any; steps: any[]; qc: ReturnType<typeof useQueryClient> }) {
   const [localSteps, setLocalSteps] = useState(steps);
   const [saving, setSaving] = useState(false);
+  const [blockToDelete, setBlockToDelete] = useState<any | null>(null);
 
   useEffect(() => {
     setLocalSteps(steps);
@@ -1362,6 +1444,15 @@ function WorkoutStructureOrderEditor({ session, steps, qc }: { session: any; ste
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
+
+  function invalidateStructure() {
+    qc.invalidateQueries({ queryKey: ["steps", session.id] });
+    qc.invalidateQueries({ queryKey: ["overview-work-steps", session.id] });
+    // Prefix match — "results" queries are keyed with a dynamic step-id
+    // join, so this invalidates all of them for this session regardless
+    // of which exact step-id set was last fetched.
+    qc.invalidateQueries({ queryKey: ["results", session.id] });
+  }
 
   async function persistOrder(next: any[]) {
     setSaving(true);
@@ -1373,8 +1464,7 @@ function WorkoutStructureOrderEditor({ session, steps, qc }: { session: any; ste
       toast.error(failed.error.message);
       setLocalSteps(steps); // revert to last known-good order
     } else {
-      qc.invalidateQueries({ queryKey: ["steps", session.id] });
-      qc.invalidateQueries({ queryKey: ["overview-work-steps", session.id] });
+      invalidateStructure();
       toast.success("Workout order updated");
     }
     setSaving(false);
@@ -1392,18 +1482,106 @@ function WorkoutStructureOrderEditor({ session, steps, qc }: { session: any; ste
     persistOrder(next);
   }
 
+  async function addBlock(kind: string) {
+    setSaving(true);
+    const nextOrder = localSteps.reduce((max, s) => Math.max(max, s.step_order ?? 0), 0) + 1;
+    const row = buildNewStepRow(session.id, kind, nextOrder);
+    const { error } = await supabase.from("steps").insert(row);
+    setSaving(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(`${BLOCK_KIND_LABEL[kind]} added at the end — drag it into position, then set its reps/targets below`);
+    invalidateStructure();
+  }
+
+  async function reassignKind(step: any, newKind: string) {
+    if (newKind === step.kind) return;
+    setSaving(true);
+    const { error } = await supabase.from("steps").update({ kind: newKind } as any).eq("id", step.id);
+    setSaving(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(`Reassigned to ${BLOCK_KIND_LABEL[newKind] ?? newKind}`);
+    invalidateStructure();
+  }
+
+  async function confirmDelete() {
+    if (!blockToDelete) return;
+    setSaving(true);
+    // Results are children of the step — clear them first so the delete
+    // never fails on a foreign-key reference, regardless of whether the
+    // DB itself cascades.
+    const { error: resultsErr } = await supabase.from("interval_results").delete().eq("step_id", blockToDelete.id);
+    if (resultsErr) {
+      toast.error(resultsErr.message);
+      setSaving(false);
+      return;
+    }
+    const { error } = await supabase.from("steps").delete().eq("id", blockToDelete.id);
+    setSaving(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("Block deleted");
+    setBlockToDelete(null);
+    invalidateStructure();
+  }
+
   return (
     <div className="space-y-2">
       <p className="text-xs text-muted-foreground">
-        Drag any block — warmup, work, recovery, or cooldown — to reorder the session. Changes save immediately.
+        Drag any block — warmup, work, recovery, or cooldown — to reorder the session. Use the dropdown to change a
+        block's type, or the buttons below to add or remove a block. Changes save immediately.
       </p>
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={localSteps.map((s) => s.id)} strategy={verticalListSortingStrategy}>
           {localSteps.map((step, i) => (
-            <SortableStructureRow key={step.id} id={step.id} step={step} position={i + 1} disabled={saving} />
+            <SortableStructureRow
+              key={step.id}
+              id={step.id}
+              step={step}
+              position={i + 1}
+              disabled={saving}
+              onReassignKind={(newKind) => reassignKind(step, newKind)}
+              onRequestDelete={() => setBlockToDelete(step)}
+            />
           ))}
         </SortableContext>
       </DndContext>
+
+      <div className="flex flex-wrap gap-2 pt-1">
+        {(["warmup", "strides", "work", "recovery", "cooldown"] as const).map((kind) => (
+          <Button key={kind} variant="outline" size="sm" disabled={saving} onClick={() => addBlock(kind)}>
+            <Plus className="h-3 w-3 mr-1" />
+            {BLOCK_KIND_LABEL[kind]}
+          </Button>
+        ))}
+      </div>
+
+      <Dialog open={!!blockToDelete} onOpenChange={(open) => !open && setBlockToDelete(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete this block?</DialogTitle>
+            <DialogDescription>
+              This permanently deletes the "{blockToDelete ? BLOCK_KIND_LABEL[blockToDelete.kind] : ""}" block and any
+              recorded reps/results for it. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBlockToDelete(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" disabled={saving} onClick={confirmDelete}>
+              {saving ? "Deleting…" : "Yes, delete this block"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1413,11 +1591,15 @@ function SortableStructureRow({
   step,
   position,
   disabled,
+  onReassignKind,
+  onRequestDelete,
 }: {
   id: string;
   step: any;
   position: number;
   disabled?: boolean;
+  onReassignKind: (newKind: string) => void;
+  onRequestDelete: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled });
   const style = {
@@ -1438,7 +1620,24 @@ function SortableStructureRow({
         <GripVertical className="h-4 w-4" />
       </button>
       <span className="text-sm text-muted-foreground w-5 shrink-0 tabular-nums">{position}.</span>
-      <span className="text-sm font-medium">{stepStructureSummary(step)}</span>
+      <span className="text-sm font-medium flex-1">{stepStructureSummary(step)}</span>
+
+      <Select value={step.kind} onValueChange={onReassignKind}>
+        <SelectTrigger className="h-7 w-[110px] text-xs shrink-0" disabled={disabled}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="warmup">Warmup</SelectItem>
+          <SelectItem value="work">Work</SelectItem>
+          <SelectItem value="recovery">Recovery</SelectItem>
+          <SelectItem value="cooldown">Cooldown</SelectItem>
+          <SelectItem value="strides">Strides</SelectItem>
+        </SelectContent>
+      </Select>
+
+      <Button size="sm" variant="ghost" className="shrink-0" disabled={disabled} onClick={onRequestDelete}>
+        <Trash2 className="h-4 w-4" />
+      </Button>
     </div>
   );
 }
@@ -1462,6 +1661,7 @@ function stepStructureSummary(step: any): string {
   }
   return kindLabel;
 }
+
 
 function StepBlock({
   session,
