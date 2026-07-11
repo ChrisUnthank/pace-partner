@@ -1858,8 +1858,18 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   // reclassify those sessions at all. A genuinely planned session
   // (is_planned = true, created via "Create Session" with a real
   // coach-picked intent) is never touched here.
+  //
+  // Classifies by the FASTEST work lap, not a time-weighted average across
+  // every work lap — a session with a 2km tempo opener followed by 5×1km
+  // at VO2 pace is a VO2 session with a tempo opener, not "Tempo overall".
+  // Averaging blended those two genuinely different efforts into one
+  // misleading middle number that didn't represent either block's actual
+  // character. A coach describing this session by its hardest work is the
+  // same convention needs_review/structure already lean on elsewhere in
+  // this file (e.g. a race is whichever file has the fastest pace, not an
+  // average across warmup+race+cooldown).
   let derivedIntent: string | null = null;
-  if (workPaceSecPerKm != null) {
+  if (workLaps.length > 0) {
     const { data: zoneProfile } = await sb
       .from("athlete_zone_profiles")
       .select("pace_z1_max_sec_per_km, pace_z2_max_sec_per_km, pace_z3_max_sec_per_km, pace_z4_max_sec_per_km")
@@ -1867,28 +1877,48 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
       .maybeSingle();
 
     if (zoneProfile?.pace_z1_max_sec_per_km != null) {
-      // Same ascending "slower sec/km = easier zone" bucketing as
-      // recompute_session_zones in the DB: walk z1 (slowest) up to z4,
-      // anything faster than the z4 boundary falls through to z5.
-      const zone: "z1" | "z2" | "z3" | "z4" | "z5" =
-        workPaceSecPerKm >= zoneProfile.pace_z1_max_sec_per_km
-          ? "z1"
-          : zoneProfile.pace_z2_max_sec_per_km != null && workPaceSecPerKm >= zoneProfile.pace_z2_max_sec_per_km
-            ? "z2"
-            : zoneProfile.pace_z3_max_sec_per_km != null && workPaceSecPerKm >= zoneProfile.pace_z3_max_sec_per_km
-              ? "z3"
-              : zoneProfile.pace_z4_max_sec_per_km != null && workPaceSecPerKm >= zoneProfile.pace_z4_max_sec_per_km
-                ? "z4"
-                : "z5";
-
-      const ZONE_TO_INTENT: Record<"z1" | "z2" | "z3" | "z4" | "z5", string> = {
-        z1: "easy",
-        z2: "aerobic",
-        z3: "tempo",
-        z4: "threshold",
-        z5: "vo2",
+      const ZONE_RANK: Record<"z1" | "z2" | "z3" | "z4" | "z5", number> = {
+        z1: 1,
+        z2: 2,
+        z3: 3,
+        z4: 4,
+        z5: 5,
       };
-      derivedIntent = ZONE_TO_INTENT[zone];
+      const RANK_TO_INTENT: Record<number, string> = {
+        1: "easy",
+        2: "aerobic",
+        3: "tempo",
+        4: "threshold",
+        5: "vo2",
+      };
+
+      let fastestRank = 0;
+      for (const lap of workLaps) {
+        const stopped = stoppedSecondsByLapIndex.get(lap.index) ?? 0;
+        const movingTime = Math.max(0, Number(lap.total_elapsed_time ?? 0) - stopped);
+        const lapDistance = Number(lap.total_distance ?? 0);
+        const lapPace = lapDistance > 0 && movingTime > 0 ? (movingTime / lapDistance) * 1000 : null;
+        if (lapPace == null) continue;
+
+        // Same ascending "slower sec/km = easier zone" bucketing as
+        // recompute_session_zones in the DB.
+        const zone: "z1" | "z2" | "z3" | "z4" | "z5" =
+          lapPace >= zoneProfile.pace_z1_max_sec_per_km
+            ? "z1"
+            : zoneProfile.pace_z2_max_sec_per_km != null && lapPace >= zoneProfile.pace_z2_max_sec_per_km
+              ? "z2"
+              : zoneProfile.pace_z3_max_sec_per_km != null && lapPace >= zoneProfile.pace_z3_max_sec_per_km
+                ? "z3"
+                : zoneProfile.pace_z4_max_sec_per_km != null && lapPace >= zoneProfile.pace_z4_max_sec_per_km
+                  ? "z4"
+                  : "z5";
+
+        fastestRank = Math.max(fastestRank, ZONE_RANK[zone]);
+      }
+
+      if (fastestRank > 0) {
+        derivedIntent = RANK_TO_INTENT[fastestRank];
+      }
     }
   }
   const shouldUpdateIntent = derivedIntent != null && sess.is_planned === false;
