@@ -179,7 +179,7 @@ function SessionsList() {
                       <div className="min-w-0">
                       <div className="font-medium truncate">{s.title}</div>
                       <div className="text-xs text-muted-foreground truncate">
-                        {s.session_date}{localTime ? ` · ${localTime}` : ""} · {s.athletes?.name} · {sessionClassificationLabel(s)}
+                        {new Date(s.session_date + "T00:00:00").toLocaleDateString(undefined, { weekday: "long" })}, {s.session_date}{localTime ? ` · ${localTime}` : ""} · {s.athletes?.name} · {sessionClassificationLabel(s)}
                       </div>
                       </div>
                     </div>
