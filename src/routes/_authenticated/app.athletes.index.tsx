@@ -11,7 +11,10 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { CalendarDays } from "lucide-react";
+import { CalendarDays, X, Maximize2 } from "lucide-react";
+import { metersFmt, secToClock } from "@/lib/format";
+import { UserAvatar } from "@/components/user-avatar";
+import { ReadinessBadge } from "@/components/readiness-badge";
 
 export const Route = createFileRoute("/_authenticated/app/athletes/")({
   component: AthletesPage,
@@ -29,6 +32,12 @@ function AthletesPage() {
   const [joinEmail, setJoinEmail] = useState("");
   const [joinName, setJoinName] = useState("");
   const [joinMessage, setJoinMessage] = useState("");
+  // Clicking an athlete in the roster opens a quick-look summary panel
+  // instead of navigating straight to their full page — lets a coach flip
+  // through several athletes without losing their place in the roster.
+  // "Full view" on the panel goes to the same /app/athletes/$athleteId
+  // page the roster used to link to directly.
+  const [selectedAthleteId, setSelectedAthleteId] = useState<string | null>(null);
 
   const { data: roster } = useQuery({
     queryKey: ["roster", user?.id, isManager],
@@ -159,11 +168,20 @@ function AthletesPage() {
             ) : (
               <div className="divide-y">
                 {roster.map((r: any) => (
-                  <div key={r.athlete_id} className="flex justify-between items-center px-4 py-3 hover:bg-accent/40 gap-3">
-                    <Link to="/app/athletes/$athleteId" params={{ athleteId: r.athlete_id }} className="flex-1 min-w-0">
+                  <div
+                    key={r.athlete_id}
+                    className={`flex justify-between items-center px-4 py-3 hover:bg-accent/40 gap-3 ${
+                      selectedAthleteId === r.athlete_id ? "bg-accent/60" : ""
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setSelectedAthleteId(r.athlete_id)}
+                      className="flex-1 min-w-0 text-left"
+                    >
                       <div className="font-medium truncate">{r.athletes?.name}</div>
                       <div className="text-xs text-muted-foreground truncate">{r.athletes?.primary_event ?? "—"}</div>
-                    </Link>
+                    </button>
                     <div className="flex items-center gap-2 shrink-0">
                       <Button asChild size="icon" variant="ghost" title="View calendar">
                         <Link to="/app/sessions/calendar" search={{ athleteId: r.athlete_id } as any}>
@@ -202,6 +220,202 @@ function AthletesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Backdrop — click-away to close. Only rendered (and only blocks
+          clicks) once an athlete is actually selected. */}
+      {selectedAthleteId && (
+        <div
+          className="fixed inset-0 z-40 bg-black/20"
+          onClick={() => setSelectedAthleteId(null)}
+          aria-hidden="true"
+        />
+      )}
+
+      <AthleteSummaryPanel
+        athleteId={selectedAthleteId}
+        athlete={roster?.find((r: any) => r.athlete_id === selectedAthleteId)?.athletes ?? null}
+        onClose={() => setSelectedAthleteId(null)}
+      />
     </AppShell>
+  );
+}
+
+// Slide-in quick-look panel — recent totals, current training load, and a
+// handful of recent sessions for whichever athlete is selected in the
+// roster, without leaving this page. "Full view" goes to the same
+// /app/athletes/$athleteId page the roster used to link to directly.
+//
+// Scope note: real time-in-zone (like a full HR zone breakdown) isn't
+// included yet — that would read from session_zone_time, and I haven't
+// confirmed that table's actual columns against this schema. Everything
+// here reuses queries/tables already proven out on the full athlete page
+// (athlete_load_daily, sessions) so it's safe to ship without that.
+function AthleteSummaryPanel({
+  athleteId,
+  athlete,
+  onClose,
+}: {
+  athleteId: string | null;
+  athlete: any;
+  onClose: () => void;
+}) {
+  const isOpen = !!athleteId;
+
+  const { data: load } = useQuery({
+    queryKey: ["panel-load", athleteId],
+    enabled: isOpen,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("athlete_load_daily")
+        .select("*")
+        .eq("athlete_id", athleteId!)
+        .order("load_date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return data as any;
+    },
+  });
+
+  // Last 7 days — summary totals row (distance/time/workout count).
+  const { data: rangeSessions } = useQuery({
+    queryKey: ["panel-range-sessions", athleteId],
+    enabled: isOpen,
+    queryFn: async () => {
+      const since = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+      const { data } = await supabase
+        .from("sessions")
+        .select("id, total_distance_m, total_time_seconds, completed_at")
+        .eq("athlete_id", athleteId!)
+        .gte("session_date", since);
+      return data ?? [];
+    },
+  });
+
+  // Most recent sessions regardless of date — the mini list underneath.
+  const { data: recentSessions } = useQuery({
+    queryKey: ["panel-recent-sessions", athleteId],
+    enabled: isOpen,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("sessions")
+        .select("id, session_date, title, completed_at")
+        .eq("athlete_id", athleteId!)
+        .order("session_date", { ascending: false })
+        .limit(5);
+      return data ?? [];
+    },
+  });
+
+  const completedInRange = (rangeSessions ?? []).filter((s: any) => s.completed_at);
+  const rangeDistanceM = completedInRange.reduce((sum: number, s: any) => sum + Number(s.total_distance_m ?? 0), 0);
+  const rangeTimeS = completedInRange.reduce((sum: number, s: any) => sum + Number(s.total_time_seconds ?? 0), 0);
+
+  return (
+    <div
+      className={`fixed inset-y-0 right-0 z-50 w-full sm:w-[400px] bg-background border-l shadow-xl transform transition-transform duration-300 overflow-y-auto ${
+        isOpen ? "translate-x-0" : "translate-x-full"
+      }`}
+    >
+      {athlete && (
+        <div className="p-4 space-y-5">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-3 min-w-0">
+              <UserAvatar name={athlete.name} imageUrl={athlete.profile_image_url} size="lg" />
+              <div className="min-w-0">
+                <div className="font-semibold truncate">{athlete.name}</div>
+                <div className="text-xs text-muted-foreground truncate">{athlete.primary_event ?? "—"}</div>
+              </div>
+            </div>
+            <Button size="icon" variant="ghost" onClick={onClose} aria-label="Close">
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button asChild size="sm" className="flex-1">
+              <Link to="/app/athletes/$athleteId" params={{ athleteId: athlete.id }}>
+                <Maximize2 className="h-3.5 w-3.5 mr-1.5" /> Full view
+              </Link>
+            </Button>
+            <Button asChild size="icon" variant="outline" title="View calendar">
+              <Link to="/app/sessions/calendar" search={{ athleteId: athlete.id } as any}>
+                <CalendarDays className="h-4 w-4" />
+              </Link>
+            </Button>
+          </div>
+
+          {load && (
+            <ReadinessBadge
+              status={load.readiness_status}
+              score={load.readiness_score}
+              confidence={load.confidence}
+            />
+          )}
+
+          <div>
+            <div className="text-xs text-muted-foreground mb-2">Last 7 days</div>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="border rounded-lg px-2 py-2 text-center">
+                <div className="text-base font-semibold tabular-nums">{metersFmt(rangeDistanceM)}</div>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Distance</div>
+              </div>
+              <div className="border rounded-lg px-2 py-2 text-center">
+                <div className="text-base font-semibold tabular-nums">{completedInRange.length}</div>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Workouts</div>
+              </div>
+              <div className="border rounded-lg px-2 py-2 text-center">
+                <div className="text-base font-semibold tabular-nums">{secToClock(rangeTimeS)}</div>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Time</div>
+              </div>
+            </div>
+          </div>
+
+          {load && (
+            <div>
+              <div className="text-xs text-muted-foreground mb-2">Training load</div>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="border rounded-lg px-2 py-2 text-center">
+                  <div className="text-base font-semibold tabular-nums">{load.ctl?.toFixed?.(0) ?? "—"}</div>
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide">CTL</div>
+                </div>
+                <div className="border rounded-lg px-2 py-2 text-center">
+                  <div className="text-base font-semibold tabular-nums">{load.atl?.toFixed?.(0) ?? "—"}</div>
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide">ATL</div>
+                </div>
+                <div className="border rounded-lg px-2 py-2 text-center">
+                  <div className="text-base font-semibold tabular-nums">{load.tsb?.toFixed?.(0) ?? "—"}</div>
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide">TSB</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div>
+            <div className="text-xs text-muted-foreground mb-2">Recent sessions</div>
+            {!recentSessions || recentSessions.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No sessions yet.</p>
+            ) : (
+              <div className="divide-y border rounded-lg overflow-hidden">
+                {recentSessions.map((s: any) => (
+                  <Link
+                    key={s.id}
+                    to="/app/sessions/$sessionId"
+                    params={{ sessionId: s.id }}
+                    className="flex justify-between items-center px-3 py-2 text-sm hover:bg-accent/40"
+                  >
+                    <span className="truncate">
+                      {s.session_date} · {s.title}
+                    </span>
+                    <span className="text-xs text-muted-foreground shrink-0 ml-2">
+                      {s.completed_at ? "Done" : "Planned"}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
