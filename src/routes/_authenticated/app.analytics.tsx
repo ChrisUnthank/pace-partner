@@ -26,6 +26,7 @@ import {
   Tooltip,
   Legend,
   ReferenceLine,
+  ReferenceArea,
 } from "recharts";
 import { ArrowUpRight, ArrowDownRight, ArrowRight, ChevronLeft, AlertTriangle } from "lucide-react";
 
@@ -603,7 +604,7 @@ function AthleteAnalytics({
         <CardHeader>
           <CardTitle>Performance Management Chart</CardTitle>
           <CardDescription>
-            Fitness (CTL), fatigue (ATL), form (TSB) over {RANGES[range].label.toLowerCase()}.
+            Fitness, fatigue, and form over {RANGES[range].label.toLowerCase()}.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -612,50 +613,87 @@ function AthleteAnalytics({
               Building baseline — keep logging sessions and daily check-ins.
             </p>
           ) : (
-            <div className="h-[320px] w-full">
-              <ResponsiveContainer>
-                <ComposedChart data={load} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
-                  <XAxis dataKey="load_date" tick={{ fontSize: 11 }} minTickGap={32} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip
-                    contentStyle={{
-                      background: "hsl(var(--background))",
-                      border: "1px solid hsl(var(--border))",
-                      fontSize: 12,
-                    }}
-                    labelStyle={{ color: "hsl(var(--foreground))" }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeDasharray="2 4" />
-                  <Area
-                    type="monotone"
-                    dataKey="tsb"
-                    name="Form (TSB)"
-                    stroke="#3b82f6"
-                    fill="#3b82f6"
-                    fillOpacity={0.12}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="ctl"
-                    name="Fitness (CTL)"
-                    stroke="#10b981"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="atl"
-                    name="Fatigue (ATL)"
-                    stroke="#f43f5e"
-                    strokeWidth={2}
-                    strokeDasharray="4 3"
-                    dot={false}
-                  />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
+            <>
+              <div className="h-[320px] w-full">
+                <ResponsiveContainer>
+                  <ComposedChart data={load} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
+                    <XAxis dataKey="load_date" tick={{ fontSize: 11 }} minTickGap={32} />
+                    <YAxis tick={{ fontSize: 11 }} />
+                    <Tooltip
+                      contentStyle={{
+                        background: "hsl(var(--background))",
+                        border: "1px solid hsl(var(--border))",
+                        fontSize: 12,
+                      }}
+                      labelStyle={{ color: "hsl(var(--foreground))" }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    {/* Form reference bands — this app's training load is
+                        session-RPE × duration (minutes), not TrainingPeaks'
+                        TSS, so the numbers run roughly 3-5x larger. These
+                        bands scale TrainingPeaks' own familiar TSB
+                        convention (very fresh >25, fresh 5-25, neutral -10
+                        to 5, productive -30 to -10, high risk <-30) by ~4x
+                        to land in this app's own units. They're a reasoned
+                        starting estimate, not empirically calibrated against
+                        real outcome data yet — worth revisiting once there's
+                        more history to check them against. */}
+                    <ReferenceArea y1={100} y2={100000} fill="#22d3ee" fillOpacity={0.06} />
+                    <ReferenceArea y1={20} y2={100} fill="#10b981" fillOpacity={0.06} />
+                    <ReferenceArea y1={-40} y2={20} fill="#94a3b8" fillOpacity={0.05} />
+                    <ReferenceArea y1={-120} y2={-40} fill="#f59e0b" fillOpacity={0.06} />
+                    <ReferenceArea y1={-100000} y2={-120} fill="#ef4444" fillOpacity={0.08} />
+                    <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeDasharray="2 4" />
+                    <Area
+                      type="monotone"
+                      dataKey="tsb"
+                      name="Form"
+                      stroke="#3b82f6"
+                      fill="#3b82f6"
+                      fillOpacity={0.12}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="ctl"
+                      name="Fitness"
+                      stroke="#10b981"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="atl"
+                      name="Fatigue"
+                      stroke="#f43f5e"
+                      strokeWidth={2}
+                      strokeDasharray="4 3"
+                      dot={false}
+                    />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-[11px] text-muted-foreground">
+                <span className="flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full" style={{ background: "#22d3ee" }} /> Very fresh (100+)
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full" style={{ background: "#10b981" }} /> Fresh (20 to 100)
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full" style={{ background: "#94a3b8" }} /> Neutral (-40 to 20)
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full" style={{ background: "#f59e0b" }} /> Productive (-120 to -40)
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full" style={{ background: "#ef4444" }} /> High risk (below -120)
+                </span>
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Bands are a starting estimate for this app's own training-load scale, not empirically tuned yet.
+              </p>
+            </>
           )}
         </CardContent>
       </Card>
