@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { GitCompare, ArrowLeftRight, TrendingUp, TrendingDown, Minus, Search, AlertTriangle } from "lucide-react";
 import { secToClock, paceFmt } from "@/lib/format";
-import { predictTime, REFERENCE_DISTANCES } from "@/lib/race-predict";
+import { predictTime, predictTimeWithExponent, personalizedExponent, REFERENCE_DISTANCES } from "@/lib/race-predict";
 import {
   ResponsiveContainer,
   LineChart,
@@ -289,12 +289,12 @@ function ComparePage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sessions")
-        .select("id, title, session_date, total_distance_m, total_time_seconds")
+        .select("id, title, session_date, work_distance_m, work_time_s")
         .eq("athlete_id", athleteId)
         .eq("day_type", "race")
         .not("completed_at", "is", null)
-        .not("total_distance_m", "is", null)
-        .not("total_time_seconds", "is", null)
+        .not("work_distance_m", "is", null)
+        .not("work_time_s", "is", null)
         .order("session_date", { ascending: true });
       if (error) throw error;
       return data ?? [];
@@ -359,9 +359,48 @@ function ComparePage() {
 
   const comparison = useMemo(() => {
     if (selectedSessions.length < 2) return null;
+    // Find the best available real race to calibrate against, before
+    // computing any projections — a real result anchors the whole curve to
+    // this athlete's actual demonstrated speed/endurance balance, rather
+    // than assuming everyone fits the same generic exponent.
+    const provisionalDates = selectedSessions.map((s) => s.session_date);
+    const windowEndProvisional = provisionalDates[provisionalDates.length - 1];
+    const nearbyRace =
+      raceSessions.find((r) => r.session_date >= provisionalDates[0] && r.session_date <= windowEndProvisional) ??
+      raceSessions
+        .slice()
+        .sort((a, b) => {
+          const da = Math.abs(new Date(a.session_date).getTime() - new Date(windowEndProvisional).getTime());
+          const db = Math.abs(new Date(b.session_date).getTime() - new Date(windowEndProvisional).getTime());
+          return da - db;
+        })[0];
+
+    let exponent = 1.06; // only used if calibrated flips true below
+    let calibrated = false;
+    if (nearbyRace) {
+      const raceKm = Number(nearbyRace.work_distance_m) / 1000;
+      const raceTime = Number(nearbyRace.work_time_s);
+      const closestSession = selectedSessions.reduce((best, s) => {
+        const d = Math.abs(new Date(s.session_date).getTime() - new Date(nearbyRace.session_date).getTime());
+        const bd = Math.abs(new Date(best.session_date).getTime() - new Date(nearbyRace.session_date).getTime());
+        return d < bd ? s : best;
+      }, selectedSessions[0]);
+      const closestKm = Number(closestSession.work_distance_m) / 1000;
+      if (closestKm > 0 && raceKm > 0 && closestKm !== raceKm) {
+        const k = personalizedExponent(Number(closestSession.work_time_s), closestKm, raceTime, raceKm);
+        if (k != null) {
+          exponent = k;
+          calibrated = true;
+        }
+      }
+    }
+
+    const project = (t1: number, d1: number, d2: number) =>
+      calibrated ? predictTimeWithExponent(t1, d1, d2, exponent) : predictTime(t1, d1, d2);
+
     const rows = selectedSessions.map((s) => {
       const km = Number(s.work_distance_m) / 1000;
-      const predicted = km > 0 ? predictTime(Number(s.work_time_s), km, targetKm) : null;
+      const predicted = km > 0 ? project(Number(s.work_time_s), km, targetKm) : null;
       return {
         ...s,
         km,
@@ -395,32 +434,19 @@ function ComparePage() {
       .map((s) => workoutLabel(workBySession.get(s.id) ?? [], recoveryBySession.get(s.id) ?? []))
       .filter((v, i, arr) => arr.indexOf(v) === i);
 
-    // Real race cross-check: nearest logged race (by date) to the compared
-    // window, so a workout-based projection is never the only signal — an
-    // actual race result outranks any estimate.
-    const windowStart = first.session_date;
-    const windowEnd = last.session_date;
-    const nearbyRace = raceSessions.find((r) => r.session_date >= windowStart && r.session_date <= windowEnd)
-      ?? raceSessions
-        .slice()
-        .sort((a, b) => {
-          const da = Math.abs(new Date(a.session_date).getTime() - new Date(windowEnd).getTime());
-          const db = Math.abs(new Date(b.session_date).getTime() - new Date(windowEnd).getTime());
-          return da - db;
-        })[0];
-
     let raceCheck: { title: string; date: string; actualTime: number; km: number; projectedAtSameDistance: number } | null = null;
     if (nearbyRace) {
-      const raceKm = Number(nearbyRace.total_distance_m) / 1000;
-      const raceTime = Number(nearbyRace.total_time_seconds);
-      // Project the *closest-in-time* comparable session onto the race's own
-      // distance, so the two numbers are directly comparable.
+      const raceKm = Number(nearbyRace.work_distance_m) / 1000;
+      const raceTime = Number(nearbyRace.work_time_s);
       const closest = rows.reduce((best, r) => {
         const d = Math.abs(new Date(r.session_date).getTime() - new Date(nearbyRace.session_date).getTime());
         const bd = Math.abs(new Date(best.session_date).getTime() - new Date(nearbyRace.session_date).getTime());
         return d < bd ? r : best;
       }, rows[0]);
       if (closest.km > 0) {
+        // Deliberately uses the generic formula here, not the personalized
+        // one calibrated *from* this same race — otherwise the cross-check
+        // would just trivially agree with itself.
         const projectedAtSameDistance = predictTime(Number(closest.work_time_s), closest.km, raceKm);
         raceCheck = {
           title: nearbyRace.title,
@@ -432,7 +458,7 @@ function ComparePage() {
       }
     }
 
-    return { rows, first, last, chartData, repLengthVaries, shapeExamples, raceCheck };
+    return { rows, first, last, chartData, repLengthVaries, shapeExamples, raceCheck, calibrated };
   }, [selectedSessions, loadHistory, targetKm, efficiencyBySession, raceSessions, workBySession, recoveryBySession]);
 
   // Upper/Middle/Lower range for the most recent compared session — Low is
@@ -545,10 +571,23 @@ function ComparePage() {
             {predictionRange && (
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-base">Predicted {targetLabel} — range, most recent session</CardTitle>
+                  <div className="flex items-start justify-between gap-2 flex-wrap">
+                    <CardTitle className="text-base">Predicted {targetLabel} — range, most recent session</CardTitle>
+                    <Badge variant={comparison?.calibrated ? "default" : "outline"} className="text-[10px]">
+                      {comparison?.calibrated ? "Calibrated to a real race" : "Generic formula"}
+                    </Badge>
+                  </div>
                   <CardDescription>
                     Low is the raw rep-based projection, no adjustment. Upper adds a small, capped bonus only for
                     signals that actually held true below. Middle is a plain average of the two.
+                    {comparison?.calibrated && (
+                      <>
+                        {" "}
+                        The exponent behind these numbers is solved from an actual logged race, not the generic
+                        population-average formula — more accurate for an athlete whose speed/endurance balance
+                        differs from average.
+                      </>
+                    )}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
