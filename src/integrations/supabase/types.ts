@@ -555,6 +555,9 @@ export type Database = {
           reminder_evening_local: string | null
           reminder_morning_local: string | null
           reminders_enabled: boolean
+          seed_atl: number | null
+          seed_ctl: number | null
+          seed_set_at: string | null
           sex: string | null
           timezone: string
           training_age_years: number | null
@@ -577,6 +580,9 @@ export type Database = {
           reminder_evening_local?: string | null
           reminder_morning_local?: string | null
           reminders_enabled?: boolean
+          seed_atl?: number | null
+          seed_ctl?: number | null
+          seed_set_at?: string | null
           sex?: string | null
           timezone?: string
           training_age_years?: number | null
@@ -599,6 +605,9 @@ export type Database = {
           reminder_evening_local?: string | null
           reminder_morning_local?: string | null
           reminders_enabled?: boolean
+          seed_atl?: number | null
+          seed_ctl?: number | null
+          seed_set_at?: string | null
           sex?: string | null
           timezone?: string
           training_age_years?: number | null
@@ -2054,6 +2063,7 @@ export type Database = {
           terrain: string | null
           title: string
           total_distance_m: number | null
+          total_moving_time_seconds: number | null
           total_time_seconds: number | null
           updated_at: string
           weather: string | null
@@ -2104,6 +2114,7 @@ export type Database = {
           terrain?: string | null
           title: string
           total_distance_m?: number | null
+          total_moving_time_seconds?: number | null
           total_time_seconds?: number | null
           updated_at?: string
           weather?: string | null
@@ -2154,6 +2165,7 @@ export type Database = {
           terrain?: string | null
           title?: string
           total_distance_m?: number | null
+          total_moving_time_seconds?: number | null
           total_time_seconds?: number | null
           updated_at?: string
           weather?: string | null
@@ -2500,6 +2512,10 @@ export type Database = {
         Args: { _limit: number; _user_id: string }
         Returns: boolean
       }
+      apply_starting_fitness: {
+        Args: { _athlete_id: string; _seed_atl: number; _seed_ctl: number }
+        Returns: undefined
+      }
       can_access_athlete: {
         Args: { _athlete_id: string; _user_id: string }
         Returns: boolean
@@ -2551,6 +2567,14 @@ export type Database = {
         Returns: undefined
       }
       recompute_readiness_all: { Args: { _date: string }; Returns: undefined }
+      recompute_readiness_range: {
+        Args: { _athlete_id: string; _from_date: string; _to_date: string }
+        Returns: undefined
+      }
+      recompute_readiness_range_all: {
+        Args: { _from_date: string; _to_date: string }
+        Returns: undefined
+      }
       recompute_session_totals: {
         Args: { _session_id: string }
         Returns: undefined
