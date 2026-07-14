@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { ChevronLeft, Gauge } from "lucide-react";
 import { toast } from "sonner";
 
-export const Route = createFileRoute("/_authenticated/app/calculators/starting-fitness")({
+export const Route = createFileRoute("/_authenticated/app/calculators/startingfitness")({
   component: StartingFitnessPage,
 });
 
@@ -71,7 +71,7 @@ function StartingFitnessPage() {
   });
 
   const [selectedAthleteId, setSelectedAthleteId] = useState<string>("");
-  const athleteId = isCoach ? selectedAthleteId : (myAthlete?.id ?? "");
+  const athleteId = isCoach ? selectedAthleteId : myAthlete?.id ?? "";
 
   const { data: athlete } = useQuery({
     queryKey: ["calc-fitness-athlete", athleteId],
@@ -163,18 +163,19 @@ function StartingFitnessPage() {
           <CardContent className="pt-6 text-sm space-y-2">
             <p>
               <strong>Best option first:</strong> if you can, backfill at least{" "}
-              <strong>2 weeks of the athlete's actual recent training</strong> — uploaded FIT/GPX files are best, manual
-              entry works too — dated in the past via the Calendar or Sessions page. Real logged sessions are always
-              more accurate than any estimate, and this app already handles that directly with no separate tool needed.
+              <strong>2 weeks of the athlete's actual recent training</strong> — uploaded FIT/GPX files are best,
+              manual entry works too — dated in the past via the Calendar or Sessions page. Real logged sessions are
+              always more accurate than any estimate, and this app already handles that directly with no separate
+              tool needed.
             </p>
             <p>
-              <strong>If that's not practical</strong>, use the quick estimate below instead — describe a typical recent
-              training week and this gives Fitness/Fatigue a reasonable non-zero starting point.
+              <strong>If that's not practical</strong>, use the quick estimate below instead — describe a typical
+              recent training week and this gives Fitness/Fatigue a reasonable non-zero starting point.
             </p>
             <p className="text-muted-foreground">
               Either way: this only shapes the picture for roughly the first 3-4 months. The underlying calculation
-              naturally lets a starting estimate fade as real training accumulates — it isn't a permanent number, just a
-              better starting guess than zero.
+              naturally lets a starting estimate fade as real training accumulates — it isn't a permanent number, just
+              a better starting guess than zero.
             </p>
           </CardContent>
         </Card>
@@ -206,15 +207,15 @@ function StartingFitnessPage() {
             <CardHeader>
               <CardTitle className="text-base">Already tracking</CardTitle>
               <CardDescription>
-                {athlete?.name ?? "This athlete"} already has {historyCount} day{historyCount === 1 ? "" : "s"} of real
-                tracked history.
+                {athlete?.name ?? "This athlete"} already has {historyCount} day{historyCount === 1 ? "" : "s"} of
+                real tracked history.
               </CardDescription>
             </CardHeader>
             <CardContent className="text-sm text-muted-foreground">
               A starting estimate only takes effect on an athlete's very first tracked day — it can't be applied
-              retroactively from here now that real data exists. If the current Fitness/Fatigue picture looks wrong and
-              needs correcting, that's a manual recompute rather than a self-service change on this page — let's talk
-              through it directly if that's what's needed.
+              retroactively from here now that real data exists. If the current Fitness/Fatigue picture looks wrong
+              and needs correcting, that's a manual recompute rather than a self-service change on this page — let's
+              talk through it directly if that's what's needed.
             </CardContent>
           </Card>
         ) : (
@@ -233,8 +234,8 @@ function StartingFitnessPage() {
               <CardHeader>
                 <CardTitle className="text-base">A typical recent training week</CardTitle>
                 <CardDescription>
-                  For each day, pick what it usually looks like and roughly how long. Doesn't need to be exact — this is
-                  a starting estimate, not a record.
+                  For each day, pick what it usually looks like and roughly how long. Doesn't need to be exact — this
+                  is a starting estimate, not a record.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
