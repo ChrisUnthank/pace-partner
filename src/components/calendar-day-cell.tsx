@@ -180,8 +180,14 @@ export function CalendarDayCell({
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      onClick={() => onMultiClick?.(day)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") onMultiClick?.(day);
+      }}
       className={cn(
-        "min-h-[110px] border rounded-md bg-background flex flex-col overflow-hidden",
+        "min-h-[110px] border rounded-md bg-background flex flex-col overflow-hidden cursor-pointer hover:bg-accent/20 transition-colors",
         !inMonth && "opacity-50",
         isToday && "ring-1 ring-primary",
       )}
@@ -225,7 +231,10 @@ export function CalendarDayCell({
         {sessions.length > 2 && (
           <button
             type="button"
-            onClick={() => onMultiClick?.(day)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onMultiClick?.(day);
+            }}
             className="text-[10px] text-muted-foreground hover:text-foreground self-start"
           >
             +{sessions.length - 2} more
@@ -267,6 +276,7 @@ function SessionPill({
     <Link
       to="/app/sessions/$sessionId"
       params={{ sessionId: s.id }}
+      onClick={(e) => e.stopPropagation()}
       className={cn(
         "flex items-stretch gap-1 rounded-sm overflow-hidden hover:bg-accent/40 group",
         isFuturePlanned && "opacity-80",
