@@ -57,6 +57,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { PostSessionInsightModal } from "@/components/post-session-insight-modal";
+import { FeelFaces } from "@/components/feel-faces";
 import { useServerFn } from "@tanstack/react-start";
 import { getLatestAthleteNote, generateSessionNote, getAiAccessStatus } from "@/lib/ai.functions";
 import ReactMarkdown from "react-markdown";
@@ -2631,11 +2632,36 @@ function SessionSummary({
   onSaved: () => void;
   onCompleted?: () => void;
 }) {
+  const qc = useQueryClient();
   const [rpe, setRpe] = useState<number>(5);
   // Re-sync whenever the underlying session row changes (after server-side recompute).
   useEffect(() => {
     setRpe(session.rpe ?? 5);
   }, [session.rpe]);
+
+  // Feel (Very Weak..Very Strong faces) lives on session_insights, not
+  // sessions — same field the post-session reflection modal already saves
+  // to, so however an athlete answers "how did you feel" (here or in that
+  // popup) both write to and read from one place.
+  const { data: insightForFeel } = useQuery({
+    queryKey: ["session-feel", session.id],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("session_insights")
+        .select("feel_score")
+        .eq("session_id", session.id)
+        .maybeSingle();
+      return (data as any) ?? null;
+    },
+  });
+  const [feel, setFeel] = useState<number | null>(null);
+  // Keyed on session.id (not just the query result) so this resets correctly
+  // even when navigating session-to-session via the < > links reuses this
+  // component instance instead of remounting it — the same class of stale-
+  // state bug already fixed elsewhere for exactly this reason.
+  useEffect(() => {
+    setFeel(insightForFeel?.feel_score ?? null);
+  }, [session.id, insightForFeel]);
 
   // Derived stride length: prefer an explicit per-rep value, else compute from
   // session totals + average rep cadence. Returns null when not enough data.
@@ -2653,18 +2679,28 @@ function SessionSummary({
   async function complete() {
     const wasAlreadyComplete = !!session.completed_at;
 
-    const { error } = await supabase
-      .from("sessions")
-      .update({
-        rpe,
-        ...(wasAlreadyComplete ? {} : { completed_at: new Date().toISOString() }),
-      })
-      .eq("id", session.id);
+    const [sessionRes, insightRes] = await Promise.all([
+      supabase
+        .from("sessions")
+        .update({
+          rpe,
+          ...(wasAlreadyComplete ? {} : { completed_at: new Date().toISOString() }),
+        })
+        .eq("id", session.id),
+      feel != null
+        ? supabase
+            .from("session_insights")
+            .upsert({ session_id: session.id, athlete_id: session.athlete_id, feel_score: feel } as any, {
+              onConflict: "session_id",
+            })
+        : Promise.resolve({ error: null }),
+    ]);
 
-    if (error) {
-      toast.error(error.message);
+    if (sessionRes.error || insightRes.error) {
+      toast.error(sessionRes.error?.message ?? insightRes.error?.message ?? "Save failed");
     } else {
       toast.success(wasAlreadyComplete ? "Session updated" : "Session marked complete");
+      qc.invalidateQueries({ queryKey: ["session-feel", session.id] });
       onSaved();
       if (!wasAlreadyComplete) onCompleted?.();
     }
@@ -2675,16 +2711,25 @@ function SessionSummary({
         <CardTitle>Session feedback</CardTitle>
       </CardHeader>
 
-      <CardContent className="flex items-center gap-4">
-        <div className="flex-1">
-          <Label className="text-xs">RPE ({rpe})</Label>
+      <CardContent className="space-y-4">
+        <div className="flex items-center gap-4">
+          <div className="flex-1">
+            <Label className="text-xs">RPE ({rpe})</Label>
 
-          <Slider min={1} max={10} step={1} value={[rpe]} onValueChange={(v) => setRpe(v[0])} />
+            <Slider min={1} max={10} step={1} value={[rpe]} onValueChange={(v) => setRpe(v[0])} />
+          </div>
+
+          <Button onClick={complete} size="sm">
+            {session.completed_at ? "Update" : "Complete"}
+          </Button>
         </div>
 
-        <Button onClick={complete} size="sm">
-          {session.completed_at ? "Update" : "Complete"}
-        </Button>
+        <div>
+          <Label className="text-xs">How did you feel?</Label>
+          <div className="mt-2">
+            <FeelFaces value={feel} onChange={setFeel} />
+          </div>
+        </div>
       </CardContent>
     </Card>
   );
