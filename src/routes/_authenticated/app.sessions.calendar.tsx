@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useMemo, useState, useRef } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
@@ -7,10 +7,13 @@ import { useAuthUser, useMyAthlete, useMyRoles, useMyRawRoles } from "@/lib/use-
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { ChevronLeft, ChevronRight, List as ListIcon, Upload, CalendarPlus, PencilLine, Trophy } from "lucide-react";
+import { ChevronLeft, ChevronRight, List as ListIcon, Upload, CalendarPlus, PencilLine, Trophy, HeartPulse } from "lucide-react";
 import {
   CalendarDayCell,
   WeekTotalCell,
@@ -334,6 +337,66 @@ function CalendarPage() {
   const [uploadDate, setUploadDate] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
+  // Retrospective vitals logging — closes the gap where an athlete who
+  // forgot to log resting HR/sleep on a given day had no way to go back and
+  // fill it in. Works the same as Upload/Create Session above: pick a date,
+  // open a small dialog scoped to exactly that date, save.
+  const [vitalsDate, setVitalsDate] = useState<string | null>(null);
+  const [vSleepHours, setVSleepHours] = useState("");
+  const [vRestingHr, setVRestingHr] = useState("");
+  const [vWeightKg, setVWeightKg] = useState("");
+  const [vHydration, setVHydration] = useState(3);
+  const [savingVitals, setSavingVitals] = useState(false);
+
+  const { data: vitalsForDay } = useQuery({
+    queryKey: ["calendar-vitals-edit", selectedAthleteId, vitalsDate],
+    enabled: !!vitalsDate && !!selectedAthleteId,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("daily_vitals")
+        .select("*")
+        .eq("athlete_id", selectedAthleteId)
+        .eq("vitals_date", vitalsDate!)
+        .maybeSingle();
+      return data as any;
+    },
+  });
+
+  // Re-seed the form every time a new day is opened (or its existing values
+  // finish loading) — a fresh day should start blank, not carry over
+  // whatever was left in the fields from the previous day's dialog.
+  useEffect(() => {
+    if (!vitalsDate) return;
+    setVSleepHours(vitalsForDay?.sleep_hours != null ? String(vitalsForDay.sleep_hours) : "");
+    setVRestingHr(vitalsForDay?.resting_hr != null ? String(vitalsForDay.resting_hr) : "");
+    setVWeightKg(vitalsForDay?.weight_kg != null ? String(vitalsForDay.weight_kg) : "");
+    setVHydration(vitalsForDay?.hydration ?? 3);
+  }, [vitalsDate, vitalsForDay]);
+
+  async function saveVitalsForDay() {
+    if (!vitalsDate || !selectedAthleteId) return;
+    setSavingVitals(true);
+    const { error } = await supabase.from("daily_vitals").upsert(
+      {
+        athlete_id: selectedAthleteId,
+        vitals_date: vitalsDate,
+        sleep_hours: vSleepHours === "" ? null : Number(vSleepHours),
+        resting_hr: vRestingHr === "" ? null : Number(vRestingHr),
+        weight_kg: vWeightKg === "" ? null : Number(vWeightKg),
+        hydration: vHydration,
+      } as any,
+      { onConflict: "athlete_id,vitals_date" },
+    );
+    setSavingVitals(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("Vitals saved");
+    qc.invalidateQueries({ queryKey: ["calendar"] });
+    setVitalsDate(null);
+  }
+
   // Creates a bare session row for the given date, then attaches the
   // uploaded file to it via the same uploadAndParseSessionFile flow the
   // session detail page uses. day_type/intent/structure defaults are
@@ -618,6 +681,17 @@ function CalendarPage() {
                   Resting HR: <span className="font-medium">{sheetDay.restingHr} bpm</span>
                 </div>
               )}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const d = sheetDay.date;
+                  setSheetDay(null);
+                  setVitalsDate(d);
+                }}
+              >
+                <HeartPulse className="h-3.5 w-3.5 mr-1.5" /> {sheetDay.restingHr != null ? "Edit vitals" : "Log vitals"}
+              </Button>
               {sheetDay.sessions.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No sessions on this day.</p>
               ) : (
@@ -738,6 +812,17 @@ function CalendarPage() {
             >
               <Trophy className="h-4 w-4 mr-2" /> Add Race
             </Button>
+            <Button
+              variant="outline"
+              className="w-full justify-start"
+              onClick={() => {
+                const d = addMenuDate;
+                setAddMenuDate(null);
+                setVitalsDate(d);
+              }}
+            >
+              <HeartPulse className="h-4 w-4 mr-2" /> Log Vitals
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -763,6 +848,69 @@ function CalendarPage() {
             className="text-sm file:mr-3 file:rounded-md file:border file:bg-background file:px-3 file:py-1.5 file:text-sm"
           />
           {uploading && <p className="text-xs text-muted-foreground">Uploading and parsing…</p>}
+        </DialogContent>
+      </Dialog>
+
+      {/* Retrospective vitals — same shape as the Daily Log's own vitals
+          fields, just scoped to whatever date was clicked instead of always
+          "today", so a missed day can be filled in after the fact. */}
+      <Dialog open={!!vitalsDate} onOpenChange={(o) => !o && !savingVitals && setVitalsDate(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Log vitals</DialogTitle>
+            <DialogDescription>
+              {vitalsDate
+                ? parseISO(vitalsDate).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Sleep hours</Label>
+                <Input
+                  type="number"
+                  step="0.1"
+                  value={vSleepHours}
+                  onChange={(e) => setVSleepHours(e.target.value)}
+                  placeholder="7.5"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Resting HR (bpm)</Label>
+                <Input
+                  type="number"
+                  value={vRestingHr}
+                  onChange={(e) => setVRestingHr(e.target.value)}
+                  placeholder="52"
+                />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs">Weight (kg)</Label>
+              <Input
+                type="number"
+                step="0.1"
+                value={vWeightKg}
+                onChange={(e) => setVWeightKg(e.target.value)}
+                placeholder="64.5"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Hydration: {vHydration}/5</Label>
+              <Slider
+                min={1}
+                max={5}
+                step={1}
+                value={[vHydration]}
+                onValueChange={(v) => setVHydration(v[0])}
+                className="mt-2"
+              />
+            </div>
+            <Button onClick={saveVitalsForDay} disabled={savingVitals} className="w-full">
+              {savingVitals ? "Saving…" : "Save vitals"}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </AppShell>
