@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Plus, Thermometer, Wind } from "lucide-react";
+import { Plus, Thermometer, Wind, HeartPulse } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { sessionClassificationLabel, INTENT_LABEL, DAY_TYPE_LABEL } from "@/lib/session-categories";
 import { ActivityIcon } from "@/lib/activity-icon";
@@ -28,6 +28,10 @@ export type DayData = {
   readiness_score?: number | null;
   training_load?: number | null;
   efficiencyBySession?: Record<string, number | null>;
+  // Resting HR logged for this day via the Daily Log — surfaced on the
+  // calendar the same way TrainingPeaks' Metrics card shows it, reusing data
+  // that already exists rather than building a new tracking pipeline.
+  restingHr?: number | null;
 };
 
 // Forecast for a single future day — only ever populated for days ahead of
@@ -183,6 +187,14 @@ export function CalendarDayCell({
       )}
     >
       {header}
+      {day.restingHr != null && (
+        <div className="flex items-center gap-2 px-1.5 text-[9px] text-muted-foreground">
+          <span className="flex items-center gap-0.5" title={`Resting HR ${day.restingHr} bpm`}>
+            <HeartPulse className="h-2.5 w-2.5" />
+            {day.restingHr} bpm
+          </span>
+        </div>
+      )}
       {weather && (weather.tempMax != null || weather.windMax != null) && (
         <div className="flex items-center gap-2 px-1.5 text-[9px] text-muted-foreground">
           {weather.tempMax != null && (
