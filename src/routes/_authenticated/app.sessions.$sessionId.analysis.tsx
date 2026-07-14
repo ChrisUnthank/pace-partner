@@ -12,7 +12,8 @@ import {
   CartesianGrid,
   Legend,
 } from "recharts";
-import { MapContainer, TileLayer, Polyline, CircleMarker } from "react-leaflet";
+import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, useMap } from "react-leaflet";
+import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -1087,7 +1088,58 @@ function ZonePanel({ rows, title }: { rows: any[]; title: string }) {
   );
 }
 
-function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?: string; t?: number }[] }) {
+// Tile sources for the map style toggle — all free and keyless, no API key
+// or billing needed. "Satellite" is imagery (aerial/satellite photos), not
+// Google's ground-level Street View — that's a different, paid Google-only
+// product and isn't something addable here for free.
+const TILE_LAYERS: Record<"streets" | "satellite" | "light", { url: string; attribution: string }> = {
+  streets: {
+    url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  },
+  satellite: {
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    attribution: "Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+  },
+  light: {
+    url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  },
+};
+
+// Fits the map to the route's bounds on mount, so the full run is visible the
+// moment the page opens — previously the map only ever used a fixed center +
+// zoom=15, which cropped longer routes until the panel was manually resized
+// (that resize just happens to trigger Leaflet's own invalidateSize/redraw).
+// A second fitBounds after a short delay covers the case where the map's
+// container hadn't finished settling into its final flex/grid size yet on
+// the very first paint.
+function FitBounds({ bounds }: { bounds: [[number, number], [number, number]] }) {
+  const map = useMap();
+  useEffect(() => {
+    map.fitBounds(bounds, { padding: [24, 24] });
+    const t = setTimeout(() => {
+      map.invalidateSize();
+      map.fitBounds(bounds, { padding: [24, 24] });
+    }, 250);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bounds[0][0], bounds[0][1], bounds[1][0], bounds[1][1]]);
+  return null;
+}
+
+function kmDivIcon(km: number) {
+  return L.divIcon({
+    className: "",
+    html: `<div style="background:#fff;border:2px solid #ef4444;color:#ef4444;border-radius:9999px;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;line-height:1;box-shadow:0 1px 2px rgba(0,0,0,0.35);">${km}</div>`,
+    iconSize: [20, 20],
+    iconAnchor: [10, 10],
+  });
+}
+
+function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?: string; t?: number; d?: number }[] }) {
   const safePoints = useMemo(() => {
     return Array.isArray(points)
       ? points.filter((p) => p && Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)))
@@ -1096,6 +1148,7 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?:
 
   const [playing, setPlaying] = useState(false);
   const [playIndex, setPlayIndex] = useState(0);
+  const [mapStyle, setMapStyle] = useState<"streets" | "satellite" | "light">("streets");
   const rafRef = useRef<number | null>(null);
   const startTimeRef = useRef<number | null>(null);
 
@@ -1160,9 +1213,33 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?:
   const minLng = Math.min(...lngs);
   const maxLng = Math.max(...lngs);
   const center: [number, number] = [(minLat + maxLat) / 2, (minLng + maxLng) / 2];
+  const bounds: [[number, number], [number, number]] = [
+    [minLat, minLng],
+    [maxLat, maxLng],
+  ];
 
   const first = safePoints[0];
   const last = safePoints[safePoints.length - 1];
+
+  // Km markers along the route (matching Final Surge's numbered split markers)
+  // — walk the recorded points in order and drop a marker every time
+  // cumulative distance crosses another whole kilometre. Distance is offset
+  // against the route's own starting value rather than assumed to start at
+  // exactly 0, since a merged multi-file session's raw distance_m doesn't
+  // always begin there.
+  const startDistance = Number(first.d ?? 0);
+  const kmMarkers: { position: [number, number]; km: number }[] = [];
+  {
+    let nextKm = 1;
+    for (const p of safePoints) {
+      if (p.d == null) continue;
+      const traveled = Number(p.d) - startDistance;
+      if (traveled >= nextKm * 1000) {
+        kmMarkers.push({ position: [Number(p.lat), Number(p.lng)], km: nextKm });
+        nextKm += 1;
+      }
+    }
+  }
 
   // Group consecutive same-kind points into segments so each can be drawn as
   // its own colored Polyline (matching the same warmup/work/cooldown colors
@@ -1191,25 +1268,50 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?:
   return (
     <Card className="h-full flex flex-col">
       <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
           <div>
             <CardTitle>Route</CardTitle>
             <CardDescription>Route from uploaded GPS trace, colored by segment</CardDescription>
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              if (playing) {
-                setPlaying(false);
-              } else {
-                setPlayIndex(0);
-                setPlaying(true);
-              }
-            }}
-          >
-            {playing ? "Pause" : "▶ Replay"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <div className="flex border rounded-md overflow-hidden text-xs">
+              <button
+                type="button"
+                onClick={() => setMapStyle("streets")}
+                className={`px-2.5 py-1 ${mapStyle === "streets" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+              >
+                Streets
+              </button>
+              <button
+                type="button"
+                onClick={() => setMapStyle("satellite")}
+                className={`px-2.5 py-1 border-l ${mapStyle === "satellite" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+              >
+                Satellite
+              </button>
+              <button
+                type="button"
+                onClick={() => setMapStyle("light")}
+                className={`px-2.5 py-1 border-l ${mapStyle === "light" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+              >
+                Light
+              </button>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                if (playing) {
+                  setPlaying(false);
+                } else {
+                  setPlayIndex(0);
+                  setPlaying(true);
+                }
+              }}
+            >
+              {playing ? "Pause" : "▶ Replay"}
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="flex-1 flex flex-col">
@@ -1227,16 +1329,17 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?:
 
         <div className="flex-1 min-h-[400px] rounded overflow-hidden border">
           <MapContainer center={center} zoom={15} scrollWheelZoom style={{ height: "100%", width: "100%" }}>
-            <TileLayer
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-              url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-            />
+            <FitBounds bounds={bounds} />
+            <TileLayer attribution={TILE_LAYERS[mapStyle].attribution} url={TILE_LAYERS[mapStyle].url} />
             {segments.map((seg, i) => (
               <Polyline
                 key={i}
                 positions={seg.positions}
                 pathOptions={{ color: STEP_STROKE[seg.kind] ?? "#ef4444", weight: 4 }}
               />
+            ))}
+            {kmMarkers.map((m) => (
+              <Marker key={m.km} position={m.position} icon={kmDivIcon(m.km)} />
             ))}
             <CircleMarker
               center={[Number(first.lat), Number(first.lng)]}
@@ -1276,7 +1379,7 @@ function buildSamples(
   bands: { kind: string; t1: number; t2: number; d1: number; d2: number }[];
   mode: "trace" | "rep" | "empty";
   hasMetric: Record<MetricKey, boolean>;
-  gpsPoints: { lat: number; lng: number; stepKind: string; t: number }[];
+  gpsPoints: { lat: number; lng: number; stepKind: string; t: number; d?: number }[];
 } {
   const has: Record<MetricKey, boolean> = {
     hr: false,
@@ -1372,7 +1475,7 @@ function buildSamples(
 
     const gpsPoints = samples
       .filter((s) => s.lat != null && s.lng != null)
-      .map((s) => ({ lat: s.lat as number, lng: s.lng as number, stepKind: s.stepKind || "work", t: s.t }));
+      .map((s) => ({ lat: s.lat as number, lng: s.lng as number, stepKind: s.stepKind || "work", t: s.t, d: s.d }));
 
     const bands: { kind: string; t1: number; t2: number; d1: number; d2: number }[] = [];
 
