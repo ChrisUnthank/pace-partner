@@ -1258,6 +1258,16 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?:
       : [];
   }, [points]);
 
+  // Exclude any indoor/treadmill-drift segment (see splitIndoorRuns above),
+  // falling back to the full point set if that would leave nothing usable.
+  // Computed here via useMemo (not as a plain call further down) so the
+  // Replay animation below can also use it — otherwise Replay would walk
+  // through the raw points including the excluded treadmill drift, showing
+  // the marker travel across map area with no route line under it, since
+  // the line itself only draws geoPoints.
+  const { outdoorPoints, indoorRuns } = useMemo(() => splitIndoorRuns(safePoints), [safePoints]);
+  const geoPoints = outdoorPoints.length >= 2 ? outdoorPoints : safePoints;
+
   const [playing, setPlaying] = useState(false);
   const [playIndex, setPlayIndex] = useState(0);
   const [mapStyle, setMapStyle] = useState<"streets" | "satellite" | "light">("streets");
@@ -1278,7 +1288,7 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?:
       if (startTimeRef.current === null) startTimeRef.current = timestamp;
       const elapsed = timestamp - startTimeRef.current;
       const progress = Math.min(1, elapsed / PLAYBACK_DURATION_MS);
-      const idx = Math.floor(progress * (safePoints.length - 1));
+      const idx = Math.floor(progress * (geoPoints.length - 1));
       setPlayIndex(idx);
 
       if (progress < 1) {
@@ -1293,7 +1303,7 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?:
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playing, safePoints.length]);
+  }, [playing, geoPoints.length]);
 
   if (safePoints.length < 2) return null;
 
@@ -1317,13 +1327,6 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?:
       </Card>
     );
   }
-
-  // Exclude any indoor/treadmill-drift segment from the plotted route (see
-  // splitIndoorRuns above) — falls back to the full point set if that would
-  // leave nothing usable (e.g. a session that's genuinely indoor-only end to
-  // end), so this never produces an empty map.
-  const { outdoorPoints, indoorRuns } = splitIndoorRuns(safePoints);
-  const geoPoints = outdoorPoints.length >= 2 ? outdoorPoints : safePoints;
 
   const lats = geoPoints.map((p) => Number(p.lat));
   const lngs = geoPoints.map((p) => Number(p.lng));
@@ -1385,10 +1388,10 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?:
   });
 
   const currentPos: [number, number] = [
-    Number(safePoints[playIndex]?.lat ?? first.lat),
-    Number(safePoints[playIndex]?.lng ?? first.lng),
+    Number(geoPoints[playIndex]?.lat ?? first.lat),
+    Number(geoPoints[playIndex]?.lng ?? first.lng),
   ];
-  const currentKind = safePoints[playIndex]?.stepKind || "work";
+  const currentKind = geoPoints[playIndex]?.stepKind || "work";
   const currentColor = STEP_STROKE[currentKind] ?? "#3b82f6";
 
   return (
