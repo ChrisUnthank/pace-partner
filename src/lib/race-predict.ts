@@ -33,6 +33,32 @@ export function predictPaceAt(t1: number, d1: number, targetKm: number): number 
   return predictTime(t1, d1, targetKm) / targetKm;
 }
 
+// Solve for the Riegel-style exponent k that maps a known effort (t1 over d1)
+// to a known result (t2 over d2): k = log(t2/t1) / log(d2/d1). Falls back to
+// the standard exponent when the inputs are degenerate (same distance, zero
+// or negative times) so callers never get NaN/Infinity.
+export function personalizedExponent(
+  t1: number,
+  d1: number,
+  t2: number,
+  d2: number,
+): number {
+  if (t1 <= 0 || t2 <= 0 || d1 <= 0 || d2 <= 0 || d1 === d2) {
+    return RIEGEL_EXPONENT;
+  }
+  const k = Math.log(t2 / t1) / Math.log(d2 / d1);
+  return Number.isFinite(k) && k > 0 ? k : RIEGEL_EXPONENT;
+}
+
+export function predictTimeWithExponent(
+  t1: number,
+  d1: number,
+  d2: number,
+  exponent: number,
+): number {
+  return t1 * Math.pow(d2 / d1, exponent);
+}
+
 export const REFERENCE_DISTANCES = [
   { label: "800m", km: 0.8 },
   { label: "1000m", km: 1.0 },
