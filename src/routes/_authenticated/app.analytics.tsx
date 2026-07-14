@@ -26,6 +26,7 @@ import {
   Tooltip,
   Legend,
   ReferenceLine,
+  LabelList,
 } from "recharts";
 import { ArrowUpRight, ArrowDownRight, ArrowRight, ChevronLeft, AlertTriangle } from "lucide-react";
 
@@ -64,6 +65,26 @@ function isoWeekKey(dateStr: string) {
   const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
   const week = Math.ceil(((tmp.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
   return `${tmp.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+}
+
+type GranularityKey = "week" | "month" | "year";
+
+// Generic bucket key for grouping a date into a week/month/year, used by every
+// trend chart below so switching the toggle re-buckets consistently everywhere.
+function bucketKey(dateStr: string, granularity: GranularityKey) {
+  if (granularity === "year") return dateStr.slice(0, 4);
+  if (granularity === "month") return dateStr.slice(0, 7); // YYYY-MM
+  return isoWeekKey(dateStr);
+}
+
+// Human-readable label for a bucket key, matching the chosen granularity.
+function bucketLabel(key: string, granularity: GranularityKey) {
+  if (granularity === "month") {
+    const [y, m] = key.split("-");
+    const d = new Date(Number(y), Number(m) - 1, 1);
+    return d.toLocaleDateString(undefined, { month: "short", year: "2-digit" });
+  }
+  return key; // week (YYYY-Www) and year (YYYY) keys are already readable as-is
 }
 
 function AnalyticsPage() {
@@ -415,23 +436,25 @@ function AthleteAnalytics({
     },
   });
 
-  // Bug fix: this used to be two separate queries — one starting from `interval_results`
-  // filtering through `steps.sessions.athlete_id` (a filter two embed-levels deep, which
-  // PostgREST does not reliably apply — it was silently returning zero rows instead of
-  // erroring), and a second `steps` query as a "no actuals yet" fallback. Replaced with a
-  // single query anchored on `sessions`, so the athlete/date filters sit on the top-level
-  // table and the embedded steps + their interval_results just come along for the ride.
+  // This card now has its own "This week" / "This month" / "This year" period toggle,
+  // independent of the page's global range picker above, so it fetches from the start of
+  // the current year (covers all three period options) rather than using the outer `since`.
+  const volumePeriodStart = useMemo(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10);
+  }, []);
+
   const { data: stepVolumeSessions } = useQuery({
-    queryKey: ["analytics-step-volume", athleteId, since],
+    queryKey: ["analytics-step-volume", athleteId, volumePeriodStart],
     queryFn: async () => {
       const { data } = await supabase
         .from("sessions")
         .select(
-          "id, steps!steps_session_id_fkey(id, kind, reps, set_count, target_distance_m, target_time_seconds, interval_results(actual_time_seconds, actual_distance_m))",
+          "id, session_date, steps!steps_session_id_fkey(id, kind, reps, set_count, target_distance_m, target_time_seconds, interval_results(actual_time_seconds, actual_distance_m))",
         )
         .eq("athlete_id", athleteId)
         .not("completed_at", "is", null)
-        .gte("session_date", since);
+        .gte("session_date", volumePeriodStart);
       return data ?? [];
     },
   });
@@ -448,39 +471,52 @@ function AthleteAnalytics({
     },
   });
 
+  const [granularity, setGranularity] = useState<GranularityKey>("week");
+
   const latest = load?.[load.length - 1];
 
-  // Weekly training load
-  const weeklyLoad = useMemo(() => {
+  // Training load, bucketed by whichever granularity is selected (week/month/year).
+  const loadByPeriod = useMemo(() => {
     const buckets = new Map<string, number>();
     for (const r of load ?? []) {
-      const wk = isoWeekKey(r.load_date as string);
-      buckets.set(wk, (buckets.get(wk) ?? 0) + Number(r.training_load ?? 0));
+      const key = bucketKey(r.load_date as string, granularity);
+      buckets.set(key, (buckets.get(key) ?? 0) + Number(r.training_load ?? 0));
     }
-    return Array.from(buckets.entries()).map(([week, value]) => ({ week, value: Math.round(value) }));
-  }, [load]);
+    return Array.from(buckets.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([key, value]) => ({ period: bucketLabel(key, granularity), value: Math.round(value) }));
+  }, [load, granularity]);
 
-  // Weekly avg efficiency (the only new aggregation)
-  const weeklyEfficiency = useMemo(() => {
+  // Average efficiency score, bucketed the same way.
+  const efficiencyByPeriod = useMemo(() => {
     const buckets = new Map<string, { sum: number; n: number }>();
     for (const r of fatigue ?? []) {
       const date = (r as any).sessions?.session_date;
       if (!date || r.efficiency_score == null) continue;
-      const wk = isoWeekKey(date);
-      const cur = buckets.get(wk) ?? { sum: 0, n: 0 };
+      const key = bucketKey(date, granularity);
+      const cur = buckets.get(key) ?? { sum: 0, n: 0 };
       cur.sum += Number(r.efficiency_score);
       cur.n += 1;
-      buckets.set(wk, cur);
+      buckets.set(key, cur);
     }
     return Array.from(buckets.entries())
-      .map(([week, { sum, n }]) => ({ week, value: Math.round(sum / n) }))
-      .sort((a, b) => a.week.localeCompare(b.week));
-  }, [fatigue]);
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([key, { sum, n }]) => ({ period: bucketLabel(key, granularity), value: Math.round(sum / n) }));
+  }, [fatigue, granularity]);
 
-  const weeklyDistData = (weeklyDist ?? []).map((r: any) => ({
-    week: isoWeekKey(r.week_start),
-    km: Math.round((Number(r.distance_m ?? 0) / 1000) * 10) / 10,
-  }));
+  // Distance: the underlying view is pre-aggregated per ISO week, but summing those weekly
+  // totals into whichever bucket is selected gives the same result as bucketing raw sessions
+  // would, without needing a second data source.
+  const distanceByPeriod = useMemo(() => {
+    const buckets = new Map<string, number>();
+    for (const r of (weeklyDist ?? []) as any[]) {
+      const key = bucketKey(r.week_start, granularity);
+      buckets.set(key, (buckets.get(key) ?? 0) + Number(r.distance_m ?? 0));
+    }
+    return Array.from(buckets.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([key, meters]) => ({ period: bucketLabel(key, granularity), km: Math.round((meters / 1000) * 10) / 10 }));
+  }, [weeklyDist, granularity]);
 
   const zoneBuckets = useMemo(() => {
     const make = (source: "hr" | "pace") => {
@@ -531,40 +567,6 @@ function AthleteAnalytics({
       }));
   }, [intentRollup]);
 
-  const kindVolume = useMemo(() => {
-    const sec = new Map<string, number>();
-    const m = new Map<string, number>();
-    for (const session of (stepVolumeSessions as any[]) ?? []) {
-      for (const st of session.steps ?? []) {
-        const kind = st.kind ?? "work";
-        const results = (st.interval_results as any[]) ?? [];
-        if (results.length > 0) {
-          // Real per-rep data: sum every rep's actuals (a step like 5×1km has 5 rows).
-          for (const r of results) {
-            sec.set(kind, (sec.get(kind) ?? 0) + Number(r.actual_time_seconds ?? 0));
-            m.set(kind, (m.get(kind) ?? 0) + Number(r.actual_distance_m ?? 0));
-          }
-        } else {
-          // Fallback for manually-entered sessions / steps with no per-rep results yet:
-          // attribute the planned target volume so the chart isn't empty.
-          const reps = Number(st.reps ?? 1);
-          const setCount = Number(st.set_count ?? 1);
-          const td = Number(st.target_distance_m ?? 0) * reps * setCount;
-          const tt = Number(st.target_time_seconds ?? 0) * reps * setCount;
-          if (td > 0) m.set(kind, (m.get(kind) ?? 0) + td);
-          if (tt > 0) sec.set(kind, (sec.get(kind) ?? 0) + tt);
-        }
-      }
-    }
-    const order = ["warmup", "work", "strides", "recovery", "cooldown"];
-    return order
-      .filter((k) => (sec.get(k) ?? 0) > 0 || (m.get(k) ?? 0) > 0)
-      .map((kind) => ({
-        kind: kind.charAt(0).toUpperCase() + kind.slice(1),
-        minutes: Math.round((sec.get(kind) ?? 0) / 60),
-        km: Math.round(((m.get(kind) ?? 0) / 1000) * 10) / 10,
-      }));
-  }, [stepVolumeSessions]);
 
   return (
     <div className="space-y-6">
@@ -659,21 +661,45 @@ function AthleteAnalytics({
         </CardContent>
       </Card>
 
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <h2 className="text-sm font-medium text-muted-foreground">Training trends grouped by</h2>
+        <div className="flex border rounded-md overflow-hidden text-xs">
+          <button
+            onClick={() => setGranularity("week")}
+            className={`px-2.5 py-1 ${granularity === "week" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+          >
+            Week
+          </button>
+          <button
+            onClick={() => setGranularity("month")}
+            className={`px-2.5 py-1 ${granularity === "month" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+          >
+            Month
+          </button>
+          <button
+            onClick={() => setGranularity("year")}
+            className={`px-2.5 py-1 ${granularity === "year" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+          >
+            Year
+          </button>
+        </div>
+      </div>
+
       <div className="grid md:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
-            <CardTitle>Weekly training load</CardTitle>
-            <CardDescription>Sum of session load per ISO week.</CardDescription>
+            <CardTitle>Training Load</CardTitle>
+            <CardDescription>Sum of session load per {granularity}.</CardDescription>
           </CardHeader>
           <CardContent>
-            {weeklyLoad.length === 0 ? (
+            {loadByPeriod.length === 0 ? (
               <p className="text-sm text-muted-foreground">No training load recorded yet.</p>
             ) : (
               <div className="h-[220px] w-full">
                 <ResponsiveContainer>
-                  <BarChart data={weeklyLoad} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
+                  <BarChart data={loadByPeriod} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
-                    <XAxis dataKey="week" tick={{ fontSize: 10 }} minTickGap={24} />
+                    <XAxis dataKey="period" tick={{ fontSize: 10 }} minTickGap={24} />
                     <YAxis tick={{ fontSize: 11 }} />
                     <Tooltip
                       contentStyle={{
@@ -694,18 +720,18 @@ function AthleteAnalytics({
           <CardHeader>
             <CardTitle>Within-session fatigue trend</CardTitle>
             <CardDescription>
-              Average efficiency score across interval sessions, by week. Higher = holding pace better late.
+              Average efficiency score across interval sessions, by {granularity}. Higher = holding pace better late.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {weeklyEfficiency.length < 2 ? (
+            {efficiencyByPeriod.length < 2 ? (
               <p className="text-sm text-muted-foreground">Complete a few interval sessions to see this trend.</p>
             ) : (
               <div className="h-[220px] w-full">
                 <ResponsiveContainer>
-                  <RLineChart data={weeklyEfficiency} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
+                  <RLineChart data={efficiencyByPeriod} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
-                    <XAxis dataKey="week" tick={{ fontSize: 10 }} minTickGap={24} />
+                    <XAxis dataKey="period" tick={{ fontSize: 10 }} minTickGap={24} />
                     <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} />
                     <Tooltip
                       contentStyle={{
@@ -731,17 +757,18 @@ function AthleteAnalytics({
 
         <Card>
           <CardHeader>
-            <CardTitle>Weekly distance</CardTitle>
+            <CardTitle>Distance</CardTitle>
+            <CardDescription>Total distance per {granularity}.</CardDescription>
           </CardHeader>
           <CardContent>
-            {weeklyDistData.length === 0 ? (
+            {distanceByPeriod.length === 0 ? (
               <p className="text-sm text-muted-foreground">No distance logged in this range.</p>
             ) : (
               <div className="h-[200px] w-full">
                 <ResponsiveContainer>
-                  <BarChart data={weeklyDistData} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
+                  <BarChart data={distanceByPeriod} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
-                    <XAxis dataKey="week" tick={{ fontSize: 10 }} minTickGap={24} />
+                    <XAxis dataKey="period" tick={{ fontSize: 10 }} minTickGap={24} />
                     <YAxis tick={{ fontSize: 11 }} />
                     <Tooltip
                       contentStyle={{
@@ -824,7 +851,7 @@ function AthleteAnalytics({
           </CardContent>
         </Card>
 
-        <VolumePieCard data={kindVolume} />
+        <VolumeColumnCard sessions={(stepVolumeSessions as any[]) ?? []} />
       </div>
 
       {/* Physio */}
@@ -1046,89 +1073,164 @@ function formatVolumeValue(value: number, mode: "minutes" | "km") {
   return `${value} min`;
 }
 
-function VolumePieCard({ data }: { data: { kind: string; minutes: number; km: number }[] }) {
+const VOLUME_KIND_ORDER = ["warmup", "work", "strides", "recovery", "cooldown"];
+
+function startOfIsoWeek(d: Date) {
+  const day = d.getDay() || 7; // Mon=1 .. Sun=7
+  const monday = new Date(d);
+  monday.setDate(d.getDate() - day + 1);
+  monday.setHours(0, 0, 0, 0);
+  return monday;
+}
+
+function volumePeriodLabel(period: "week" | "month" | "year") {
+  if (period === "week") return "this week";
+  if (period === "month") return "this month";
+  return "this year";
+}
+
+function VolumeColumnCard({ sessions }: { sessions: any[] }) {
   const [mode, setMode] = useState<"minutes" | "km">("minutes");
+  const [period, setPeriod] = useState<"week" | "month" | "year">("week");
+
+  // "This week" / "This month" / "This year" to-date, computed client-side against whatever
+  // the query already pulled back (from the start of the current year), so switching periods
+  // is instant with no extra round-trip.
+  const periodStartISO = useMemo(() => {
+    const now = new Date();
+    if (period === "week") return startOfIsoWeek(now).toISOString().slice(0, 10);
+    if (period === "month") return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+    return new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10);
+  }, [period]);
+
+  const data = useMemo(() => {
+    const sec = new Map<string, number>();
+    const m = new Map<string, number>();
+    for (const session of sessions ?? []) {
+      if (!session.session_date || session.session_date < periodStartISO) continue;
+      for (const st of session.steps ?? []) {
+        const kind = st.kind ?? "work";
+        const results = (st.interval_results as any[]) ?? [];
+        if (results.length > 0) {
+          // Real per-rep data: sum every rep's actuals (a step like 5×1km has 5 rows).
+          for (const r of results) {
+            sec.set(kind, (sec.get(kind) ?? 0) + Number(r.actual_time_seconds ?? 0));
+            m.set(kind, (m.get(kind) ?? 0) + Number(r.actual_distance_m ?? 0));
+          }
+        } else {
+          // Fallback for manually-entered sessions / steps with no per-rep results yet:
+          // attribute the planned target volume so the chart isn't empty.
+          const reps = Number(st.reps ?? 1);
+          const setCount = Number(st.set_count ?? 1);
+          const td = Number(st.target_distance_m ?? 0) * reps * setCount;
+          const tt = Number(st.target_time_seconds ?? 0) * reps * setCount;
+          if (td > 0) m.set(kind, (m.get(kind) ?? 0) + td);
+          if (tt > 0) sec.set(kind, (sec.get(kind) ?? 0) + tt);
+        }
+      }
+    }
+    return VOLUME_KIND_ORDER.filter((k) => (sec.get(k) ?? 0) > 0 || (m.get(k) ?? 0) > 0).map((kind) => ({
+      kind: kind.charAt(0).toUpperCase() + kind.slice(1),
+      minutes: Math.round((sec.get(kind) ?? 0) / 60),
+      km: Math.round(((m.get(kind) ?? 0) / 1000) * 10) / 10,
+    }));
+  }, [sessions, periodStartISO]);
+
   const hasData = data.some((d) => Number(d[mode]) > 0);
-  const total = data.reduce((a, d) => a + Number(d[mode]), 0);
+
   return (
     <Card>
       <CardHeader>
         <div className="flex items-start justify-between gap-2 flex-wrap">
           <div>
-            <CardTitle>Weekly Volume by Session Component</CardTitle>
+            <CardTitle>Column by Session Component</CardTitle>
             <CardDescription>
-              Share of {mode === "minutes" ? "time" : "distance"} across warmup, work, strides, recovery, and cooldown.
+              {mode === "minutes" ? "Time" : "Distance"} across warmup, work, strides, recovery, and cooldown —{" "}
+              {volumePeriodLabel(period)} to date.
             </CardDescription>
           </div>
-          <div className="flex border rounded-md overflow-hidden text-xs">
-            <button
-              onClick={() => setMode("minutes")}
-              className={`px-2.5 py-1 ${mode === "minutes" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
-            >
-              Time
-            </button>
-            <button
-              onClick={() => setMode("km")}
-              className={`px-2.5 py-1 ${mode === "km" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
-            >
-              Distance
-            </button>
+          <div className="flex flex-col items-end gap-1.5">
+            <div className="flex border rounded-md overflow-hidden text-xs">
+              <button
+                onClick={() => setPeriod("week")}
+                className={`px-2.5 py-1 ${period === "week" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+              >
+                This week
+              </button>
+              <button
+                onClick={() => setPeriod("month")}
+                className={`px-2.5 py-1 ${period === "month" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+              >
+                This month
+              </button>
+              <button
+                onClick={() => setPeriod("year")}
+                className={`px-2.5 py-1 ${period === "year" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+              >
+                This year
+              </button>
+            </div>
+            <div className="flex border rounded-md overflow-hidden text-xs">
+              <button
+                onClick={() => setMode("minutes")}
+                className={`px-2.5 py-1 ${mode === "minutes" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+              >
+                Time
+              </button>
+              <button
+                onClick={() => setMode("km")}
+                className={`px-2.5 py-1 ${mode === "km" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+              >
+                Distance
+              </button>
+            </div>
           </div>
         </div>
       </CardHeader>
       <CardContent>
         {!hasData ? (
-          <p className="text-sm text-muted-foreground">No logged step volume yet.</p>
+          <p className="text-sm text-muted-foreground">No logged step volume {volumePeriodLabel(period)} yet.</p>
         ) : (
           <>
             <div className="h-[240px] w-full">
               <ResponsiveContainer>
-                <PieChart>
-                  <Pie
-                    data={data}
-                    dataKey={mode}
-                    nameKey="kind"
-                    innerRadius={45}
-                    outerRadius={80}
-                    paddingAngle={2}
-                    label={({ value }: any) => formatVolumeValue(Number(value), mode)}
-                    labelLine={{ stroke: "hsl(var(--muted-foreground))", strokeWidth: 1 }}
-                  >
-                    {data.map((d) => (
-                      <Cell key={d.kind} fill={KIND_COLORS[d.kind] ?? "#8b5cf6"} />
-                    ))}
-                  </Pie>
+                <BarChart data={data} margin={{ top: 20, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
+                  <XAxis dataKey="kind" tick={{ fontSize: 11 }} />
+                  <YAxis
+                    tick={{ fontSize: 11 }}
+                    label={{
+                      value: mode === "minutes" ? "Minutes" : "Kilometres",
+                      angle: -90,
+                      position: "insideLeft",
+                      style: { fontSize: 11, fill: "hsl(var(--muted-foreground))" },
+                    }}
+                  />
                   <Tooltip
                     contentStyle={{
                       background: "hsl(var(--background))",
                       border: "1px solid hsl(var(--border))",
                       fontSize: 12,
                     }}
-                    formatter={(v: any, n: any) => {
-                      const pct = total ? Math.round((Number(v) / total) * 100) : 0;
-                      return [`${formatVolumeValue(Number(v), mode)} (${pct}%)`, n];
-                    }}
+                    formatter={(v: any) => [formatVolumeValue(Number(v), mode), mode === "minutes" ? "Time" : "Distance"]}
                   />
-                </PieChart>
+                  <Bar dataKey={mode} radius={[3, 3, 0, 0]}>
+                    {data.map((d) => (
+                      <Cell key={d.kind} fill={KIND_COLORS[d.kind] ?? "#8b5cf6"} />
+                    ))}
+                    <LabelList
+                      dataKey={mode}
+                      position="top"
+                      formatter={(v: any) => formatVolumeValue(Number(v), mode)}
+                      style={{ fontSize: 11, fill: "hsl(var(--foreground))" }}
+                    />
+                  </Bar>
+                </BarChart>
               </ResponsiveContainer>
-            </div>
-            {/* Explicit value breakdown with units — the built-in Recharts <Legend/> only showed
-                kind names with no numbers, so toggling Time/Distance looked identical at a glance. */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1.5 mt-2 text-xs">
-              {data.map((d) => (
-                <div key={d.kind} className="flex items-center gap-1.5">
-                  <span
-                    className="h-2 w-2 rounded-full shrink-0"
-                    style={{ background: KIND_COLORS[d.kind] ?? "#8b5cf6" }}
-                  />
-                  <span className="text-muted-foreground">{d.kind}</span>
-                  <span className="font-medium ml-auto">{formatVolumeValue(Number(d[mode]), mode)}</span>
-                </div>
-              ))}
             </div>
             {mode === "km" && (
               <p className="text-xs text-muted-foreground mt-2">
-                Includes warmup/cooldown to show how volume is split. Will exceed the headline "Weekly distance" number,
+                Includes warmup/cooldown to show how volume is split. Will exceed the "Distance" chart's number above,
                 which intentionally excludes warmup/cooldown.
               </p>
             )}
