@@ -1034,6 +1034,18 @@ const KIND_COLORS: Record<string, string> = {
   Cooldown: "#10b981",
 };
 
+function formatVolumeValue(value: number, mode: "minutes" | "km") {
+  if (mode === "km") {
+    return `${value} km`;
+  }
+  if (value >= 60) {
+    const h = Math.floor(value / 60);
+    const m = value % 60;
+    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  }
+  return `${value} min`;
+}
+
 function VolumePieCard({ data }: { data: { kind: string; minutes: number; km: number }[] }) {
   const [mode, setMode] = useState<"minutes" | "km">("minutes");
   const hasData = data.some((d) => Number(d[mode]) > 0);
@@ -1069,10 +1081,19 @@ function VolumePieCard({ data }: { data: { kind: string; minutes: number; km: nu
           <p className="text-sm text-muted-foreground">No logged step volume yet.</p>
         ) : (
           <>
-            <div className="h-[220px] w-full">
+            <div className="h-[240px] w-full">
               <ResponsiveContainer>
                 <PieChart>
-                  <Pie data={data} dataKey={mode} nameKey="kind" innerRadius={45} outerRadius={80} paddingAngle={2}>
+                  <Pie
+                    data={data}
+                    dataKey={mode}
+                    nameKey="kind"
+                    innerRadius={45}
+                    outerRadius={80}
+                    paddingAngle={2}
+                    label={({ value }: any) => formatVolumeValue(Number(value), mode)}
+                    labelLine={{ stroke: "hsl(var(--muted-foreground))", strokeWidth: 1 }}
+                  >
                     {data.map((d) => (
                       <Cell key={d.kind} fill={KIND_COLORS[d.kind] ?? "#8b5cf6"} />
                     ))}
@@ -1085,12 +1106,25 @@ function VolumePieCard({ data }: { data: { kind: string; minutes: number; km: nu
                     }}
                     formatter={(v: any, n: any) => {
                       const pct = total ? Math.round((Number(v) / total) * 100) : 0;
-                      return [`${v} ${mode === "minutes" ? "min" : "km"} (${pct}%)`, n];
+                      return [`${formatVolumeValue(Number(v), mode)} (${pct}%)`, n];
                     }}
                   />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
                 </PieChart>
               </ResponsiveContainer>
+            </div>
+            {/* Explicit value breakdown with units — the built-in Recharts <Legend/> only showed
+                kind names with no numbers, so toggling Time/Distance looked identical at a glance. */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1.5 mt-2 text-xs">
+              {data.map((d) => (
+                <div key={d.kind} className="flex items-center gap-1.5">
+                  <span
+                    className="h-2 w-2 rounded-full shrink-0"
+                    style={{ background: KIND_COLORS[d.kind] ?? "#8b5cf6" }}
+                  />
+                  <span className="text-muted-foreground">{d.kind}</span>
+                  <span className="font-medium ml-auto">{formatVolumeValue(Number(d[mode]), mode)}</span>
+                </div>
+              ))}
             </div>
             {mode === "km" && (
               <p className="text-xs text-muted-foreground mt-2">
