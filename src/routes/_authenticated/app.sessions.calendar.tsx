@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
@@ -295,6 +295,22 @@ function CalendarPage() {
     navigate({ search: (p: any) => ({ ...p, view: v }) });
   }
 
+  // Scroll-to-navigate: scrolling down over the grid moves forward a month/week,
+  // scrolling up moves back — in addition to the arrow buttons and Today, not a
+  // replacement for them. Throttled with a cooldown rather than accumulating
+  // every wheel tick, since a single trackpad swipe fires dozens of small delta
+  // events — without this it would fly through several months on one gesture.
+  const wheelCooldown = useRef(false);
+  function handleGridWheel(e: React.WheelEvent) {
+    if (Math.abs(e.deltaY) < 12) return; // ignore tiny jitter (e.g. trackpad momentum tail)
+    if (wheelCooldown.current) return;
+    wheelCooldown.current = true;
+    shift(e.deltaY > 0 ? 1 : -1);
+    setTimeout(() => {
+      wheelCooldown.current = false;
+    }, 450);
+  }
+
   const [sheetDay, setSheetDay] = useState<DayData | null>(null);
   // Date (YYYY-MM-DD) currently showing the "add to this day" menu — works
   // on any day, empty or not, so existing sessions are never blocked from
@@ -470,11 +486,11 @@ function CalendarPage() {
           </div>
         </div>
 
-        <Card>
-          <CardContent className="p-2 sm:p-3">
+        <Card onWheel={handleGridWheel}>
+          <CardContent className="p-1 sm:p-1.5">
             {showWeekTotals ? (
               <>
-                <div className="grid grid-cols-8 gap-1 mb-1 text-[10px] text-muted-foreground">
+                <div className="grid grid-cols-8 gap-0.5 mb-1 text-[10px] text-muted-foreground">
                   {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
                     <div key={d} className="text-center uppercase tracking-wide">
                       {d}
@@ -482,9 +498,9 @@ function CalendarPage() {
                   ))}
                   <div className="text-center uppercase tracking-wide">Total</div>
                 </div>
-                <div className="space-y-1">
+                <div className="space-y-0.5">
                   {weeks.map((week, wi) => (
-                    <div key={wi} className="grid grid-cols-8 gap-1">
+                    <div key={wi} className="grid grid-cols-8 gap-0.5">
                       {week.days.map((d) => {
                         const iso = toISO(d);
                         const day = byDate.get(iso)!;
@@ -509,14 +525,14 @@ function CalendarPage() {
               </>
             ) : (
               <>
-                <div className="grid grid-cols-7 gap-1 mb-1 text-[10px] text-muted-foreground">
+                <div className="grid grid-cols-7 gap-0.5 mb-1 text-[10px] text-muted-foreground">
                   {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
                     <div key={d} className="text-center uppercase tracking-wide">
                       {d}
                     </div>
                   ))}
                 </div>
-                <div className="grid grid-cols-7 gap-1">
+                <div className="grid grid-cols-7 gap-0.5">
                   {gridDays.map((d) => {
                     const iso = toISO(d);
                     const day = byDate.get(iso)!;
