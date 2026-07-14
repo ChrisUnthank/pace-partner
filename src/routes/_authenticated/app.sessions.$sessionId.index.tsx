@@ -811,6 +811,7 @@ function SessionDetail() {
                         <SelectItem value="track">Track</SelectItem>
                         <SelectItem value="road">Road</SelectItem>
                         <SelectItem value="trail">Trail</SelectItem>
+                        <SelectItem value="path">Path</SelectItem>
                         <SelectItem value="grass">Grass</SelectItem>
                         <SelectItem value="treadmill">Treadmill</SelectItem>
                         <SelectItem value="mixed">Mixed</SelectItem>
