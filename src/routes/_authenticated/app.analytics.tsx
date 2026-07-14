@@ -26,7 +26,6 @@ import {
   Tooltip,
   Legend,
   ReferenceLine,
-  LabelList,
 } from "recharts";
 import { ArrowUpRight, ArrowDownRight, ArrowRight, ChevronLeft, AlertTriangle } from "lucide-react";
 
@@ -851,7 +850,7 @@ function AthleteAnalytics({
           </CardContent>
         </Card>
 
-        <VolumeColumnCard sessions={(stepVolumeSessions as any[]) ?? []} />
+        <VolumeShareCard sessions={(stepVolumeSessions as any[]) ?? []} granularity={granularity} />
       </div>
 
       {/* Physio */}
@@ -1083,25 +1082,26 @@ function startOfIsoWeek(d: Date) {
   return monday;
 }
 
-function volumePeriodLabel(period: "week" | "month" | "year") {
-  if (period === "week") return "this week";
-  if (period === "month") return "this month";
+function volumePeriodLabel(g: GranularityKey) {
+  if (g === "week") return "this week";
+  if (g === "month") return "this month";
   return "this year";
 }
 
-function VolumeColumnCard({ sessions }: { sessions: any[] }) {
-  const [mode, setMode] = useState<"minutes" | "km">("minutes");
-  const [period, setPeriod] = useState<"week" | "month" | "year">("week");
+function periodStartForGranularity(g: GranularityKey) {
+  const now = new Date();
+  if (g === "week") return startOfIsoWeek(now).toISOString().slice(0, 10);
+  if (g === "month") return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+  return new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10);
+}
 
-  // "This week" / "This month" / "This year" to-date, computed client-side against whatever
-  // the query already pulled back (from the start of the current year), so switching periods
-  // is instant with no extra round-trip.
-  const periodStartISO = useMemo(() => {
-    const now = new Date();
-    if (period === "week") return startOfIsoWeek(now).toISOString().slice(0, 10);
-    if (period === "month") return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-    return new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10);
-  }, [period]);
+// Reverted back to a pie chart (its original form) now that the page-level
+// "Training trends grouped by" control above handles Week/Month/Year — this
+// card no longer needs its own separate period toggle duplicating that.
+function VolumeShareCard({ sessions, granularity }: { sessions: any[]; granularity: GranularityKey }) {
+  const [mode, setMode] = useState<"minutes" | "km">("minutes");
+
+  const periodStartISO = useMemo(() => periodStartForGranularity(granularity), [granularity]);
 
   const data = useMemo(() => {
     const sec = new Map<string, number>();
@@ -1137,95 +1137,70 @@ function VolumeColumnCard({ sessions }: { sessions: any[] }) {
   }, [sessions, periodStartISO]);
 
   const hasData = data.some((d) => Number(d[mode]) > 0);
+  const total = data.reduce((a, d) => a + Number(d[mode]), 0);
 
   return (
     <Card>
       <CardHeader>
         <div className="flex items-start justify-between gap-2 flex-wrap">
           <div>
-            <CardTitle>Column by Session Component</CardTitle>
+            <CardTitle>Volume by Session Component</CardTitle>
             <CardDescription>
-              {mode === "minutes" ? "Time" : "Distance"} across warmup, work, strides, recovery, and cooldown —{" "}
-              {volumePeriodLabel(period)} to date.
+              Share of {mode === "minutes" ? "time" : "distance"} across warmup, work, strides, recovery, and
+              cooldown — {volumePeriodLabel(granularity)} to date.
             </CardDescription>
           </div>
-          <div className="flex flex-col items-end gap-1.5">
-            <div className="flex border rounded-md overflow-hidden text-xs">
-              <button
-                onClick={() => setPeriod("week")}
-                className={`px-2.5 py-1 ${period === "week" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
-              >
-                This week
-              </button>
-              <button
-                onClick={() => setPeriod("month")}
-                className={`px-2.5 py-1 ${period === "month" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
-              >
-                This month
-              </button>
-              <button
-                onClick={() => setPeriod("year")}
-                className={`px-2.5 py-1 ${period === "year" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
-              >
-                This year
-              </button>
-            </div>
-            <div className="flex border rounded-md overflow-hidden text-xs">
-              <button
-                onClick={() => setMode("minutes")}
-                className={`px-2.5 py-1 ${mode === "minutes" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
-              >
-                Time
-              </button>
-              <button
-                onClick={() => setMode("km")}
-                className={`px-2.5 py-1 ${mode === "km" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
-              >
-                Distance
-              </button>
-            </div>
+          <div className="flex border rounded-md overflow-hidden text-xs">
+            <button
+              onClick={() => setMode("minutes")}
+              className={`px-2.5 py-1 ${mode === "minutes" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+            >
+              Time
+            </button>
+            <button
+              onClick={() => setMode("km")}
+              className={`px-2.5 py-1 ${mode === "km" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+            >
+              Distance
+            </button>
           </div>
         </div>
       </CardHeader>
       <CardContent>
         {!hasData ? (
-          <p className="text-sm text-muted-foreground">No logged step volume {volumePeriodLabel(period)} yet.</p>
+          <p className="text-sm text-muted-foreground">No logged step volume {volumePeriodLabel(granularity)} yet.</p>
         ) : (
           <>
             <div className="h-[240px] w-full">
               <ResponsiveContainer>
-                <BarChart data={data} margin={{ top: 20, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
-                  <XAxis dataKey="kind" tick={{ fontSize: 11 }} />
-                  <YAxis
-                    tick={{ fontSize: 11 }}
-                    label={{
-                      value: mode === "minutes" ? "Minutes" : "Kilometres",
-                      angle: -90,
-                      position: "insideLeft",
-                      style: { fontSize: 11, fill: "hsl(var(--muted-foreground))" },
-                    }}
-                  />
+                <PieChart>
+                  <Pie
+                    data={data}
+                    dataKey={mode}
+                    nameKey="kind"
+                    innerRadius={45}
+                    outerRadius={80}
+                    paddingAngle={2}
+                    label={({ value }: any) => formatVolumeValue(Number(value), mode)}
+                    labelLine={{ stroke: "hsl(var(--muted-foreground))", strokeWidth: 1 }}
+                  >
+                    {data.map((d) => (
+                      <Cell key={d.kind} fill={KIND_COLORS[d.kind] ?? "#8b5cf6"} />
+                    ))}
+                  </Pie>
                   <Tooltip
                     contentStyle={{
                       background: "hsl(var(--background))",
                       border: "1px solid hsl(var(--border))",
                       fontSize: 12,
                     }}
-                    formatter={(v: any) => [formatVolumeValue(Number(v), mode), mode === "minutes" ? "Time" : "Distance"]}
+                    formatter={(v: any, n: any) => {
+                      const pct = total ? Math.round((Number(v) / total) * 100) : 0;
+                      return [`${formatVolumeValue(Number(v), mode)} (${pct}%)`, n];
+                    }}
                   />
-                  <Bar dataKey={mode} radius={[3, 3, 0, 0]}>
-                    {data.map((d) => (
-                      <Cell key={d.kind} fill={KIND_COLORS[d.kind] ?? "#8b5cf6"} />
-                    ))}
-                    <LabelList
-                      dataKey={mode}
-                      position="top"
-                      formatter={(v: any) => formatVolumeValue(Number(v), mode)}
-                      style={{ fontSize: 11, fill: "hsl(var(--foreground))" }}
-                    />
-                  </Bar>
-                </BarChart>
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                </PieChart>
               </ResponsiveContainer>
             </div>
             {mode === "km" && (
