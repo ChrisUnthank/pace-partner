@@ -126,18 +126,27 @@ function StartingFitnessPage() {
 
   async function saveEstimate() {
     if (!athleteId) return;
+    if (alreadyTracking) {
+      const ok = window.confirm(
+        `This rebuilds ALL of ${athlete?.name ?? "this athlete"}'s existing Fitness/Fatigue/Form history (${historyCount} day${historyCount === 1 ? "" : "s"}) from their first tracked day forward, using this new estimate instead of whatever's there now. Every day gets recomputed — this can't be partially undone. Continue?`,
+      );
+      if (!ok) return;
+    }
     setSaving(true);
-    const { error } = await supabase
-      .from("athletes")
-      .update({ seed_ctl: estimate, seed_atl: estimate, seed_set_at: new Date().toISOString() } as any)
-      .eq("id", athleteId);
+    const { error } = await supabase.rpc("apply_starting_fitness" as any, {
+      _athlete_id: athleteId,
+      _seed_ctl: estimate,
+      _seed_atl: estimate,
+    });
     setSaving(false);
     if (error) {
       toast.error(error.message);
       return;
     }
-    toast.success("Starting fitness saved");
+    toast.success(alreadyTracking ? "History recalculated" : "Starting fitness saved");
     qc.invalidateQueries({ queryKey: ["calc-fitness-athlete", athleteId] });
+    qc.invalidateQueries({ queryKey: ["calc-fitness-history-count", athleteId] });
+    qc.invalidateQueries({ queryKey: ["analytics-load", athleteId] });
   }
 
   return (
@@ -202,24 +211,23 @@ function StartingFitnessPage() {
           <p className="text-sm text-muted-foreground">
             {isCoach ? "Select an athlete above to continue." : "No athlete profile linked."}
           </p>
-        ) : alreadyTracking ? (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Already tracking</CardTitle>
-              <CardDescription>
-                {athlete?.name ?? "This athlete"} already has {historyCount} day{historyCount === 1 ? "" : "s"} of
-                real tracked history.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="text-sm text-muted-foreground">
-              A starting estimate only takes effect on an athlete's very first tracked day — it can't be applied
-              retroactively from here now that real data exists. If the current Fitness/Fatigue picture looks wrong
-              and needs correcting, that's a manual recompute rather than a self-service change on this page — let's
-              talk through it directly if that's what's needed.
-            </CardContent>
-          </Card>
         ) : (
           <>
+            {alreadyTracking && (
+              <Card className="border-amber-500/40 bg-amber-500/5">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">This rebuilds existing history</CardTitle>
+                  <CardDescription>
+                    {athlete?.name ?? "This athlete"} already has {historyCount} day{historyCount === 1 ? "" : "s"} of
+                    real tracked history. Saving below recalculates their <strong>entire</strong> Fitness/Fatigue/Form
+                    picture from their first tracked day forward using this new estimate instead of whatever's there
+                    now — every day gets recomputed, not just going forward. This can't be partially undone. For an
+                    athlete with a lot of history this may take a few seconds to finish.
+                  </CardDescription>
+                </CardHeader>
+              </Card>
+            )}
+
             {hasSeed && (
               <div className="flex items-center gap-2 text-sm">
                 <Badge variant="outline">Current estimate: {athlete?.seed_ctl}</Badge>
@@ -278,7 +286,15 @@ function StartingFitnessPage() {
                   <p className="text-2xl font-bold tabular-nums">{estimate}</p>
                 </div>
                 <Button onClick={saveEstimate} disabled={saving || estimate === 0}>
-                  {saving ? "Saving…" : hasSeed ? "Update estimate" : "Save as starting point"}
+                  {saving
+                    ? alreadyTracking
+                      ? "Recalculating…"
+                      : "Saving…"
+                    : alreadyTracking
+                      ? "Recalculate history with this estimate"
+                      : hasSeed
+                        ? "Update estimate"
+                        : "Save as starting point"}
                 </Button>
               </CardContent>
             </Card>
