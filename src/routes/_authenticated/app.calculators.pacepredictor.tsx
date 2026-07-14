@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ChevronLeft, Timer } from "lucide-react";
 import { clockToSec, secToClock, paceFmt } from "@/lib/format";
+import { predictTime, REFERENCE_DISTANCES } from "@/lib/race-predict";
 
 export const Route = createFileRoute("/_authenticated/app/calculators/pacepredictor")({
   component: PacePredictorPage,
@@ -27,31 +28,6 @@ const DISTANCE_OPTIONS = [
   { value: "marathon", label: "Marathon", km: 42.195 },
   { value: "custom", label: "Custom distance", km: null },
 ] as const;
-
-// Reference distances shown in the equivalent-times table.
-const REFERENCE_DISTANCES = [
-  { label: "1 Mile", km: 1.60934 },
-  { label: "3K", km: 3 },
-  { label: "5K", km: 5 },
-  { label: "8K", km: 8 },
-  { label: "10K", km: 10 },
-  { label: "15K", km: 15 },
-  { label: "10 Mile", km: 16.0934 },
-  { label: "Half Marathon", km: 21.0975 },
-  { label: "Marathon", km: 42.195 },
-];
-
-// Riegel's formula (Peter Riegel, 1977) — a standard, public-domain race
-// equivalency model: T2 = T1 x (D2/D1)^1.06. It's the same general-purpose
-// formula behind most race-time predictors; it gets less reliable the
-// bigger the gap between the input and target distance (a 5K doesn't
-// perfectly predict a marathon — aerobic endurance and fueling matter more
-// than the formula can know), which is called out below the results too.
-const RIEGEL_EXPONENT = 1.06;
-
-function predictTime(t1: number, d1: number, d2: number) {
-  return t1 * Math.pow(d2 / d1, RIEGEL_EXPONENT);
-}
 
 function PacePredictorPage() {
   const [distanceKey, setDistanceKey] = useState<string>("5k");
