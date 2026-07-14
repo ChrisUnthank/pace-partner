@@ -81,7 +81,7 @@ const METRICS = [
   { key: "cadence", label: "Cadence", color: "#8b5cf6", unit: "spm", axis: "leftInner" as const },
   { key: "elev", label: "Elevation", color: "#10b981", unit: "m", axis: "rightInner" as const },
   { key: "vo", label: "Vert Osc", color: "#f97316", unit: "cm", axis: "leftInner" as const },
-  { key: "gct", label: "Gnd Contact", color: "#a855f7", unit: "ms", axis: "rightInner" as const },
+  { key: "gct", label: "Gnd Contact", color: "#ec4899", unit: "ms", axis: "rightInner" as const },
 ] as const;
 
 const SCOPE_OPTIONS: ScopeKey[] = ["full", "warmup", "work", "recovery", "cooldown", "strides"];
@@ -720,7 +720,7 @@ function SessionAnalysis() {
                       <Line
                         yAxisId="gct"
                         dataKey="gct"
-                        stroke="#a855f7"
+                        stroke="#ec4899"
                         dot={false}
                         type="monotone"
                         connectNulls={false}
@@ -768,7 +768,7 @@ function SessionAnalysis() {
           </CardContent>
         </Card>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mt-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mt-4">
           <div className="p-3 rounded-lg bg-muted/40">
             <p className="text-xs text-muted-foreground">Distance</p>
             <p className="font-semibold">
@@ -795,16 +795,6 @@ function SessionAnalysis() {
           <div className="p-3 rounded-lg bg-muted/40">
             <p className="text-xs text-muted-foreground">HR</p>
             <p className="font-semibold">{session.avg_hr ? `${session.avg_hr} bpm` : "—"}</p>
-          </div>
-
-          <div className="p-3 rounded-lg bg-muted/40">
-            <p className="font-semibold">
-              {session.work_avg_pace_sec_per_km
-                ? speedMode === "speed"
-                  ? `${paceToSpeed(session.work_avg_pace_sec_per_km)?.toFixed(1)} km/h`
-                  : paceFmt(session.work_avg_pace_sec_per_km)
-                : "—"}
-            </p>
           </div>
 
           <div className="p-3 rounded-lg bg-muted/40">
@@ -1018,13 +1008,17 @@ function SessionAnalysis() {
                 </CardContent>
               </Card>
             )}
-
-            {/* ✅ Zones */}
-            <ZonePanel rows={safeZoneTime.filter((r: any) => r.source === "pace")} title="Pace zones" />
-            <ZonePanel rows={safeZoneTime.filter((r: any) => r.source === "hr")} title="HR zones" />
           </div>
         </div>
         {/* ✅ END 2-COLUMN LAYOUT */}
+
+        {/* Pace/HR zones moved out of the sidebar and underneath the map — full
+            width, 50/50 side by side, rather than stacked in the narrower
+            right column. */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+          <ZonePanel rows={safeZoneTime.filter((r: any) => r.source === "pace")} title="Pace zones" />
+          <ZonePanel rows={safeZoneTime.filter((r: any) => r.source === "hr")} title="HR zones" />
+        </div>
       </div>
     </AppShell>
   );
