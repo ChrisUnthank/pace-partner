@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { todayISO } from "@/lib/format";
 import { toast } from "sonner";
 import { DailyLogSessions } from "@/components/daily-log-sessions";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/app/daily-log")({
   component: DailyLog,
@@ -24,37 +25,78 @@ const MODALITIES = ["physio", "massage", "sauna", "compression", "ice_bath", "ot
 
 function DailyLog() {
   const { data: athlete, isLoading } = useMyAthlete();
+  // Which day the Vitals/End-of-day sections are showing — previously always
+  // hardcoded to today, so a missed day could never be filled in afterwards.
+  // Defaults to today but can be moved back (or forward, up to today) via the
+  // date nav below. "Today's sessions" further down deliberately stays
+  // scoped to today — it has its own separate gap and other entry points
+  // (Calendar's "+", bulk upload) already cover logging a session for a past day.
+  const [logDate, setLogDate] = useState(todayISO());
+
   if (isLoading) return <AppShell><p>Loading…</p></AppShell>;
   if (!athlete) return <AppShell><p className="text-sm">No athlete profile linked. Visit <Link to="/app/profile" className="underline">Profile</Link>.</p></AppShell>;
   return (
     <AppShell>
       <div className="space-y-6 max-w-3xl">
-        <div>
-          <h1 className="text-2xl font-bold">Daily Log</h1>
-          <p className="text-sm text-muted-foreground">Vitals, sessions, and your end-of-day reflection — open this any time during the day.</p>
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <h1 className="text-2xl font-bold">Daily Log</h1>
+            <p className="text-sm text-muted-foreground">Vitals, sessions, and your end-of-day reflection — open this any time during the day.</p>
+          </div>
+          <DateNav date={logDate} onChange={setLogDate} />
         </div>
-        <VitalsSection athleteId={athlete.id} />
+        <VitalsSection athleteId={athlete.id} date={logDate} />
         <SessionsSection athleteId={athlete.id} />
-        <EndOfDaySection athleteId={athlete.id} />
+        <EndOfDaySection athleteId={athlete.id} date={logDate} />
       </div>
     </AppShell>
   );
 }
 
-function VitalsSection({ athleteId }: { athleteId: string }) {
+function DateNav({ date, onChange }: { date: string; onChange: (d: string) => void }) {
+  const isToday = date === todayISO();
+  function shift(days: number) {
+    const d = new Date(date + "T00:00:00");
+    d.setDate(d.getDate() + days);
+    onChange(d.toISOString().slice(0, 10));
+  }
+  return (
+    <div className="flex items-center gap-1.5">
+      <Button variant="outline" size="icon" onClick={() => shift(-1)} aria-label="Previous day">
+        <ChevronLeft className="h-4 w-4" />
+      </Button>
+      <Input
+        type="date"
+        value={date}
+        max={todayISO()}
+        onChange={(e) => e.target.value && onChange(e.target.value)}
+        className="w-[150px]"
+      />
+      <Button variant="outline" size="icon" onClick={() => shift(1)} disabled={isToday} aria-label="Next day">
+        <ChevronRight className="h-4 w-4" />
+      </Button>
+      {!isToday && (
+        <Button variant="ghost" size="sm" onClick={() => onChange(todayISO())}>
+          Today
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function VitalsSection({ athleteId, date }: { athleteId: string; date: string }) {
   const qc = useQueryClient();
-  const today = todayISO();
   const { data: v } = useQuery({
-    queryKey: ["dl-vitals", athleteId, today],
+    queryKey: ["dl-vitals", athleteId, date],
     queryFn: async () => {
-      const { data } = await supabase.from("daily_vitals").select("*").eq("athlete_id", athleteId).eq("vitals_date", today).maybeSingle();
+      const { data } = await supabase.from("daily_vitals").select("*").eq("athlete_id", athleteId).eq("vitals_date", date).maybeSingle();
       return (data as any) ?? null;
     },
   });
   const { data: c } = useQuery({
-    queryKey: ["dl-checkin", athleteId, today],
+    queryKey: ["dl-checkin", athleteId, date],
     queryFn: async () => {
-      const { data } = await supabase.from("daily_checkins").select("*").eq("athlete_id", athleteId).eq("checkin_date", today).maybeSingle();
+      const { data } = await supabase.from("daily_checkins").select("*").eq("athlete_id", athleteId).eq("checkin_date", date).maybeSingle();
       return (data as any) ?? null;
     },
   });
@@ -72,29 +114,25 @@ function VitalsSection({ athleteId }: { athleteId: string }) {
   const [injuryNotes, setInjuryNotes] = useState<string>(c?.injury_notes ?? "");
 
   useEffect(() => {
-    if (!v) return;
-    if (v.sleep_hours != null) setSleepHours(String(v.sleep_hours));
-    if (v.resting_hr != null) setRestingHr(String(v.resting_hr));
-    if (v.weight_kg != null) setWeight(String(v.weight_kg));
-    if (v.hydration != null) setHydration(v.hydration);
-    if (Array.isArray(v.recovery_modalities)) setModalities(v.recovery_modalities);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [v?.id]);
+    setSleepHours(v?.sleep_hours != null ? String(v.sleep_hours) : "");
+    setRestingHr(v?.resting_hr != null ? String(v.resting_hr) : "");
+    setWeight(v?.weight_kg != null ? String(v.weight_kg) : "");
+    setHydration(v?.hydration ?? 3);
+    setModalities(Array.isArray(v?.recovery_modalities) ? v.recovery_modalities : []);
+  }, [date, v]);
   useEffect(() => {
-    if (!c) return;
-    if (c.sleep_quality != null) setSleepQ(c.sleep_quality);
-    if (c.soreness != null) setSoreness(c.soreness);
-    if (c.stress != null) setStress(c.stress);
-    if (c.motivation != null) setMotivation(c.motivation);
-    setInjury(!!c.injury_flag);
-    setInjuryNotes(c.injury_notes ?? "");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [c?.id]);
+    setSleepQ(c?.sleep_quality ?? 3);
+    setSoreness(c?.soreness ?? 2);
+    setStress(c?.stress ?? 2);
+    setMotivation(c?.motivation ?? 3);
+    setInjury(!!c?.injury_flag);
+    setInjuryNotes(c?.injury_notes ?? "");
+  }, [date, c]);
 
   async function save() {
     const vitalsPayload = {
       athlete_id: athleteId,
-      vitals_date: today,
+      vitals_date: date,
       sleep_hours: sleepHours === "" ? null : Number(sleepHours),
       resting_hr: restingHr === "" ? null : Number(restingHr),
       weight_kg: weight === "" ? null : Number(weight),
@@ -102,7 +140,7 @@ function VitalsSection({ athleteId }: { athleteId: string }) {
       recovery_modalities: modalities,
     };
     const checkinPayload = {
-      athlete_id: athleteId, checkin_date: today,
+      athlete_id: athleteId, checkin_date: date,
       sleep_quality: sleepQ, soreness, stress, motivation,
       injury_flag: injury, injury_notes: injury ? injuryNotes : null,
     };
@@ -112,19 +150,22 @@ function VitalsSection({ athleteId }: { athleteId: string }) {
     ]);
     if (v1.error || c1.error) { toast.error(v1.error?.message ?? c1.error?.message ?? "Save failed"); return; }
     toast.success("Vitals saved");
-    qc.invalidateQueries({ queryKey: ["dl-vitals", athleteId, today] });
-    qc.invalidateQueries({ queryKey: ["dl-checkin", athleteId, today] });
+    qc.invalidateQueries({ queryKey: ["dl-vitals", athleteId, date] });
+    qc.invalidateQueries({ queryKey: ["dl-checkin", athleteId, date] });
   }
 
   function toggleMod(m: string) {
     setModalities((prev) => prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]);
   }
 
+  const isToday = date === todayISO();
+  const dateLabel = new Date(date + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Today's vitals {v && <Badge variant="outline" className="ml-2 text-[10px]">Saved</Badge>}</CardTitle>
-        <CardDescription>Fill in the morning, editable any time.</CardDescription>
+        <CardTitle>{isToday ? "Today's vitals" : `Vitals — ${dateLabel}`} {v && <Badge variant="outline" className="ml-2 text-[10px]">Saved</Badge>}</CardTitle>
+        <CardDescription>{isToday ? "Fill in the morning, editable any time." : "Backfilling a missed day — editable any time."}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid sm:grid-cols-3 gap-3">
@@ -180,42 +221,42 @@ function SessionsSection({ athleteId }: { athleteId: string }) {
   );
 }
 
-function EndOfDaySection({ athleteId }: { athleteId: string }) {
+function EndOfDaySection({ athleteId, date }: { athleteId: string; date: string }) {
   const qc = useQueryClient();
-  const today = todayISO();
   const { data: anyInsight } = useQuery({
-    queryKey: ["dl-eod", athleteId, today],
+    queryKey: ["dl-eod", athleteId, date],
     queryFn: async () => {
       const { data } = await supabase.from("session_insights")
         .select("id, session_id, end_of_day_note, sessions!inner(session_date, athlete_id)")
-        .eq("sessions.athlete_id", athleteId).eq("sessions.session_date", today)
+        .eq("sessions.athlete_id", athleteId).eq("sessions.session_date", date)
         .not("end_of_day_note", "is", null)
         .limit(1).maybeSingle();
       return data as any;
     },
   });
   const [note, setNote] = useState<string>("");
-  useEffect(() => { if (anyInsight?.end_of_day_note) setNote(anyInsight.end_of_day_note); }, [anyInsight?.id]);
+  useEffect(() => { setNote(anyInsight?.end_of_day_note ?? ""); }, [date, anyInsight]);
   async function save() {
     // attach to the most recent session_insight for today; create a placeholder if none
     const { data: latest } = await supabase.from("session_insights")
       .select("id, sessions!inner(session_date, athlete_id)")
-      .eq("sessions.athlete_id", athleteId).eq("sessions.session_date", today)
+      .eq("sessions.athlete_id", athleteId).eq("sessions.session_date", date)
       .order("created_at", { ascending: false }).limit(1).maybeSingle();
-    if (!latest) { toast.error("Save at least one session first."); return; }
+    if (!latest) { toast.error("Save at least one session on this day first."); return; }
     const { error } = await supabase.from("session_insights").update({ end_of_day_note: note }).eq("id", (latest as any).id);
     if (error) { toast.error(error.message); return; }
     toast.success("End-of-day note saved");
-    qc.invalidateQueries({ queryKey: ["dl-eod", athleteId, today] });
+    qc.invalidateQueries({ queryKey: ["dl-eod", athleteId, date] });
   }
+  const isToday = date === todayISO();
   return (
     <Card>
       <CardHeader>
-        <CardTitle>End of day note</CardTitle>
+        <CardTitle>{isToday ? "End of day note" : "Day note"}</CardTitle>
         <CardDescription>Visible to you and your coach.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        <Textarea placeholder="Anything else worth noting about today?" value={note} onChange={(e) => setNote(e.target.value)} />
+        <Textarea placeholder={isToday ? "Anything else worth noting about today?" : "Anything else worth noting about this day?"} value={note} onChange={(e) => setNote(e.target.value)} />
         <Button onClick={save}>Save note</Button>
       </CardContent>
     </Card>
