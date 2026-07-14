@@ -19,11 +19,11 @@ const CALCULATORS = [
     available: true,
   },
   {
-    to: null,
+    to: "/app/calculators/pacepredictor",
     title: "Pace / Race Predictor",
     description: "Convert a recent race time into equivalent times at other distances, plus training paces.",
     icon: Timer,
-    available: false,
+    available: true,
   },
   {
     to: null,
