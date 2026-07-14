@@ -384,6 +384,26 @@ function AthleteAnalytics({
     },
   });
 
+  // Baseline-building window — the contiguous run of "insufficient"/"low"
+  // confidence days at the very start of the loaded range (confidence is
+  // already computed server-side from how many of the trailing 28 days have
+  // real data). Every athlete's chart ramps up from zero on their first
+  // logged day regardless of how much real training history they actually
+  // bring in — this doesn't fix that, it just makes the chart honest about
+  // which early stretch shouldn't be read as a true fitness picture yet.
+  const lowConfidenceEndDate = useMemo(() => {
+    if (!load || load.length === 0) return null;
+    let lastLowConfDate: string | null = null;
+    for (const row of load) {
+      if (row.confidence === "insufficient" || row.confidence === "low") {
+        lastLowConfDate = row.load_date as string;
+      } else {
+        break; // only the contiguous run from the very start counts
+      }
+    }
+    return lastLowConfDate;
+  }, [load]);
+
   const { data: fatigue } = useQuery({
     queryKey: ["analytics-fatigue", athleteId, since],
     queryFn: async () => {
@@ -617,6 +637,17 @@ function AthleteAnalytics({
               <div className="h-[320px] w-full">
                 <ResponsiveContainer>
                   <ComposedChart data={load} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
+                    <defs>
+                      <pattern
+                        id="lowConfidenceHatch"
+                        patternUnits="userSpaceOnUse"
+                        width="6"
+                        height="6"
+                        patternTransform="rotate(45)"
+                      >
+                        <line x1="0" y1="0" x2="0" y2="6" stroke="hsl(var(--muted-foreground))" strokeOpacity="0.4" strokeWidth="1.5" />
+                      </pattern>
+                    </defs>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
                     <XAxis dataKey="load_date" tick={{ fontSize: 11 }} minTickGap={32} />
                     <YAxis tick={{ fontSize: 11 }} />
@@ -644,6 +675,14 @@ function AthleteAnalytics({
                     <ReferenceArea y1={-40} y2={20} fill="#94a3b8" fillOpacity={0.05} />
                     <ReferenceArea y1={-120} y2={-40} fill="#f59e0b" fillOpacity={0.06} />
                     <ReferenceArea y1={-100000} y2={-120} fill="#ef4444" fillOpacity={0.08} />
+                    {lowConfidenceEndDate && (
+                      <ReferenceArea
+                        x1={load[0].load_date as string}
+                        x2={lowConfidenceEndDate}
+                        fill="url(#lowConfidenceHatch)"
+                        ifOverflow="extendDomain"
+                      />
+                    )}
                     <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeDasharray="2 4" />
                     <Area
                       type="monotone"
@@ -693,6 +732,21 @@ function AthleteAnalytics({
               <p className="text-[11px] text-muted-foreground mt-1">
                 Bands are a starting estimate for this app's own training-load scale, not empirically tuned yet.
               </p>
+              {lowConfidenceEndDate && (
+                <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1.5">
+                  <span
+                    className="inline-block h-2.5 w-2.5 rounded-sm shrink-0"
+                    style={{
+                      backgroundImage:
+                        "repeating-linear-gradient(45deg, hsl(var(--muted-foreground)) 0, hsl(var(--muted-foreground)) 1px, transparent 1px, transparent 4px)",
+                      opacity: 0.6,
+                    }}
+                  />
+                  Hatched region (through {lowConfidenceEndDate}): building baseline — not enough history yet to
+                  fully trust these early readings, especially for an athlete with real training history predating
+                  this app.
+                </p>
+              )}
             </>
           )}
         </CardContent>
