@@ -11,7 +11,7 @@ export const Route = createFileRoute("/_authenticated/app/calculators/")({
 
 const CALCULATORS = [
   {
-    to: "/app/calculators/starting-fitness",
+    to: "/app/calculators/startingfitness",
     title: "Starting Fitness",
     description:
       "Give a new athlete a real starting Fitness/Fatigue estimate from a typical recent week, instead of everyone beginning at zero.",
