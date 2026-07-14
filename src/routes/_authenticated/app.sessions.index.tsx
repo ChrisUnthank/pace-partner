@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { sessionColorClass } from "@/components/calendar-day-cell";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
+import { ReadinessBadge } from "@/components/readiness-badge";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/")({
   component: SessionsList,
@@ -85,6 +86,62 @@ function SessionsList() {
     () => (athleteNameRows ?? []).map((a: any) => [a.id, a.name] as [string, string]),
     [athleteNameRows],
   );
+
+  // "This week" quick stats + readiness, for the logged-in athlete's own view (a coach
+  // browsing a roster of athletes doesn't have one single "current athlete" to summarize,
+  // so this only renders when `athlete` — the logged-in user's own athlete profile — exists).
+  const weekStartISO = useMemo(() => {
+    const now = new Date();
+    const day = now.getDay() || 7; // Mon=1 .. Sun=7
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - day + 1);
+    monday.setHours(0, 0, 0, 0);
+    return monday.toISOString().slice(0, 10);
+  }, []);
+
+  const { data: weekSessions } = useQuery({
+    queryKey: ["sessions-week-summary", athlete?.id, weekStartISO],
+    enabled: !!athlete,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("sessions")
+        .select("total_distance_m, total_time_seconds, completed_at")
+        .eq("athlete_id", athlete!.id)
+        .gte("session_date", weekStartISO);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const weekSummary = useMemo(() => {
+    let distanceM = 0;
+    let timeS = 0;
+    let done = 0;
+    for (const s of weekSessions ?? []) {
+      if (s.completed_at) {
+        distanceM += Number(s.total_distance_m ?? 0);
+        timeS += Number(s.total_time_seconds ?? 0);
+        done += 1;
+      }
+    }
+    return { distanceM, timeS, done, total: (weekSessions ?? []).length };
+  }, [weekSessions]);
+
+  const { data: latestLoad } = useQuery({
+    queryKey: ["sidebar-latest-load", athlete?.id],
+    enabled: !!athlete,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("athlete_load_daily")
+        .select("readiness_status, readiness_score, confidence")
+        .eq("athlete_id", athlete!.id)
+        .order("load_date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
 
   // Real, server-side pagination — 10 sessions per page, filtered at the query level
   // (not client-side afterwards), so "Show more" and the athlete/status filters both
@@ -210,31 +267,69 @@ function SessionsList() {
               </Dialog>
             )}
           </div>
+
+          {/* This week + readiness — only meaningful for the logged-in user's own athlete
+              profile, not a coach browsing a roster of several athletes at once. */}
+          {athlete && (
+            <Card className="mt-3">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle className="text-sm">This week</CardTitle>
+                  <ReadinessBadge
+                    status={latestLoad?.readiness_status as any}
+                    score={latestLoad?.readiness_score as any}
+                    confidence={latestLoad?.confidence as any}
+                  />
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-1 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Distance</span>
+                  <span className="font-medium">{metersFmt(weekSummary.distanceM)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Time</span>
+                  <span className="font-medium">{secToClock(weekSummary.timeS)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Sessions</span>
+                  <span className="font-medium">
+                    {weekSummary.done}/{weekSummary.total}
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {(isCoach || athlete) && athleteOptions.length > 1 && (
+            <Card className="mt-3">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Filter</CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-2">
+                <Select value={filterAthlete} onValueChange={setFilterAthlete}>
+                  <SelectTrigger className="h-9 w-full"><SelectValue placeholder="All athletes" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All athletes</SelectItem>
+                    {athleteOptions.map(([id, name]) => (
+                      <SelectItem key={id} value={id}>{name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={filterStatus} onValueChange={setFilterStatus}>
+                  <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All statuses</SelectItem>
+                    <SelectItem value="planned">Planned</SelectItem>
+                    <SelectItem value="done">Completed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         <div className="order-2 lg:order-1 lg:col-span-3 space-y-3">
-          {(isCoach || athlete) && athleteOptions.length > 1 && (
-            <div className="flex flex-wrap gap-2">
-              <Select value={filterAthlete} onValueChange={setFilterAthlete}>
-                <SelectTrigger className="h-9 w-[200px]"><SelectValue placeholder="All athletes" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All athletes</SelectItem>
-                  {athleteOptions.map(([id, name]) => (
-                    <SelectItem key={id} value={id}>{name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select value={filterStatus} onValueChange={setFilterStatus}>
-                <SelectTrigger className="h-9 w-[160px]"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All statuses</SelectItem>
-                  <SelectItem value="planned">Planned</SelectItem>
-                  <SelectItem value="done">Completed</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-
           <Card>
             <CardHeader>
               <CardTitle>Recent</CardTitle>
