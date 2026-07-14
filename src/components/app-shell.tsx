@@ -22,6 +22,7 @@ import {
   Trophy,
   Gauge,
   Calculator,
+  GitCompare,
   IdCard,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -68,6 +69,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     { to: "/app/analytics", label: "Analytics", icon: LineChart, show: true },
     { to: "/app/races", label: "Races", icon: Trophy, show: true },
     { to: "/app/calculators", label: "Calculators", icon: Calculator, show: true },
+    { to: "/app/compare", label: "Compare", icon: GitCompare, show: true },
     { to: "/app/athletes", label: "Athletes", icon: Users, show: isCoach },
     { to: "/app/templates", label: "Templates", icon: BookmarkCheck, show: isCoach },
     { to: "/app/noticeboard", label: "Noticeboard", icon: Megaphone, show: true },
