@@ -12,7 +12,7 @@ import {
   CartesianGrid,
   Legend,
 } from "recharts";
-import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, useMap, Tooltip as LeafletTooltip } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { FEEL_LEVELS } from "@/components/feel-faces";
@@ -1165,6 +1165,92 @@ function kmDivIcon(km: number) {
   });
 }
 
+function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const R = 6371000;
+  const p1 = (lat1 * Math.PI) / 180;
+  const p2 = (lat2 * Math.PI) / 180;
+  const dphi = ((lat2 - lat1) * Math.PI) / 180;
+  const dlmb = ((lng2 - lng1) * Math.PI) / 180;
+  const a = Math.sin(dphi / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dlmb / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+// Splits a GPS trace into contiguous runs, breaking at any 60s+ recording
+// gap (the same threshold this codebase already uses elsewhere for
+// merged-file boundaries), then flags a run as "indoor" when its recorded
+// distance is far larger than its actual geographic spread — the signature
+// of a treadmill or other GPS-denied segment: the watch's accelerometer
+// keeps estimating distance accurately, but the GPS chip can't get a clean
+// fix indoors and drifts pseudo-randomly within a small area instead of
+// freezing at one exact point. Known limitation: a genuine outdoor route
+// that loops tightly (many laps of a small park, say) can trip the same
+// heuristic — there's no way to fully tell the two apart from GPS +
+// distance alone, short of the athlete marking the session's terrain.
+const INDOOR_GAP_THRESHOLD_S = 60;
+const INDOOR_MIN_DISTANCE_M = 800;
+const INDOOR_MAX_RADIUS_M = 700;
+const INDOOR_MIN_RATIO = 2.5;
+
+function splitIndoorRuns<T extends { lat?: number; lng?: number; t?: number; d?: number }>(points: T[]) {
+  const runs: T[][] = [];
+  let current: T[] = [];
+  let prevT: number | null = null;
+  for (const p of points) {
+    const t = Number(p.t ?? 0);
+    if (prevT != null && t - prevT > INDOOR_GAP_THRESHOLD_S && current.length) {
+      runs.push(current);
+      current = [];
+    }
+    current.push(p);
+    prevT = t;
+  }
+  if (current.length) runs.push(current);
+
+  const outdoorPoints: T[] = [];
+  const indoorRuns: { centroid: [number, number]; startD: number; endD: number }[] = [];
+
+  for (const run of runs) {
+    if (run.length < 2) {
+      outdoorPoints.push(...run);
+      continue;
+    }
+    const first = run[0];
+    const lastP = run[run.length - 1];
+    const distCovered = Math.max(0, Number(lastP.d ?? 0) - Number(first.d ?? 0));
+    const lats = run.map((p) => Number(p.lat));
+    const lngs = run.map((p) => Number(p.lng));
+    const centroidLat = lats.reduce((a, b) => a + b, 0) / lats.length;
+    const centroidLng = lngs.reduce((a, b) => a + b, 0) / lngs.length;
+    const maxRadius = Math.max(...run.map((p) => haversineMeters(centroidLat, centroidLng, Number(p.lat), Number(p.lng))));
+
+    const isIndoor =
+      distCovered >= INDOOR_MIN_DISTANCE_M &&
+      maxRadius <= INDOOR_MAX_RADIUS_M &&
+      distCovered / Math.max(maxRadius, 1) >= INDOOR_MIN_RATIO;
+
+    if (isIndoor) {
+      indoorRuns.push({ centroid: [centroidLat, centroidLng], startD: Number(first.d ?? 0), endD: Number(lastP.d ?? 0) });
+    } else {
+      outdoorPoints.push(...run);
+    }
+  }
+
+  return { outdoorPoints, indoorRuns };
+}
+
+// Lucide's own Dumbbell icon path data, inlined so the treadmill/indoor
+// marker matches the rest of the app's iconography without needing a
+// second icon library or a hand-drawn approximation.
+function treadmillDivIcon() {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17.596 12.768a2 2 0 1 0 2.829-2.829l-1.768-1.767a2 2 0 0 0 2.828-2.829l-2.828-2.828a2 2 0 0 0-2.829 2.828l-1.767-1.768a2 2 0 1 0-2.829 2.829z"/><path d="m2.5 21.5 1.4-1.4"/><path d="m20.1 3.9 1.4-1.4"/><path d="M5.343 21.485a2 2 0 1 0 2.829-2.828l1.767 1.768a2 2 0 1 0 2.829-2.829l-6.364-6.364a2 2 0 1 0-2.829 2.829l1.768 1.767a2 2 0 0 0-2.828 2.829z"/><path d="m9.6 14.4 4.8-4.8"/></svg>`;
+  return L.divIcon({
+    className: "",
+    html: `<div style="background:#8b5cf6;border:2px solid #fff;border-radius:8px;width:26px;height:26px;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,0.4);">${svg}</div>`,
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
+  });
+}
+
 function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?: string; t?: number; d?: number }[] }) {
   const safePoints = useMemo(() => {
     return Array.isArray(points)
@@ -1232,8 +1318,15 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?:
     );
   }
 
-  const lats = safePoints.map((p) => Number(p.lat));
-  const lngs = safePoints.map((p) => Number(p.lng));
+  // Exclude any indoor/treadmill-drift segment from the plotted route (see
+  // splitIndoorRuns above) — falls back to the full point set if that would
+  // leave nothing usable (e.g. a session that's genuinely indoor-only end to
+  // end), so this never produces an empty map.
+  const { outdoorPoints, indoorRuns } = splitIndoorRuns(safePoints);
+  const geoPoints = outdoorPoints.length >= 2 ? outdoorPoints : safePoints;
+
+  const lats = geoPoints.map((p) => Number(p.lat));
+  const lngs = geoPoints.map((p) => Number(p.lng));
   const minLat = Math.min(...lats);
   const maxLat = Math.max(...lats);
   const minLng = Math.min(...lngs);
@@ -1244,8 +1337,8 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?:
     [maxLat, maxLng],
   ];
 
-  const first = safePoints[0];
-  const last = safePoints[safePoints.length - 1];
+  const first = geoPoints[0];
+  const last = geoPoints[geoPoints.length - 1];
 
   // Km markers along the route (matching Final Surge's numbered split markers)
   // — walk the recorded points in order and drop a marker every time
@@ -1257,7 +1350,7 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?:
   const kmMarkers: { position: [number, number]; km: number }[] = [];
   {
     let nextKm = 1;
-    for (const p of safePoints) {
+    for (const p of geoPoints) {
       if (p.d == null) continue;
       const traveled = Number(p.d) - startDistance;
       if (traveled >= nextKm * 1000) {
@@ -1267,11 +1360,18 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?:
     }
   }
 
+  // Distance-range labels for any excluded indoor run, on the same km scale
+  // as the markers above (offset against the route's own starting distance).
+  const treadmillMarkers = indoorRuns.map((run) => ({
+    position: run.centroid,
+    label: `${((run.startD - startDistance) / 1000).toFixed(1)}–${((run.endD - startDistance) / 1000).toFixed(1)} km`,
+  }));
+
   // Group consecutive same-kind points into segments so each can be drawn as
   // its own colored Polyline (matching the same warmup/work/cooldown colors
   // used everywhere else on this page).
   const segments: { kind: string; positions: [number, number][] }[] = [];
-  safePoints.forEach((p, i) => {
+  geoPoints.forEach((p, i) => {
     const kind = p.stepKind || "work";
     const pos: [number, number] = [Number(p.lat), Number(p.lng)];
     const lastSeg = segments[segments.length - 1];
@@ -1279,7 +1379,7 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?:
       lastSeg.positions.push(pos);
     } else {
       // include the previous point too so segments connect with no visual gap
-      const prevPos = i > 0 ? ([Number(safePoints[i - 1].lat), Number(safePoints[i - 1].lng)] as [number, number]) : pos;
+      const prevPos = i > 0 ? ([Number(geoPoints[i - 1].lat), Number(geoPoints[i - 1].lng)] as [number, number]) : pos;
       segments.push({ kind, positions: [prevPos, pos] });
     }
   });
@@ -1351,6 +1451,12 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?:
                 </div>
               ),
           )}
+          {treadmillMarkers.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full" style={{ background: "#8b5cf6" }} />
+              <span className="text-muted-foreground">Treadmill (GPS excluded)</span>
+            </div>
+          )}
         </div>
 
         <div className="flex-1 min-h-[400px] rounded overflow-hidden border">
@@ -1366,6 +1472,13 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?:
             ))}
             {kmMarkers.map((m) => (
               <Marker key={m.km} position={m.position} icon={kmDivIcon(m.km)} />
+            ))}
+            {treadmillMarkers.map((m, i) => (
+              <Marker key={`tm-${i}`} position={m.position} icon={treadmillDivIcon()}>
+                <LeafletTooltip permanent direction="top" offset={[0, -14]} className="text-xs font-medium">
+                  Treadmill · {m.label}
+                </LeafletTooltip>
+              </Marker>
             ))}
             <CircleMarker
               center={[Number(first.lat), Number(first.lng)]}
