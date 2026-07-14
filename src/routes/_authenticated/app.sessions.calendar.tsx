@@ -21,6 +21,7 @@ import {
   sessionShortLabel,
 } from "@/components/calendar-day-cell";
 import { sessionClassificationLabel } from "@/lib/session-categories";
+import { metersFmt, secToClock } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/user-avatar";
 import { useServerFn } from "@tanstack/react-start";
@@ -587,6 +588,24 @@ function CalendarPage() {
           </SheetHeader>
           {sheetDay && (
             <div className="mt-4 space-y-2">
+              {(() => {
+                let distanceM = 0;
+                let timeS = 0;
+                let completedCount = 0;
+                for (const s of sheetDay.sessions) {
+                  if (!s.completed_at) continue;
+                  completedCount++;
+                  if (s.total_distance_m) distanceM += s.total_distance_m;
+                  if (s.total_time_seconds) timeS += s.total_time_seconds;
+                }
+                if (completedCount === 0) return null;
+                return (
+                  <div className="text-sm font-medium">
+                    {metersFmt(distanceM)} · {secToClock(timeS)}
+                    {sheetDay.sessions.length > 1 ? ` across ${completedCount} sessions` : ""}
+                  </div>
+                );
+              })()}
               {sheetDay.readiness_status && (
                 <div className="text-xs text-muted-foreground">
                   Readiness: <span className="font-medium capitalize">{sheetDay.readiness_status}</span>
