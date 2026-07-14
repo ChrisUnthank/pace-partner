@@ -286,5 +286,4 @@ function StartingFitnessPage() {
       </div>
     </AppShell>
   );
-  
 }
