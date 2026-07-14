@@ -362,6 +362,15 @@ function SessionAnalysis() {
   const showContinuousFatigueCard = hasRaw && !isIntervals;
   const showIntervalFatigueHint = isManualOnly && safeResults.length > 0;
 
+  // Pace:HR decoupling — same gating as the continuous fatigue card above,
+  // since it's the same kind of metric (an aerobic-efficiency read on a
+  // continuous effort, not something that means much across fragmented
+  // interval reps).
+  const decoupling = useMemo(() => {
+    if (!hasRaw || isIntervals) return null;
+    return computeDecoupling(samples);
+  }, [samples, hasRaw, isIntervals]);
+
   useEffect(() => {
     if (!session) return;
     if (session.structure !== "continuous") return;
@@ -944,6 +953,53 @@ function SessionAnalysis() {
               </Card>
             )}
 
+            {decoupling && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle>Aerobic decoupling (Pa:Hr)</CardTitle>
+                  <CardDescription>
+                    How much speed-per-heartbeat dropped from the first half to the second.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="text-sm space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span
+                      className={
+                        decoupling.pct < 5
+                          ? "text-2xl font-bold text-emerald-600"
+                          : decoupling.pct < 10
+                            ? "text-2xl font-bold text-amber-600"
+                            : "text-2xl font-bold text-red-600"
+                      }
+                    >
+                      {decoupling.pct.toFixed(1)}%
+                    </span>
+                    <span className="text-xs text-muted-foreground text-right max-w-[55%]">
+                      {decoupling.pct < 5
+                        ? "Well aerobically adapted for this effort"
+                        : decoupling.pct < 10
+                          ? "Mild drift — within a normal range"
+                          : "Notable drift — HR climbed well ahead of pace late on"}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="border rounded px-3 py-2">
+                      <p className="text-xs text-muted-foreground">First half</p>
+                      <p className="font-medium tabular-nums">
+                        {paceFmt(decoupling.firstHalf.pace)}/km · {Math.round(decoupling.firstHalf.hr)} bpm
+                      </p>
+                    </div>
+                    <div className="border rounded px-3 py-2">
+                      <p className="text-xs text-muted-foreground">Second half</p>
+                      <p className="font-medium tabular-nums">
+                        {paceFmt(decoupling.secondHalf.pace)}/km · {Math.round(decoupling.secondHalf.hr)} bpm
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {repFatigue.length > 0 && (
               <Card>
                 <CardHeader>
@@ -1510,6 +1566,46 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?:
 function paceToSpeed(paceSecPerKm?: number | null) {
   if (!paceSecPerKm || paceSecPerKm <= 0) return null;
   return 3600 / paceSecPerKm;
+}
+
+// Pace:HR decoupling ("aerobic decoupling") — compares speed-per-heartbeat
+// (an efficiency factor) between the first and second half of a continuous
+// effort, by elapsed time. A well aerobically-adapted effort holds a similar
+// EF throughout (low decoupling); EF dropping noticeably in the second half
+// means HR is climbing relative to pace late on — a sign of aerobic fatigue
+// or a session that outran current fitness. Same underlying concept
+// TrainingPeaks calls "Pa:Hr". Needs a real, mostly-continuous pace+HR trace
+// to mean anything — returns null rather than a misleading number if there
+// isn't enough clean data on both sides of the midpoint.
+function computeDecoupling(samples: Sample[]): {
+  pct: number;
+  firstHalf: { pace: number; hr: number };
+  secondHalf: { pace: number; hr: number };
+} | null {
+  const valid = samples.filter((s) => s.pace != null && s.pace > 0 && s.hr != null && s.hr > 0);
+  if (valid.length < 20) return null;
+
+  const tMin = valid[0].t;
+  const tMax = valid[valid.length - 1].t;
+  const midpoint = (tMin + tMax) / 2;
+
+  const first = valid.filter((s) => s.t <= midpoint);
+  const second = valid.filter((s) => s.t > midpoint);
+  if (first.length < 5 || second.length < 5) return null;
+
+  const avg = (arr: Sample[], key: "pace" | "hr") => arr.reduce((a, s) => a + Number(s[key]), 0) / arr.length;
+  const pace1 = avg(first, "pace");
+  const hr1 = avg(first, "hr");
+  const pace2 = avg(second, "pace");
+  const hr2 = avg(second, "hr");
+
+  // Efficiency factor: speed (m/s) per heartbeat — higher is more efficient.
+  const ef1 = 1000 / pace1 / hr1;
+  const ef2 = 1000 / pace2 / hr2;
+  if (!Number.isFinite(ef1) || ef1 <= 0) return null;
+
+  const pct = ((ef1 - ef2) / ef1) * 100;
+  return { pct, firstHalf: { pace: pace1, hr: hr1 }, secondHalf: { pace: pace2, hr: hr2 } };
 }
 
 function buildSamples(
