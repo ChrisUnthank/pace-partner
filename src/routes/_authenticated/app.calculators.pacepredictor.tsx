@@ -87,8 +87,8 @@ function PacePredictorPage() {
             <Timer className="h-5 w-5" /> Pace / Race Predictor
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Enter a recent race result to get equivalent times at other distances, plus training paces built from
-            that same performance.
+            Enter a recent race result to get equivalent times at other distances, plus training paces built from that
+            same performance.
           </p>
         </div>
 
@@ -142,7 +142,9 @@ function PacePredictorPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Equivalent race times</CardTitle>
-                <CardDescription>Predicted from your result using Riegel's formula (T2 = T1 × (D2/D1)^1.06).</CardDescription>
+                <CardDescription>
+                  Predicted from your result using Riegel's formula (T2 = T1 × (D2/D1)^1.06).
+                </CardDescription>
               </CardHeader>
               <CardContent className="p-0">
                 <div className="divide-y">
@@ -161,7 +163,9 @@ function PacePredictorPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Training paces</CardTitle>
-                <CardDescription>Built from the same predicted performance, not a separate lookup table.</CardDescription>
+                <CardDescription>
+                  Built from the same predicted performance, not a separate lookup table.
+                </CardDescription>
               </CardHeader>
               <CardContent className="p-0">
                 <div className="divide-y">
@@ -178,10 +182,10 @@ function PacePredictorPage() {
             </Card>
 
             <p className="text-xs text-muted-foreground">
-              These are estimates, most accurate for distances reasonably close to your entered result — a 5K
-              predicts a 10K well, but predicting a marathon from it leans heavily on the formula alone, since aerobic
-              endurance and fueling matter more over that gap than any pace formula can know. Treat the marathon
-              prediction especially as a rough guide, not a guarantee.
+              These are estimates, most accurate for distances reasonably close to your entered result — a 5K predicts a
+              10K well, but predicting a marathon from it leans heavily on the formula alone, since aerobic endurance
+              and fueling matter more over that gap than any pace formula can know. Treat the marathon prediction
+              especially as a rough guide, not a guarantee.
             </p>
           </>
         )}

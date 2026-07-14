@@ -14,15 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { GitCompare, ArrowLeftRight, TrendingUp, TrendingDown, Minus, Search } from "lucide-react";
 import { secToClock, paceFmt } from "@/lib/format";
 import { predictTime } from "@/lib/race-predict";
-import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-} from "recharts";
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 
 export const Route = createFileRoute("/_authenticated/app/compare")({
   component: ComparePage,
@@ -98,7 +90,7 @@ function ComparePage() {
   });
 
   const [selectedAthleteId, setSelectedAthleteId] = useState("");
-  const athleteId = isCoach ? selectedAthleteId : myAthlete?.id ?? "";
+  const athleteId = isCoach ? selectedAthleteId : (myAthlete?.id ?? "");
 
   const { data: sessions = [] } = useQuery({
     queryKey: ["compare-sessions", athleteId],
@@ -243,7 +235,9 @@ function ComparePage() {
 
     const direction = deltaSec > 5 ? "improved" : deltaSec < -5 ? "declined" : "held steady";
     const paceLine = `Predicted 10K equivalent for this session type ${direction} from ${secToClock(first.predicted10k)} to ${secToClock(last.predicted10k)} between ${first.session_date} and ${last.session_date}${
-      Math.abs(deltaSec) > 5 ? ` (${deltaSec > 0 ? "-" : "+"}${secToClock(Math.abs(deltaSec))}, ${Math.abs(pct).toFixed(1)}% ${deltaSec > 0 ? "faster" : "slower"})` : ""
+      Math.abs(deltaSec) > 5
+        ? ` (${deltaSec > 0 ? "-" : "+"}${secToClock(Math.abs(deltaSec))}, ${Math.abs(pct).toFixed(1)}% ${deltaSec > 0 ? "faster" : "slower"})`
+        : ""
     }.`;
 
     let fitnessLine = "";
@@ -272,8 +266,8 @@ function ComparePage() {
             <GitCompare className="h-5 w-5" /> Compare Sessions
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            See how a repeated or similar session type has changed over time — and what that actually means for
-            fitness and likely race performance, not just a pace number.
+            See how a repeated or similar session type has changed over time — and what that actually means for fitness
+            and likely race performance, not just a pace number.
           </p>
         </div>
 
@@ -331,8 +325,8 @@ function ComparePage() {
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">Predicted 10K equivalent, over time</CardTitle>
                   <CardDescription>
-                    Each selected session's work pace/distance projected onto a standard 10K via Riegel's formula —
-                    the same engine behind the Pace/Race Predictor calculator.
+                    Each selected session's work pace/distance projected onto a standard 10K via Riegel's formula — the
+                    same engine behind the Pace/Race Predictor calculator.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -393,7 +387,9 @@ function ComparePage() {
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">Direct matches</CardTitle>
-                  <CardDescription>Same intent, structure, and work-step shape — the closest apples-to-apples comparisons.</CardDescription>
+                  <CardDescription>
+                    Same intent, structure, and work-step shape — the closest apples-to-apples comparisons.
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-2">
                   {sameGroups.length === 0 ? (
@@ -423,7 +419,10 @@ function ComparePage() {
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">Similar sessions</CardTitle>
-                  <CardDescription>Same intent and structure type, but not an exact repeat — normalized via predicted equivalent, not raw pace.</CardDescription>
+                  <CardDescription>
+                    Same intent and structure type, but not an exact repeat — normalized via predicted equivalent, not
+                    raw pace.
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-2">
                   {similarGroups.length === 0 ? (
