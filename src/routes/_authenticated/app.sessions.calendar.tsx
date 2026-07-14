@@ -185,7 +185,7 @@ function CalendarPage() {
     queryKey: ["calendar", selectedAthleteId, rangeStart, rangeEnd],
     enabled: !!selectedAthleteId,
     queryFn: async () => {
-      const [{ data: sessions }, { data: load }] = await Promise.all([
+      const [{ data: sessions }, { data: load }, { data: vitals }] = await Promise.all([
         supabase
           .from("sessions")
           .select(
@@ -201,6 +201,15 @@ function CalendarPage() {
           .eq("athlete_id", selectedAthleteId)
           .gte("load_date", rangeStart)
           .lte("load_date", rangeEnd),
+        // Resting HR logged via the Daily Log — same table already backing the
+        // Home dashboard and readiness score, just surfaced here too now,
+        // matching TrainingPeaks' calendar Metrics card.
+        supabase
+          .from("daily_vitals")
+          .select("vitals_date, resting_hr")
+          .eq("athlete_id", selectedAthleteId)
+          .gte("vitals_date", rangeStart)
+          .lte("vitals_date", rangeEnd),
       ]);
       const sIds = (sessions ?? []).map((s) => s.id);
       let fatigue: any[] = [];
@@ -211,7 +220,7 @@ function CalendarPage() {
           .in("session_id", sIds);
         fatigue = fz ?? [];
       }
-      return { sessions: (sessions ?? []) as CalendarSession[], load: load ?? [], fatigue };
+      return { sessions: (sessions ?? []) as CalendarSession[], load: load ?? [], fatigue, vitals: vitals ?? [] };
     },
   });
 
@@ -245,6 +254,11 @@ function CalendarPage() {
         day.readiness_status = r.readiness_status as any;
         day.readiness_score = r.readiness_score as any;
         day.training_load = r.training_load as any;
+      }
+      for (const v of bundle.vitals) {
+        const day = map.get(v.vitals_date);
+        if (!day) continue;
+        day.restingHr = v.resting_hr as any;
       }
     }
     return map;
@@ -578,6 +592,11 @@ function CalendarPage() {
                   Readiness: <span className="font-medium capitalize">{sheetDay.readiness_status}</span>
                   {sheetDay.readiness_score != null ? ` · ${Math.round(sheetDay.readiness_score)}` : ""}
                   {sheetDay.training_load != null ? ` · Training load ${Math.round(sheetDay.training_load)}` : ""}
+                </div>
+              )}
+              {sheetDay.restingHr != null && (
+                <div className="text-xs text-muted-foreground">
+                  Resting HR: <span className="font-medium">{sheetDay.restingHr} bpm</span>
                 </div>
               )}
               {sheetDay.sessions.length === 0 ? (
