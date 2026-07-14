@@ -15,6 +15,7 @@ import {
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { FEEL_LEVELS } from "@/components/feel-faces";
 
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/app-shell";
@@ -125,6 +126,18 @@ function SessionAnalysis() {
       return data;
     },
     retry: false,
+  });
+
+  // Feel (Very Weak..Very Strong) — same session_insights.feel_score the
+  // Overview page's faces and the post-session reflection modal both write
+  // to; shown here read-only since this page doesn't have any save/edit
+  // affordances of its own.
+  const { data: sessionInsight } = useQuery({
+    queryKey: ["session-feel", sessionId],
+    queryFn: async () => {
+      const { data } = await supabase.from("session_insights").select("feel_score").eq("session_id", sessionId).maybeSingle();
+      return (data as any) ?? null;
+    },
   });
 
   const { data: steps = [] } = useQuery({
@@ -870,7 +883,7 @@ function SessionAnalysis() {
               <CardHeader className="pb-2">
                 <CardTitle>Session feedback</CardTitle>
               </CardHeader>
-              <CardContent className="grid grid-cols-2 gap-4">
+              <CardContent className="grid grid-cols-3 gap-4">
                 <div>
                   <p className="text-xs text-muted-foreground">RPE</p>
                   <p className="font-semibold">{session.rpe ?? "—"}</p>
@@ -878,6 +891,19 @@ function SessionAnalysis() {
                 <div>
                   <p className="text-xs text-muted-foreground">Completion</p>
                   <p className="font-semibold">{session.completed_at ? "100%" : "Not completed"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Feel</p>
+                  {(() => {
+                    const lvl = FEEL_LEVELS.find((l) => l.value === sessionInsight?.feel_score);
+                    if (!lvl) return <p className="font-semibold">—</p>;
+                    const Icon = lvl.Icon;
+                    return (
+                      <p className={`font-semibold flex items-center gap-1 ${lvl.color}`}>
+                        <Icon className="h-4 w-4" /> {lvl.label}
+                      </p>
+                    );
+                  })()}
                 </div>
               </CardContent>
             </Card>
