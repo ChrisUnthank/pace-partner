@@ -504,9 +504,17 @@ function performanceKey(row: {
 }
 
 function parseBulkPerformances(text: string, athleteId: string): BulkImportRow[] {
+  // Normalize unicode noise from Athletics Victoria copy/paste:
+  // strip zero-width chars, convert non-breaking spaces, then trim.
   const rawLines = text
+    .replace(/\r/g, "")
     .split("\n")
-    .map((line) => line.trim())
+    .map((line) =>
+      line
+        .replace(/[\u200B-\u200D\uFEFF]/g, "")
+        .replace(/\u00A0/g, " ")
+        .trim(),
+    )
     .filter(Boolean)
     .filter((line) => !line.toLowerCase().startsWith("meet date"));
 
@@ -517,7 +525,7 @@ function parseBulkPerformances(text: string, athleteId: string): BulkImportRow[]
   // Performance (multiple middle lines like a wind reading get joined).
   // If only Event + Venue exist, Performance is blank.
   const hasPipes = rawLines.some((l) => l.includes("|"));
-  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+  const dateRe = /\d{4}-\d{2}-\d{2}/;
   let lines: string[];
   if (hasPipes) {
     lines = rawLines;
@@ -525,13 +533,14 @@ function parseBulkPerformances(text: string, athleteId: string): BulkImportRow[]
     lines = [];
     let i = 0;
     while (i < rawLines.length) {
-      if (!dateRe.test(rawLines[i])) {
+      const dateMatch = rawLines[i].match(dateRe);
+      if (!dateMatch) {
         i++;
         continue;
       }
-      const date = rawLines[i];
+      const date = dateMatch[0];
       let j = i + 1;
-      while (j < rawLines.length && !dateRe.test(rawLines[j])) j++;
+      while (j < rawLines.length && !rawLines[j].match(dateRe)) j++;
       const body = rawLines.slice(i + 1, j).map((c) => c.replace(/\|/g, "/"));
       let event = "";
       let perf = "";
