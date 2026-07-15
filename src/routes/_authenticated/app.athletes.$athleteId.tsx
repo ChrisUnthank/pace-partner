@@ -105,20 +105,15 @@ function AthleteDetail() {
     queryKey: ["athlete", athleteId],
     queryFn: async () => {
       const { data, error } = await supabase.from("athletes").select("*").eq("id", athleteId).single();
-      if (error) throw error;
-      return data;
+      if (error) throw error; return data;
     },
   });
 
   const { data: pbs } = useQuery({
     queryKey: ["pbs", athleteId],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("performances")
-        .select("*")
-        .eq("athlete_id", athleteId)
-        .order("performance_date", { ascending: false })
-        .limit(20);
+      const { data } = await supabase.from("performances").select("*")
+        .eq("athlete_id", athleteId).order("performance_date", { ascending: false }).limit(20);
       return data ?? [];
     },
   });
@@ -129,11 +124,8 @@ function AthleteDetail() {
   const { data: progressionPerformances } = useQuery({
     queryKey: ["progression-performances", athleteId],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("performances")
-        .select("*")
-        .eq("athlete_id", athleteId)
-        .order("performance_date", { ascending: false });
+      const { data } = await supabase.from("performances").select("*")
+        .eq("athlete_id", athleteId).order("performance_date", { ascending: false });
       return data ?? [];
     },
   });
@@ -141,12 +133,8 @@ function AthleteDetail() {
   const { data: load } = useQuery({
     queryKey: ["load-recent", athleteId],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("athlete_load_daily")
-        .select("*")
-        .eq("athlete_id", athleteId)
-        .order("load_date", { ascending: false })
-        .limit(14);
+      const { data } = await supabase.from("athlete_load_daily").select("*")
+        .eq("athlete_id", athleteId).order("load_date", { ascending: false }).limit(14);
       return data ?? [];
     },
   });
@@ -165,10 +153,7 @@ function AthleteDetail() {
       const sessIds = (sessRows ?? []).map((s: any) => s.id);
       let actualBySession = new Map<string, number>();
       if (sessIds.length > 0) {
-        const { data: steps } = await supabase
-          .from("steps")
-          .select("id, session_id, target_distance_m, reps, set_count")
-          .in("session_id", sessIds);
+        const { data: steps } = await supabase.from("steps").select("id, session_id, target_distance_m, reps, set_count").in("session_id", sessIds);
         const stepToSession = new Map<string, string>();
         const plannedBySession = new Map<string, number>();
         for (const st of steps ?? []) {
@@ -178,10 +163,7 @@ function AthleteDetail() {
         }
         const stepIds = (steps ?? []).map((s: any) => s.id);
         if (stepIds.length > 0) {
-          const { data: irs } = await supabase
-            .from("interval_results")
-            .select("step_id, actual_distance_m")
-            .in("step_id", stepIds);
+          const { data: irs } = await supabase.from("interval_results").select("step_id, actual_distance_m").in("step_id", stepIds);
           for (const r of irs ?? []) {
             const sid = stepToSession.get(r.step_id);
             if (!sid) continue;
@@ -205,12 +187,8 @@ function AthleteDetail() {
     queryKey: ["athlete-sessions-7d", athleteId],
     queryFn: async () => {
       const since = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
-      const { data } = await supabase
-        .from("sessions")
-        .select("*")
-        .eq("athlete_id", athleteId)
-        .gte("session_date", since)
-        .order("session_date", { ascending: false });
+      const { data } = await supabase.from("sessions").select("*")
+        .eq("athlete_id", athleteId).gte("session_date", since).order("session_date", { ascending: false });
       return data ?? [];
     },
   });
@@ -306,38 +284,28 @@ function AthleteDetail() {
   const { data: zoneProfile } = useQuery({
     queryKey: ["zone-profile", athleteId],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("athlete_zone_profiles")
-        .select("*")
-        .eq("athlete_id", athleteId)
-        .maybeSingle();
+      const { data } = await supabase.from("athlete_zone_profiles").select("*").eq("athlete_id", athleteId).maybeSingle();
       return data;
     },
   });
 
-  if (!athlete)
-    return (
-      <AppShell>
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      </AppShell>
-    );
+  if (!athlete) return <AppShell><p className="text-sm text-muted-foreground">Loading…</p></AppShell>;
   const today = load?.[0];
 
   return (
     <AppShell>
       <div className="space-y-8">
         <div>
-          <Link
-            to="/app/athletes"
-            className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground hover:text-foreground"
-          >
+          <Link to="/app/athletes" className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground hover:text-foreground">
             ← Roster
           </Link>
           <div className="flex items-end justify-between gap-4 mt-3 flex-wrap">
             <div className="flex items-center gap-4">
               <UserAvatar name={athlete.name} imageUrl={(athlete as any).profile_image_url} size="xl" />
               <div>
-                <h1 className="font-display text-4xl font-extrabold tracking-tight leading-none">{athlete.name}</h1>
+                <h1 className="font-display text-4xl font-extrabold tracking-tight leading-none">
+                  {athlete.name}
+                </h1>
                 <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
                   {athlete.primary_event ?? "Unassigned event"}
                 </p>
@@ -372,34 +340,19 @@ function AthleteDetail() {
             each card sizing purely to its own content. */}
         <div className="grid md:grid-cols-2 gap-4 items-stretch">
           <Card className="flex flex-col">
-            <CardHeader>
-              <CardTitle>Training load (14 days)</CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle>Training load (14 days)</CardTitle></CardHeader>
             <CardContent className="p-0 flex-1 min-h-0 overflow-y-auto">
-              {!load || load.length === 0 ? (
-                <p className="p-4 text-sm text-muted-foreground">No load data yet.</p>
-              ) : (
+              {!load || load.length === 0 ? <p className="p-4 text-sm text-muted-foreground">No load data yet.</p> : (
                 <table className="w-full text-sm">
-                  <thead className="text-muted-foreground text-xs">
-                    <tr>
-                      <th className="text-left p-2">Date</th>
-                      <th>Volume</th>
-                      <th>Load</th>
-                      <th>CTL</th>
-                      <th>ATL</th>
-                      <th>TSB</th>
-                    </tr>
-                  </thead>
+                  <thead className="text-muted-foreground text-xs"><tr><th className="text-left p-2">Date</th><th>Volume</th><th>Load</th><th>CTL</th><th>ATL</th><th>TSB</th></tr></thead>
                   <tbody>
                     {load.map((d: any) => (
                       <tr key={d.load_date} className="border-t">
                         <td className="p-2">{d.load_date}</td>
-                        <td className="text-center tabular-nums">
-                          {(() => {
-                            const m = volumeByDate?.get(d.load_date);
-                            return m ? `${(m / 1000).toFixed(1)} km` : "—";
-                          })()}
-                        </td>
+                        <td className="text-center tabular-nums">{(() => {
+                          const m = volumeByDate?.get(d.load_date);
+                          return m ? `${(m / 1000).toFixed(1)} km` : "—";
+                        })()}</td>
                         <td className="text-center">{d.combined_load?.toFixed?.(0) ?? "—"}</td>
                         <td className="text-center">{d.ctl?.toFixed?.(0) ?? "—"}</td>
                         <td className="text-center">{d.atl?.toFixed?.(0) ?? "—"}</td>
@@ -413,13 +366,9 @@ function AthleteDetail() {
           </Card>
 
           <Card className="flex flex-col">
-            <CardHeader>
-              <CardTitle>Personal bests</CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle>Personal bests</CardTitle></CardHeader>
             <CardContent className="p-0 flex-1 min-h-0 overflow-y-auto">
-              {!pbs || pbs.length === 0 ? (
-                <p className="p-4 text-sm text-muted-foreground">No performances logged.</p>
-              ) : (
+              {!pbs || pbs.length === 0 ? <p className="p-4 text-sm text-muted-foreground">No performances logged.</p> : (
                 <table className="w-full text-sm">
                   <tbody>
                     {pbs.map((p: any) => {
@@ -445,12 +394,8 @@ function AthleteDetail() {
                               )}
                             </span>
                           </td>
-                          <td className="py-2 px-3 text-right tabular-nums whitespace-nowrap">
-                            {secToClock(p.time_seconds)}
-                          </td>
-                          <td className="py-2 px-3 text-right text-xs text-muted-foreground whitespace-nowrap">
-                            {p.performance_date}
-                          </td>
+                          <td className="py-2 px-3 text-right tabular-nums whitespace-nowrap">{secToClock(p.time_seconds)}</td>
+                          <td className="py-2 px-3 text-right text-xs text-muted-foreground whitespace-nowrap">{p.performance_date}</td>
                         </tr>
                       );
                     })}
@@ -466,16 +411,9 @@ function AthleteDetail() {
               <CardDescription>Every step in the session — warm-up, work, strides and cooldown.</CardDescription>
             </CardHeader>
             <CardContent className="p-0 flex-1 min-h-0 overflow-y-auto">
-              {!weeklyDistance || weeklyDistance.length === 0 ? (
-                <p className="p-4 text-sm text-muted-foreground">No distance logged yet.</p>
-              ) : (
+              {!weeklyDistance || weeklyDistance.length === 0 ? <p className="p-4 text-sm text-muted-foreground">No distance logged yet.</p> : (
                 <table className="w-full text-sm">
-                  <thead className="text-muted-foreground text-xs">
-                    <tr>
-                      <th className="text-left p-2">Week of</th>
-                      <th className="text-right p-2 pr-4">Distance</th>
-                    </tr>
-                  </thead>
+                  <thead className="text-muted-foreground text-xs"><tr><th className="text-left p-2">Week of</th><th className="text-right p-2 pr-4">Distance</th></tr></thead>
                   <tbody>
                     {weeklyDistance.map((w: any) => (
                       <tr key={w.week_start} className="border-t">
@@ -490,24 +428,14 @@ function AthleteDetail() {
           </Card>
 
           <Card className="flex flex-col">
-            <CardHeader>
-              <CardTitle>Recent sessions (7 days)</CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle>Recent sessions (7 days)</CardTitle></CardHeader>
             <CardContent className="p-0 flex-1 min-h-0 overflow-y-auto">
-              {!sessions || sessions.length === 0 ? (
-                <p className="p-4 text-sm text-muted-foreground">No sessions in the last 7 days.</p>
-              ) : (
+              {!sessions || sessions.length === 0 ? <p className="p-4 text-sm text-muted-foreground">No sessions in the last 7 days.</p> : (
                 <div className="divide-y">
                   {sessions.map((s: any) => (
-                    <Link
-                      key={s.id}
-                      to="/app/sessions/$sessionId"
-                      params={{ sessionId: s.id }}
-                      className="flex justify-between px-4 py-2 text-sm hover:bg-accent/40"
-                    >
-                      <span>
-                        {s.session_date} · {s.title}
-                      </span>
+                    <Link key={s.id} to="/app/sessions/$sessionId" params={{ sessionId: s.id }}
+                      className="flex justify-between px-4 py-2 text-sm hover:bg-accent/40">
+                      <span>{s.session_date} · {s.title}</span>
                       <span className="text-xs text-muted-foreground">{s.completed_at ? "Done" : "Planned"}</span>
                     </Link>
                   ))}
@@ -528,10 +456,7 @@ function AthleteDetail() {
         </div>
 
         {/* Full width, matching how the progression chart appears on the athlete's own profile page */}
-        <PerformanceProgressionCard
-          performances={progressionPerformances ?? []}
-          primaryEvent={athlete?.primary_event}
-        />
+        <PerformanceProgressionCard performances={progressionPerformances ?? []} primaryEvent={athlete?.primary_event} />
 
         <CoachChat athleteId={athleteId} athleteName={athlete?.name ?? undefined} />
         <GenerateReviewCard athleteId={athleteId} />
@@ -644,14 +569,7 @@ function PerformanceProgressionCard({
                       domain={["dataMin", "dataMax"]}
                     />
                     <Tooltip formatter={(value: number, name: string) => [secToClock(value), name]} />
-                    <Line
-                      type="monotone"
-                      dataKey="seconds"
-                      name="Actual"
-                      stroke="#2563eb"
-                      strokeWidth={2}
-                      dot={{ r: 3 }}
-                    />
+                    <Line type="monotone" dataKey="seconds" name="Actual" stroke="#2563eb" strokeWidth={2} dot={{ r: 3 }} />
                     <Line
                       type="linear"
                       dataKey="trend"
@@ -682,11 +600,7 @@ function PhysiologyCard({ athleteId }: { athleteId: string }) {
   const { data: profile, isLoading } = useQuery({
     queryKey: ["physio", athleteId],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("athlete_physio_profile")
-        .select("*")
-        .eq("athlete_id", athleteId)
-        .maybeSingle();
+      const { data } = await supabase.from("athlete_physio_profile").select("*").eq("athlete_id", athleteId).maybeSingle();
       return data;
     },
   });
@@ -694,10 +608,7 @@ function PhysiologyCard({ athleteId }: { athleteId: string }) {
   async function refresh() {
     const { error } = await supabase.rpc("recompute_physio_profile", { _athlete_id: athleteId });
     if (error) toast.error(error.message);
-    else {
-      toast.success("Profile refreshed");
-      qc.invalidateQueries({ queryKey: ["physio", athleteId] });
-    }
+    else { toast.success("Profile refreshed"); qc.invalidateQueries({ queryKey: ["physio", athleteId] }); }
   }
 
   if (isLoading) return null;
@@ -710,32 +621,23 @@ function PhysiologyCard({ athleteId }: { athleteId: string }) {
       <CardHeader className="flex flex-row items-start justify-between">
         <div>
           <CardTitle>Physiological profile</CardTitle>
-          <CardDescription>Derived from PBs, age & training age. Refines as more PBs are logged.</CardDescription>
+          <CardDescription>
+            Derived from PBs, age & training age. Refines as more PBs are logged.
+          </CardDescription>
         </div>
-        <Button size="sm" variant="ghost" onClick={refresh}>
-          <RefreshCw className="h-4 w-4 mr-1" />
-          Refresh
-        </Button>
+        <Button size="sm" variant="ghost" onClick={refresh}><RefreshCw className="h-4 w-4 mr-1" />Refresh</Button>
       </CardHeader>
       <CardContent className="space-y-4">
         {insufficient ? (
-          <p className="text-sm text-muted-foreground">
-            {profile?.coaching_note ?? "No profile yet — log PBs at two or more distances."}
-          </p>
+          <p className="text-sm text-muted-foreground">{profile?.coaching_note ?? "No profile yet — log PBs at two or more distances."}</p>
         ) : (
           <>
             <div className="grid sm:grid-cols-2 gap-4 items-center">
               <div className="flex items-center gap-4">
                 <PieSplit aerobic={aer} anaerobic={an} />
                 <div className="text-sm">
-                  <div className="flex items-center gap-2">
-                    <span className="h-2 w-3 rounded bg-emerald-500" />
-                    Aerobic <span className="font-semibold tabular-nums ml-1">{aer}%</span>
-                  </div>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="h-2 w-3 rounded bg-rose-500" />
-                    Anaerobic <span className="font-semibold tabular-nums ml-1">{an}%</span>
-                  </div>
+                  <div className="flex items-center gap-2"><span className="h-2 w-3 rounded bg-emerald-500" />Aerobic <span className="font-semibold tabular-nums ml-1">{aer}%</span></div>
+                  <div className="flex items-center gap-2 mt-1"><span className="h-2 w-3 rounded bg-rose-500" />Anaerobic <span className="font-semibold tabular-nums ml-1">{an}%</span></div>
                 </div>
               </div>
               <div>
@@ -743,8 +645,7 @@ function PhysiologyCard({ athleteId }: { athleteId: string }) {
                 <div className="font-semibold">{profile.archetype}</div>
                 {profile.speed_reserve_pct != null && (
                   <div className="text-xs text-muted-foreground mt-2">
-                    Speed reserve: <span className="tabular-nums">{profile.speed_reserve_pct}%</span> (
-                    {profile.speed_reserve_bucket})
+                    Speed reserve: <span className="tabular-nums">{profile.speed_reserve_pct}%</span> ({profile.speed_reserve_bucket})
                   </div>
                 )}
               </div>
@@ -791,12 +692,11 @@ function IdentityCard({ athlete, athleteId }: { athlete: any; athleteId: string 
     },
   });
 
-  const weightDisplay =
-    latestVitals?.weight_kg != null
-      ? `${Number(latestVitals.weight_kg).toFixed(1)} kg`
-      : athlete?.weight != null
-        ? `${Number(athlete.weight).toFixed(1)} kg (baseline)`
-        : "not yet logged";
+  const weightDisplay = latestVitals?.weight_kg != null
+    ? `${Number(latestVitals.weight_kg).toFixed(1)} kg`
+    : athlete?.weight != null
+      ? `${Number(athlete.weight).toFixed(1)} kg (baseline)`
+      : "not yet logged";
 
   const rows: Array<[string, string]> = [
     ["Name", athlete?.name ?? "—"],
@@ -817,10 +717,7 @@ function IdentityCard({ athlete, athleteId }: { athlete: any; athleteId: string 
   // immediately on change, same pattern as other single-field selects
   // elsewhere in the app (e.g. reassigning a session step's kind).
   async function saveTimezone(tz: string) {
-    const { error } = await supabase
-      .from("athletes")
-      .update({ timezone: tz } as any)
-      .eq("id", athleteId);
+    const { error } = await supabase.from("athletes").update({ timezone: tz } as any).eq("id", athleteId);
     if (error) {
       toast.error(error.message);
       return;
@@ -831,9 +728,7 @@ function IdentityCard({ athlete, athleteId }: { athlete: any; athleteId: string 
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Athlete profile</CardTitle>
-      </CardHeader>
+      <CardHeader><CardTitle>Athlete profile</CardTitle></CardHeader>
       <CardContent>
         <dl className="grid sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
           {rows.map(([k, v]) => (
@@ -846,14 +741,10 @@ function IdentityCard({ athlete, athleteId }: { athlete: any; athleteId: string 
             <dt className="text-muted-foreground">Time zone</dt>
             <dd>
               <Select value={athlete?.timezone ?? guessLocalTimezone()} onValueChange={saveTimezone}>
-                <SelectTrigger className="h-7 w-[220px] text-xs">
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger className="h-7 w-[220px] text-xs"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {TIMEZONE_OPTIONS.map((z) => (
-                    <SelectItem key={z.value} value={z.value}>
-                      {z.label}
-                    </SelectItem>
+                    <SelectItem key={z.value} value={z.value}>{z.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
