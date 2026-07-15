@@ -510,28 +510,46 @@ function parseBulkPerformances(text: string, athleteId: string): BulkImportRow[]
     .filter(Boolean)
     .filter((line) => !line.toLowerCase().startsWith("meet date"));
 
-  // If no pipe characters, treat as Athletics Victoria export: groups of
-  // 4 lines (Date / Event / Performance / Venue). A lone "(x.x)" wind
-  // reading line after a sprint performance gets merged into the perf.
+  // If no pipe characters, treat as Athletics Victoria export. Records are
+  // date-anchored: a new record starts on every YYYY-MM-DD line and
+  // consumes every following non-date line until the next date. Within a
+  // record: first line = Event, last line = Venue, anything between is
+  // Performance (multiple middle lines like a wind reading get joined).
+  // If only Event + Venue exist, Performance is blank.
   const hasPipes = rawLines.some((l) => l.includes("|"));
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
   let lines: string[];
   if (hasPipes) {
     lines = rawLines;
   } else {
-    // Merge stray wind-reading lines like "(2.6)" into the previous line.
-    const merged: string[] = [];
-    for (const l of rawLines) {
-      if (/^\([^)]+\)$/.test(l) && merged.length > 0) {
-        merged[merged.length - 1] = `${merged[merged.length - 1]} ${l}`;
-      } else {
-        merged.push(l);
-      }
-    }
     lines = [];
-    for (let i = 0; i < merged.length; i += 4) {
-      const chunk = merged.slice(i, i + 4);
-      while (chunk.length < 4) chunk.push("");
-      lines.push(chunk.map((c) => c.replace(/\|/g, "/")).join(" | "));
+    let i = 0;
+    while (i < rawLines.length) {
+      if (!dateRe.test(rawLines[i])) {
+        i++;
+        continue;
+      }
+      const date = rawLines[i];
+      let j = i + 1;
+      while (j < rawLines.length && !dateRe.test(rawLines[j])) j++;
+      const body = rawLines.slice(i + 1, j).map((c) => c.replace(/\|/g, "/"));
+      let event = "";
+      let perf = "";
+      let venue = "";
+      if (body.length === 0) {
+        // date only — skip
+      } else if (body.length === 1) {
+        event = body[0];
+      } else if (body.length === 2) {
+        event = body[0];
+        venue = body[1];
+      } else {
+        event = body[0];
+        venue = body[body.length - 1];
+        perf = body.slice(1, -1).join(" ");
+      }
+      lines.push(`${date} | ${event} | ${perf} | ${venue}`);
+      i = j;
     }
   }
 
