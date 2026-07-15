@@ -355,20 +355,27 @@ function ComparePage() {
   const comparison = useMemo(() => {
     if (selectedSessions.length < 2) return null;
     // Find the best available real race to calibrate against, before
-    // computing any projections — a real result anchors the whole curve to
-    // this athlete's actual demonstrated speed/endurance balance, rather
-    // than assuming everyone fits the same generic exponent.
-    const provisionalDates = selectedSessions.map((s) => s.session_date);
-    const windowEndProvisional = provisionalDates[provisionalDates.length - 1];
+    // computing any projections. Picked by DISTANCE-proximity to the target
+    // being projected (via log-ratio, since pace-distance relationships are
+    // multiplicative, not linear — the "gap" between 800m and 1500m matters
+    // as much as the gap between 5K and ~9.4K, same ratio) rather than
+    // proximity in time. This matters a lot for a genuine short-distance
+    // specialist (800m/1500m/3000m): their pace-vs-distance curve has a
+    // measurably different shape than a 5K-marathon-oriented runner's (a
+    // flatter drop-off at the short end, from a stronger speed reserve), and
+    // a single exponent fit from one calibration pair can't capture that —
+    // the best available protection is keeping the extrapolation as short
+    // as possible, which means calibrating from whichever real result sits
+    // closest to the actual target distance, not whichever happened most
+    // recently.
     const nearbyRace =
-      raceSessions.find(
-        (r) => r.performance_date >= provisionalDates[0] && r.performance_date <= windowEndProvisional,
-      ) ??
-      raceSessions.slice().sort((a, b) => {
-        const da = Math.abs(new Date(a.performance_date).getTime() - new Date(windowEndProvisional).getTime());
-        const db = Math.abs(new Date(b.performance_date).getTime() - new Date(windowEndProvisional).getTime());
-        return da - db;
-      })[0];
+      raceSessions.length > 0
+        ? raceSessions.reduce((best, r) => {
+            const d = Math.abs(Math.log(Number(r.distance_m) / 1000 / targetKm));
+            const bd = Math.abs(Math.log(Number(best.distance_m) / 1000 / targetKm));
+            return d < bd ? r : best;
+          })
+        : undefined;
 
     let exponent = 1.06; // only used if calibrated flips true below
     let calibrated = false;
@@ -507,7 +514,22 @@ function ComparePage() {
   // plain average of the two, not a separately-modeled estimate.
   const predictionRange = useMemo(() => {
     if (!comparison || comparison.last.predicted == null) return null;
-    const low = comparison.last.predicted;
+    let low = comparison.last.predicted;
+
+    // Hard floor: a real result at (or very near) this exact target distance
+    // outranks any model output, calibrated or not. "Conservative" claiming
+    // a time slower than a PB the athlete has already run isn't conservative
+    // — it's just wrong, and should never be shown as if it were a genuine
+    // estimate.
+    const pbAtTarget = raceSessions
+      .filter((r) => Math.abs(Math.log(Number(r.distance_m) / 1000 / targetKm)) < 0.15) // within ~15% distance
+      .reduce(
+        (best: any, r: any) => (best == null || Number(r.time_seconds) < Number(best.time_seconds) ? r : best),
+        null,
+      );
+    const pbFloorApplied = pbAtTarget != null && Number(pbAtTarget.time_seconds) < low;
+    if (pbFloorApplied) low = Number(pbAtTarget.time_seconds);
+
     const { noFade, goodRecovery } = repQualitySignals(comparison.last.id);
     const ctlDelta =
       comparison.last.ctl != null && comparison.first.ctl != null ? comparison.last.ctl - comparison.first.ctl : null;
@@ -527,8 +549,8 @@ function ComparePage() {
     const upper = low * (1 - bonusPct / 100);
     const middle = (low + upper) / 2;
 
-    return { low, middle, upper, signals, metCount };
-  }, [comparison]);
+    return { low, middle, upper, signals, metCount, pbFloorApplied, pbAtTarget };
+  }, [comparison, raceSessions, targetKm]);
 
   const narrative = useMemo(() => {
     if (!comparison) return null;
@@ -656,6 +678,13 @@ function ComparePage() {
                     {predictionRange.metCount} of 4 signals met — Best case is{" "}
                     {(predictionRange.metCount * 1.5).toFixed(1)}% faster than Conservative.
                   </p>
+                  {predictionRange.pbFloorApplied && predictionRange.pbAtTarget && (
+                    <p className="text-[11px] text-emerald-600">
+                      Conservative floored to a real result already run at this distance (
+                      {secToClock(Number(predictionRange.pbAtTarget.time_seconds))}) — the model's own raw estimate was
+                      slower than a proven PB, so the real result takes priority.
+                    </p>
+                  )}
                 </CardContent>
               </Card>
             )}
