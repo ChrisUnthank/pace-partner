@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyAthlete, useAuthUser, useMyRawRoles, type AppRole } from "@/lib/use-auth";
@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
 import { metersFmt, secToClock, clockToSec } from "@/lib/format";
 import { toast } from "sonner";
 import { Trash2, Sparkles } from "lucide-react";
@@ -17,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { setStoredUnits } from "@/lib/units";
 import { TIMEZONE_OPTIONS, guessLocalTimezone } from "@/lib/timezones";
 import { ZoneBoundariesCard } from "@/components/zone-boundaries-card";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 export const Route = createFileRoute("/_authenticated/app/profile")({
   component: Profile,
@@ -545,6 +547,19 @@ function raceTypeFromEvent(event: string): RaceType {
   return "track";
 }
 
+function raceTypeLabel(rt: string) {
+  switch (rt) {
+    case "track":
+      return "Track";
+    case "road":
+      return "Road";
+    case "cross_country":
+      return "XC";
+    default:
+      return rt;
+  }
+}
+
 function performanceKey(row: {
   performance_date?: string | null;
   distance_m?: number | null;
@@ -780,6 +795,14 @@ function displaySeconds(seconds: number | null | undefined) {
   }
 }
 
+function formatChartDate(dateStr: string) {
+  const parts = dateStr.split("-");
+  if (parts.length !== 3) return dateStr;
+  return `${parts[2]}/${parts[1]}`;
+}
+
+const PERFORMANCES_PAGE_SIZE = 10;
+
 function PBsCard({ athleteId, pbs, onChange }: { athleteId: string; pbs: any[]; onChange: () => void }) {
   const [date, setDate] = useState("");
   const [dist, setDist] = useState(1500);
@@ -789,9 +812,76 @@ function PBsCard({ athleteId, pbs, onChange }: { athleteId: string; pbs: any[]; 
   const [previewRows, setPreviewRows] = useState<BulkImportRow[]>([]);
   const [importing, setImporting] = useState(false);
 
+  const [showAllPerformances, setShowAllPerformances] = useState(false);
+  const [selectedEventKey, setSelectedEventKey] = useState<string>("");
+
   const existingKeys = useMemo(() => {
     return new Set((pbs ?? []).map((p) => performanceKey(p)));
   }, [pbs]);
+
+  // Current best time per (distance, race type) — the mark that's still standing today.
+  const currentBests = useMemo(() => {
+    const map = new Map<string, number>();
+
+    for (const p of pbs) {
+      if (p.time_seconds == null) continue;
+      const key = `${p.distance_m}-${p.race_type}`;
+      const cur = map.get(key);
+
+      if (cur == null || p.time_seconds < cur) {
+        map.set(key, p.time_seconds);
+      }
+    }
+
+    return map;
+  }, [pbs]);
+
+  // One entry per distinct event, for the progression chart's event picker.
+  const eventOptions = useMemo(() => {
+    const map = new Map<string, { key: string; label: string; distance_m: number }>();
+
+    for (const p of pbs) {
+      if (p.time_seconds == null) continue;
+      const key = `${p.distance_m}-${p.race_type}`;
+
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          label: `${metersFmt(p.distance_m)} · ${raceTypeLabel(p.race_type)}`,
+          distance_m: p.distance_m,
+        });
+      }
+    }
+
+    return Array.from(map.values()).sort((a, b) => a.distance_m - b.distance_m);
+  }, [pbs]);
+
+  useEffect(() => {
+    if (eventOptions.length === 0) {
+      if (selectedEventKey) setSelectedEventKey("");
+      return;
+    }
+
+    if (!eventOptions.some((opt) => opt.key === selectedEventKey)) {
+      setSelectedEventKey(eventOptions[0].key);
+    }
+  }, [eventOptions, selectedEventKey]);
+
+  const chartData = useMemo(() => {
+    if (!selectedEventKey) return [];
+
+    return pbs
+      .filter((p) => `${p.distance_m}-${p.race_type}` === selectedEventKey && p.time_seconds != null)
+      .slice()
+      .sort((a, b) => a.performance_date.localeCompare(b.performance_date))
+      .map((p) => ({
+        date: p.performance_date,
+        seconds: p.time_seconds,
+      }));
+  }, [pbs, selectedEventKey]);
+
+  const visiblePerformances = showAllPerformances ? pbs : pbs.slice(0, PERFORMANCES_PAGE_SIZE);
+  const hiddenCount = Math.max(0, pbs.length - PERFORMANCES_PAGE_SIZE);
 
   const duplicateCount = previewRows.filter((row) => row.duplicate).length;
   const errorCount = previewRows.filter((row) => row.error).length;
@@ -893,18 +983,18 @@ function PBsCard({ athleteId, pbs, onChange }: { athleteId: string; pbs: any[]; 
     const payload = insertableRows
       .filter((row): row is typeof row & { time_seconds: number } => row.time_seconds != null)
       .map((row) => ({
-      athlete_id: row.athlete_id,
-      performance_date: row.performance_date,
-      distance_m: row.distance_m,
-      time_seconds: row.time_seconds,
-      is_pb: row.is_pb,
-      context: row.context,
-      notes: row.notes,
-      event_name: row.event_name,
-      age_group: row.age_group,
-      race_type: row.race_type,
-      distance_adjustment_mode: row.distance_adjustment_mode,
-    }));
+        athlete_id: row.athlete_id,
+        performance_date: row.performance_date,
+        distance_m: row.distance_m,
+        time_seconds: row.time_seconds,
+        is_pb: row.is_pb,
+        context: row.context,
+        notes: row.notes,
+        event_name: row.event_name,
+        age_group: row.age_group,
+        race_type: row.race_type,
+        distance_adjustment_mode: row.distance_adjustment_mode,
+      }));
 
     setImporting(true);
 
@@ -1069,30 +1159,99 @@ Geelong`}
           )}
         </div>
 
-        {pbs.length > 0 && (
-          <div className="divide-y border rounded">
-            {pbs.map((p) => (
-              <div key={p.id} className="flex justify-between items-center gap-3 px-3 py-2 text-sm">
-                <span className="min-w-0">
-                  <span>{metersFmt(p.distance_m)}</span>
-                  <span> · </span>
-                  <span className="tabular-nums">{displaySeconds(p.time_seconds)}</span>
-                  <span> · </span>
-                  <span className="text-muted-foreground">{p.performance_date}</span>
-                  {p.event_name && (
-                    <>
-                      <span> · </span>
-                      <span className="text-muted-foreground">{p.event_name}</span>
-                    </>
-                  )}
-                  {p.is_pb && <span className="text-xs text-emerald-600 ml-1">PB</span>}
-                </span>
+        {eventOptions.length > 0 && (
+          <div className="space-y-2 border rounded p-3">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <Label className="text-sm font-medium">Progression</Label>
 
-                <Button variant="ghost" size="sm" onClick={() => remove(p.id)}>
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+              <Select value={selectedEventKey} onValueChange={setSelectedEventKey}>
+                <SelectTrigger className="w-48">
+                  <SelectValue placeholder="Select event" />
+                </SelectTrigger>
+                <SelectContent>
+                  {eventOptions.map((opt) => (
+                    <SelectItem key={opt.key} value={opt.key}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {chartData.length > 1 ? (
+              <div className="h-56">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                    <XAxis dataKey="date" tickFormatter={formatChartDate} tick={{ fontSize: 11 }} />
+                    <YAxis
+                      reversed
+                      tickFormatter={(v) => secToClock(v)}
+                      tick={{ fontSize: 11 }}
+                      width={55}
+                      domain={["dataMin", "dataMax"]}
+                    />
+                    <Tooltip formatter={(value: number) => [secToClock(value), "Time"]} />
+                    <Line type="monotone" dataKey="seconds" stroke="#2563eb" strokeWidth={2} dot={{ r: 3 }} />
+                  </LineChart>
+                </ResponsiveContainer>
               </div>
-            ))}
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Need at least 2 performances for this event to chart progression.
+              </p>
+            )}
+          </div>
+        )}
+
+        {pbs.length > 0 && (
+          <div className="space-y-2">
+            <div className="divide-y border rounded">
+              {visiblePerformances.map((p) => {
+                const key = `${p.distance_m}-${p.race_type}`;
+                const bestTime = currentBests.get(key);
+                const isCurrentPB = p.time_seconds != null && bestTime != null && p.time_seconds === bestTime;
+                const isPastPB = !isCurrentPB && p.is_pb;
+
+                return (
+                  <div key={p.id} className="flex justify-between items-center gap-3 px-3 py-2 text-sm">
+                    <span className="min-w-0 flex items-center flex-wrap gap-x-1">
+                      <span>{metersFmt(p.distance_m)}</span>
+                      <span> · </span>
+                      <span className="tabular-nums">{displaySeconds(p.time_seconds)}</span>
+                      <span> · </span>
+                      <span className="text-muted-foreground">{p.performance_date}</span>
+                      {p.event_name && (
+                        <>
+                          <span> · </span>
+                          <span className="text-muted-foreground">{p.event_name}</span>
+                        </>
+                      )}
+                      {isCurrentPB && (
+                        <Badge className="ml-1 bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-emerald-200">
+                          PB
+                        </Badge>
+                      )}
+                      {isPastPB && (
+                        <Badge className="ml-1 bg-amber-100 text-amber-700 hover:bg-amber-100 border-amber-200">
+                          Past PB
+                        </Badge>
+                      )}
+                    </span>
+
+                    <Button variant="ghost" size="sm" onClick={() => remove(p.id)}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+
+            {hiddenCount > 0 && (
+              <Button size="sm" variant="outline" className="w-full" onClick={() => setShowAllPerformances((v) => !v)}>
+                {showAllPerformances ? "Show fewer" : `Show all (${hiddenCount} more)`}
+              </Button>
+            )}
           </div>
         )}
       </CardContent>
