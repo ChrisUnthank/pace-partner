@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { setStoredUnits } from "@/lib/units";
 import { TIMEZONE_OPTIONS, guessLocalTimezone } from "@/lib/timezones";
 import { ZoneBoundariesCard } from "@/components/zone-boundaries-card";
+import { GoalsCard } from "@/components/goals-card";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 export const Route = createFileRoute("/_authenticated/app/profile")({
@@ -120,6 +121,9 @@ function Profile() {
             {user && <PreferencesCard userId={user.id} />}
           </div>
         </div>
+
+        {/* Full width: goals lead training decisions, so they sit first */}
+        {athlete && <GoalsCard athleteId={athlete.id} />}
 
         {/* Full width: zone boundaries */}
         {athlete && <ZoneBoundariesCard athleteId={athlete.id} profile={zones} />}
