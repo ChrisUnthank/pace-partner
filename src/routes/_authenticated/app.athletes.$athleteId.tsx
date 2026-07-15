@@ -18,6 +18,7 @@ import { AthleteReminderSettings } from "@/components/reminder-settings";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TIMEZONE_OPTIONS, guessLocalTimezone } from "@/lib/timezones";
 import { ZoneBoundariesCard } from "@/components/zone-boundaries-card";
+import { GoalsCard } from "@/components/goals-card";
 import { Badge } from "@/components/ui/badge";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
@@ -358,6 +359,8 @@ function AthleteDetail() {
         </div>
 
         <IdentityCard athlete={athlete} athleteId={athleteId} />
+
+        <GoalsCard athleteId={athleteId} />
 
         <ZoneBoundariesCard athleteId={athleteId} profile={zoneProfile} />
 
