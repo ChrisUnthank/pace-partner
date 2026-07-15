@@ -83,14 +83,21 @@ function Profile() {
         <h1 className="text-2xl font-bold">Profile</h1>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-          {/* Left column: athlete details up top, roles underneath */}
+          {/* Left column: athlete details up top, roles underneath, AI fills the gap */}
           <div className="space-y-6">
             {athlete && <AthleteForm athlete={athlete} />}
             {user && <RolesCard userId={user.id} roles={roles} email={user.email ?? ""} />}
+            {user && (
+              <AiAccessCard
+                userId={user.id}
+                isAthlete={roles.includes("athlete")}
+                isCoach={roles.includes("coach") || roles.includes("manager")}
+              />
+            )}
             {user && <JoinRequestsInbox userId={user.id} />}
           </div>
 
-          {/* Right column: account & photo up top, preferences underneath */}
+          {/* Right column: account & photo up top, then change password, preferences underneath */}
           <div className="space-y-6">
             <Card>
               <CardHeader>
@@ -106,9 +113,10 @@ function Profile() {
               </CardContent>
             </Card>
 
+            {user && <ProfileImageUploader userId={user.id} name={user.user_metadata?.full_name ?? user.email ?? ""} />}
+
             <ChangePasswordCard />
 
-            {user && <ProfileImageUploader userId={user.id} name={user.user_metadata?.full_name ?? user.email ?? ""} />}
             {user && <PreferencesCard userId={user.id} />}
           </div>
         </div>
@@ -122,15 +130,6 @@ function Profile() {
             athleteId={athlete.id}
             pbs={pbs ?? []}
             onChange={() => qc.invalidateQueries({ queryKey: ["my-pbs"] })}
-          />
-        )}
-
-        {/* Full width, last: AI assistant */}
-        {user && (
-          <AiAccessCard
-            userId={user.id}
-            isAthlete={roles.includes("athlete")}
-            isCoach={roles.includes("coach") || roles.includes("manager")}
           />
         )}
       </div>
@@ -251,7 +250,9 @@ function ChangePasswordCard() {
     <Card>
       <CardHeader>
         <CardTitle>Change password</CardTitle>
-        <CardDescription>Update the password used to sign in. You're already signed in, so no need to enter the old one.</CardDescription>
+        <CardDescription>
+          Update the password used to sign in. You're already signed in, so no need to enter the old one.
+        </CardDescription>
       </CardHeader>
 
       <CardContent className="space-y-3">
@@ -1064,18 +1065,18 @@ function PBsCard({ athleteId, pbs, onChange }: { athleteId: string; pbs: any[]; 
     const payload = insertableRows
       .filter((row): row is typeof row & { time_seconds: number } => row.time_seconds != null)
       .map((row) => ({
-      athlete_id: row.athlete_id,
-      performance_date: row.performance_date,
-      distance_m: row.distance_m,
-      time_seconds: row.time_seconds,
-      is_pb: row.is_pb,
-      context: row.context,
-      notes: row.notes,
-      event_name: row.event_name,
-      age_group: row.age_group,
-      race_type: row.race_type,
-      distance_adjustment_mode: row.distance_adjustment_mode,
-    }));
+        athlete_id: row.athlete_id,
+        performance_date: row.performance_date,
+        distance_m: row.distance_m,
+        time_seconds: row.time_seconds,
+        is_pb: row.is_pb,
+        context: row.context,
+        notes: row.notes,
+        event_name: row.event_name,
+        age_group: row.age_group,
+        race_type: row.race_type,
+        distance_adjustment_mode: row.distance_adjustment_mode,
+      }));
 
     setImporting(true);
 
