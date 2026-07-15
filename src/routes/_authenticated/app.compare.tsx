@@ -272,21 +272,25 @@ function ComparePage() {
   }
 
   // Real race results — ground truth to cross-check the workout-based
-  // projection against. A projection is only ever an estimate; an actual
-  // race result in the same window is worth more than any predicted number.
+  // projection against. Pulled from `performances`, not session-level GPS
+  // fields: `performances.distance_m`/`time_seconds` is the "Official
+  // Distance" a coach can hand-correct when the raw GPS/reconstructed
+  // distance disagrees with the actual measured course (e.g. GPS reads
+  // 7.2km on a course that's really 7.4km) — the same authoritative values
+  // that already feed the PB list, so this stays consistent with what's
+  // shown there rather than trusting GPS-derived session totals a second,
+  // possibly-disagreeing way.
   const { data: raceSessions = [] } = useQuery({
     queryKey: ["compare-races", athleteId],
     enabled: !!athleteId,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("sessions")
-        .select("id, title, session_date, work_distance_m, work_time_s")
+        .from("performances")
+        .select("id, event_name, performance_date, distance_m, time_seconds, session_id")
         .eq("athlete_id", athleteId)
-        .eq("day_type", "race")
-        .not("completed_at", "is", null)
-        .not("work_distance_m", "is", null)
-        .not("work_time_s", "is", null)
-        .order("session_date", { ascending: true });
+        .not("distance_m", "is", null)
+        .not("time_seconds", "is", null)
+        .order("performance_date", { ascending: true });
       if (error) throw error;
       return data ?? [];
     },
@@ -357,21 +361,23 @@ function ComparePage() {
     const provisionalDates = selectedSessions.map((s) => s.session_date);
     const windowEndProvisional = provisionalDates[provisionalDates.length - 1];
     const nearbyRace =
-      raceSessions.find((r) => r.session_date >= provisionalDates[0] && r.session_date <= windowEndProvisional) ??
+      raceSessions.find(
+        (r) => r.performance_date >= provisionalDates[0] && r.performance_date <= windowEndProvisional,
+      ) ??
       raceSessions.slice().sort((a, b) => {
-        const da = Math.abs(new Date(a.session_date).getTime() - new Date(windowEndProvisional).getTime());
-        const db = Math.abs(new Date(b.session_date).getTime() - new Date(windowEndProvisional).getTime());
+        const da = Math.abs(new Date(a.performance_date).getTime() - new Date(windowEndProvisional).getTime());
+        const db = Math.abs(new Date(b.performance_date).getTime() - new Date(windowEndProvisional).getTime());
         return da - db;
       })[0];
 
     let exponent = 1.06; // only used if calibrated flips true below
     let calibrated = false;
     if (nearbyRace) {
-      const raceKm = Number(nearbyRace.work_distance_m) / 1000;
-      const raceTime = Number(nearbyRace.work_time_s);
+      const raceKm = Number(nearbyRace.distance_m) / 1000;
+      const raceTime = Number(nearbyRace.time_seconds);
       const closestSession = selectedSessions.reduce((best, s) => {
-        const d = Math.abs(new Date(s.session_date).getTime() - new Date(nearbyRace.session_date).getTime());
-        const bd = Math.abs(new Date(best.session_date).getTime() - new Date(nearbyRace.session_date).getTime());
+        const d = Math.abs(new Date(s.session_date).getTime() - new Date(nearbyRace.performance_date).getTime());
+        const bd = Math.abs(new Date(best.session_date).getTime() - new Date(nearbyRace.performance_date).getTime());
         return d < bd ? s : best;
       }, selectedSessions[0]);
       const closestKm = Number(closestSession.work_distance_m) / 1000;
@@ -398,7 +404,21 @@ function ComparePage() {
     const MIN_PLAUSIBLE_PACE_S_PER_KM = 120; // 2:00/km — faster than this is not realistic for 5K+
     const MAX_PLAUSIBLE_PACE_S_PER_KM = 900; // 15:00/km — slower than this isn't a meaningful projection
 
+    // Second, separate guard: the check above only protects against a BAD
+    // EXPONENT — it does nothing if the session's own recorded work pace
+    // (t1/d1, before any exponent is even applied) is itself implausible,
+    // e.g. from corrupted/duplicated work_distance_m or work_time_s data.
+    // Garbage in still means garbage out even with a perfectly reasonable
+    // exponent, so this checks the RAW input pace and refuses to project
+    // from it at all if it's not physically plausible.
+    const isPlausibleInput = (t1: number, d1: number) => {
+      if (d1 <= 0) return false;
+      const rawPace = t1 / d1;
+      return rawPace >= MIN_PLAUSIBLE_PACE_S_PER_KM && rawPace <= MAX_PLAUSIBLE_PACE_S_PER_KM;
+    };
+
     const project = (t1: number, d1: number, d2: number) => {
+      if (!isPlausibleInput(t1, d1)) return null;
       if (calibrated) {
         const calibratedResult = predictTimeWithExponent(t1, d1, d2, exponent);
         const impliedPace = calibratedResult / d2;
@@ -451,11 +471,11 @@ function ComparePage() {
       projectedAtSameDistance: number;
     } | null = null;
     if (nearbyRace) {
-      const raceKm = Number(nearbyRace.work_distance_m) / 1000;
-      const raceTime = Number(nearbyRace.work_time_s);
+      const raceKm = Number(nearbyRace.distance_m) / 1000;
+      const raceTime = Number(nearbyRace.time_seconds);
       const closest = rows.reduce((best, r) => {
-        const d = Math.abs(new Date(r.session_date).getTime() - new Date(nearbyRace.session_date).getTime());
-        const bd = Math.abs(new Date(best.session_date).getTime() - new Date(nearbyRace.session_date).getTime());
+        const d = Math.abs(new Date(r.session_date).getTime() - new Date(nearbyRace.performance_date).getTime());
+        const bd = Math.abs(new Date(best.session_date).getTime() - new Date(nearbyRace.performance_date).getTime());
         return d < bd ? r : best;
       }, rows[0]);
       if (closest.km > 0) {
@@ -464,8 +484,8 @@ function ComparePage() {
         // would just trivially agree with itself.
         const projectedAtSameDistance = predictTime(Number(closest.work_time_s), closest.km, raceKm);
         raceCheck = {
-          title: nearbyRace.title,
-          date: nearbyRace.session_date,
+          title: nearbyRace.event_name ?? "Race",
+          date: nearbyRace.performance_date,
           actualTime: raceTime,
           km: raceKm,
           projectedAtSameDistance,
