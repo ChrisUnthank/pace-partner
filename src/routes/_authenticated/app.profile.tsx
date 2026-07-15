@@ -762,6 +762,8 @@ function PBsCard({ athleteId, pbs, onChange }: { athleteId: string; pbs: any[]; 
       duplicate: !row.error && existingKeys.has(performanceKey(row)),
     }));
 
+    console.log("parsed rows", rows);
+
     setPreviewRows(rows);
 
     const errors = rows.filter((r) => r.error).length;
@@ -895,8 +897,13 @@ function PBsCard({ athleteId, pbs, onChange }: { athleteId: string; pbs: any[]; 
 
           {previewRows.length > 0 && (
             <div className="space-y-2">
-              <div className="text-xs text-muted-foreground">
-                Preview: {insertableRows.length} new · {duplicateCount} duplicate skipped · {errorCount} issue{errorCount === 1 ? "" : "s"}
+              <div className="text-xs text-muted-foreground space-y-0.5">
+                <div>Raw rows detected: {previewRows.length}</div>
+                <div>Valid rows: {previewRows.length - errorCount}</div>
+                <div>Invalid rows: {errorCount}</div>
+                <div>
+                  {insertableRows.length} new · {duplicateCount} duplicate skipped
+                </div>
               </div>
 
               <div className="overflow-x-auto border rounded">
