@@ -486,7 +486,7 @@ function performanceToSeconds(perf: string): { seconds: number | null; notes: st
 
 function raceTypeFromEvent(event: string): RaceType {
   if (/XC/i.test(event)) return "cross_country";
-  if (/Road|Ten Relay/i.test(event)) return "road";
+  if (/Road|Tan Relay|Ten Relay/i.test(event)) return "road";
   return "track";
 }
 
@@ -504,11 +504,36 @@ function performanceKey(row: {
 }
 
 function parseBulkPerformances(text: string, athleteId: string): BulkImportRow[] {
-  const lines = text
+  const rawLines = text
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
     .filter((line) => !line.toLowerCase().startsWith("meet date"));
+
+  // If no pipe characters, treat as Athletics Victoria export: groups of
+  // 4 lines (Date / Event / Performance / Venue). A lone "(x.x)" wind
+  // reading line after a sprint performance gets merged into the perf.
+  const hasPipes = rawLines.some((l) => l.includes("|"));
+  let lines: string[];
+  if (hasPipes) {
+    lines = rawLines;
+  } else {
+    // Merge stray wind-reading lines like "(2.6)" into the previous line.
+    const merged: string[] = [];
+    for (const l of rawLines) {
+      if (/^\([^)]+\)$/.test(l) && merged.length > 0) {
+        merged[merged.length - 1] = `${merged[merged.length - 1]} ${l}`;
+      } else {
+        merged.push(l);
+      }
+    }
+    lines = [];
+    for (let i = 0; i < merged.length; i += 4) {
+      const chunk = merged.slice(i, i + 4);
+      while (chunk.length < 4) chunk.push("");
+      lines.push(chunk.map((c) => c.replace(/\|/g, "/")).join(" | "));
+    }
+  }
 
   const rows: BulkImportRow[] = lines.map((line) => {
     const parts = line.split("|").map((p) => p.trim());
