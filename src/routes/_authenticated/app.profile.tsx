@@ -650,7 +650,10 @@ function PBsCard({ athleteId, pbs, onChange }: { athleteId: string; pbs: any[]; 
 
   const duplicateCount = previewRows.filter((row) => row.duplicate).length;
   const errorCount = previewRows.filter((row) => row.error).length;
-  const insertableRows = previewRows.filter((row) => !row.error && !row.duplicate);
+  const insertableRows = previewRows.filter(
+    (row): row is BulkImportRow & { time_seconds: number } =>
+      !row.error && !row.duplicate && row.time_seconds != null,
+  );
 
   async function add() {
     const sec = clockToSec(time);
