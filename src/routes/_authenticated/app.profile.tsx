@@ -53,7 +53,11 @@ function Profile() {
     queryKey: ["zone-profile", athlete?.id],
     enabled: !!athlete,
     queryFn: async () => {
-      const { data } = await supabase.from("athlete_zone_profiles").select("*").eq("athlete_id", athlete!.id).maybeSingle();
+      const { data } = await supabase
+        .from("athlete_zone_profiles")
+        .select("*")
+        .eq("athlete_id", athlete!.id)
+        .maybeSingle();
       return data;
     },
   });
@@ -62,7 +66,11 @@ function Profile() {
     queryKey: ["my-pbs", athlete?.id],
     enabled: !!athlete,
     queryFn: async () => {
-      const { data } = await supabase.from("performances").select("*").eq("athlete_id", athlete!.id).order("performance_date", { ascending: false });
+      const { data } = await supabase
+        .from("performances")
+        .select("*")
+        .eq("athlete_id", athlete!.id)
+        .order("performance_date", { ascending: false });
       return data ?? [];
     },
   });
@@ -90,13 +98,23 @@ function Profile() {
         {user && <RolesCard userId={user.id} roles={roles} email={user.email ?? ""} />}
         {user && <PreferencesCard userId={user.id} />}
         {user && <JoinRequestsInbox userId={user.id} />}
-        {user && <AiAccessCard userId={user.id} isAthlete={roles.includes("athlete")} isCoach={roles.includes("coach") || roles.includes("manager")} />}
+        {user && (
+          <AiAccessCard
+            userId={user.id}
+            isAthlete={roles.includes("athlete")}
+            isCoach={roles.includes("coach") || roles.includes("manager")}
+          />
+        )}
 
         {athlete && (
           <>
             <AthleteForm athlete={athlete} />
             <ZoneBoundariesCard athleteId={athlete.id} profile={zones} />
-            <PBsCard athleteId={athlete.id} pbs={pbs ?? []} onChange={() => qc.invalidateQueries({ queryKey: ["my-pbs"] })} />
+            <PBsCard
+              athleteId={athlete.id}
+              pbs={pbs ?? []}
+              onChange={() => qc.invalidateQueries({ queryKey: ["my-pbs"] })}
+            />
           </>
         )}
       </div>
@@ -207,7 +225,10 @@ function JoinRequestsInbox({ userId }: { userId: string }) {
   });
 
   async function respond(id: string, accept: boolean) {
-    const { data, error } = await (supabase.rpc as any)("respond_to_join_request", { _request_id: id, _accept: accept });
+    const { data, error } = await (supabase.rpc as any)("respond_to_join_request", {
+      _request_id: id,
+      _accept: accept,
+    });
 
     if (error) {
       toast.error(error.message);
@@ -304,7 +325,9 @@ function RolesCard({ userId, roles, email }: { userId: string; roles: AppRole[];
     <Card>
       <CardHeader>
         <CardTitle>Roles</CardTitle>
-        <CardDescription>You can be more than one. Turning off Athlete hides athlete-only views but keeps your training data.</CardDescription>
+        <CardDescription>
+          You can be more than one. Turning off Athlete hides athlete-only views but keeps your training data.
+        </CardDescription>
       </CardHeader>
 
       <CardContent className="space-y-3">
@@ -413,7 +436,7 @@ function AthleteForm({ athlete }: { athlete: any }) {
 }
 
 function eventToDistanceM(event: string): number | null {
-  const e = event.trim();
+  const e = cleanImportCell(event).toLowerCase();
 
   if (/^1\s*mile$/i.test(e)) return 1609;
 
@@ -426,8 +449,40 @@ function eventToDistanceM(event: string): number | null {
   return null;
 }
 
+function cleanImportCell(value: string) {
+  return String(value ?? "")
+    .replace(/\u00a0/g, " ")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\r/g, "")
+    .trim();
+}
+
+function cleanPipeCell(value: string) {
+  return cleanImportCell(value).replace(/\|/g, "/").trim();
+}
+
+function extractDate(value: string): string | null {
+  const cleaned = cleanImportCell(value);
+  const match = cleaned.match(/\d{4}-\d{2}-\d{2}/);
+  return match ? match[0] : null;
+}
+
+function looksLikePerformance(value: string) {
+  const v = cleanImportCell(value);
+
+  if (!v) return false;
+
+  return (
+    /^\d+(?::\d{1,2}(?:\.\d+)?)?$/.test(v) ||
+    /^\d+(?:\.\d+)?h$/i.test(v) ||
+    /^\([-+]?\d+(?:\.\d+)?\)$/.test(v) ||
+    /^DNF$/i.test(v) ||
+    /^SCR$/i.test(v)
+  );
+}
+
 function performanceToSeconds(perf: string): { seconds: number | null; notes: string } {
-  const original = perf.trim();
+  const original = cleanImportCell(perf);
   const upper = original.toUpperCase();
   const notes: string[] = [];
 
@@ -503,67 +558,99 @@ function performanceKey(row: {
   return `${date}|${distance}|${seconds}|${eventName}`;
 }
 
-function parseBulkPerformances(text: string, athleteId: string): BulkImportRow[] {
-  // Normalize unicode noise from Athletics Victoria copy/paste:
-  // strip zero-width chars, convert non-breaking spaces, then trim.
-  const rawLines = text
-    .replace(/\r/g, "")
-    .split("\n")
-    .map((line) =>
-      line
-        .replace(/[\u200B-\u200D\uFEFF]/g, "")
-        .replace(/\u00A0/g, " ")
-        .trim(),
-    )
-    .filter(Boolean)
-    .filter((line) => !line.toLowerCase().startsWith("meet date"));
+function parseAvRecordToPipe(record: string[]): string | null {
+  const date = extractDate(record[0] ?? "");
+  if (!date) return null;
 
-  // If no pipe characters, treat as Athletics Victoria export. Records are
-  // date-anchored: a new record starts on every YYYY-MM-DD line and
-  // consumes every following non-date line until the next date. Within a
-  // record: first line = Event, last line = Venue, anything between is
-  // Performance (multiple middle lines like a wind reading get joined).
-  // If only Event + Venue exist, Performance is blank.
-  const hasPipes = rawLines.some((l) => l.includes("|"));
-  const dateRe = /\d{4}-\d{2}-\d{2}/;
-  let lines: string[];
-  if (hasPipes) {
-    lines = rawLines;
+  const body = record.slice(1).map(cleanPipeCell).filter(Boolean);
+
+  if (body.length === 0) return null;
+
+  const eventIndex = body.findIndex((item) => eventToDistanceM(item) !== null);
+
+  if (eventIndex === -1) {
+    return `${date} |  |  | ${body.join(" ")}`;
+  }
+
+  const event = body[eventIndex];
+  const afterEvent = body.slice(eventIndex + 1);
+
+  let venue = "";
+  let perfParts: string[] = [];
+
+  if (afterEvent.length === 0) {
+    venue = "";
+    perfParts = [];
   } else {
-    lines = [];
-    let i = 0;
-    while (i < rawLines.length) {
-      const dateMatch = rawLines[i].match(dateRe);
-      if (!dateMatch) {
-        i++;
-        continue;
+    let venueIndex = -1;
+
+    for (let i = afterEvent.length - 1; i >= 0; i--) {
+      if (!looksLikePerformance(afterEvent[i])) {
+        venueIndex = i;
+        break;
       }
-      const date = dateMatch[0];
-      let j = i + 1;
-      while (j < rawLines.length && !rawLines[j].match(dateRe)) j++;
-      const body = rawLines.slice(i + 1, j).map((c) => c.replace(/\|/g, "/"));
-      let event = "";
-      let perf = "";
-      let venue = "";
-      if (body.length === 0) {
-        // date only — skip
-      } else if (body.length === 1) {
-        event = body[0];
-      } else if (body.length === 2) {
-        event = body[0];
-        venue = body[1];
-      } else {
-        event = body[0];
-        venue = body[body.length - 1];
-        perf = body.slice(1, -1).join(" ");
-      }
-      lines.push(`${date} | ${event} | ${perf} | ${venue}`);
-      i = j;
+    }
+
+    if (venueIndex >= 0) {
+      venue = afterEvent[venueIndex];
+      perfParts = afterEvent.slice(0, venueIndex);
+    } else {
+      venue = "";
+      perfParts = afterEvent;
     }
   }
 
+  const perf = perfParts.join(" ").trim();
+
+  return `${date} | ${event} | ${perf} | ${venue}`;
+}
+
+function normaliseBulkImportText(text: string): string[] {
+  const rawLines = text
+    .split(/\r?\n/)
+    .flatMap((line) => line.split("\t"))
+    .map(cleanImportCell)
+    .filter(Boolean)
+    .filter((line) => !/^meet date$/i.test(line))
+    .filter((line) => !/^event$/i.test(line))
+    .filter((line) => !/^perf$/i.test(line))
+    .filter((line) => !/^venue$/i.test(line));
+
+  if (rawLines.length === 0) return [];
+
+  if (rawLines.some((line) => line.includes("|"))) {
+    return rawLines;
+  }
+
+  const records: string[][] = [];
+  let current: string[] = [];
+
+  for (const line of rawLines) {
+    const date = extractDate(line);
+
+    if (date) {
+      if (current.length > 0) {
+        records.push(current);
+      }
+
+      current = [date];
+    } else if (current.length > 0) {
+      current.push(line);
+    }
+  }
+
+  if (current.length > 0) {
+    records.push(current);
+  }
+
+  return records.map(parseAvRecordToPipe).filter((row): row is string => Boolean(row));
+}
+
+function parseBulkPerformances(text: string, athleteId: string): BulkImportRow[] {
+  const lines = normaliseBulkImportText(text);
+
   const rows: BulkImportRow[] = lines.map((line) => {
-    const parts = line.split("|").map((p) => p.trim());
+    const parts = line.split("|").map(cleanImportCell);
 
     if (parts.length !== 4) {
       return {
@@ -585,7 +672,13 @@ function parseBulkPerformances(text: string, athleteId: string): BulkImportRow[]
       };
     }
 
-    const [performance_date, source_event, source_perf, source_venue] = parts;
+    const [performanceDateRaw, sourceEventRaw, sourcePerfRaw, sourceVenueRaw] = parts;
+
+    const performance_date = extractDate(performanceDateRaw) ?? performanceDateRaw;
+    const source_event = cleanPipeCell(sourceEventRaw);
+    const source_perf = cleanPipeCell(sourcePerfRaw);
+    const source_venue = cleanPipeCell(sourceVenueRaw);
+
     const distance_m = eventToDistanceM(source_event);
     const race_type = raceTypeFromEvent(source_event);
     const { seconds, notes } = performanceToSeconds(source_perf);
@@ -606,7 +699,7 @@ function parseBulkPerformances(text: string, athleteId: string): BulkImportRow[]
         source_event,
         source_perf,
         source_venue,
-        error: `Invalid date: ${performance_date}`,
+        error: `Invalid date: ${performanceDateRaw}`,
       };
     }
 
@@ -626,7 +719,7 @@ function parseBulkPerformances(text: string, athleteId: string): BulkImportRow[]
         source_event,
         source_perf,
         source_venue,
-        error: `Could not parse distance from event: ${source_event}`,
+        error: `Could not parse distance from event: ${source_event || "(blank)"}`,
       };
     }
 
@@ -702,10 +795,7 @@ function PBsCard({ athleteId, pbs, onChange }: { athleteId: string; pbs: any[]; 
 
   const duplicateCount = previewRows.filter((row) => row.duplicate).length;
   const errorCount = previewRows.filter((row) => row.error).length;
-  const insertableRows = previewRows.filter(
-    (row): row is BulkImportRow & { time_seconds: number } =>
-      !row.error && !row.duplicate && row.time_seconds != null,
-  );
+  const insertableRows = previewRows.filter((row) => !row.error && !row.duplicate);
 
   async function add() {
     const sec = clockToSec(time);
@@ -762,7 +852,7 @@ function PBsCard({ athleteId, pbs, onChange }: { athleteId: string; pbs: any[]; 
       duplicate: !row.error && existingKeys.has(performanceKey(row)),
     }));
 
-    console.log("parsed rows", rows);
+    console.log("Bulk import parsed rows", rows.slice(0, 20));
 
     setPreviewRows(rows);
 
@@ -770,10 +860,17 @@ function PBsCard({ athleteId, pbs, onChange }: { athleteId: string; pbs: any[]; 
     const duplicates = rows.filter((r) => r.duplicate).length;
     const insertable = rows.filter((r) => !r.error && !r.duplicate).length;
 
+    if (rows.length === 0) {
+      toast.error("No rows detected. Paste the AV results again, including dates.");
+      return;
+    }
+
     if (errors > 0) {
       toast.error(`Preview created with ${errors} row issue${errors === 1 ? "" : "s"}`);
     } else {
-      toast.success(`Preview ready: ${insertable} to import, ${duplicates} duplicate${duplicates === 1 ? "" : "s"} skipped`);
+      toast.success(
+        `Preview ready: ${insertable} to import, ${duplicates} duplicate${duplicates === 1 ? "" : "s"} skipped`,
+      );
     }
   }
 
@@ -866,17 +963,27 @@ function PBsCard({ athleteId, pbs, onChange }: { athleteId: string; pbs: any[]; 
           <div>
             <Label className="text-sm font-medium">Bulk import performances</Label>
             <p className="text-xs text-muted-foreground mt-1">
-              Paste rows as: YYYY-MM-DD | Event | Performance | Venue
+              Paste AV results exactly as copied, or use: YYYY-MM-DD | Event | Performance | Venue
             </p>
           </div>
 
           <textarea
             className="w-full min-h-40 rounded-md border bg-background px-3 py-2 text-sm font-mono"
-            placeholder={`2026-05-10 | 5km (Road) | 14:41 | Albert Park
-2026-03-31 | 1500m | 3:47.24 | Box Hill
-2026-03-22 | 800m | 1:50.79 | Lakeside
-2024-02-17 | 1500m | 3:57.2h | Doncaster
-2021-12-18 | 100m | 13.22 (2.6) | Geelong`}
+            placeholder={`2026-06-28
+7.4km (XC Relay)
+21:44
+Calder Park
+
+2026-05-10
+5km (Road)
+14:41
+Albert Park
+
+2021-12-18
+100m
+13.22
+(2.6)
+Geelong`}
             value={bulkText}
             onChange={(e) => setBulkText(e.target.value)}
           />
@@ -886,8 +993,12 @@ function PBsCard({ athleteId, pbs, onChange }: { athleteId: string; pbs: any[]; 
               Preview import
             </Button>
 
-            <Button size="sm" onClick={bulkImport} disabled={importing || previewRows.length === 0 || insertableRows.length === 0 || errorCount > 0}>
-              {importing ? "Importing..." : `Import ${insertableRows.length || ""} performances`}
+            <Button
+              size="sm"
+              onClick={bulkImport}
+              disabled={importing || previewRows.length === 0 || insertableRows.length === 0 || errorCount > 0}
+            >
+              {importing ? "Importing..." : `Import ${insertableRows.length} performances`}
             </Button>
 
             <Button size="sm" variant="ghost" onClick={clearBulk}>
@@ -897,13 +1008,9 @@ function PBsCard({ athleteId, pbs, onChange }: { athleteId: string; pbs: any[]; 
 
           {previewRows.length > 0 && (
             <div className="space-y-2">
-              <div className="text-xs text-muted-foreground space-y-0.5">
-                <div>Raw rows detected: {previewRows.length}</div>
-                <div>Valid rows: {previewRows.length - errorCount}</div>
-                <div>Invalid rows: {errorCount}</div>
-                <div>
-                  {insertableRows.length} new · {duplicateCount} duplicate skipped
-                </div>
+              <div className="text-xs text-muted-foreground">
+                Detected: {previewRows.length} rows · {insertableRows.length} new · {duplicateCount} duplicate skipped ·{" "}
+                {errorCount} issue{errorCount === 1 ? "" : "s"}
               </div>
 
               <div className="overflow-x-auto border rounded">
@@ -924,12 +1031,19 @@ function PBsCard({ athleteId, pbs, onChange }: { athleteId: string; pbs: any[]; 
 
                   <tbody className="divide-y">
                     {previewRows.map((row, i) => (
-                      <tr key={`${row.performance_date}-${row.event_name}-${i}`} className={row.error ? "bg-destructive/10" : row.duplicate ? "bg-muted/40" : ""}>
+                      <tr
+                        key={`${row.performance_date}-${row.event_name}-${i}`}
+                        className={row.error ? "bg-destructive/10" : row.duplicate ? "bg-muted/40" : ""}
+                      >
                         <td className="px-2 py-2 whitespace-nowrap">{row.performance_date || "—"}</td>
                         <td className="px-2 py-2 min-w-36">{row.source_event || "—"}</td>
-                        <td className="px-2 py-2 whitespace-nowrap">{row.distance_m ? metersFmt(row.distance_m) : "—"}</td>
+                        <td className="px-2 py-2 whitespace-nowrap">
+                          {row.distance_m ? metersFmt(row.distance_m) : "—"}
+                        </td>
                         <td className="px-2 py-2 whitespace-nowrap tabular-nums">{row.source_perf || "—"}</td>
-                        <td className="px-2 py-2 whitespace-nowrap tabular-nums">{row.time_seconds == null ? "—" : row.time_seconds}</td>
+                        <td className="px-2 py-2 whitespace-nowrap tabular-nums">
+                          {row.time_seconds == null ? "—" : row.time_seconds}
+                        </td>
                         <td className="px-2 py-2 whitespace-nowrap">{row.source_venue || "—"}</td>
                         <td className="px-2 py-2 whitespace-nowrap">{row.race_type}</td>
                         <td className="px-2 py-2 whitespace-nowrap">{row.is_pb ? "Yes" : "No"}</td>
@@ -1005,7 +1119,10 @@ function AiAccessCard({ userId, isAthlete, isCoach }: { userId: string; isAthlet
     }
 
     const last4 = key.slice(-4);
-    const { error } = await supabase.from("profiles").update({ anthropic_api_key: key.trim(), anthropic_api_key_last4: last4 }).eq("id", userId);
+    const { error } = await supabase
+      .from("profiles")
+      .update({ anthropic_api_key: key.trim(), anthropic_api_key_last4: last4 })
+      .eq("id", userId);
 
     if (error) {
       toast.error(error.message);
@@ -1019,7 +1136,10 @@ function AiAccessCard({ userId, isAthlete, isCoach }: { userId: string; isAthlet
   }
 
   async function remove() {
-    const { error } = await supabase.from("profiles").update({ anthropic_api_key: null, anthropic_api_key_last4: null }).eq("id", userId);
+    const { error } = await supabase
+      .from("profiles")
+      .update({ anthropic_api_key: null, anthropic_api_key_last4: null })
+      .eq("id", userId);
 
     if (error) {
       toast.error(error.message);
@@ -1065,7 +1185,8 @@ function AiAccessCard({ userId, isAthlete, isCoach }: { userId: string; isAthlet
           </div>
 
           <p className="text-xs text-muted-foreground">
-            Get a key at console.anthropic.com. Your key is stored in your profile and only used server-side to call the model on your behalf.
+            Get a key at console.anthropic.com. Your key is stored in your profile and only used server-side to call the
+            model on your behalf.
           </p>
         </CardContent>
       )}
