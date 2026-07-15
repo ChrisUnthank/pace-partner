@@ -83,8 +83,10 @@ function Profile() {
         <h1 className="text-2xl font-bold">Profile</h1>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-          {/* Left column: identity & access */}
+          {/* Left column: athlete details up top, then account & photo */}
           <div className="space-y-6">
+            {athlete && <AthleteForm athlete={athlete} />}
+
             <Card>
               <CardHeader>
                 <CardTitle>Account</CardTitle>
@@ -100,24 +102,18 @@ function Profile() {
             </Card>
 
             {user && <ProfileImageUploader userId={user.id} name={user.user_metadata?.full_name ?? user.email ?? ""} />}
-            {user && <RolesCard userId={user.id} roles={roles} email={user.email ?? ""} />}
-            {user && <JoinRequestsInbox userId={user.id} />}
-            {user && (
-              <AiAccessCard
-                userId={user.id}
-                isAthlete={roles.includes("athlete")}
-                isCoach={roles.includes("coach") || roles.includes("manager")}
-              />
-            )}
           </div>
 
-          {/* Right column: preferences & athlete profile */}
+          {/* Right column: roles & invitations, preferences shuffled down */}
           <div className="space-y-6">
+            {user && <RolesCard userId={user.id} roles={roles} email={user.email ?? ""} />}
+            {user && <JoinRequestsInbox userId={user.id} />}
             {user && <PreferencesCard userId={user.id} />}
-            {athlete && <AthleteForm athlete={athlete} />}
-            {athlete && <ZoneBoundariesCard athleteId={athlete.id} profile={zones} />}
           </div>
         </div>
+
+        {/* Full width: zone boundaries */}
+        {athlete && <ZoneBoundariesCard athleteId={athlete.id} profile={zones} />}
 
         {/* Full width: performances table + chart need the extra room */}
         {athlete && (
@@ -125,6 +121,15 @@ function Profile() {
             athleteId={athlete.id}
             pbs={pbs ?? []}
             onChange={() => qc.invalidateQueries({ queryKey: ["my-pbs"] })}
+          />
+        )}
+
+        {/* Full width, last: AI assistant */}
+        {user && (
+          <AiAccessCard
+            userId={user.id}
+            isAthlete={roles.includes("athlete")}
+            isCoach={roles.includes("coach") || roles.includes("manager")}
           />
         )}
       </div>
