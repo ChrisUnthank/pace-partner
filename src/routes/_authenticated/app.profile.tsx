@@ -79,45 +79,53 @@ function Profile() {
 
   return (
     <AppShell>
-      <div className="space-y-6 max-w-2xl">
+      <div className="space-y-6 max-w-6xl">
         <h1 className="text-2xl font-bold">Profile</h1>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Account</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm space-y-1">
-            <div>
-              <span className="text-muted-foreground">Email:</span> {user?.email}
-            </div>
-            <div>
-              <span className="text-muted-foreground">Roles:</span> {roles.join(", ") || "none"}
-            </div>
-          </CardContent>
-        </Card>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+          {/* Left column: identity & access */}
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Account</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm space-y-1">
+                <div>
+                  <span className="text-muted-foreground">Email:</span> {user?.email}
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Roles:</span> {roles.join(", ") || "none"}
+                </div>
+              </CardContent>
+            </Card>
 
-        {user && <ProfileImageUploader userId={user.id} name={user.user_metadata?.full_name ?? user.email ?? ""} />}
-        {user && <RolesCard userId={user.id} roles={roles} email={user.email ?? ""} />}
-        {user && <PreferencesCard userId={user.id} />}
-        {user && <JoinRequestsInbox userId={user.id} />}
-        {user && (
-          <AiAccessCard
-            userId={user.id}
-            isAthlete={roles.includes("athlete")}
-            isCoach={roles.includes("coach") || roles.includes("manager")}
-          />
-        )}
+            {user && <ProfileImageUploader userId={user.id} name={user.user_metadata?.full_name ?? user.email ?? ""} />}
+            {user && <RolesCard userId={user.id} roles={roles} email={user.email ?? ""} />}
+            {user && <JoinRequestsInbox userId={user.id} />}
+            {user && (
+              <AiAccessCard
+                userId={user.id}
+                isAthlete={roles.includes("athlete")}
+                isCoach={roles.includes("coach") || roles.includes("manager")}
+              />
+            )}
+          </div>
 
+          {/* Right column: preferences & athlete profile */}
+          <div className="space-y-6">
+            {user && <PreferencesCard userId={user.id} />}
+            {athlete && <AthleteForm athlete={athlete} />}
+            {athlete && <ZoneBoundariesCard athleteId={athlete.id} profile={zones} />}
+          </div>
+        </div>
+
+        {/* Full width: performances table + chart need the extra room */}
         {athlete && (
-          <>
-            <AthleteForm athlete={athlete} />
-            <ZoneBoundariesCard athleteId={athlete.id} profile={zones} />
-            <PBsCard
-              athleteId={athlete.id}
-              pbs={pbs ?? []}
-              onChange={() => qc.invalidateQueries({ queryKey: ["my-pbs"] })}
-            />
-          </>
+          <PBsCard
+            athleteId={athlete.id}
+            pbs={pbs ?? []}
+            onChange={() => qc.invalidateQueries({ queryKey: ["my-pbs"] })}
+          />
         )}
       </div>
     </AppShell>
