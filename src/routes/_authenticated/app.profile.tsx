@@ -18,7 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { setStoredUnits } from "@/lib/units";
 import { TIMEZONE_OPTIONS, guessLocalTimezone } from "@/lib/timezones";
 import { ZoneBoundariesCard } from "@/components/zone-boundaries-card";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceArea } from "recharts";
 
 export const Route = createFileRoute("/_authenticated/app/profile")({
   component: Profile,
@@ -883,6 +883,53 @@ function formatChartDate(dateStr: string) {
   return `${parts[2]}/${parts[1]}`;
 }
 
+// Adds an overall trend value to each point via simple least-squares linear
+// regression over day-offset from the first performance. Rendered as a
+// second, dashed line overlaid on the actual data points.
+function addLinearTrend<T extends { t: number; seconds: number }>(data: T[]): (T & { trend: number | null })[] {
+  if (data.length < 2) return data.map((d) => ({ ...d, trend: null }));
+
+  const t0 = data[0].t;
+  const xs = data.map((d) => (d.t - t0) / 86400000);
+  const ys = data.map((d) => d.seconds);
+
+  const n = xs.length;
+  const sumX = xs.reduce((a, b) => a + b, 0);
+  const sumY = ys.reduce((a, b) => a + b, 0);
+  const sumXY = xs.reduce((a, x, i) => a + x * ys[i], 0);
+  const sumXX = xs.reduce((a, x) => a + x * x, 0);
+
+  const denom = n * sumXX - sumX * sumX;
+  if (denom === 0) return data.map((d) => ({ ...d, trend: d.seconds }));
+
+  const slope = (n * sumXY - sumX * sumY) / denom;
+  const intercept = (sumY - slope * sumX) / n;
+
+  return data.map((d, i) => ({ ...d, trend: slope * xs[i] + intercept }));
+}
+
+// Alternating background bands, one per calendar year spanned by the chart,
+// so a multi-year progression reads at a glance without staring at axis
+// labels. Clipped to the actual data range at both ends.
+function computeYearBands(points: { t: number }[]): { year: number; x1: number; x2: number }[] {
+  if (points.length === 0) return [];
+
+  const minT = points[0].t;
+  const maxT = points[points.length - 1].t;
+  const startYear = new Date(minT).getUTCFullYear();
+  const endYear = new Date(maxT).getUTCFullYear();
+
+  const bands: { year: number; x1: number; x2: number }[] = [];
+
+  for (let y = startYear; y <= endYear; y++) {
+    const yearStart = Date.UTC(y, 0, 1);
+    const yearEnd = Date.UTC(y + 1, 0, 1);
+    bands.push({ year: y, x1: Math.max(yearStart, minT), x2: Math.min(yearEnd, maxT) });
+  }
+
+  return bands;
+}
+
 const PERFORMANCES_PAGE_SIZE = 10;
 
 function PBsCard({ athleteId, pbs, onChange }: { athleteId: string; pbs: any[]; onChange: () => void }) {
@@ -952,15 +999,20 @@ function PBsCard({ athleteId, pbs, onChange }: { athleteId: string; pbs: any[]; 
   const chartData = useMemo(() => {
     if (!selectedEventKey) return [];
 
-    return pbs
+    const points = pbs
       .filter((p) => `${p.distance_m}-${p.race_type}` === selectedEventKey && p.time_seconds != null)
       .slice()
       .sort((a, b) => a.performance_date.localeCompare(b.performance_date))
       .map((p) => ({
         date: p.performance_date,
+        t: new Date(p.performance_date + "T00:00:00Z").getTime(),
         seconds: p.time_seconds,
       }));
+
+    return addLinearTrend(points);
   }, [pbs, selectedEventKey]);
+
+  const yearBands = useMemo(() => computeYearBands(chartData), [chartData]);
 
   const visiblePerformances = showAllPerformances ? pbs : pbs.slice(0, PERFORMANCES_PAGE_SIZE);
   const hiddenCount = Math.max(0, pbs.length - PERFORMANCES_PAGE_SIZE);
@@ -1265,7 +1317,25 @@ Geelong`}
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                    <XAxis dataKey="date" tickFormatter={formatChartDate} tick={{ fontSize: 11 }} />
+                    {yearBands.map((b, i) => (
+                      <ReferenceArea
+                        key={b.year}
+                        x1={b.x1}
+                        x2={b.x2}
+                        yAxisId={0}
+                        strokeOpacity={0}
+                        fill={i % 2 === 0 ? "#64748b" : "transparent"}
+                        fillOpacity={i % 2 === 0 ? 0.08 : 0}
+                        label={{ value: String(b.year), position: "insideTopLeft", fontSize: 10, fill: "#94a3b8" }}
+                      />
+                    ))}
+                    <XAxis
+                      dataKey="t"
+                      type="number"
+                      domain={["dataMin", "dataMax"]}
+                      tickFormatter={(t: number) => formatChartDate(new Date(t).toISOString().slice(0, 10))}
+                      tick={{ fontSize: 11 }}
+                    />
                     <YAxis
                       reversed
                       tickFormatter={(v) => secToClock(v)}
@@ -1273,8 +1343,28 @@ Geelong`}
                       width={55}
                       domain={["dataMin", "dataMax"]}
                     />
-                    <Tooltip formatter={(value: number) => [secToClock(value), "Time"]} />
-                    <Line type="monotone" dataKey="seconds" stroke="#2563eb" strokeWidth={2} dot={{ r: 3 }} />
+                    <Tooltip
+                      formatter={(value: number, name: string) => [secToClock(value), name]}
+                      labelFormatter={(t: number) => new Date(t).toISOString().slice(0, 10)}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="seconds"
+                      name="Actual"
+                      stroke="#2563eb"
+                      strokeWidth={2}
+                      dot={{ r: 3 }}
+                    />
+                    <Line
+                      type="linear"
+                      dataKey="trend"
+                      name="Trend"
+                      stroke="#94a3b8"
+                      strokeWidth={2}
+                      strokeDasharray="6 4"
+                      dot={false}
+                      isAnimationActive={false}
+                    />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
