@@ -134,27 +134,45 @@ function EditablePace({
 }
 
 // ----------------------------------------------------------------------------
+// Zone colour palette — matches the Z1-Z5 colours already used on the
+// Analytics zone bar (emerald/sky/amber/orange/red), just reused here as a
+// subtle row tint + a solid left border, so the table itself reads at a
+// glance instead of needing to parse the Z-number.
+// ----------------------------------------------------------------------------
+
+const ZONE_COLORS: Record<string, { row: string; border: string; dot: string }> = {
+  Z1: { row: "bg-emerald-400/10", border: "border-l-emerald-400", dot: "bg-emerald-400" },
+  Z2: { row: "bg-sky-400/10", border: "border-l-sky-400", dot: "bg-sky-400" },
+  Z3: { row: "bg-amber-400/10", border: "border-l-amber-400", dot: "bg-amber-400" },
+  Z4: { row: "bg-orange-500/10", border: "border-l-orange-500", dot: "bg-orange-500" },
+  Z5: { row: "bg-red-500/10", border: "border-l-red-500", dot: "bg-red-500" },
+};
+
+// ----------------------------------------------------------------------------
 // Main card
 // ----------------------------------------------------------------------------
 
-type ZoneProfile = {
-  hr_max: number | null;
-  hr_threshold: number | null;
-  hr_z1_max: number | null;
-  hr_z2_max: number | null;
-  hr_z3_max: number | null;
-  hr_z4_max: number | null;
-  hr_z5_max: number | null;
-  hr_zones_manual: boolean;
-  pace_5k_sec_per_km: number | null;
-  pace_threshold_sec_per_km: number | null;
-  pace_z1_max_sec_per_km: number | null;
-  pace_z2_max_sec_per_km: number | null;
-  pace_z3_max_sec_per_km: number | null;
-  pace_z4_max_sec_per_km: number | null;
-  pace_z5_max_sec_per_km: number | null;
-  pace_zones_manual: boolean;
-} | null | undefined;
+type ZoneProfile =
+  | {
+      hr_max: number | null;
+      hr_threshold: number | null;
+      hr_z1_max: number | null;
+      hr_z2_max: number | null;
+      hr_z3_max: number | null;
+      hr_z4_max: number | null;
+      hr_z5_max: number | null;
+      hr_zones_manual: boolean;
+      pace_5k_sec_per_km: number | null;
+      pace_threshold_sec_per_km: number | null;
+      pace_z1_max_sec_per_km: number | null;
+      pace_z2_max_sec_per_km: number | null;
+      pace_z3_max_sec_per_km: number | null;
+      pace_z4_max_sec_per_km: number | null;
+      pace_z5_max_sec_per_km: number | null;
+      pace_zones_manual: boolean;
+    }
+  | null
+  | undefined;
 
 export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; profile: ZoneProfile }) {
   const qc = useQueryClient();
@@ -198,11 +216,19 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
   }
 
   async function resetHr() {
-    await run("hr_reset", () => supabase.rpc("reset_hr_zones_to_auto", { _athlete_id: athleteId }), "HR zones reset to auto");
+    await run(
+      "hr_reset",
+      () => supabase.rpc("reset_hr_zones_to_auto", { _athlete_id: athleteId }),
+      "HR zones reset to auto",
+    );
   }
 
   async function resetPace() {
-    await run("pace_reset", () => supabase.rpc("reset_pace_zones_to_auto", { _athlete_id: athleteId }), "Pace zones reset to auto");
+    await run(
+      "pace_reset",
+      () => supabase.rpc("reset_pace_zones_to_auto", { _athlete_id: athleteId }),
+      "Pace zones reset to auto",
+    );
   }
 
   // Editing an individual boundary (rather than the threshold) is a direct
@@ -212,13 +238,19 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
   // allowed to write for this athlete_id, coach or athlete alike.
   async function saveHrBoundary(field: string, bpm: number) {
     await run(field, () =>
-      supabase.from("athlete_zone_profiles").update({ [field]: bpm, hr_zones_manual: true } as any).eq("athlete_id", athleteId),
+      supabase
+        .from("athlete_zone_profiles")
+        .update({ [field]: bpm, hr_zones_manual: true } as any)
+        .eq("athlete_id", athleteId),
     );
   }
 
   async function savePaceBoundary(field: string, secPerKm: number) {
     await run(field, () =>
-      supabase.from("athlete_zone_profiles").update({ [field]: secPerKm, pace_zones_manual: true } as any).eq("athlete_id", athleteId),
+      supabase
+        .from("athlete_zone_profiles")
+        .update({ [field]: secPerKm, pace_zones_manual: true } as any)
+        .eq("athlete_id", athleteId),
     );
   }
 
@@ -254,15 +286,17 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
       <CardHeader>
         <CardTitle>Zone boundaries</CardTitle>
         <CardDescription>
-          One threshold value drives each set of zones. Click any number to override it directly — that switches
-          this set to manual and stops it from being recalculated when a new PB or HR max comes in.
+          One threshold value drives each set of zones. Click any number to override it directly — that switches this
+          set to manual and stops it from being recalculated when a new PB or HR max comes in.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="grid sm:grid-cols-2 gap-3">
           <div className="rounded-md border border-border bg-card/40 p-4">
             <div className="flex items-center justify-between">
-              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Threshold HR</div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                Threshold HR
+              </div>
               {profile.hr_zones_manual ? (
                 <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-600">Manual</span>
               ) : (
@@ -270,7 +304,11 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
               )}
             </div>
             <div className="font-display text-3xl font-extrabold tabular-nums mt-1">
-              <EditableBpm value={profile.hr_threshold} onSave={saveHrThreshold} disabled={savingKey === "hr_threshold"} />
+              <EditableBpm
+                value={profile.hr_threshold}
+                onSave={saveHrThreshold}
+                disabled={savingKey === "hr_threshold"}
+              />
             </div>
             <div className="text-xs text-muted-foreground mt-1">
               {profile.hr_zones_manual
@@ -278,14 +316,22 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
                 : "Auto-suggested as 90% of HR max."}
             </div>
             {profile.hr_zones_manual && (
-              <Button size="sm" variant="ghost" className="h-6 px-2 mt-2 text-xs" onClick={resetHr} disabled={savingKey === "hr_reset"}>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 mt-2 text-xs"
+                onClick={resetHr}
+                disabled={savingKey === "hr_reset"}
+              >
                 Reset to auto
               </Button>
             )}
           </div>
           <div className="rounded-md border border-border bg-card/40 p-4">
             <div className="flex items-center justify-between">
-              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Threshold Pace</div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                Threshold Pace
+              </div>
               {profile.pace_zones_manual ? (
                 <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-600">Manual</span>
               ) : (
@@ -293,7 +339,11 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
               )}
             </div>
             <div className="font-display text-3xl font-extrabold tabular-nums mt-1">
-              <EditablePace value={profile.pace_threshold_sec_per_km} onSave={savePaceThreshold} disabled={savingKey === "pace_threshold"} />
+              <EditablePace
+                value={profile.pace_threshold_sec_per_km}
+                onSave={savePaceThreshold}
+                disabled={savingKey === "pace_threshold"}
+              />
             </div>
             <div className="text-xs text-muted-foreground mt-1">
               {profile.pace_zones_manual
@@ -301,7 +351,13 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
                 : "Auto-suggested from recent 5K/3K/10K PBs."}
             </div>
             {profile.pace_zones_manual && (
-              <Button size="sm" variant="ghost" className="h-6 px-2 mt-2 text-xs" onClick={resetPace} disabled={savingKey === "pace_reset"}>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 mt-2 text-xs"
+                onClick={resetPace}
+                disabled={savingKey === "pace_reset"}
+              >
                 Reset to auto
               </Button>
             )}
@@ -311,59 +367,71 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
         <div className="grid md:grid-cols-2 gap-6">
           <div>
             <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">HR zones</div>
-            <table className="w-full text-sm">
+            <table className="w-full text-sm border-separate border-spacing-y-1">
               <thead className="text-xs text-muted-foreground">
                 <tr>
-                  <th className="text-left py-1">Zone</th>
-                  <th className="text-right">Up to</th>
+                  <th className="text-left py-1 px-2">Zone</th>
+                  <th className="text-right px-2">Up to</th>
                 </tr>
               </thead>
               <tbody>
-                {hrRows.map((r) => (
-                  <tr key={r.z} className="border-t">
-                    <td className="py-1.5 font-medium">{r.z}</td>
-                    <td className="text-right">
-                      {r.editable ? (
-                        <EditableBpm
-                          value={r.value}
-                          onSave={(v) => saveHrBoundary(r.field, v)}
-                          disabled={savingKey === r.field}
-                        />
-                      ) : (
-                        <span className="text-muted-foreground text-xs">open</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {hrRows.map((r) => {
+                  const colors = ZONE_COLORS[r.z];
+                  return (
+                    <tr key={r.z} className={`border-l-4 ${colors.border} ${colors.row}`}>
+                      <td className="py-1.5 px-2 font-medium rounded-l">
+                        <span className={`inline-block h-2 w-2 rounded-full mr-2 align-middle ${colors.dot}`} />
+                        {r.z}
+                      </td>
+                      <td className="text-right px-2 rounded-r">
+                        {r.editable ? (
+                          <EditableBpm
+                            value={r.value}
+                            onSave={(v) => saveHrBoundary(r.field, v)}
+                            disabled={savingKey === r.field}
+                          />
+                        ) : (
+                          <span className="text-muted-foreground text-xs">open</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
           <div>
             <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Pace zones</div>
-            <table className="w-full text-sm">
+            <table className="w-full text-sm border-separate border-spacing-y-1">
               <thead className="text-xs text-muted-foreground">
                 <tr>
-                  <th className="text-left py-1">Zone</th>
-                  <th className="text-right">Slower than</th>
+                  <th className="text-left py-1 px-2">Zone</th>
+                  <th className="text-right px-2">Slower than</th>
                 </tr>
               </thead>
               <tbody>
-                {paceRows.map((r) => (
-                  <tr key={r.z} className="border-t">
-                    <td className="py-1.5 font-medium">{r.z}</td>
-                    <td className="text-right">
-                      {r.editable ? (
-                        <EditablePace
-                          value={r.value}
-                          onSave={(v) => savePaceBoundary(r.field, v)}
-                          disabled={savingKey === r.field}
-                        />
-                      ) : (
-                        <span className="text-muted-foreground text-xs">open</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {paceRows.map((r) => {
+                  const colors = ZONE_COLORS[r.z];
+                  return (
+                    <tr key={r.z} className={`border-l-4 ${colors.border} ${colors.row}`}>
+                      <td className="py-1.5 px-2 font-medium rounded-l">
+                        <span className={`inline-block h-2 w-2 rounded-full mr-2 align-middle ${colors.dot}`} />
+                        {r.z}
+                      </td>
+                      <td className="text-right px-2 rounded-r">
+                        {r.editable ? (
+                          <EditablePace
+                            value={r.value}
+                            onSave={(v) => savePaceBoundary(r.field, v)}
+                            disabled={savingKey === r.field}
+                          />
+                        ) : (
+                          <span className="text-muted-foreground text-xs">open</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
