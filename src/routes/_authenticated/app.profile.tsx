@@ -421,12 +421,12 @@ function eventToDistanceM(event: string): number | null {
   if (km) return Math.round(Number(km[1]) * 1000);
 
   const m = e.match(/^(\d+)\s*m/i);
-  if (m) return Number(m[1])*
+  if (m) return Number(m[1]);
 
   return null;
 }
 
-function perfo*manceToSeconds(perf: string): { se*onds: number | null; notes: string*} {
+function performanceToSeconds(perf: string): { seconds: number | null; notes: string } {
   const original = perf.trim();
   const upper = original.toUpperCase();
   const notes: string[] = [];
@@ -448,109 +448,113 @@ function perfo*manceToSeconds(perf: string): { se*onds: number | null; notes: st
 
   const cleaned = original
     .replace(/\s*\([^)]*\)/g, "")
-    .replace(/h$/i* "")
+    .replace(/h$/i, "")
     .trim();
 
-  if (cleaned.i*cludes(":")) {
+  if (cleaned.includes(":")) {
     const [minRaw, secRaw] = cleaned.split(":");
-    c*nst min = Number(minRaw);
-    cons* sec = Number(secRaw);
+    const min = Number(minRaw);
+    const sec = Number(secRaw);
 
-    if (Nu*ber.isNaN(min) || Number.isNaN(sec*) {
+    if (Number.isNaN(min) || Number.isNaN(sec)) {
       return {
-        seconds* null,
+        seconds: null,
         notes: [`Could not parse original result: ${original}`, ...notes].join("; "),
       };
-  * }
+    }
 
     return {
-      seconds: Ma*h.round((min * 60 + sec) * 100) / *00,
-      notes: notes.join("; "),*    };
+      seconds: Math.round((min * 60 + sec) * 100) / 100,
+      notes: notes.join("; "),
+    };
   }
 
-  const seconds = Numb*r(cleaned);
+  const seconds = Number(cleaned);
 
-  if (Number.isNaN(se*onds)) {
+  if (Number.isNaN(seconds)) {
     return {
-      second*: null,
+      seconds: null,
       notes: [`Could not parse original result: ${original}`, ...notes].join("; "),
     };
   }
 
-* return {
-    seconds: Math.round(*econds * 100) / 100,
-    notes: no*es.join("; "),
+  return {
+    seconds: Math.round(seconds * 100) / 100,
+    notes: notes.join("; "),
   };
 }
 
-function ra*eTypeFromEvent(event: string): Rac*Type {
-  if (/XC/i.test(event)) re*urn "cross_country";
-  if (/Road|T*n Relay/i.test(event)) return "roa*";
+function raceTypeFromEvent(event: string): RaceType {
+  if (/XC/i.test(event)) return "cross_country";
+  if (/Road|Ten Relay/i.test(event)) return "road";
   return "track";
 }
 
-function p*rformanceKey(row: {
-  performance_*ate?: string | null;
-  distance_m?* number | null;
-  time_seconds?: n*mber | null;
-  event_name?: string*| null;
+function performanceKey(row: {
+  performance_date?: string | null;
+  distance_m?: number | null;
+  time_seconds?: number | null;
+  event_name?: string | null;
 }) {
-  const date = row.pe*formance_date ?? "";
-  const dista*ce = row.distance_m ?? "";
-  const*seconds = row.time_seconds == null*? "NULL" : Number(row.time_seconds*.toFixed(2);
-  const eventName = r*w.event_name ?? "";
-  return `${da*e}|${distance}|${seconds}|${eventN*me}`;
+  const date = row.performance_date ?? "";
+  const distance = row.distance_m ?? "";
+  const seconds = row.time_seconds == null ? "NULL" : Number(row.time_seconds).toFixed(2);
+  const eventName = row.event_name ?? "";
+  return `${date}|${distance}|${seconds}|${eventName}`;
 }
 
-function parseBulkPerform*nces(text: string, athleteId: stri*g): BulkImportRow[] {
-  const line* = text
+function parseBulkPerformances(text: string, athleteId: string): BulkImportRow[] {
+  const lines = text
     .split("\n")
-    .map(*line) => line.trim())
-    .filter(*oolean)
-    .filter((line) => !lin*.toLowerCase().startsWith("meet da*e"));
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !line.toLowerCase().startsWith("meet date"));
 
-  const rows: BulkImportRow*] = lines.map((line) => {
-    cons* parts = line.split("|").map((p) =* p.trim());
+  const rows: BulkImportRow[] = lines.map((line) => {
+    const parts = line.split("|").map((p) => p.trim());
 
-    if (parts.length * 4) {
+    if (parts.length !== 4) {
       return {
-        athle*e_id: athleteId,
-        performan*e_date: "",
-        distance_m: 0,*        time_seconds: null,
-      * is_pb: false,
-        context: "r*ce",
-        notes: "",
-        ev*nt_name: "",
-        age_group: nu*l,
-        race_type: "track",
-   *    distance_adjustment_mode: "uni*orm",
-        source_event: "",
-  *     source_perf: "",
-        sour*e_venue: "",
-        error: `Inval*d row. Use: YYYY-MM-DD | Event | P*rformance | Venue`,
-      };
-    }*
-    const [performance_date, source_event, source_perf, source_venue] = parts;
-    const distance_m = e*entToDistanceM(source_event);
-    *onst race_type = raceTypeFromEvent*source_event);
-    const { seconds* notes } = performanceToSeconds(so*rce_perf);
-
-    if (!/^\d{4}-\d{2}*\d{2}$/.test(performance_date)) {
-*     return {
         athlete_id: athleteId,
-        performance_date*
-        distance_m: distance_m ??*0,
-        time_seconds: seconds,
-*       is_pb: false,
-        conte*t: "race",
-        notes,
-        *vent_name: source_venue ? `${sourc*_event} - ${source_venue}` : sourc*_event,
+        performance_date: "",
+        distance_m: 0,
+        time_seconds: null,
+        is_pb: false,
+        context: "race",
+        notes: "",
+        event_name: "",
         age_group: null,
- *      race_type,
-        distance_*djustment_mode: "uniform",
-       *source_event,
-        source_perf,*        source_venue,
-        erro*: `Invalid date: ${performance_date}`,
+        race_type: "track",
+        distance_adjustment_mode: "uniform",
+        source_event: "",
+        source_perf: "",
+        source_venue: "",
+        error: `Invalid row. Use: YYYY-MM-DD | Event | Performance | Venue`,
+      };
+    }
+
+    const [performance_date, source_event, source_perf, source_venue] = parts;
+    const distance_m = eventToDistanceM(source_event);
+    const race_type = raceTypeFromEvent(source_event);
+    const { seconds, notes } = performanceToSeconds(source_perf);
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(performance_date)) {
+      return {
+        athlete_id: athleteId,
+        performance_date,
+        distance_m: distance_m ?? 0,
+        time_seconds: seconds,
+        is_pb: false,
+        context: "race",
+        notes,
+        event_name: source_venue ? `${source_event} - ${source_venue}` : source_event,
+        age_group: null,
+        race_type,
+        distance_adjustment_mode: "uniform",
+        source_event,
+        source_perf,
+        source_venue,
+        error: `Invalid date: ${performance_date}`,
       };
     }
 
@@ -646,7 +650,10 @@ function PBsCard({ athleteId, pbs, onChange }: { athleteId: string; pbs: any[]; 
 
   const duplicateCount = previewRows.filter((row) => row.duplicate).length;
   const errorCount = previewRows.filter((row) => row.error).length;
-  const insertableRows = previewRows.filter((row) => !row.error && !row.duplicate);
+  const insertableRows = previewRows.filter(
+    (row): row is BulkImportRow & { time_seconds: number } =>
+      !row.error && !row.duplicate && row.time_seconds != null,
+  );
 
   async function add() {
     const sec = clockToSec(time);
