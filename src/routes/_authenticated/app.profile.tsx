@@ -251,9 +251,7 @@ function ChangePasswordCard() {
     <Card>
       <CardHeader>
         <CardTitle>Change password</CardTitle>
-        <CardDescription>
-          Update the password used to sign in. You're already signed in, so no need to enter the old one.
-        </CardDescription>
+        <CardDescription>Update the password used to sign in. You're already signed in, so no need to enter the old one.</CardDescription>
       </CardHeader>
 
       <CardContent className="space-y-3">
@@ -1066,18 +1064,18 @@ function PBsCard({ athleteId, pbs, onChange }: { athleteId: string; pbs: any[]; 
     const payload = insertableRows
       .filter((row): row is typeof row & { time_seconds: number } => row.time_seconds != null)
       .map((row) => ({
-        athlete_id: row.athlete_id,
-        performance_date: row.performance_date,
-        distance_m: row.distance_m,
-        time_seconds: row.time_seconds,
-        is_pb: row.is_pb,
-        context: row.context,
-        notes: row.notes,
-        event_name: row.event_name,
-        age_group: row.age_group,
-        race_type: row.race_type,
-        distance_adjustment_mode: row.distance_adjustment_mode,
-      }));
+      athlete_id: row.athlete_id,
+      performance_date: row.performance_date,
+      distance_m: row.distance_m,
+      time_seconds: row.time_seconds,
+      is_pb: row.is_pb,
+      context: row.context,
+      notes: row.notes,
+      event_name: row.event_name,
+      age_group: row.age_group,
+      race_type: row.race_type,
+      distance_adjustment_mode: row.distance_adjustment_mode,
+    }));
 
     setImporting(true);
 
