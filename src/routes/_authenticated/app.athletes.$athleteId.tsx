@@ -53,6 +53,23 @@ function formatChartDate(dateStr: string) {
   return `${parts[2]}/${parts[1]}`;
 }
 
+// Athlete's primary event is free text (e.g. "1500m", "5km") — pull a
+// distance out of it so the progression chart can default to it.
+function primaryEventDistanceM(text: string | null | undefined): number | null {
+  if (!text) return null;
+  const e = text.trim().toLowerCase();
+
+  if (/^1\s*mile$/i.test(e)) return 1609;
+
+  const km = e.match(/(\d+(?:\.\d+)?)\s*km/i);
+  if (km) return Math.round(Number(km[1]) * 1000);
+
+  const m = e.match(/(\d+)\s*m/i);
+  if (m) return Number(m[1]);
+
+  return null;
+}
+
 function AthleteDetail() {
   const { athleteId } = Route.useParams();
   const qc = useQueryClient();
@@ -320,13 +337,16 @@ function AthleteDetail() {
 
         <PhysiologyCard athleteId={athleteId} />
 
-        {/* Side-by-side stat cards instead of a long vertical stack */}
-        <div className="grid md:grid-cols-2 gap-4 items-start">
-          <Card>
+        {/* Side-by-side stat cards instead of a long vertical stack. items-stretch (grid's
+            default) makes each row's two cards match height — Training load/Personal bests
+            share row 1's height, Weekly distance/Recent sessions share row 2's — rather than
+            each card sizing purely to its own content. */}
+        <div className="grid md:grid-cols-2 gap-4 items-stretch">
+          <Card className="flex flex-col">
             <CardHeader>
               <CardTitle>Training load (14 days)</CardTitle>
             </CardHeader>
-            <CardContent className="p-0">
+            <CardContent className="p-0 flex-1 min-h-0 overflow-y-auto">
               {!load || load.length === 0 ? (
                 <p className="p-4 text-sm text-muted-foreground">No load data yet.</p>
               ) : (
@@ -363,52 +383,60 @@ function AthleteDetail() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="flex flex-col">
             <CardHeader>
               <CardTitle>Personal bests</CardTitle>
             </CardHeader>
-            <CardContent className="p-0">
+            <CardContent className="p-0 flex-1 min-h-0 overflow-y-auto">
               {!pbs || pbs.length === 0 ? (
                 <p className="p-4 text-sm text-muted-foreground">No performances logged.</p>
               ) : (
-                <div className="divide-y max-h-80 overflow-y-auto">
-                  {pbs.map((p: any) => {
-                    const key = `${p.distance_m}-${p.race_type}`;
-                    const bestTime = currentBests.get(key);
-                    const isCurrentPB = p.time_seconds != null && bestTime != null && p.time_seconds === bestTime;
-                    const isPastPB = !isCurrentPB && p.is_pb;
+                <table className="w-full text-sm">
+                  <tbody>
+                    {pbs.map((p: any) => {
+                      const key = `${p.distance_m}-${p.race_type}`;
+                      const bestTime = currentBests.get(key);
+                      const isCurrentPB = p.time_seconds != null && bestTime != null && p.time_seconds === bestTime;
+                      const isPastPB = !isCurrentPB && p.is_pb;
 
-                    return (
-                      <div key={p.id} className="px-3 py-2 flex justify-between items-center text-sm">
-                        <span className="flex items-center gap-1">
-                          {metersFmt(p.distance_m)}
-                          {isCurrentPB && (
-                            <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-emerald-200">
-                              PB
-                            </Badge>
-                          )}
-                          {isPastPB && (
-                            <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 border-amber-200">
-                              Past PB
-                            </Badge>
-                          )}
-                        </span>
-                        <span className="tabular-nums">{secToClock(p.time_seconds)}</span>
-                        <span className="text-xs text-muted-foreground">{p.performance_date}</span>
-                      </div>
-                    );
-                  })}
-                </div>
+                      return (
+                        <tr key={p.id} className="border-t">
+                          <td className="py-2 px-3 whitespace-nowrap">
+                            <span className="inline-flex items-center gap-1">
+                              {metersFmt(p.distance_m)}
+                              {isCurrentPB && (
+                                <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-emerald-200">
+                                  PB
+                                </Badge>
+                              )}
+                              {isPastPB && (
+                                <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 border-amber-200">
+                                  Past PB
+                                </Badge>
+                              )}
+                            </span>
+                          </td>
+                          <td className="py-2 px-3 text-right tabular-nums whitespace-nowrap">
+                            {secToClock(p.time_seconds)}
+                          </td>
+                          <td className="py-2 px-3 text-right text-xs text-muted-foreground whitespace-nowrap">
+                            {p.performance_date}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               )}
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="flex flex-col">
             <CardHeader>
               <CardTitle>Weekly distance</CardTitle>
               <CardDescription>Every step in the session — warm-up, work, strides and cooldown.</CardDescription>
             </CardHeader>
-            <CardContent className="p-0">
+            <CardContent className="p-0 flex-1 min-h-0 overflow-y-auto">
               {!weeklyDistance || weeklyDistance.length === 0 ? (
                 <p className="p-4 text-sm text-muted-foreground">No distance logged yet.</p>
               ) : (
@@ -432,15 +460,15 @@ function AthleteDetail() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="flex flex-col">
             <CardHeader>
               <CardTitle>Recent sessions (7 days)</CardTitle>
             </CardHeader>
-            <CardContent className="p-0">
+            <CardContent className="p-0 flex-1 min-h-0 overflow-y-auto">
               {!sessions || sessions.length === 0 ? (
                 <p className="p-4 text-sm text-muted-foreground">No sessions in the last 7 days.</p>
               ) : (
-                <div className="divide-y max-h-80 overflow-y-auto">
+                <div className="divide-y">
                   {sessions.map((s: any) => (
                     <Link
                       key={s.id}
@@ -471,7 +499,10 @@ function AthleteDetail() {
         </div>
 
         {/* Full width, matching how the progression chart appears on the athlete's own profile page */}
-        <PerformanceProgressionCard performances={progressionPerformances ?? []} />
+        <PerformanceProgressionCard
+          performances={progressionPerformances ?? []}
+          primaryEvent={athlete?.primary_event}
+        />
 
         <CoachChat athleteId={athleteId} athleteName={athlete?.name ?? undefined} />
         <GenerateReviewCard athleteId={athleteId} />
@@ -481,8 +512,15 @@ function AthleteDetail() {
   );
 }
 
-function PerformanceProgressionCard({ performances }: { performances: any[] }) {
+function PerformanceProgressionCard({
+  performances,
+  primaryEvent,
+}: {
+  performances: any[];
+  primaryEvent?: string | null;
+}) {
   const [selectedEventKey, setSelectedEventKey] = useState<string>("");
+  const primaryDistanceM = useMemo(() => primaryEventDistanceM(primaryEvent), [primaryEvent]);
 
   const eventOptions = useMemo(() => {
     const map = new Map<string, { key: string; label: string; distance_m: number }>();
@@ -509,10 +547,22 @@ function PerformanceProgressionCard({ performances }: { performances: any[] }) {
       return;
     }
 
-    if (!eventOptions.some((opt) => opt.key === selectedEventKey)) {
-      setSelectedEventKey(eventOptions[0].key);
+    // Already have a valid selection (either the coach picked one, or a
+    // prior run of this effect already set the default) — don't stomp on it.
+    if (eventOptions.some((opt) => opt.key === selectedEventKey)) return;
+
+    if (primaryDistanceM != null) {
+      const matches = eventOptions.filter((opt) => opt.distance_m === primaryDistanceM);
+      const preferred = matches.find((opt) => opt.key.endsWith("-track")) ?? matches[0];
+
+      if (preferred) {
+        setSelectedEventKey(preferred.key);
+        return;
+      }
     }
-  }, [eventOptions, selectedEventKey]);
+
+    setSelectedEventKey(eventOptions[0].key);
+  }, [eventOptions, selectedEventKey, primaryDistanceM]);
 
   const chartData = useMemo(() => {
     if (!selectedEventKey) return [];
