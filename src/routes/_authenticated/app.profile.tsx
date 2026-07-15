@@ -130,6 +130,7 @@ function Profile() {
             athleteId={athlete.id}
             pbs={pbs ?? []}
             onChange={() => qc.invalidateQueries({ queryKey: ["my-pbs"] })}
+            primaryEvent={athlete.primary_event}
           />
         )}
       </div>
@@ -910,7 +911,17 @@ function addLinearTrend<T extends { date: string; seconds: number }>(data: T[]):
 
 const PERFORMANCES_PAGE_SIZE = 10;
 
-function PBsCard({ athleteId, pbs, onChange }: { athleteId: string; pbs: any[]; onChange: () => void }) {
+function PBsCard({
+  athleteId,
+  pbs,
+  onChange,
+  primaryEvent,
+}: {
+  athleteId: string;
+  pbs: any[];
+  onChange: () => void;
+  primaryEvent?: string | null;
+}) {
   const [date, setDate] = useState("");
   const [dist, setDist] = useState(1500);
   const [time, setTime] = useState("");
@@ -921,6 +932,8 @@ function PBsCard({ athleteId, pbs, onChange }: { athleteId: string; pbs: any[]; 
 
   const [showAllPerformances, setShowAllPerformances] = useState(false);
   const [selectedEventKey, setSelectedEventKey] = useState<string>("");
+
+  const primaryDistanceM = useMemo(() => (primaryEvent ? eventToDistanceM(primaryEvent) : null), [primaryEvent]);
 
   const existingKeys = useMemo(() => {
     return new Set((pbs ?? []).map((p) => performanceKey(p)));
@@ -963,16 +976,29 @@ function PBsCard({ athleteId, pbs, onChange }: { athleteId: string; pbs: any[]; 
     return Array.from(map.values()).sort((a, b) => a.distance_m - b.distance_m);
   }, [pbs]);
 
+  // Default to the athlete's own primary event (preferring track over road
+  // when both exist at that distance) — same as the coach's view of this
+  // athlete. Never overrides a selection the athlete has already made.
   useEffect(() => {
     if (eventOptions.length === 0) {
       if (selectedEventKey) setSelectedEventKey("");
       return;
     }
 
-    if (!eventOptions.some((opt) => opt.key === selectedEventKey)) {
-      setSelectedEventKey(eventOptions[0].key);
+    if (eventOptions.some((opt) => opt.key === selectedEventKey)) return;
+
+    if (primaryDistanceM != null) {
+      const matches = eventOptions.filter((opt) => opt.distance_m === primaryDistanceM);
+      const preferred = matches.find((opt) => opt.key.endsWith("-track")) ?? matches[0];
+
+      if (preferred) {
+        setSelectedEventKey(preferred.key);
+        return;
+      }
     }
-  }, [eventOptions, selectedEventKey]);
+
+    setSelectedEventKey(eventOptions[0].key);
+  }, [eventOptions, selectedEventKey, primaryDistanceM]);
 
   const chartData = useMemo(() => {
     if (!selectedEventKey) return [];
