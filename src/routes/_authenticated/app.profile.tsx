@@ -486,7 +486,7 @@ function performanceToSeconds(perf: string): { seconds: number | null; notes: st
 
 function raceTypeFromEvent(event: string): RaceType {
   if (/XC/i.test(event)) return "cross_country";
-  if (/Road|Ten Relay/i.test(event)) return "road";
+  if (/Road|Tan Relay|Ten Relay/i.test(event)) return "road";
   return "track";
 }
 
