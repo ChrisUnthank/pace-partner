@@ -106,6 +106,8 @@ function Profile() {
               </CardContent>
             </Card>
 
+            <ChangePasswordCard />
+
             {user && <ProfileImageUploader userId={user.id} name={user.user_metadata?.full_name ?? user.email ?? ""} />}
             {user && <PreferencesCard userId={user.id} />}
           </div>
@@ -210,6 +212,75 @@ function PreferencesCard({ userId }: { userId: string }) {
         <div className="sm:col-span-2">
           <Button onClick={save}>Save preferences</Button>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ChangePasswordCard() {
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (newPassword.length < 8) {
+      toast.error("Password must be at least 8 characters");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      toast.error("Passwords don't match");
+      return;
+    }
+
+    setSaving(true);
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    setSaving(false);
+
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+
+    setNewPassword("");
+    setConfirmPassword("");
+    toast.success("Password updated");
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Change password</CardTitle>
+        <CardDescription>
+          Update the password used to sign in. You're already signed in, so no need to enter the old one.
+        </CardDescription>
+      </CardHeader>
+
+      <CardContent className="space-y-3">
+        <div>
+          <Label className="text-xs">New password</Label>
+          <Input
+            type="password"
+            autoComplete="new-password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            placeholder="At least 8 characters"
+          />
+        </div>
+
+        <div>
+          <Label className="text-xs">Confirm new password</Label>
+          <Input
+            type="password"
+            autoComplete="new-password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+          />
+        </div>
+
+        <Button onClick={save} disabled={saving || !newPassword || !confirmPassword}>
+          {saving ? "Updating..." : "Update password"}
+        </Button>
       </CardContent>
     </Card>
   );
