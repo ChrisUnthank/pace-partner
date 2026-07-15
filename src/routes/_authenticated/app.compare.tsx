@@ -14,15 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { GitCompare, ArrowLeftRight, TrendingUp, TrendingDown, Minus, Search, AlertTriangle } from "lucide-react";
 import { secToClock, paceFmt } from "@/lib/format";
 import { predictTime, predictTimeWithExponent, personalizedExponent, REFERENCE_DISTANCES } from "@/lib/race-predict";
-import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-} from "recharts";
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 
 export const Route = createFileRoute("/_authenticated/app/compare")({
   component: ComparePage,
@@ -125,7 +117,7 @@ function ComparePage() {
   });
 
   const [selectedAthleteId, setSelectedAthleteId] = useState("");
-  const athleteId = isCoach ? selectedAthleteId : myAthlete?.id ?? "";
+  const athleteId = isCoach ? selectedAthleteId : (myAthlete?.id ?? "");
 
   const { data: sessions = [] } = useQuery({
     queryKey: ["compare-sessions", athleteId],
@@ -154,7 +146,9 @@ function ComparePage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("steps")
-        .select("id, session_id, kind, step_order, reps, set_count, target_kind, target_distance_m, target_time_seconds")
+        .select(
+          "id, session_id, kind, step_order, reps, set_count, target_kind, target_distance_m, target_time_seconds",
+        )
         .in("session_id", sessionIds)
         .in("kind", ["work", "recovery"]);
       if (error) throw error;
@@ -224,10 +218,7 @@ function ComparePage() {
   // average pace can't tell you: whether the athlete faded across reps
   // (last rep meaningfully slower than the first), and whether recovery
   // between reps looked genuinely good (a real HR drop, not just a pause).
-  const workStepIds = useMemo(
-    () => workSteps.filter((s) => s.kind === "work").map((s) => s.id),
-    [workSteps],
-  );
+  const workStepIds = useMemo(() => workSteps.filter((s) => s.kind === "work").map((s) => s.id), [workSteps]);
   const { data: repResults = [] } = useQuery({
     queryKey: ["compare-reps", workStepIds.join(",")],
     enabled: workStepIds.length > 0,
@@ -262,7 +253,7 @@ function ComparePage() {
     const reps = (repsBySession.get(sessionId) ?? [])
       .filter((r) => r.actual_pace_sec_per_km != null)
       .slice()
-      .sort((a, b) => (a.set_number - b.set_number) || (a.rep_number - b.rep_number));
+      .sort((a, b) => a.set_number - b.set_number || a.rep_number - b.rep_number);
 
     let noFade = false;
     if (reps.length >= 2) {
@@ -367,13 +358,11 @@ function ComparePage() {
     const windowEndProvisional = provisionalDates[provisionalDates.length - 1];
     const nearbyRace =
       raceSessions.find((r) => r.session_date >= provisionalDates[0] && r.session_date <= windowEndProvisional) ??
-      raceSessions
-        .slice()
-        .sort((a, b) => {
-          const da = Math.abs(new Date(a.session_date).getTime() - new Date(windowEndProvisional).getTime());
-          const db = Math.abs(new Date(b.session_date).getTime() - new Date(windowEndProvisional).getTime());
-          return da - db;
-        })[0];
+      raceSessions.slice().sort((a, b) => {
+        const da = Math.abs(new Date(a.session_date).getTime() - new Date(windowEndProvisional).getTime());
+        const db = Math.abs(new Date(b.session_date).getTime() - new Date(windowEndProvisional).getTime());
+        return da - db;
+      })[0];
 
     let exponent = 1.06; // only used if calibrated flips true below
     let calibrated = false;
@@ -395,8 +384,30 @@ function ComparePage() {
       }
     }
 
-    const project = (t1: number, d1: number, d2: number) =>
-      calibrated ? predictTimeWithExponent(t1, d1, d2, exponent) : predictTime(t1, d1, d2);
+    // Bug fix: a personalized exponent is only ever fitted from ONE (session,
+    // race) pair, then was being applied blindly to every row's projection —
+    // including a session whose own distance is nowhere near the calibration
+    // pair's range (e.g. a 400m-rep session projected with an exponent
+    // calibrated from a 7.4km race). Extrapolating a validly-bounded exponent
+    // far outside the range it was fitted on can still produce an impossible
+    // result (a "4-minute 5K"), even though the exponent itself passed its
+    // own sanity bounds. This checks the *resulting pace*, per call, and
+    // silently falls back to the generic formula for that specific
+    // projection when the calibrated result isn't physically plausible,
+    // rather than trusting the exponent everywhere it's used.
+    const MIN_PLAUSIBLE_PACE_S_PER_KM = 120; // 2:00/km — faster than this is not realistic for 5K+
+    const MAX_PLAUSIBLE_PACE_S_PER_KM = 900; // 15:00/km — slower than this isn't a meaningful projection
+
+    const project = (t1: number, d1: number, d2: number) => {
+      if (calibrated) {
+        const calibratedResult = predictTimeWithExponent(t1, d1, d2, exponent);
+        const impliedPace = calibratedResult / d2;
+        if (impliedPace >= MIN_PLAUSIBLE_PACE_S_PER_KM && impliedPace <= MAX_PLAUSIBLE_PACE_S_PER_KM) {
+          return calibratedResult;
+        }
+      }
+      return predictTime(t1, d1, d2);
+    };
 
     const rows = selectedSessions.map((s) => {
       const km = Number(s.work_distance_m) / 1000;
@@ -426,15 +437,19 @@ function ComparePage() {
     // equivalent effort. Only relevant for "Similar" or manual selections;
     // Direct matches are exact-shape repeats by definition, so this never
     // fires for those.
-    const shapes = new Set(
-      selectedSessions.map((s) => workFingerprint(workBySession.get(s.id) ?? [])),
-    );
+    const shapes = new Set(selectedSessions.map((s) => workFingerprint(workBySession.get(s.id) ?? [])));
     const repLengthVaries = shapes.size > 1;
     const shapeExamples = selectedSessions
       .map((s) => workoutLabel(workBySession.get(s.id) ?? [], recoveryBySession.get(s.id) ?? []))
       .filter((v, i, arr) => arr.indexOf(v) === i);
 
-    let raceCheck: { title: string; date: string; actualTime: number; km: number; projectedAtSameDistance: number } | null = null;
+    let raceCheck: {
+      title: string;
+      date: string;
+      actualTime: number;
+      km: number;
+      projectedAtSameDistance: number;
+    } | null = null;
     if (nearbyRace) {
       const raceKm = Number(nearbyRace.work_distance_m) / 1000;
       const raceTime = Number(nearbyRace.work_time_s);
@@ -506,7 +521,9 @@ function ComparePage() {
 
     const direction = deltaSec > 5 ? "improved" : deltaSec < -5 ? "declined" : "held steady";
     const paceLine = `Predicted ${targetLabel} equivalent for this session type ${direction} from ${secToClock(first.predicted)} to ${secToClock(last.predicted)} between ${first.session_date} and ${last.session_date}${
-      Math.abs(deltaSec) > 5 ? ` (${deltaSec > 0 ? "-" : "+"}${secToClock(Math.abs(deltaSec))}, ${Math.abs(pct).toFixed(1)}% ${deltaSec > 0 ? "faster" : "slower"})` : ""
+      Math.abs(deltaSec) > 5
+        ? ` (${deltaSec > 0 ? "-" : "+"}${secToClock(Math.abs(deltaSec))}, ${Math.abs(pct).toFixed(1)}% ${deltaSec > 0 ? "faster" : "slower"})`
+        : ""
     }.`;
 
     let fitnessLine = "";
@@ -535,8 +552,8 @@ function ComparePage() {
             <GitCompare className="h-5 w-5" /> Compare Sessions
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            See how a repeated or similar session type has changed over time — and what that actually means for
-            fitness and likely race performance, not just a pace number.
+            See how a repeated or similar session type has changed over time — and what that actually means for fitness
+            and likely race performance, not just a pace number.
           </p>
         </div>
 
@@ -584,8 +601,8 @@ function ComparePage() {
                       <>
                         {" "}
                         The exponent behind these numbers is solved from an actual logged race, not the generic
-                        population-average formula — more accurate for an athlete whose speed/endurance balance
-                        differs from average.
+                        population-average formula — more accurate for an athlete whose speed/endurance balance differs
+                        from average.
                       </>
                     )}
                   </CardDescription>
@@ -616,8 +633,8 @@ function ComparePage() {
                     ))}
                   </div>
                   <p className="text-[11px] text-muted-foreground">
-                    {predictionRange.metCount} of 4 signals met — Best case is {(predictionRange.metCount * 1.5).toFixed(1)}%
-                    faster than Conservative.
+                    {predictionRange.metCount} of 4 signals met — Best case is{" "}
+                    {(predictionRange.metCount * 1.5).toFixed(1)}% faster than Conservative.
                   </p>
                 </CardContent>
               </Card>
@@ -676,10 +693,14 @@ function ComparePage() {
                       {comparison.raceCheck.title} ({comparison.raceCheck.date}), {comparison.raceCheck.km.toFixed(2)}{" "}
                       km
                     </span>
-                    <span className="font-medium tabular-nums">Actual: {secToClock(comparison.raceCheck.actualTime)}</span>
+                    <span className="font-medium tabular-nums">
+                      Actual: {secToClock(comparison.raceCheck.actualTime)}
+                    </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Projected from nearest compared session, same distance</span>
+                    <span className="text-muted-foreground">
+                      Projected from nearest compared session, same distance
+                    </span>
                     <span className="font-medium tabular-nums">
                       {secToClock(comparison.raceCheck.projectedAtSameDistance)}
                     </span>
@@ -708,10 +729,7 @@ function ComparePage() {
                     </div>
                     <div className="w-[140px] shrink-0">
                       <Label className="text-xs">Project onto</Label>
-                      <Select
-                        value={String(targetKm)}
-                        onValueChange={(v) => setTargetKm(Number(v))}
-                      >
+                      <Select value={String(targetKm)} onValueChange={(v) => setTargetKm(Number(v))}>
                         <SelectTrigger className="mt-1 h-8 text-xs">
                           <SelectValue />
                         </SelectTrigger>
@@ -767,10 +785,21 @@ function ComparePage() {
                           <XAxis dataKey="date" tick={{ fontSize: 9 }} minTickGap={30} />
                           <YAxis tick={{ fontSize: 9 }} tickFormatter={(v) => paceFmt(v)} width={40} />
                           <Tooltip
-                            contentStyle={{ background: "hsl(var(--background))", border: "1px solid hsl(var(--border))", fontSize: 11 }}
+                            contentStyle={{
+                              background: "hsl(var(--background))",
+                              border: "1px solid hsl(var(--border))",
+                              fontSize: 11,
+                            }}
                             formatter={(v: any) => [paceFmt(Number(v)), "Pace"]}
                           />
-                          <Line type="monotone" dataKey="pace" stroke="#10b981" strokeWidth={2} dot={{ r: 2 }} connectNulls />
+                          <Line
+                            type="monotone"
+                            dataKey="pace"
+                            stroke="#10b981"
+                            strokeWidth={2}
+                            dot={{ r: 2 }}
+                            connectNulls
+                          />
                         </LineChart>
                       </ResponsiveContainer>
                     </div>
@@ -789,10 +818,21 @@ function ComparePage() {
                           <XAxis dataKey="date" tick={{ fontSize: 9 }} minTickGap={30} />
                           <YAxis tick={{ fontSize: 9 }} width={30} />
                           <Tooltip
-                            contentStyle={{ background: "hsl(var(--background))", border: "1px solid hsl(var(--border))", fontSize: 11 }}
+                            contentStyle={{
+                              background: "hsl(var(--background))",
+                              border: "1px solid hsl(var(--border))",
+                              fontSize: 11,
+                            }}
                             formatter={(v: any) => [`${Math.round(Number(v))} bpm`, "HR"]}
                           />
-                          <Line type="monotone" dataKey="hr" stroke="#ef4444" strokeWidth={2} dot={{ r: 2 }} connectNulls />
+                          <Line
+                            type="monotone"
+                            dataKey="hr"
+                            stroke="#ef4444"
+                            strokeWidth={2}
+                            dot={{ r: 2 }}
+                            connectNulls
+                          />
                         </LineChart>
                       </ResponsiveContainer>
                     </div>
@@ -811,10 +851,21 @@ function ComparePage() {
                           <XAxis dataKey="date" tick={{ fontSize: 9 }} minTickGap={30} />
                           <YAxis tick={{ fontSize: 9 }} width={30} domain={[0, 100]} />
                           <Tooltip
-                            contentStyle={{ background: "hsl(var(--background))", border: "1px solid hsl(var(--border))", fontSize: 11 }}
+                            contentStyle={{
+                              background: "hsl(var(--background))",
+                              border: "1px solid hsl(var(--border))",
+                              fontSize: 11,
+                            }}
                             formatter={(v: any) => [`${Math.round(Number(v))}/100`, "Efficiency"]}
                           />
-                          <Line type="monotone" dataKey="efficiency" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 2 }} connectNulls />
+                          <Line
+                            type="monotone"
+                            dataKey="efficiency"
+                            stroke="#8b5cf6"
+                            strokeWidth={2}
+                            dot={{ r: 2 }}
+                            connectNulls
+                          />
                         </LineChart>
                       </ResponsiveContainer>
                     </div>
@@ -835,7 +886,8 @@ function ComparePage() {
                         <div className="min-w-0">
                           <div className="font-medium truncate">{r.title}</div>
                           <div className="text-xs text-muted-foreground">
-                            {r.session_date} · {workoutLabel(workBySession.get(r.id) ?? [], recoveryBySession.get(r.id) ?? [])}
+                            {r.session_date} ·{" "}
+                            {workoutLabel(workBySession.get(r.id) ?? [], recoveryBySession.get(r.id) ?? [])}
                           </div>
                         </div>
                         <div className="flex items-center gap-3 text-xs tabular-nums text-muted-foreground">
@@ -857,7 +909,9 @@ function ComparePage() {
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">Direct matches</CardTitle>
-                  <CardDescription>Same intent, structure, and work-step shape — the closest apples-to-apples comparisons.</CardDescription>
+                  <CardDescription>
+                    Same intent, structure, and work-step shape — the closest apples-to-apples comparisons.
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-2">
                   {sameGroups.length === 0 ? (
@@ -891,7 +945,10 @@ function ComparePage() {
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">Similar sessions</CardTitle>
-                  <CardDescription>Same intent and structure type, but not an exact repeat — normalized via predicted equivalent, not raw pace.</CardDescription>
+                  <CardDescription>
+                    Same intent and structure type, but not an exact repeat — normalized via predicted equivalent, not
+                    raw pace.
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-2">
                   {similarGroups.length === 0 ? (
