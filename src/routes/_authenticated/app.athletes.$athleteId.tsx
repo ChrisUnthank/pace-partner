@@ -330,6 +330,8 @@ function AthleteDetail() {
 
         <GoalsCard athleteId={athleteId} />
 
+        <ActivePlanBanner athleteId={athleteId} />
+
         <ZoneBoundariesCard athleteId={athleteId} profile={zoneProfile} />
 
         <PhysiologyCard athleteId={athleteId} />
@@ -590,6 +592,48 @@ function PerformanceProgressionCard({
             )}
           </>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ActivePlanBanner({ athleteId }: { athleteId: string }) {
+  const { data: plan } = useQuery({
+    queryKey: ["athlete-active-plan", athleteId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("athlete_plans")
+        .select("*")
+        .eq("athlete_id", athleteId)
+        .eq("status", "active")
+        .order("start_date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return data;
+    },
+  });
+
+  if (!plan) return null;
+
+  const weeksElapsed = Math.floor((Date.now() - new Date(plan.start_date).getTime()) / (7 * 86400000)) + 1;
+  const currentWeek = Math.min(Math.max(weeksElapsed, 1), plan.duration_weeks);
+  const pct = Math.round((currentWeek / plan.duration_weeks) * 100);
+
+  return (
+    <Card>
+      <CardContent className="py-3 flex items-center justify-between gap-3 flex-wrap">
+        <div className="text-sm">
+          <span className="font-semibold">{plan.name}</span>
+          <span className="text-muted-foreground"> · Week {currentWeek} of {plan.duration_weeks}</span>
+        </div>
+        <div className="flex items-center gap-2 flex-1 max-w-xs">
+          <div className="h-2 flex-1 rounded-full bg-muted overflow-hidden">
+            <div className="h-full bg-[var(--accent-red)]" style={{ width: `${pct}%` }} />
+          </div>
+          <Button asChild size="sm" variant="ghost">
+            <Link to="/app/plans">Manage</Link>
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );
