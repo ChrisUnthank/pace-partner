@@ -18,6 +18,7 @@ import { AthleteReminderSettings } from "@/components/reminder-settings";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TIMEZONE_OPTIONS, guessLocalTimezone } from "@/lib/timezones";
 import { ZoneBoundariesCard } from "@/components/zone-boundaries-card";
+import { Badge } from "@/components/ui/badge";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 export const Route = createFileRoute("/_authenticated/app/athletes/$athleteId")({
@@ -239,6 +240,25 @@ function AthleteDetail() {
     },
   });
 
+  // Current best time per (distance, race type) — computed from the full,
+  // unlimited performance history so it's accurate even if the actual PB
+  // predates the most recent 20 rows shown in the "Personal bests" list.
+  const currentBests = useMemo(() => {
+    const map = new Map<string, number>();
+
+    for (const p of progressionPerformances ?? []) {
+      if (p.time_seconds == null) continue;
+      const key = `${p.distance_m}-${p.race_type}`;
+      const cur = map.get(key);
+
+      if (cur == null || p.time_seconds < cur) {
+        map.set(key, p.time_seconds);
+      }
+    }
+
+    return map;
+  }, [progressionPerformances]);
+
   const { data: zoneProfile } = useQuery({
     queryKey: ["zone-profile", athleteId],
     queryFn: async () => {
@@ -351,16 +371,33 @@ function AthleteDetail() {
               {!pbs || pbs.length === 0 ? (
                 <p className="p-4 text-sm text-muted-foreground">No performances logged.</p>
               ) : (
-                <div className="divide-y">
-                  {pbs.map((p: any) => (
-                    <div key={p.id} className="px-3 py-2 flex justify-between text-sm">
-                      <span>
-                        {metersFmt(p.distance_m)} {p.is_pb && <span className="text-xs text-emerald-600 ml-1">PB</span>}
-                      </span>
-                      <span className="tabular-nums">{secToClock(p.time_seconds)}</span>
-                      <span className="text-xs text-muted-foreground">{p.performance_date}</span>
-                    </div>
-                  ))}
+                <div className="divide-y max-h-80 overflow-y-auto">
+                  {pbs.map((p: any) => {
+                    const key = `${p.distance_m}-${p.race_type}`;
+                    const bestTime = currentBests.get(key);
+                    const isCurrentPB = p.time_seconds != null && bestTime != null && p.time_seconds === bestTime;
+                    const isPastPB = !isCurrentPB && p.is_pb;
+
+                    return (
+                      <div key={p.id} className="px-3 py-2 flex justify-between items-center text-sm">
+                        <span className="flex items-center gap-1">
+                          {metersFmt(p.distance_m)}
+                          {isCurrentPB && (
+                            <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-emerald-200">
+                              PB
+                            </Badge>
+                          )}
+                          {isPastPB && (
+                            <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 border-amber-200">
+                              Past PB
+                            </Badge>
+                          )}
+                        </span>
+                        <span className="tabular-nums">{secToClock(p.time_seconds)}</span>
+                        <span className="text-xs text-muted-foreground">{p.performance_date}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
@@ -395,8 +432,6 @@ function AthleteDetail() {
             </CardContent>
           </Card>
 
-          <PerformanceProgressionCard performances={progressionPerformances ?? []} />
-
           <Card>
             <CardHeader>
               <CardTitle>Recent sessions (7 days)</CardTitle>
@@ -405,7 +440,7 @@ function AthleteDetail() {
               {!sessions || sessions.length === 0 ? (
                 <p className="p-4 text-sm text-muted-foreground">No sessions in the last 7 days.</p>
               ) : (
-                <div className="divide-y">
+                <div className="divide-y max-h-80 overflow-y-auto">
                   {sessions.map((s: any) => (
                     <Link
                       key={s.id}
@@ -424,7 +459,7 @@ function AthleteDetail() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="md:col-span-2">
             <CardHeader>
               <CardTitle>Vitals history</CardTitle>
               <CardDescription>Athlete's logged daily vitals.</CardDescription>
@@ -434,6 +469,9 @@ function AthleteDetail() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Full width, matching how the progression chart appears on the athlete's own profile page */}
+        <PerformanceProgressionCard performances={progressionPerformances ?? []} />
 
         <CoachChat athleteId={athleteId} athleteName={athlete?.name ?? undefined} />
         <GenerateReviewCard athleteId={athleteId} />
