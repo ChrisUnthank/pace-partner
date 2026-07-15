@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/app-shell";
@@ -17,10 +18,39 @@ import { AthleteReminderSettings } from "@/components/reminder-settings";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TIMEZONE_OPTIONS, guessLocalTimezone } from "@/lib/timezones";
 import { ZoneBoundariesCard } from "@/components/zone-boundaries-card";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 export const Route = createFileRoute("/_authenticated/app/athletes/$athleteId")({
   component: AthleteDetail,
 });
+
+// Monday of the ISO week containing this date — matches the bucketing the
+// old athlete_weekly_distance view used for its week_start column.
+function weekStartMonday(dateStr: string) {
+  const d = new Date(dateStr + "T00:00:00Z");
+  const day = d.getUTCDay() || 7; // Mon=1..Sun=7
+  d.setUTCDate(d.getUTCDate() - day + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function raceTypeLabel(rt: string) {
+  switch (rt) {
+    case "track":
+      return "Track";
+    case "road":
+      return "Road";
+    case "cross_country":
+      return "XC";
+    default:
+      return rt;
+  }
+}
+
+function formatChartDate(dateStr: string) {
+  const parts = dateStr.split("-");
+  if (parts.length !== 3) return dateStr;
+  return `${parts[2]}/${parts[1]}`;
+}
 
 function AthleteDetail() {
   const { athleteId } = Route.useParams();
@@ -30,15 +60,35 @@ function AthleteDetail() {
     queryKey: ["athlete", athleteId],
     queryFn: async () => {
       const { data, error } = await supabase.from("athletes").select("*").eq("id", athleteId).single();
-      if (error) throw error; return data;
+      if (error) throw error;
+      return data;
     },
   });
 
   const { data: pbs } = useQuery({
     queryKey: ["pbs", athleteId],
     queryFn: async () => {
-      const { data } = await supabase.from("performances").select("*")
-        .eq("athlete_id", athleteId).order("performance_date", { ascending: false }).limit(20);
+      const { data } = await supabase
+        .from("performances")
+        .select("*")
+        .eq("athlete_id", athleteId)
+        .order("performance_date", { ascending: false })
+        .limit(20);
+      return data ?? [];
+    },
+  });
+
+  // Separate from `pbs` above (which stays capped at 20 for the "Personal
+  // bests" list) — the progression chart wants full history per event, not
+  // just the most recent 20 performances overall.
+  const { data: progressionPerformances } = useQuery({
+    queryKey: ["progression-performances", athleteId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("performances")
+        .select("*")
+        .eq("athlete_id", athleteId)
+        .order("performance_date", { ascending: false });
       return data ?? [];
     },
   });
@@ -46,8 +96,12 @@ function AthleteDetail() {
   const { data: load } = useQuery({
     queryKey: ["load-recent", athleteId],
     queryFn: async () => {
-      const { data } = await supabase.from("athlete_load_daily").select("*")
-        .eq("athlete_id", athleteId).order("load_date", { ascending: false }).limit(14);
+      const { data } = await supabase
+        .from("athlete_load_daily")
+        .select("*")
+        .eq("athlete_id", athleteId)
+        .order("load_date", { ascending: false })
+        .limit(14);
       return data ?? [];
     },
   });
@@ -66,7 +120,10 @@ function AthleteDetail() {
       const sessIds = (sessRows ?? []).map((s: any) => s.id);
       let actualBySession = new Map<string, number>();
       if (sessIds.length > 0) {
-        const { data: steps } = await supabase.from("steps").select("id, session_id, target_distance_m, reps, set_count").in("session_id", sessIds);
+        const { data: steps } = await supabase
+          .from("steps")
+          .select("id, session_id, target_distance_m, reps, set_count")
+          .in("session_id", sessIds);
         const stepToSession = new Map<string, string>();
         const plannedBySession = new Map<string, number>();
         for (const st of steps ?? []) {
@@ -76,7 +133,10 @@ function AthleteDetail() {
         }
         const stepIds = (steps ?? []).map((s: any) => s.id);
         if (stepIds.length > 0) {
-          const { data: irs } = await supabase.from("interval_results").select("step_id, actual_distance_m").in("step_id", stepIds);
+          const { data: irs } = await supabase
+            .from("interval_results")
+            .select("step_id, actual_distance_m")
+            .in("step_id", stepIds);
           for (const r of irs ?? []) {
             const sid = stepToSession.get(r.step_id);
             if (!sid) continue;
@@ -94,49 +154,126 @@ function AthleteDetail() {
     },
   });
 
+  // Recent sessions — a 7-day window rather than an arbitrary row count, to
+  // match the "N days" framing Training load already uses.
   const { data: sessions } = useQuery({
-    queryKey: ["athlete-sessions", athleteId],
+    queryKey: ["athlete-sessions-7d", athleteId],
     queryFn: async () => {
-      const { data } = await supabase.from("sessions").select("*")
-        .eq("athlete_id", athleteId).order("session_date", { ascending: false }).limit(20);
+      const since = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+      const { data } = await supabase
+        .from("sessions")
+        .select("*")
+        .eq("athlete_id", athleteId)
+        .gte("session_date", since)
+        .order("session_date", { ascending: false });
       return data ?? [];
     },
   });
 
-  const { data: weeklyDist } = useQuery({
-    queryKey: ["weekly-distance", athleteId],
+  // Weekly distance, computed the same way as the Training load volume above
+  // (actual distance from interval_results, falling back to planned target
+  // for non-completed sessions) but summed across every step in the session
+  // — warmup, work, strides, and cooldown alike. Replaces the old
+  // athlete_weekly_distance view, which excluded certain warm-up
+  // "run-through" steps from the total.
+  const { data: weeklyDistance } = useQuery({
+    queryKey: ["weekly-distance-all-steps", athleteId],
     queryFn: async () => {
-      const { data } = await supabase.from("athlete_weekly_distance" as any).select("*")
-        .eq("athlete_id", athleteId).order("week_start", { ascending: false }).limit(4);
-      return data ?? [];
+      const since = new Date(Date.now() - 8 * 7 * 86400000).toISOString().slice(0, 10);
+
+      const { data: sessRows } = await supabase
+        .from("sessions")
+        .select("id, session_date, total_distance_m, completed_at")
+        .eq("athlete_id", athleteId)
+        .gte("session_date", since);
+
+      const weekTotals = new Map<string, number>();
+      const sessIds = (sessRows ?? []).map((s: any) => s.id);
+      let actualBySession = new Map<string, number>();
+      let plannedBySession = new Map<string, number>();
+
+      if (sessIds.length > 0) {
+        const { data: steps } = await supabase
+          .from("steps")
+          .select("id, session_id, target_distance_m, reps, set_count")
+          .in("session_id", sessIds);
+
+        const stepToSession = new Map<string, string>();
+
+        for (const st of steps ?? []) {
+          stepToSession.set(st.id, st.session_id);
+          const planned = Number(st.target_distance_m ?? 0) * Number(st.reps ?? 1) * Number(st.set_count ?? 1);
+          plannedBySession.set(st.session_id, (plannedBySession.get(st.session_id) ?? 0) + planned);
+        }
+
+        const stepIds = (steps ?? []).map((s: any) => s.id);
+
+        if (stepIds.length > 0) {
+          const { data: irs } = await supabase
+            .from("interval_results")
+            .select("step_id, actual_distance_m")
+            .in("step_id", stepIds);
+
+          for (const r of irs ?? []) {
+            const sid = stepToSession.get(r.step_id);
+            if (!sid) continue;
+            actualBySession.set(sid, (actualBySession.get(sid) ?? 0) + Number(r.actual_distance_m ?? 0));
+          }
+        }
+      }
+
+      for (const s of sessRows ?? []) {
+        let m = actualBySession.get(s.id) ?? 0;
+        if (m === 0 && s.total_distance_m) m = Number(s.total_distance_m);
+        if (m === 0 && !s.completed_at) m = plannedBySession.get(s.id) ?? 0;
+        if (m > 0) {
+          const week = weekStartMonday(s.session_date);
+          weekTotals.set(week, (weekTotals.get(week) ?? 0) + m);
+        }
+      }
+
+      return Array.from(weekTotals.entries())
+        .map(([week_start, distance_m]) => ({ week_start, distance_m }))
+        .sort((a, b) => b.week_start.localeCompare(a.week_start))
+        .slice(0, 6);
     },
   });
 
   const { data: zoneProfile } = useQuery({
     queryKey: ["zone-profile", athleteId],
     queryFn: async () => {
-      const { data } = await supabase.from("athlete_zone_profiles").select("*").eq("athlete_id", athleteId).maybeSingle();
+      const { data } = await supabase
+        .from("athlete_zone_profiles")
+        .select("*")
+        .eq("athlete_id", athleteId)
+        .maybeSingle();
       return data;
     },
   });
 
-  if (!athlete) return <AppShell><p className="text-sm text-muted-foreground">Loading…</p></AppShell>;
+  if (!athlete)
+    return (
+      <AppShell>
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      </AppShell>
+    );
   const today = load?.[0];
 
   return (
     <AppShell>
       <div className="space-y-8">
         <div>
-          <Link to="/app/athletes" className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground hover:text-foreground">
+          <Link
+            to="/app/athletes"
+            className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground hover:text-foreground"
+          >
             ← Roster
           </Link>
           <div className="flex items-end justify-between gap-4 mt-3 flex-wrap">
             <div className="flex items-center gap-4">
               <UserAvatar name={athlete.name} imageUrl={(athlete as any).profile_image_url} size="xl" />
               <div>
-                <h1 className="font-display text-4xl font-extrabold tracking-tight leading-none">
-                  {athlete.name}
-                </h1>
+                <h1 className="font-display text-4xl font-extrabold tracking-tight leading-none">{athlete.name}</h1>
                 <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
                   {athlete.primary_event ?? "Unassigned event"}
                 </p>
@@ -163,21 +300,37 @@ function AthleteDetail() {
 
         <PhysiologyCard athleteId={athleteId} />
 
-        <div className="grid md:grid-cols-2 gap-4">
+        {/* Side-by-side stat cards instead of a long vertical stack */}
+        <div className="grid md:grid-cols-2 gap-4 items-start">
           <Card>
-            <CardHeader><CardTitle>Training load (14 days)</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle>Training load (14 days)</CardTitle>
+            </CardHeader>
             <CardContent className="p-0">
-              {!load || load.length === 0 ? <p className="p-4 text-sm text-muted-foreground">No load data yet.</p> : (
+              {!load || load.length === 0 ? (
+                <p className="p-4 text-sm text-muted-foreground">No load data yet.</p>
+              ) : (
                 <table className="w-full text-sm">
-                  <thead className="text-muted-foreground text-xs"><tr><th className="text-left p-2">Date</th><th>Volume</th><th>Load</th><th>CTL</th><th>ATL</th><th>TSB</th></tr></thead>
+                  <thead className="text-muted-foreground text-xs">
+                    <tr>
+                      <th className="text-left p-2">Date</th>
+                      <th>Volume</th>
+                      <th>Load</th>
+                      <th>CTL</th>
+                      <th>ATL</th>
+                      <th>TSB</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {load.map((d: any) => (
                       <tr key={d.load_date} className="border-t">
                         <td className="p-2">{d.load_date}</td>
-                        <td className="text-center tabular-nums">{(() => {
-                          const m = volumeByDate?.get(d.load_date);
-                          return m ? `${(m / 1000).toFixed(1)} km` : "—";
-                        })()}</td>
+                        <td className="text-center tabular-nums">
+                          {(() => {
+                            const m = volumeByDate?.get(d.load_date);
+                            return m ? `${(m / 1000).toFixed(1)} km` : "—";
+                          })()}
+                        </td>
                         <td className="text-center">{d.combined_load?.toFixed?.(0) ?? "—"}</td>
                         <td className="text-center">{d.ctl?.toFixed?.(0) ?? "—"}</td>
                         <td className="text-center">{d.atl?.toFixed?.(0) ?? "—"}</td>
@@ -191,13 +344,19 @@ function AthleteDetail() {
           </Card>
 
           <Card>
-            <CardHeader><CardTitle>Personal bests</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle>Personal bests</CardTitle>
+            </CardHeader>
             <CardContent className="p-0">
-              {!pbs || pbs.length === 0 ? <p className="p-4 text-sm text-muted-foreground">No performances logged.</p> : (
+              {!pbs || pbs.length === 0 ? (
+                <p className="p-4 text-sm text-muted-foreground">No performances logged.</p>
+              ) : (
                 <div className="divide-y">
                   {pbs.map((p: any) => (
                     <div key={p.id} className="px-3 py-2 flex justify-between text-sm">
-                      <span>{metersFmt(p.distance_m)} {p.is_pb && <span className="text-xs text-emerald-600 ml-1">PB</span>}</span>
+                      <span>
+                        {metersFmt(p.distance_m)} {p.is_pb && <span className="text-xs text-emerald-600 ml-1">PB</span>}
+                      </span>
                       <span className="tabular-nums">{secToClock(p.time_seconds)}</span>
                       <span className="text-xs text-muted-foreground">{p.performance_date}</span>
                     </div>
@@ -206,56 +365,75 @@ function AthleteDetail() {
               )}
             </CardContent>
           </Card>
-        </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Weekly distance</CardTitle>
-            <CardDescription>Excludes warm-up Run-throughs (steps flagged not to count).</CardDescription>
-          </CardHeader>
-          <CardContent className="p-0">
-            {!weeklyDist || weeklyDist.length === 0 ? <p className="p-4 text-sm text-muted-foreground">No distance logged yet.</p> : (
-              <table className="w-full text-sm">
-                <thead className="text-muted-foreground text-xs"><tr><th className="text-left p-2">Week of</th><th className="text-right p-2 pr-4">Distance</th></tr></thead>
-                <tbody>
-                  {weeklyDist.map((w: any) => (
-                    <tr key={w.week_start} className="border-t">
-                      <td className="p-2">{w.week_start}</td>
-                      <td className="text-right p-2 pr-4 tabular-nums">{metersFmt(Number(w.distance_m))}</td>
+          <Card>
+            <CardHeader>
+              <CardTitle>Weekly distance</CardTitle>
+              <CardDescription>Every step in the session — warm-up, work, strides and cooldown.</CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              {!weeklyDistance || weeklyDistance.length === 0 ? (
+                <p className="p-4 text-sm text-muted-foreground">No distance logged yet.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="text-muted-foreground text-xs">
+                    <tr>
+                      <th className="text-left p-2">Week of</th>
+                      <th className="text-right p-2 pr-4">Distance</th>
                     </tr>
+                  </thead>
+                  <tbody>
+                    {weeklyDistance.map((w: any) => (
+                      <tr key={w.week_start} className="border-t">
+                        <td className="p-2">{w.week_start}</td>
+                        <td className="text-right p-2 pr-4 tabular-nums">{metersFmt(Number(w.distance_m))}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </CardContent>
+          </Card>
+
+          <PerformanceProgressionCard performances={progressionPerformances ?? []} />
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Recent sessions (7 days)</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              {!sessions || sessions.length === 0 ? (
+                <p className="p-4 text-sm text-muted-foreground">No sessions in the last 7 days.</p>
+              ) : (
+                <div className="divide-y">
+                  {sessions.map((s: any) => (
+                    <Link
+                      key={s.id}
+                      to="/app/sessions/$sessionId"
+                      params={{ sessionId: s.id }}
+                      className="flex justify-between px-4 py-2 text-sm hover:bg-accent/40"
+                    >
+                      <span>
+                        {s.session_date} · {s.title}
+                      </span>
+                      <span className="text-xs text-muted-foreground">{s.completed_at ? "Done" : "Planned"}</span>
+                    </Link>
                   ))}
-                </tbody>
-              </table>
-            )}
-          </CardContent>
-        </Card>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader><CardTitle>Recent sessions</CardTitle></CardHeader>
-          <CardContent className="p-0">
-            {!sessions || sessions.length === 0 ? <p className="p-4 text-sm text-muted-foreground">No sessions.</p> : (
-              <div className="divide-y">
-                {sessions.map((s: any) => (
-                  <Link key={s.id} to="/app/sessions/$sessionId" params={{ sessionId: s.id }}
-                    className="flex justify-between px-4 py-2 text-sm hover:bg-accent/40">
-                    <span>{s.session_date} · {s.title}</span>
-                    <span className="text-xs text-muted-foreground">{s.completed_at ? "Done" : "Planned"}</span>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Vitals history</CardTitle>
-            <CardDescription>Athlete's logged daily vitals.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <VitalsPanel athleteId={athleteId} readOnly />
-          </CardContent>
-        </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Vitals history</CardTitle>
+              <CardDescription>Athlete's logged daily vitals.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <VitalsPanel athleteId={athleteId} readOnly />
+            </CardContent>
+          </Card>
+        </div>
 
         <CoachChat athleteId={athleteId} athleteName={athlete?.name ?? undefined} />
         <GenerateReviewCard athleteId={athleteId} />
@@ -265,13 +443,114 @@ function AthleteDetail() {
   );
 }
 
+function PerformanceProgressionCard({ performances }: { performances: any[] }) {
+  const [selectedEventKey, setSelectedEventKey] = useState<string>("");
+
+  const eventOptions = useMemo(() => {
+    const map = new Map<string, { key: string; label: string; distance_m: number }>();
+
+    for (const p of performances) {
+      if (p.time_seconds == null) continue;
+      const key = `${p.distance_m}-${p.race_type}`;
+
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          label: `${metersFmt(p.distance_m)} · ${raceTypeLabel(p.race_type)}`,
+          distance_m: p.distance_m,
+        });
+      }
+    }
+
+    return Array.from(map.values()).sort((a, b) => a.distance_m - b.distance_m);
+  }, [performances]);
+
+  useEffect(() => {
+    if (eventOptions.length === 0) {
+      if (selectedEventKey) setSelectedEventKey("");
+      return;
+    }
+
+    if (!eventOptions.some((opt) => opt.key === selectedEventKey)) {
+      setSelectedEventKey(eventOptions[0].key);
+    }
+  }, [eventOptions, selectedEventKey]);
+
+  const chartData = useMemo(() => {
+    if (!selectedEventKey) return [];
+
+    return performances
+      .filter((p) => `${p.distance_m}-${p.race_type}` === selectedEventKey && p.time_seconds != null)
+      .slice()
+      .sort((a, b) => a.performance_date.localeCompare(b.performance_date))
+      .map((p) => ({ date: p.performance_date, seconds: p.time_seconds }));
+  }, [performances, selectedEventKey]);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Performance progression</CardTitle>
+        <CardDescription>Race times over time, by event — same view as the athlete's own profile page.</CardDescription>
+      </CardHeader>
+
+      <CardContent className="space-y-3">
+        {eventOptions.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No timed performances logged yet.</p>
+        ) : (
+          <>
+            <Select value={selectedEventKey} onValueChange={setSelectedEventKey}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="Select event" />
+              </SelectTrigger>
+              <SelectContent>
+                {eventOptions.map((opt) => (
+                  <SelectItem key={opt.key} value={opt.key}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {chartData.length > 1 ? (
+              <div className="h-56">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                    <XAxis dataKey="date" tickFormatter={formatChartDate} tick={{ fontSize: 11 }} />
+                    <YAxis
+                      reversed
+                      tickFormatter={(v) => secToClock(v)}
+                      tick={{ fontSize: 11 }}
+                      width={55}
+                      domain={["dataMin", "dataMax"]}
+                    />
+                    <Tooltip formatter={(value: number) => [secToClock(value), "Time"]} />
+                    <Line type="monotone" dataKey="seconds" stroke="#2563eb" strokeWidth={2} dot={{ r: 3 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Need at least 2 performances for this event to chart progression.
+              </p>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function PhysiologyCard({ athleteId }: { athleteId: string }) {
   const qc = useQueryClient();
   const { data: profile, isLoading } = useQuery({
     queryKey: ["physio", athleteId],
     queryFn: async () => {
-      const { data } = await supabase.from("athlete_physio_profile").select("*").eq("athlete_id", athleteId).maybeSingle();
+      const { data } = await supabase
+        .from("athlete_physio_profile")
+        .select("*")
+        .eq("athlete_id", athleteId)
+        .maybeSingle();
       return data;
     },
   });
@@ -279,7 +558,10 @@ function PhysiologyCard({ athleteId }: { athleteId: string }) {
   async function refresh() {
     const { error } = await supabase.rpc("recompute_physio_profile", { _athlete_id: athleteId });
     if (error) toast.error(error.message);
-    else { toast.success("Profile refreshed"); qc.invalidateQueries({ queryKey: ["physio", athleteId] }); }
+    else {
+      toast.success("Profile refreshed");
+      qc.invalidateQueries({ queryKey: ["physio", athleteId] });
+    }
   }
 
   if (isLoading) return null;
@@ -292,23 +574,32 @@ function PhysiologyCard({ athleteId }: { athleteId: string }) {
       <CardHeader className="flex flex-row items-start justify-between">
         <div>
           <CardTitle>Physiological profile</CardTitle>
-          <CardDescription>
-            Derived from PBs, age & training age. Refines as more PBs are logged.
-          </CardDescription>
+          <CardDescription>Derived from PBs, age & training age. Refines as more PBs are logged.</CardDescription>
         </div>
-        <Button size="sm" variant="ghost" onClick={refresh}><RefreshCw className="h-4 w-4 mr-1" />Refresh</Button>
+        <Button size="sm" variant="ghost" onClick={refresh}>
+          <RefreshCw className="h-4 w-4 mr-1" />
+          Refresh
+        </Button>
       </CardHeader>
       <CardContent className="space-y-4">
         {insufficient ? (
-          <p className="text-sm text-muted-foreground">{profile?.coaching_note ?? "No profile yet — log PBs at two or more distances."}</p>
+          <p className="text-sm text-muted-foreground">
+            {profile?.coaching_note ?? "No profile yet — log PBs at two or more distances."}
+          </p>
         ) : (
           <>
             <div className="grid sm:grid-cols-2 gap-4 items-center">
               <div className="flex items-center gap-4">
                 <PieSplit aerobic={aer} anaerobic={an} />
                 <div className="text-sm">
-                  <div className="flex items-center gap-2"><span className="h-2 w-3 rounded bg-emerald-500" />Aerobic <span className="font-semibold tabular-nums ml-1">{aer}%</span></div>
-                  <div className="flex items-center gap-2 mt-1"><span className="h-2 w-3 rounded bg-rose-500" />Anaerobic <span className="font-semibold tabular-nums ml-1">{an}%</span></div>
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-3 rounded bg-emerald-500" />
+                    Aerobic <span className="font-semibold tabular-nums ml-1">{aer}%</span>
+                  </div>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="h-2 w-3 rounded bg-rose-500" />
+                    Anaerobic <span className="font-semibold tabular-nums ml-1">{an}%</span>
+                  </div>
                 </div>
               </div>
               <div>
@@ -316,7 +607,8 @@ function PhysiologyCard({ athleteId }: { athleteId: string }) {
                 <div className="font-semibold">{profile.archetype}</div>
                 {profile.speed_reserve_pct != null && (
                   <div className="text-xs text-muted-foreground mt-2">
-                    Speed reserve: <span className="tabular-nums">{profile.speed_reserve_pct}%</span> ({profile.speed_reserve_bucket})
+                    Speed reserve: <span className="tabular-nums">{profile.speed_reserve_pct}%</span> (
+                    {profile.speed_reserve_bucket})
                   </div>
                 )}
               </div>
@@ -363,11 +655,12 @@ function IdentityCard({ athlete, athleteId }: { athlete: any; athleteId: string 
     },
   });
 
-  const weightDisplay = latestVitals?.weight_kg != null
-    ? `${Number(latestVitals.weight_kg).toFixed(1)} kg`
-    : athlete?.weight != null
-      ? `${Number(athlete.weight).toFixed(1)} kg (baseline)`
-      : "not yet logged";
+  const weightDisplay =
+    latestVitals?.weight_kg != null
+      ? `${Number(latestVitals.weight_kg).toFixed(1)} kg`
+      : athlete?.weight != null
+        ? `${Number(athlete.weight).toFixed(1)} kg (baseline)`
+        : "not yet logged";
 
   const rows: Array<[string, string]> = [
     ["Name", athlete?.name ?? "—"],
@@ -388,7 +681,10 @@ function IdentityCard({ athlete, athleteId }: { athlete: any; athleteId: string 
   // immediately on change, same pattern as other single-field selects
   // elsewhere in the app (e.g. reassigning a session step's kind).
   async function saveTimezone(tz: string) {
-    const { error } = await supabase.from("athletes").update({ timezone: tz } as any).eq("id", athleteId);
+    const { error } = await supabase
+      .from("athletes")
+      .update({ timezone: tz } as any)
+      .eq("id", athleteId);
     if (error) {
       toast.error(error.message);
       return;
@@ -399,7 +695,9 @@ function IdentityCard({ athlete, athleteId }: { athlete: any; athleteId: string 
 
   return (
     <Card>
-      <CardHeader><CardTitle>Athlete profile</CardTitle></CardHeader>
+      <CardHeader>
+        <CardTitle>Athlete profile</CardTitle>
+      </CardHeader>
       <CardContent>
         <dl className="grid sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
           {rows.map(([k, v]) => (
@@ -412,10 +710,14 @@ function IdentityCard({ athlete, athleteId }: { athlete: any; athleteId: string 
             <dt className="text-muted-foreground">Time zone</dt>
             <dd>
               <Select value={athlete?.timezone ?? guessLocalTimezone()} onValueChange={saveTimezone}>
-                <SelectTrigger className="h-7 w-[220px] text-xs"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-7 w-[220px] text-xs">
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   {TIMEZONE_OPTIONS.map((z) => (
-                    <SelectItem key={z.value} value={z.value}>{z.label}</SelectItem>
+                    <SelectItem key={z.value} value={z.value}>
+                      {z.label}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -426,4 +728,3 @@ function IdentityCard({ athlete, athleteId }: { athlete: any; athleteId: string 
     </Card>
   );
 }
-
