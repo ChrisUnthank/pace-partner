@@ -890,7 +890,9 @@ function PBsCard({ athleteId, pbs, onChange }: { athleteId: string; pbs: any[]; 
       return;
     }
 
-    const payload = insertableRows.map((row) => ({
+    const payload = insertableRows
+      .filter((row): row is typeof row & { time_seconds: number } => row.time_seconds != null)
+      .map((row) => ({
       athlete_id: row.athlete_id,
       performance_date: row.performance_date,
       distance_m: row.distance_m,
