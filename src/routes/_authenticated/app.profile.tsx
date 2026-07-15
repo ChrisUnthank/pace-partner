@@ -83,10 +83,15 @@ function Profile() {
         <h1 className="text-2xl font-bold">Profile</h1>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-          {/* Left column: athlete details up top, then account & photo */}
+          {/* Left column: athlete details up top, roles underneath */}
           <div className="space-y-6">
             {athlete && <AthleteForm athlete={athlete} />}
+            {user && <RolesCard userId={user.id} roles={roles} email={user.email ?? ""} />}
+            {user && <JoinRequestsInbox userId={user.id} />}
+          </div>
 
+          {/* Right column: account & photo up top, preferences underneath */}
+          <div className="space-y-6">
             <Card>
               <CardHeader>
                 <CardTitle>Account</CardTitle>
@@ -102,12 +107,6 @@ function Profile() {
             </Card>
 
             {user && <ProfileImageUploader userId={user.id} name={user.user_metadata?.full_name ?? user.email ?? ""} />}
-          </div>
-
-          {/* Right column: roles & invitations, preferences shuffled down */}
-          <div className="space-y-6">
-            {user && <RolesCard userId={user.id} roles={roles} email={user.email ?? ""} />}
-            {user && <JoinRequestsInbox userId={user.id} />}
             {user && <PreferencesCard userId={user.id} />}
           </div>
         </div>
