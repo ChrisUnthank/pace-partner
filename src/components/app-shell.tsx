@@ -6,6 +6,7 @@ import { useMyRoles, useAuthUser } from "@/lib/use-auth";
 import { Button } from "@/components/ui/button";
 import {
   CalendarDays,
+  CalendarRange,
   Users,
   User2,
   LogOut,
@@ -19,8 +20,10 @@ import {
   Megaphone,
   MessageSquare,
   Trophy,
+  Gauge,
+  Calculator,
   IdCard,
-  CalendarRange,
+  ListChecks,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NotificationBell } from "@/components/notification-bell";
@@ -60,12 +63,15 @@ export function AppShell({ children }: { children: ReactNode }) {
   const navItems: { to: string; label: string; icon: any; show: boolean }[] = [
     { to: "/app", label: "Home", icon: Home, show: true },
     { to: "/app/daily-log", label: "Daily Log", icon: ClipboardList, show: isAthlete },
+    { to: "/app/zones", label: "Zones", icon: Gauge, show: isAthlete || isCoach },
     { to: "/app/sessions", label: "Sessions", icon: CalendarDays, show: true },
+    { to: "/app/sessions/calendar", label: "Calendar", icon: CalendarRange, show: true },
     { to: "/app/analytics", label: "Analytics", icon: LineChart, show: true },
     { to: "/app/races", label: "Races", icon: Trophy, show: true },
+    { to: "/app/calculators", label: "Calculators", icon: Calculator, show: true },
     { to: "/app/athletes", label: "Athletes", icon: Users, show: isCoach },
     { to: "/app/templates", label: "Templates", icon: BookmarkCheck, show: isCoach },
-    { to: "/app/plans", label: "Plans", icon: CalendarRange, show: isCoach },
+    { to: "/app/plans", label: "Plans", icon: ListChecks, show: isCoach },
     { to: "/app/noticeboard", label: "Noticeboard", icon: Megaphone, show: true },
     { to: "/app/messages", label: "Messages", icon: MessageSquare, show: true },
 
