@@ -301,12 +301,12 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
         />
       </div>
 
-      {/* Add race (left third) + Results (right two-thirds) — same row,
-          same height. Results scrolls internally instead of pushing the
-          card taller than the Add race form beside it. */}
-      <div className="grid gap-6 lg:grid-cols-[380px_1fr] items-stretch">
+      {/* Add race (left third) + Results (right two-thirds) — same row.
+          Results is capped to roughly the Add race form's height and
+          scrolls internally past that, instead of stretching the row. */}
+      <div className="grid gap-6 lg:grid-cols-[380px_1fr] items-start">
       <div className="order-2 lg:order-1">
-        <Card className="lg:h-full lg:flex lg:flex-col">
+        <Card>
           <CardHeader>
             <CardTitle className="text-base">Add race (manual)</CardTitle>
             <CardDescription>
@@ -404,17 +404,17 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
         </Card>
       </div>
 
-      {/* Results — right two-thirds on desktop, height matched to the Add
-          race form via items-stretch, scrolling internally once it grows
-          past that. */}
+      {/* Results — right two-thirds on desktop. Capped to roughly the Add
+          race form's height so the two cards read as one row; the list
+          scrolls internally once it's longer than that. */}
       <div className="order-1 lg:order-2 min-w-0">
-        <Card className="lg:h-full lg:flex lg:flex-col">
+        <Card>
           <CardHeader>
             <CardTitle>Results</CardTitle>
             <CardDescription>Race results and personal bests</CardDescription>
           </CardHeader>
 
-          <CardContent className="p-0 lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
+          <CardContent className="p-0 lg:max-h-[620px] lg:overflow-y-auto">
             {!races?.length ? (
               <p className="p-6 text-sm text-muted-foreground">No races yet.</p>
             ) : (
