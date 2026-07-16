@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { CalendarRange, ChevronDown, ChevronUp } from "lucide-react";
 import { metersFmt } from "@/lib/format";
 import { assignPlanToAthlete, cancelAthletePlan } from "@/lib/plan.functions";
+import { useAuthUser } from "@/lib/use-auth";
 
 export const Route = createFileRoute("/_authenticated/app/plans")({
   component: PlansPage,
@@ -28,6 +29,7 @@ type PlanTemplate = {
   distance_focus: string | null;
   level: string | null;
   is_system: boolean;
+  created_by: string | null;
 };
 
 type TemplateSession = {
@@ -132,6 +134,9 @@ function estimateAvgWeeklyDistanceM(sessions: { week_number: number; effort_type
 }
 
 function PlansPage() {
+  const { user } = useAuthUser();
+  const [view, setView] = useState<"browse" | "builder">("browse");
+  const [builderTemplateId, setBuilderTemplateId] = useState<string | null>(null);
   const [daysFilter, setDaysFilter] = useState<string>("all");
   const [distanceFilter, setDistanceFilter] = useState<string>("all");
   const [levelFilter, setLevelFilter] = useState<string>("all");
@@ -176,13 +181,30 @@ function PlansPage() {
     if (levelFilter !== "all" && t.level !== levelFilter) return false;
     if (volumeFilter !== "all") {
       const km = (weeklyVolumeByTemplate.get(t.id) ?? 0) / 1000;
-      if (volumeFilter === "under30" && km >= 30) return false;
-      if (volumeFilter === "30to50" && (km < 30 || km >= 50)) return false;
-      if (volumeFilter === "50to70" && (km < 50 || km >= 70)) return false;
-      if (volumeFilter === "70plus" && km < 70) return false;
+      if (volumeFilter === "70to90" && (km < 70 || km >= 90)) return false;
+      if (volumeFilter === "90to110" && (km < 90 || km >= 110)) return false;
+      if (volumeFilter === "110to130" && (km < 110 || km >= 130)) return false;
+      if (volumeFilter === "130to150" && (km < 130 || km >= 150)) return false;
+      if (volumeFilter === "150plus" && km < 150) return false;
     }
     return true;
   });
+
+  if (view === "builder") {
+    return (
+      <AppShell>
+        <div className="space-y-6 max-w-5xl">
+          <PlanBuilder
+            templateId={builderTemplateId}
+            onBack={() => {
+              setView("browse");
+              setBuilderTemplateId(null);
+            }}
+          />
+        </div>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell>
@@ -196,6 +218,14 @@ function PlansPage() {
               Base templates you can assign straight to an athlete — generates real, editable sessions on their calendar.
             </p>
           </div>
+          <Button
+            onClick={() => {
+              setBuilderTemplateId(null);
+              setView("builder");
+            }}
+          >
+            + Build your own
+          </Button>
         </div>
 
         <ActivePlans />
@@ -265,10 +295,11 @@ function PlansPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Any</SelectItem>
-                    <SelectItem value="under30">Under 30 km/wk</SelectItem>
-                    <SelectItem value="30to50">30–50 km/wk</SelectItem>
-                    <SelectItem value="50to70">50–70 km/wk</SelectItem>
-                    <SelectItem value="70plus">70+ km/wk</SelectItem>
+                    <SelectItem value="70to90">70–90 km/wk</SelectItem>
+                    <SelectItem value="90to110">90–110 km/wk</SelectItem>
+                    <SelectItem value="110to130">110–130 km/wk</SelectItem>
+                    <SelectItem value="130to150">130–150 km/wk</SelectItem>
+                    <SelectItem value="150plus">150+ km/wk</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -291,10 +322,27 @@ function PlansPage() {
                           {(weeklyVolumeByTemplate.get(t.id) ?? 0) > 0 && (
                             <Badge variant="outline">~{metersFmt(weeklyVolumeByTemplate.get(t.id) ?? 0)}/wk avg</Badge>
                           )}
+                          {!t.is_system && (
+                            <Badge className="bg-[var(--accent-red)]/10 text-[var(--accent-red)] border-[var(--accent-red)]/20">
+                              Yours
+                            </Badge>
+                          )}
                         </div>
                         {t.description && <p className="text-sm text-muted-foreground mt-1">{t.description}</p>}
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
+                        {!t.is_system && t.created_by === user?.id && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setBuilderTemplateId(t.id);
+                              setView("builder");
+                            }}
+                          >
+                            Edit
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           variant="ghost"
@@ -499,6 +547,567 @@ function AssignPlanDialog({ template, onClose }: { template: PlanTemplate; onClo
           <Button onClick={assign} disabled={assigning}>
             {assigning ? "Assigning..." : "Assign plan"}
           </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// Plan Builder — create/edit a coach's own plan template. Template metadata
+// saves immediately (so the week/day grid has a plan_template_id to attach
+// to); each day in the grid is edited independently via DayEditorDialog,
+// which can either link an existing entry from the Templates library
+// (session_templates) or build a one-off step recipe by hand.
+// ----------------------------------------------------------------------------
+
+function PlanBuilder({ templateId, onBack }: { templateId: string | null; onBack: () => void }) {
+  const { user } = useAuthUser();
+  const qc = useQueryClient();
+  const [savedId, setSavedId] = useState<string | null>(templateId);
+
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [daysPerWeek, setDaysPerWeek] = useState(5);
+  const [durationWeeks, setDurationWeeks] = useState(8);
+  const [distanceFocus, setDistanceFocus] = useState<string>("generic");
+  const [level, setLevel] = useState<string>("intermediate");
+  const [saving, setSaving] = useState(false);
+  const [dayEditor, setDayEditor] = useState<{ week: number; day: number } | null>(null);
+
+  const { data: existingTemplate } = useQuery({
+    queryKey: ["plan-template-edit", templateId],
+    enabled: !!templateId,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("plan_templates").select("*").eq("id", templateId!).single();
+      if (error) throw error;
+      return data as PlanTemplate;
+    },
+  });
+
+  const { data: sessions } = useQuery({
+    queryKey: ["plan-template-sessions-edit", savedId],
+    enabled: !!savedId,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("plan_template_sessions")
+        .select("*")
+        .eq("plan_template_id", savedId!)
+        .order("week_number")
+        .order("day_of_week");
+      return (data ?? []) as any[];
+    },
+  });
+
+  // Populates the form once, the first time an existing template loads —
+  // useState-as-ref rather than useEffect since this only ever needs to
+  // fire a single time per mount of this component.
+  const loadedRef = useState({ done: false })[0];
+  if (existingTemplate && !loadedRef.done) {
+    loadedRef.done = true;
+    setName(existingTemplate.name);
+    setDescription(existingTemplate.description ?? "");
+    setDaysPerWeek(existingTemplate.days_per_week);
+    setDurationWeeks(existingTemplate.duration_weeks);
+    setDistanceFocus(existingTemplate.distance_focus ?? "generic");
+    setLevel(existingTemplate.level ?? "intermediate");
+    setSavedId(existingTemplate.id);
+  }
+
+  async function saveMeta() {
+    if (!name.trim()) {
+      toast.error("Give the template a name");
+      return;
+    }
+
+    setSaving(true);
+    const payload = {
+      name: name.trim(),
+      description: description.trim() || null,
+      days_per_week: daysPerWeek,
+      duration_weeks: durationWeeks,
+      distance_focus: distanceFocus === "generic" ? null : distanceFocus,
+      level,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (savedId) {
+      const { error } = await supabase.from("plan_templates").update(payload as any).eq("id", savedId);
+      setSaving(false);
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+      toast.success("Template updated");
+    } else {
+      const { data, error } = await supabase
+        .from("plan_templates")
+        .insert({ ...payload, is_system: false, created_by: user?.id } as any)
+        .select()
+        .single();
+      setSaving(false);
+      if (error || !data) {
+        toast.error(error?.message ?? "Failed to create template");
+        return;
+      }
+      setSavedId((data as any).id);
+      toast.success("Template created — now build out the weeks below");
+    }
+
+    qc.invalidateQueries({ queryKey: ["plan-templates"] });
+  }
+
+  async function deleteTemplate() {
+    if (!savedId) return;
+    if (!window.confirm("Delete this template? This won't affect any plans already assigned from it.")) return;
+
+    const { error } = await supabase.from("plan_templates").delete().eq("id", savedId);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("Template deleted");
+    qc.invalidateQueries({ queryKey: ["plan-templates"] });
+    onBack();
+  }
+
+  const sessionByDay = new Map<string, any>();
+  for (const s of sessions ?? []) {
+    sessionByDay.set(`${s.week_number}-${s.day_of_week}`, s);
+  }
+
+  return (
+    <div className="space-y-6">
+      <Button variant="ghost" size="sm" onClick={onBack} className="-ml-2">
+        ← Back to templates
+      </Button>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{savedId ? "Edit template" : "New template"}</CardTitle>
+          <CardDescription>
+            {savedId
+              ? "Update the basics any time — changes apply to future assignments, not plans already assigned."
+              : "Save the basics first, then build out each week below."}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div>
+            <Label className="text-xs">Name</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. My 5-Day 10K Build" />
+          </div>
+          <div>
+            <Label className="text-xs">Description</Label>
+            <textarea
+              className="w-full min-h-16 rounded-md border bg-background px-3 py-2 text-sm"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="What is this for, and who's it a good fit for?"
+            />
+          </div>
+          <div className="grid sm:grid-cols-4 gap-3">
+            <div>
+              <Label className="text-xs">Days per week</Label>
+              <Select value={String(daysPerWeek)} onValueChange={(v) => setDaysPerWeek(Number(v))}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[3, 4, 5, 6, 7].map((d) => (
+                    <SelectItem key={d} value={String(d)}>
+                      {d}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Duration (weeks)</Label>
+              <Input type="number" min={1} value={durationWeeks} onChange={(e) => setDurationWeeks(Number(e.target.value))} />
+            </div>
+            <div>
+              <Label className="text-xs">Focus</Label>
+              <Select value={distanceFocus} onValueChange={setDistanceFocus}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="generic">Generic base</SelectItem>
+                  <SelectItem value="5k">5K</SelectItem>
+                  <SelectItem value="10k">10K</SelectItem>
+                  <SelectItem value="half_marathon">Half Marathon</SelectItem>
+                  <SelectItem value="marathon">Marathon</SelectItem>
+                  <SelectItem value="track_middle_distance">Track (800m–5000m)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Level</Label>
+              <Select value={level} onValueChange={setLevel}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="beginner">Beginner</SelectItem>
+                  <SelectItem value="intermediate">Intermediate</SelectItem>
+                  <SelectItem value="advanced">Advanced</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={saveMeta} disabled={saving}>
+              {saving ? "Saving..." : savedId ? "Save changes" : "Create & continue"}
+            </Button>
+            {savedId && (
+              <Button variant="ghost" className="text-destructive" onClick={deleteTemplate}>
+                Delete template
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {savedId && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Weeks</CardTitle>
+            <CardDescription>Click a day to add or edit its session. Leave a day empty for rest.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {Array.from({ length: durationWeeks }, (_, i) => i + 1).map((week) => (
+              <div key={week}>
+                <div className="text-xs font-bold uppercase tracking-wide text-muted-foreground mb-1.5">Week {week}</div>
+                <div className="grid grid-cols-7 gap-1.5">
+                  {DAY_LABELS.map((label, i) => {
+                    const day = i + 1;
+                    const existing = sessionByDay.get(`${week}-${day}`);
+                    return (
+                      <button
+                        key={day}
+                        type="button"
+                        onClick={() => setDayEditor({ week, day })}
+                        className={`text-left rounded border px-2 py-1.5 text-xs hover:opacity-80 transition-opacity min-h-14 ${
+                          existing ? (EFFORT_STYLES[existing.effort_type] ?? "bg-muted") : "bg-muted/30 border-dashed"
+                        }`}
+                      >
+                        <div className="font-semibold">{label}</div>
+                        {existing ? (
+                          <div className="truncate">{existing.title}</div>
+                        ) : (
+                          <div className="text-muted-foreground">+ add</div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {dayEditor && savedId && (
+        <DayEditorDialog
+          planTemplateId={savedId}
+          week={dayEditor.week}
+          day={dayEditor.day}
+          existing={sessionByDay.get(`${dayEditor.week}-${dayEditor.day}`) ?? null}
+          onClose={() => setDayEditor(null)}
+          onSaved={() => {
+            setDayEditor(null);
+            qc.invalidateQueries({ queryKey: ["plan-template-sessions-edit", savedId] });
+            qc.invalidateQueries({ queryKey: ["all-plan-template-sessions"] });
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+type ManualStep = {
+  kind: "warmup" | "work" | "recovery" | "cooldown" | "strides";
+  target_kind: "distance" | "time";
+  value: number; // meters for distance, minutes for time (converted on save)
+  reps: number;
+  recovery_between_reps_seconds?: number;
+  recovery_between_reps_mode?: string;
+};
+
+function DayEditorDialog({
+  planTemplateId,
+  week,
+  day,
+  existing,
+  onClose,
+  onSaved,
+}: {
+  planTemplateId: string;
+  week: number;
+  day: number;
+  existing: any | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [title, setTitle] = useState(existing?.title ?? "");
+  const [effortType, setEffortType] = useState(existing?.effort_type ?? "easy");
+  const [mode, setMode] = useState<"library" | "manual">(existing?.session_template_id ? "library" : "manual");
+  const [libraryTemplateId, setLibraryTemplateId] = useState<string>(existing?.session_template_id ?? "");
+  const [manualSteps, setManualSteps] = useState<ManualStep[]>(() => {
+    if (!existing?.steps) return [];
+    return (existing.steps as any[]).map((s) => ({
+      kind: s.kind,
+      target_kind: s.target_kind,
+      value: s.target_kind === "time" ? Math.round((s.target_time_seconds ?? 0) / 60) : (s.target_distance_m ?? 0),
+      reps: s.reps ?? 1,
+      recovery_between_reps_seconds: s.recovery_between_reps_seconds ?? undefined,
+      recovery_between_reps_mode: s.recovery_between_reps_mode ?? undefined,
+    }));
+  });
+  const [saving, setSaving] = useState(false);
+
+  const { data: libraryTemplates } = useQuery({
+    queryKey: ["session-templates-for-plan-builder"],
+    enabled: mode === "library",
+    queryFn: async () => {
+      const { data } = await supabase.from("session_templates").select("*").order("created_at", { ascending: false });
+      return (data ?? []) as any[];
+    },
+  });
+
+  function addStep() {
+    setManualSteps((s) => [...s, { kind: "work", target_kind: "time", value: 20, reps: 1 }]);
+  }
+
+  function updateStep(i: number, patch: Partial<ManualStep>) {
+    setManualSteps((s) => s.map((step, idx) => (idx === i ? { ...step, ...patch } : step)));
+  }
+
+  function removeStep(i: number) {
+    setManualSteps((s) => s.filter((_, idx) => idx !== i));
+  }
+
+  async function save() {
+    if (effortType !== "rest" && effortType !== "cross_train" && !title.trim()) {
+      toast.error("Give the session a title");
+      return;
+    }
+    if (mode === "library" && !libraryTemplateId && effortType !== "rest" && effortType !== "cross_train") {
+      toast.error("Choose a template from your library, or switch to manual steps");
+      return;
+    }
+
+    setSaving(true);
+
+    const steps =
+      mode === "manual" && manualSteps.length > 0
+        ? manualSteps.map((s) => ({
+            kind: s.kind,
+            reps: s.reps,
+            target_kind: s.target_kind,
+            target_distance_m: s.target_kind === "distance" ? s.value : null,
+            target_time_seconds: s.target_kind === "time" ? s.value * 60 : null,
+            recovery_between_reps_seconds: s.recovery_between_reps_seconds ?? null,
+            recovery_between_reps_target_kind: s.recovery_between_reps_seconds ? "time" : null,
+            recovery_between_reps_mode: s.recovery_between_reps_mode ?? null,
+            counts_toward_distance: true,
+          }))
+        : null;
+
+    const payload = {
+      plan_template_id: planTemplateId,
+      week_number: week,
+      day_of_week: day,
+      title: title.trim() || (effortType === "rest" ? "Rest" : effortType === "cross_train" ? "Cross-train" : title),
+      effort_type: effortType,
+      steps: mode === "library" ? null : steps,
+      session_template_id: mode === "library" && libraryTemplateId ? libraryTemplateId : null,
+    };
+
+    const { error } = existing
+      ? await supabase.from("plan_template_sessions").update(payload as any).eq("id", existing.id)
+      : await supabase.from("plan_template_sessions").insert(payload as any);
+
+    setSaving(false);
+
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+
+    toast.success("Day saved");
+    onSaved();
+  }
+
+  async function removeDay() {
+    if (!existing) return;
+    const { error } = await supabase.from("plan_template_sessions").delete().eq("id", existing.id);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("Day cleared");
+    onSaved();
+  }
+
+  const needsDetail = effortType !== "rest" && effortType !== "cross_train";
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>
+            {DAY_LABELS[day - 1]}, Week {week}
+          </DialogTitle>
+          <DialogDescription>What should this day look like?</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <div>
+            <Label className="text-xs">Effort type</Label>
+            <Select value={effortType} onValueChange={setEffortType}>
+              <SelectTrigger className="mt-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="easy">Easy</SelectItem>
+                <SelectItem value="long">Long run</SelectItem>
+                <SelectItem value="tempo">Tempo</SelectItem>
+                <SelectItem value="threshold">Threshold</SelectItem>
+                <SelectItem value="vo2">VO2 / speed</SelectItem>
+                <SelectItem value="strides">Strides</SelectItem>
+                <SelectItem value="race">Race</SelectItem>
+                <SelectItem value="cross_train">Cross-train</SelectItem>
+                <SelectItem value="rest">Rest</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {needsDetail && (
+            <>
+              <div>
+                <Label className="text-xs">Title</Label>
+                <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Threshold intervals" />
+              </div>
+
+              <div className="flex gap-2">
+                <Button size="sm" variant={mode === "manual" ? "default" : "outline"} onClick={() => setMode("manual")}>
+                  Manual steps
+                </Button>
+                <Button size="sm" variant={mode === "library" ? "default" : "outline"} onClick={() => setMode("library")}>
+                  From my library
+                </Button>
+              </div>
+
+              {mode === "library" ? (
+                <div>
+                  <Label className="text-xs">Session template</Label>
+                  <Select value={libraryTemplateId} onValueChange={setLibraryTemplateId}>
+                    <SelectTrigger className="mt-1">
+                      <SelectValue placeholder="Choose from your Templates library" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(libraryTemplates ?? []).map((lt: any) => (
+                        <SelectItem key={lt.id} value={lt.id}>
+                          {lt.title}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {(libraryTemplates ?? []).length === 0 && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      No saved templates yet — build one on the Templates page first, or use manual steps here.
+                    </p>
+                  )}
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Resolved fresh at assignment time — editing this library template later updates any plan built from it since.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label className="text-xs">Steps</Label>
+                  {manualSteps.map((s, i) => (
+                    <div key={i} className="rounded border p-2 space-y-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <Select value={s.kind} onValueChange={(v) => updateStep(i, { kind: v as ManualStep["kind"] })}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="warmup">Warmup</SelectItem>
+                            <SelectItem value="work">Work</SelectItem>
+                            <SelectItem value="recovery">Recovery</SelectItem>
+                            <SelectItem value="cooldown">Cooldown</SelectItem>
+                            <SelectItem value="strides">Strides</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Select
+                          value={s.target_kind}
+                          onValueChange={(v) => updateStep(i, { target_kind: v as ManualStep["target_kind"] })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="time">Time</SelectItem>
+                            <SelectItem value="distance">Distance</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 items-end">
+                        <div>
+                          <Label className="text-[10px]">{s.target_kind === "time" ? "Minutes" : "Meters"}</Label>
+                          <Input
+                            type="number"
+                            value={s.value}
+                            onChange={(e) => updateStep(i, { value: Number(e.target.value) })}
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-[10px]">Reps</Label>
+                          <Input type="number" min={1} value={s.reps} onChange={(e) => updateStep(i, { reps: Number(e.target.value) })} />
+                        </div>
+                        <Button size="sm" variant="ghost" className="text-destructive" onClick={() => removeStep(i)}>
+                          Remove
+                        </Button>
+                      </div>
+                      {s.reps > 1 && (
+                        <div>
+                          <Label className="text-[10px]">Recovery between reps (seconds)</Label>
+                          <Input
+                            type="number"
+                            value={s.recovery_between_reps_seconds ?? ""}
+                            onChange={(e) => updateStep(i, { recovery_between_reps_seconds: Number(e.target.value) })}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  <Button size="sm" variant="outline" onClick={addStep}>
+                    + Add step
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <DialogFooter className="flex items-center justify-between sm:justify-between">
+          {existing ? (
+            <Button variant="ghost" className="text-destructive" onClick={removeDay}>
+              Clear day
+            </Button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button onClick={save} disabled={saving}>
+              {saving ? "Saving..." : "Save day"}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
