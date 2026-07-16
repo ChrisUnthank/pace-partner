@@ -864,12 +864,9 @@ function SessionAnalysis() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
           {/* ✅ LEFT COLUMN (visual + session content) */}
           <div className="lg:col-span-2 flex flex-col">
-            {Array.isArray(gpsPoints) &&
-              gpsPoints.filter((p: any) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng)).length >= 2 && (
-                <div className="flex-1">
-                  <MapPanel points={gpsPoints.filter((p: any) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng))} />
-                </div>
-              )}
+            <div className="flex-1">
+              <MapPanel points={Array.isArray(gpsPoints) ? gpsPoints : []} />
+            </div>
           </div>
 
           {/* ✅ RIGHT COLUMN (meaning + summary) */}
@@ -1355,13 +1352,14 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing, geoPoints.length]);
 
-  if (safePoints.length < 2) return null;
-
   // "Null Island" (0,0) is the standard placeholder for a missing/failed GPS
   // fix — if every point is at or extremely close to it, there's no real
   // route to show. A map centered on the Gulf of Guinea with one dot is more
-  // confusing than helpful, so show a clear message instead.
-  const hasRealGps = safePoints.some((p) => Math.abs(Number(p.lat)) > 0.01 || Math.abs(Number(p.lng)) > 0.01);
+  // confusing than helpful, so show a clear message instead. Fewer than 2
+  // points (including zero — a full treadmill session with no GPS fix at
+  // all) counts the same way: there's nothing to draw a route from.
+  const hasRealGps =
+    safePoints.length >= 2 && safePoints.some((p) => Math.abs(Number(p.lat)) > 0.01 || Math.abs(Number(p.lng)) > 0.01);
 
   if (!hasRealGps) {
     return (
