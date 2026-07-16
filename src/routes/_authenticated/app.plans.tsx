@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { CalendarRange, ChevronDown, ChevronUp } from "lucide-react";
+import { metersFmt } from "@/lib/format";
 import { assignPlanToAthlete, cancelAthletePlan } from "@/lib/plan.functions";
 
 export const Route = createFileRoute("/_authenticated/app/plans")({
@@ -62,14 +63,79 @@ function distanceFocusLabel(v: string | null) {
       return "Half Marathon";
     case "marathon":
       return "Marathon";
+    case "track_middle_distance":
+      return "Track (800m–5000m)";
     default:
       return "Generic base";
   }
 }
 
+// Most template steps are time-based ("40 min easy"), not distance-based —
+// same convention every manually-planned session in this app already uses,
+// pace intent lives on the session/effort type rather than a per-step pace
+// column. To show a useful "km/week" figure for browsing, distance is
+// estimated from a representative pace per effort type. This is
+// deliberately approximate (real pace varies a lot by athlete) — it's a
+// browsing aid for comparing templates against each other, not a precise
+// per-athlete prediction the way an assigned session's own targets are.
+const ASSUMED_PACE_SEC_PER_KM: Record<string, number> = {
+  easy: 330, // 5:30/km
+  long: 330,
+  tempo: 255, // 4:15/km
+  threshold: 240, // 4:00/km
+  vo2: 225, // 3:45/km
+  strides: 200, // fast, but short enough that it barely moves the total
+  race: 300,
+  cross_train: 0,
+  rest: 0,
+};
+
+type StepLike = {
+  kind: string;
+  reps?: number;
+  target_kind: "distance" | "time";
+  target_distance_m?: number | null;
+  target_time_seconds?: number | null;
+};
+
+function estimateSessionDistanceM(effortType: string, steps: StepLike[] | null): number {
+  if (!steps || steps.length === 0) return 0;
+  const paceSecPerKm = ASSUMED_PACE_SEC_PER_KM[effortType] ?? 300;
+
+  return steps.reduce((sum, s) => {
+    const reps = Number(s.reps ?? 1);
+    if (s.target_kind === "distance") {
+      return sum + Number(s.target_distance_m ?? 0) * reps;
+    }
+    if (s.target_kind === "time" && paceSecPerKm > 0) {
+      const seconds = Number(s.target_time_seconds ?? 0) * reps;
+      return sum + (seconds / paceSecPerKm) * 1000;
+    }
+    return sum;
+  }, 0);
+}
+
+// Average weekly distance across every week in the template (recovery/taper
+// weeks included, so this reads as a genuine average rather than a
+// best-case peak week).
+function estimateAvgWeeklyDistanceM(sessions: { week_number: number; effort_type: string; steps: StepLike[] | null }[]): number {
+  if (sessions.length === 0) return 0;
+
+  const byWeek = new Map<number, number>();
+  for (const s of sessions) {
+    const m = estimateSessionDistanceM(s.effort_type, s.steps);
+    byWeek.set(s.week_number, (byWeek.get(s.week_number) ?? 0) + m);
+  }
+
+  const weekTotals = Array.from(byWeek.values());
+  return weekTotals.reduce((a, b) => a + b, 0) / weekTotals.length;
+}
+
 function PlansPage() {
   const [daysFilter, setDaysFilter] = useState<string>("all");
   const [distanceFilter, setDistanceFilter] = useState<string>("all");
+  const [levelFilter, setLevelFilter] = useState<string>("all");
+  const [volumeFilter, setVolumeFilter] = useState<string>("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [assignTarget, setAssignTarget] = useState<PlanTemplate | null>(null);
 
@@ -85,9 +151,36 @@ function PlansPage() {
     },
   });
 
+  // Fetched once for every template up front (not just the expanded one) —
+  // needed to estimate each template's weekly volume for the list/filter,
+  // not just the preview.
+  const { data: allTemplateSessions } = useQuery({
+    queryKey: ["all-plan-template-sessions"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("plan_template_sessions")
+        .select("plan_template_id, week_number, effort_type, steps");
+      return (data ?? []) as any[];
+    },
+  });
+
+  const weeklyVolumeByTemplate = new Map<string, number>();
+  for (const t of templates ?? []) {
+    const sessions = (allTemplateSessions ?? []).filter((s) => s.plan_template_id === t.id);
+    weeklyVolumeByTemplate.set(t.id, estimateAvgWeeklyDistanceM(sessions));
+  }
+
   const filtered = (templates ?? []).filter((t) => {
     if (daysFilter !== "all" && String(t.days_per_week) !== daysFilter) return false;
     if (distanceFilter !== "all" && (t.distance_focus ?? "generic") !== distanceFilter) return false;
+    if (levelFilter !== "all" && t.level !== levelFilter) return false;
+    if (volumeFilter !== "all") {
+      const km = (weeklyVolumeByTemplate.get(t.id) ?? 0) / 1000;
+      if (volumeFilter === "under30" && km >= 30) return false;
+      if (volumeFilter === "30to50" && (km < 30 || km >= 50)) return false;
+      if (volumeFilter === "50to70" && (km < 50 || km >= 70)) return false;
+      if (volumeFilter === "70plus" && km < 70) return false;
+    }
     return true;
   });
 
@@ -110,7 +203,10 @@ function PlansPage() {
         <Card>
           <CardHeader>
             <CardTitle>Plan templates</CardTitle>
-            <CardDescription>Filter by weekly frequency or race focus, then assign to an athlete.</CardDescription>
+            <CardDescription>
+              Filter by weekly frequency, race focus, level, or estimated weekly volume, then assign to an athlete.
+              Weekly volume is estimated from typical pace per session type — a browsing guide, not a per-athlete prediction.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex gap-3 flex-wrap">
@@ -143,6 +239,36 @@ function PlansPage() {
                     <SelectItem value="10k">10K</SelectItem>
                     <SelectItem value="half_marathon">Half Marathon</SelectItem>
                     <SelectItem value="marathon">Marathon</SelectItem>
+                    <SelectItem value="track_middle_distance">Track (800m–5000m)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Level</Label>
+                <Select value={levelFilter} onValueChange={setLevelFilter}>
+                  <SelectTrigger className="w-40 mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Any</SelectItem>
+                    <SelectItem value="beginner">Beginner</SelectItem>
+                    <SelectItem value="intermediate">Intermediate</SelectItem>
+                    <SelectItem value="advanced">Advanced</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Weekly volume</Label>
+                <Select value={volumeFilter} onValueChange={setVolumeFilter}>
+                  <SelectTrigger className="w-48 mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Any</SelectItem>
+                    <SelectItem value="under30">Under 30 km/wk</SelectItem>
+                    <SelectItem value="30to50">30–50 km/wk</SelectItem>
+                    <SelectItem value="50to70">50–70 km/wk</SelectItem>
+                    <SelectItem value="70plus">70+ km/wk</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -162,6 +288,9 @@ function PlansPage() {
                           <Badge variant="outline">{t.duration_weeks} wks</Badge>
                           <Badge variant="secondary">{distanceFocusLabel(t.distance_focus)}</Badge>
                           {t.level && <Badge variant="outline" className="capitalize">{t.level}</Badge>}
+                          {(weeklyVolumeByTemplate.get(t.id) ?? 0) > 0 && (
+                            <Badge variant="outline">~{metersFmt(weeklyVolumeByTemplate.get(t.id) ?? 0)}/wk avg</Badge>
+                          )}
                         </div>
                         {t.description && <p className="text-sm text-muted-foreground mt-1">{t.description}</p>}
                       </div>
