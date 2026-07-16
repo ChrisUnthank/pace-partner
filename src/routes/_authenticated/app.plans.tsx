@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -364,7 +364,16 @@ function PlansPage() {
                       </div>
                     </div>
 
-                    {expandedId === t.id && <TemplatePreview templateId={t.id} />}
+                    {expandedId === t.id && (
+                      <TemplatePreview
+                        templateId={t.id}
+                        canEdit={!t.is_system && t.created_by === user?.id}
+                        onEdit={() => {
+                          setBuilderTemplateId(t.id);
+                          setView("builder");
+                        }}
+                      />
+                    )}
                   </div>
                 ))}
               </div>
@@ -380,7 +389,15 @@ function PlansPage() {
   );
 }
 
-function TemplatePreview({ templateId }: { templateId: string }) {
+function TemplatePreview({
+  templateId,
+  canEdit,
+  onEdit,
+}: {
+  templateId: string;
+  canEdit?: boolean;
+  onEdit?: () => void;
+}) {
   const { data: sessions } = useQuery({
     queryKey: ["plan-template-sessions", templateId],
     queryFn: async () => {
@@ -402,6 +419,11 @@ function TemplatePreview({ templateId }: { templateId: string }) {
 
   return (
     <div className="border-t p-4 space-y-3 bg-muted/20">
+      {canEdit && (
+        <Button size="sm" variant="outline" onClick={onEdit}>
+          Edit this template
+        </Button>
+      )}
       {Array.from(byWeek.entries()).map(([week, days]) => (
         <div key={week} className="text-sm">
           <div className="text-xs font-bold uppercase tracking-wide text-muted-foreground mb-1">Week {week}</div>
@@ -1116,13 +1138,14 @@ function DayEditorDialog({
 
 function ActivePlans() {
   const qc = useQueryClient();
+  const [expandedPlanId, setExpandedPlanId] = useState<string | null>(null);
 
   const { data: plans } = useQuery({
     queryKey: ["active-athlete-plans"],
     queryFn: async () => {
       const { data } = await supabase
         .from("athlete_plans")
-        .select("*, athletes(name)")
+        .select("*, athletes(id, name)")
         .eq("status", "active")
         .order("start_date", { ascending: false });
       return (data ?? []) as any[];
@@ -1156,20 +1179,84 @@ function ActivePlans() {
             const currentWeek = Math.min(Math.max(weeksElapsed, 1), p.duration_weeks);
 
             return (
-              <div key={p.id} className="flex items-center justify-between px-4 py-3 text-sm">
-                <div>
-                  <span className="font-medium">{p.athletes?.name}</span>
-                  <span className="text-muted-foreground"> · {p.name}</span>
-                  <span className="text-muted-foreground"> · Week {currentWeek} of {p.duration_weeks}</span>
+              <div key={p.id}>
+                <div className="flex items-center justify-between px-4 py-3 text-sm gap-2">
+                  <div className="min-w-0">
+                    <span className="font-medium">{p.athletes?.name}</span>
+                    <span className="text-muted-foreground"> · {p.name}</span>
+                    <span className="text-muted-foreground"> · Week {currentWeek} of {p.duration_weeks}</span>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setExpandedPlanId(expandedPlanId === p.id ? null : p.id)}
+                    >
+                      {expandedPlanId === p.id ? "Hide sessions" : "View sessions"}
+                    </Button>
+                    {p.athletes?.id && (
+                      <Button asChild size="sm" variant="ghost">
+                        <Link to="/app/sessions/calendar" search={{ athleteId: p.athletes.id } as any}>
+                          Calendar
+                        </Link>
+                      </Button>
+                    )}
+                    <Button size="sm" variant="ghost" onClick={() => cancel(p.id)}>
+                      Cancel
+                    </Button>
+                  </div>
                 </div>
-                <Button size="sm" variant="ghost" onClick={() => cancel(p.id)}>
-                  Cancel
-                </Button>
+                {expandedPlanId === p.id && <PlanSessionsList athletePlanId={p.id} />}
               </div>
             );
           })}
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function PlanSessionsList({ athletePlanId }: { athletePlanId: string }) {
+  const { data: rows } = useQuery({
+    queryKey: ["athlete-plan-sessions", athletePlanId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("athlete_plan_sessions")
+        .select("week_number, sessions(id, session_date, title, completed_at)")
+        .eq("athlete_plan_id", athletePlanId)
+        .order("week_number");
+      return (data ?? []) as any[];
+    },
+  });
+
+  if (!rows) return null;
+
+  if (rows.length === 0) {
+    return (
+      <div className="px-4 pb-3 text-xs text-muted-foreground">
+        No sessions were created for this plan — if this looks wrong, the assignment likely failed partway through.
+        Cancel it and try assigning again.
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-4 pb-3">
+      <div className="border rounded divide-y">
+        {rows.map((r: any, i: number) => (
+          <Link
+            key={r.sessions?.id ?? i}
+            to="/app/sessions/$sessionId"
+            params={{ sessionId: r.sessions?.id }}
+            className="flex justify-between px-3 py-1.5 text-xs hover:bg-accent/40"
+          >
+            <span>
+              Week {r.week_number} · {r.sessions?.session_date} · {r.sessions?.title}
+            </span>
+            <span className="text-muted-foreground">{r.sessions?.completed_at ? "Done" : "Planned"}</span>
+          </Link>
+        ))}
+      </div>
+    </div>
   );
 }
