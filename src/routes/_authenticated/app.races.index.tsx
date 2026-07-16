@@ -272,9 +272,7 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
   const stats = useMemo(() => {
     const list = races ?? [];
     const currentYear = new Date().getFullYear();
-    const racesThisYear = list.filter(
-      (r: any) => Number(String(r.performance_date).slice(0, 4)) === currentYear,
-    ).length;
+    const racesThisYear = list.filter((r: any) => Number(String(r.performance_date).slice(0, 4)) === currentYear).length;
     const lastRace = list[0] ?? null;
     const daysSinceLast = lastRace
       ? Math.max(0, Math.floor((Date.now() - new Date(lastRace.performance_date + "T00:00:00Z").getTime()) / 86400000))
@@ -299,8 +297,7 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
           <CardHeader>
             <CardTitle className="text-base">Add race (manual)</CardTitle>
             <CardDescription>
-              Manual entry for races without GPS or historical results. Races will feed PBs and the physiological
-              profile.
+              Manual entry for races without GPS or historical results. Races will feed PBs and the physiological profile.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 opacity-90">
@@ -379,12 +376,7 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
 
             <div>
               <Label className="text-xs">Placing</Label>
-              <Input
-                type="number"
-                value={placing}
-                onChange={(e) => setPlacing(e.target.value)}
-                placeholder="Optional"
-              />
+              <Input type="number" value={placing} onChange={(e) => setPlacing(e.target.value)} placeholder="Optional" />
             </div>
 
             <div>
@@ -409,9 +401,7 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
           <StatTile
             icon={<TrendingUp className="h-4 w-4" />}
             label="Last race"
-            value={
-              stats.daysSinceLast == null ? "—" : stats.daysSinceLast === 0 ? "Today" : `${stats.daysSinceLast}d ago`
-            }
+            value={stats.daysSinceLast == null ? "—" : stats.daysSinceLast === 0 ? "Today" : `${stats.daysSinceLast}d ago`}
           />
         </div>
 
@@ -616,14 +606,7 @@ function PerformanceProgressionCard({ races, primaryEvent }: { races: any[]; pri
                       domain={["dataMin", "dataMax"]}
                     />
                     <Tooltip formatter={(value: number, name: string) => [secToClock(value), name]} />
-                    <Line
-                      type="monotone"
-                      dataKey="seconds"
-                      name="Actual"
-                      stroke="#2563eb"
-                      strokeWidth={2}
-                      dot={{ r: 3 }}
-                    />
+                    <Line type="monotone" dataKey="seconds" name="Actual" stroke="#2563eb" strokeWidth={2} dot={{ r: 3 }} />
                     <Line
                       type="linear"
                       dataKey="trend"
