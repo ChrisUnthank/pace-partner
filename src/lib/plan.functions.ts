@@ -32,6 +32,52 @@ type StepRecipe = {
   counts_toward_distance?: boolean;
 };
 
+// Full column set carried across from a linked library template's own
+// steps — template_steps mirrors `steps` (minus session_id/computed
+// fields), so this is close to a direct copy rather than a re-derivation.
+function stepInsertFromTemplateStep(sessionId: string, stepOrder: number, ts: any) {
+  return {
+    session_id: sessionId,
+    step_order: stepOrder,
+    kind: ts.kind,
+    reps: ts.reps ?? 1,
+    set_count: ts.set_count ?? 1,
+    target_kind: ts.target_kind ?? null,
+    target_distance_m: ts.target_distance_m ?? null,
+    target_time_seconds: ts.target_time_seconds ?? null,
+    target_pace_sec_per_km: ts.target_pace_sec_per_km ?? null,
+    is_ladder: ts.is_ladder ?? false,
+    counts_toward_distance: ts.counts_toward_distance ?? true,
+    recovery_between_reps_seconds: ts.recovery_between_reps_seconds ?? null,
+    recovery_between_reps_mode: ts.recovery_between_reps_mode ?? null,
+    recovery_between_reps_target_kind: ts.recovery_between_reps_target_kind ?? null,
+    recovery_between_sets_seconds: ts.recovery_between_sets_seconds ?? null,
+    recovery_between_sets_mode: ts.recovery_between_sets_mode ?? null,
+    recovery_mode: ts.recovery_mode ?? null,
+    recovery_target_kind: ts.recovery_target_kind ?? null,
+    recovery_target_seconds: ts.recovery_target_seconds ?? null,
+    recovery_target_distance_m: ts.recovery_target_distance_m ?? null,
+    notes: ts.notes ?? null,
+  };
+}
+
+function stepInsertFromRecipe(sessionId: string, stepOrder: number, s: StepRecipe) {
+  return {
+    session_id: sessionId,
+    step_order: stepOrder,
+    kind: s.kind,
+    reps: s.reps ?? 1,
+    set_count: s.set_count ?? 1,
+    target_kind: s.target_kind,
+    target_distance_m: s.target_distance_m ?? null,
+    target_time_seconds: s.target_time_seconds ?? null,
+    recovery_between_reps_seconds: s.recovery_between_reps_seconds ?? null,
+    recovery_between_reps_target_kind: s.recovery_between_reps_target_kind ?? null,
+    recovery_between_reps_mode: s.recovery_between_reps_mode ?? null,
+    counts_toward_distance: s.counts_toward_distance ?? true,
+  };
+}
+
 /**
  * Assigns a plan template to an athlete starting on a given date, generating
  * real `sessions` + `steps` rows for every non-rest day in the template.
@@ -104,8 +150,42 @@ export const assignPlanToAthlete = createServerFn({ method: "POST" })
       sessionDate.setDate(sessionDate.getDate() + offsetDays);
       const sessionDateStr = sessionDate.toISOString().slice(0, 10);
 
-      const steps = (ts.steps as StepRecipe[] | null) ?? [];
-      const isIntervalWork = steps.some((s) => s.kind === "work" && Number(s.reps ?? 1) > 1);
+      // A day linked to the Templates library resolves from that
+      // template's OWN current steps at assignment time — not a snapshot
+      // taken when the plan day was authored — so editing the library
+      // template later is reflected in any plan assigned from it since.
+      let title = ts.title;
+      let linkedSteps: any[] | null = null;
+      let linkedIntent: string | null = null;
+      let linkedStructure: string | null = null;
+
+      if (ts.session_template_id) {
+        const { data: libTemplate, error: libErr } = await sb
+          .from("session_templates")
+          .select("*")
+          .eq("id", ts.session_template_id)
+          .single();
+        if (libErr || !libTemplate) {
+          throw libErr ?? new Error(`Linked library template not found for week ${ts.week_number}, day ${ts.day_of_week}`);
+        }
+
+        const { data: libSteps, error: libStepsErr } = await sb
+          .from("template_steps")
+          .select("*")
+          .eq("template_id", ts.session_template_id)
+          .order("step_order");
+        if (libStepsErr) throw libStepsErr;
+
+        title = (libTemplate as any).title ?? title;
+        linkedIntent = (libTemplate as any).intent ?? null;
+        linkedStructure = (libTemplate as any).structure ?? null;
+        linkedSteps = libSteps ?? [];
+      }
+
+      const recipeSteps = (ts.steps as StepRecipe[] | null) ?? [];
+      const isIntervalWork = linkedSteps
+        ? linkedSteps.some((s: any) => s.kind === "work" && Number(s.reps ?? 1) > 1)
+        : recipeSteps.some((s) => s.kind === "work" && Number(s.reps ?? 1) > 1);
 
       const { data: newSession, error: newSessErr } = await sb
         .from("sessions")
@@ -113,12 +193,13 @@ export const assignPlanToAthlete = createServerFn({ method: "POST" })
           athlete_id: data.athleteId,
           created_by: context.userId,
           session_date: sessionDateStr,
-          title: ts.title,
+          title,
           day_type: ts.effort_type === "race" ? "race" : "training",
-          intent: EFFORT_TO_INTENT[ts.effort_type] ?? null,
-          structure: isIntervalWork ? "intervals" : "continuous",
+          intent: linkedIntent ?? EFFORT_TO_INTENT[ts.effort_type] ?? null,
+          structure: linkedStructure ?? (isIntervalWork ? "intervals" : "continuous"),
           is_planned: true,
           source: "plan_template",
+          applied_from_template_id: ts.session_template_id ?? null,
         } as any)
         .select()
         .single();
@@ -127,22 +208,12 @@ export const assignPlanToAthlete = createServerFn({ method: "POST" })
         throw newSessErr ?? new Error(`Failed to create session for week ${ts.week_number}, day ${ts.day_of_week}`);
       }
 
-      if (steps.length > 0) {
-        const stepsToInsert = steps.map((s, i) => ({
-          session_id: newSession.id,
-          step_order: i + 1,
-          kind: s.kind,
-          reps: s.reps ?? 1,
-          set_count: s.set_count ?? 1,
-          target_kind: s.target_kind,
-          target_distance_m: s.target_distance_m ?? null,
-          target_time_seconds: s.target_time_seconds ?? null,
-          recovery_between_reps_seconds: s.recovery_between_reps_seconds ?? null,
-          recovery_between_reps_target_kind: s.recovery_between_reps_target_kind ?? null,
-          recovery_between_reps_mode: s.recovery_between_reps_mode ?? null,
-          counts_toward_distance: s.counts_toward_distance ?? true,
-        }));
-
+      if (linkedSteps && linkedSteps.length > 0) {
+        const stepsToInsert = linkedSteps.map((s: any, i: number) => stepInsertFromTemplateStep(newSession.id, i + 1, s));
+        const { error: stepsErr } = await sb.from("steps").insert(stepsToInsert as any);
+        if (stepsErr) throw stepsErr;
+      } else if (!linkedSteps && recipeSteps.length > 0) {
+        const stepsToInsert = recipeSteps.map((s, i) => stepInsertFromRecipe(newSession.id, i + 1, s));
         const { error: stepsErr } = await sb.from("steps").insert(stepsToInsert as any);
         if (stepsErr) throw stepsErr;
       }
