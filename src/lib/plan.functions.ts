@@ -194,11 +194,22 @@ export const assignPlanToAthlete = createServerFn({ method: "POST" })
           created_by: context.userId,
           session_date: sessionDateStr,
           title,
-          day_type: ts.effort_type === "race" ? "race" : "training",
+          // 'race' and 'cross_training' are distinct session_day_type enum
+          // values from 'training' — a cross-train day filed as 'training'
+          // trips the DB trigger requiring intent+structure on training
+          // rows (cross-train legitimately has neither).
+          day_type: ts.effort_type === "race" ? "race" : ts.effort_type === "cross_train" ? "cross_training" : "training",
           intent: linkedIntent ?? EFFORT_TO_INTENT[ts.effort_type] ?? null,
           structure: linkedStructure ?? (isIntervalWork ? "intervals" : "continuous"),
           is_planned: true,
-          source: "plan_template",
+          // session_source only allows 'manual' | 'synced' | 'fit_import' —
+          // 'plan_template' isn't a valid enum member (this was the actual
+          // cause of sessions never reaching the calendar). A plan-generated
+          // session is conceptually the same as one built by hand in the
+          // Session Builder, so 'manual' is the accurate value here, not a
+          // placeholder — which sessions came from a plan is already
+          // tracked precisely via athlete_plan_sessions, not this column.
+          source: "manual",
           applied_from_template_id: ts.session_template_id ?? null,
         } as any)
         .select()
