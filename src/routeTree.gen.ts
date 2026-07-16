@@ -22,6 +22,7 @@ import { Route as AuthenticatedAppTemplatesRouteImport } from './routes/_authent
 import { Route as AuthenticatedAppSessionsRouteImport } from './routes/_authenticated/app.sessions'
 import { Route as AuthenticatedAppRacesRouteImport } from './routes/_authenticated/app.races'
 import { Route as AuthenticatedAppProfileRouteImport } from './routes/_authenticated/app.profile'
+import { Route as AuthenticatedAppPlansRouteImport } from './routes/_authenticated/app.plans'
 import { Route as AuthenticatedAppNoticeboardRouteImport } from './routes/_authenticated/app.noticeboard'
 import { Route as AuthenticatedAppMessagesRouteImport } from './routes/_authenticated/app.messages'
 import { Route as AuthenticatedAppDailyLogRouteImport } from './routes/_authenticated/app.daily-log'
@@ -114,6 +115,11 @@ const AuthenticatedAppRacesRoute = AuthenticatedAppRacesRouteImport.update({
 const AuthenticatedAppProfileRoute = AuthenticatedAppProfileRouteImport.update({
   id: '/app/profile',
   path: '/app/profile',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedAppPlansRoute = AuthenticatedAppPlansRouteImport.update({
+  id: '/app/plans',
+  path: '/app/plans',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedAppNoticeboardRoute =
@@ -291,6 +297,7 @@ export interface FileRoutesByFullPath {
   '/app/daily-log': typeof AuthenticatedAppDailyLogRoute
   '/app/messages': typeof AuthenticatedAppMessagesRoute
   '/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
+  '/app/plans': typeof AuthenticatedAppPlansRoute
   '/app/profile': typeof AuthenticatedAppProfileRoute
   '/app/races': typeof AuthenticatedAppRacesRouteWithChildren
   '/app/sessions': typeof AuthenticatedAppSessionsRouteWithChildren
@@ -330,6 +337,7 @@ export interface FileRoutesByTo {
   '/app/daily-log': typeof AuthenticatedAppDailyLogRoute
   '/app/messages': typeof AuthenticatedAppMessagesRoute
   '/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
+  '/app/plans': typeof AuthenticatedAppPlansRoute
   '/app/profile': typeof AuthenticatedAppProfileRoute
   '/app/templates': typeof AuthenticatedAppTemplatesRoute
   '/app/today': typeof AuthenticatedAppTodayRoute
@@ -369,6 +377,7 @@ export interface FileRoutesById {
   '/_authenticated/app/daily-log': typeof AuthenticatedAppDailyLogRoute
   '/_authenticated/app/messages': typeof AuthenticatedAppMessagesRoute
   '/_authenticated/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
+  '/_authenticated/app/plans': typeof AuthenticatedAppPlansRoute
   '/_authenticated/app/profile': typeof AuthenticatedAppProfileRoute
   '/_authenticated/app/races': typeof AuthenticatedAppRacesRouteWithChildren
   '/_authenticated/app/sessions': typeof AuthenticatedAppSessionsRouteWithChildren
@@ -412,6 +421,7 @@ export interface FileRouteTypes {
     | '/app/daily-log'
     | '/app/messages'
     | '/app/noticeboard'
+    | '/app/plans'
     | '/app/profile'
     | '/app/races'
     | '/app/sessions'
@@ -451,6 +461,7 @@ export interface FileRouteTypes {
     | '/app/daily-log'
     | '/app/messages'
     | '/app/noticeboard'
+    | '/app/plans'
     | '/app/profile'
     | '/app/templates'
     | '/app/today'
@@ -489,6 +500,7 @@ export interface FileRouteTypes {
     | '/_authenticated/app/daily-log'
     | '/_authenticated/app/messages'
     | '/_authenticated/app/noticeboard'
+    | '/_authenticated/app/plans'
     | '/_authenticated/app/profile'
     | '/_authenticated/app/races'
     | '/_authenticated/app/sessions'
@@ -619,6 +631,13 @@ declare module '@tanstack/react-router' {
       path: '/app/profile'
       fullPath: '/app/profile'
       preLoaderRoute: typeof AuthenticatedAppProfileRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/plans': {
+      id: '/_authenticated/app/plans'
+      path: '/app/plans'
+      fullPath: '/app/plans'
+      preLoaderRoute: typeof AuthenticatedAppPlansRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/app/noticeboard': {
@@ -934,6 +953,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAppDailyLogRoute: typeof AuthenticatedAppDailyLogRoute
   AuthenticatedAppMessagesRoute: typeof AuthenticatedAppMessagesRoute
   AuthenticatedAppNoticeboardRoute: typeof AuthenticatedAppNoticeboardRoute
+  AuthenticatedAppPlansRoute: typeof AuthenticatedAppPlansRoute
   AuthenticatedAppProfileRoute: typeof AuthenticatedAppProfileRoute
   AuthenticatedAppRacesRoute: typeof AuthenticatedAppRacesRouteWithChildren
   AuthenticatedAppSessionsRoute: typeof AuthenticatedAppSessionsRouteWithChildren
@@ -956,6 +976,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAppDailyLogRoute: AuthenticatedAppDailyLogRoute,
   AuthenticatedAppMessagesRoute: AuthenticatedAppMessagesRoute,
   AuthenticatedAppNoticeboardRoute: AuthenticatedAppNoticeboardRoute,
+  AuthenticatedAppPlansRoute: AuthenticatedAppPlansRoute,
   AuthenticatedAppProfileRoute: AuthenticatedAppProfileRoute,
   AuthenticatedAppRacesRoute: AuthenticatedAppRacesRouteWithChildren,
   AuthenticatedAppSessionsRoute: AuthenticatedAppSessionsRouteWithChildren,
@@ -983,3 +1004,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
