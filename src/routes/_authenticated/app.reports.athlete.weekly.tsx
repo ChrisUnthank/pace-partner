@@ -1,0 +1,389 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { useMyAthlete, useMyRoles, useAuthUser } from "@/lib/use-auth";
+import { AppShell } from "@/components/app-shell";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { metersFmt, secToClock, todayISO } from "@/lib/format";
+import { toast } from "sonner";
+import { Printer, Mail, FileText } from "lucide-react";
+
+export const Route = createFileRoute("/_authenticated/app/reports/athlete-weekly")({
+  component: AthleteWeeklyReportPage,
+});
+
+// Monday of the ISO week containing this date — same bucketing the
+// athlete_weekly_distance / athlete_zone_time_weekly views already use, and
+// the same logic already used elsewhere in the app (athlete detail page),
+// kept local here rather than shared since it's a one-line helper.
+function weekStartMonday(dateStr: string) {
+  const d = new Date(dateStr + "T00:00:00Z");
+  const day = d.getUTCDay() || 7; // Mon=1..Sun=7
+  d.setUTCDate(d.getUTCDate() - day + 1);
+  return d.toISOString().slice(0, 10);
+}
+function addDaysISO(dateStr: string, days: number) {
+  const d = new Date(dateStr + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+function formatDateLong(dateStr: string) {
+  return new Date(dateStr + "T00:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function AthleteWeeklyReportPage() {
+  const { user } = useAuthUser();
+  const { data: roles = [] } = useMyRoles();
+  const { data: myAthlete } = useMyAthlete();
+  const isCoach = roles.includes("coach");
+
+  const { data: roster } = useQuery({
+    queryKey: ["reports-roster", user?.id, isCoach],
+    enabled: !!user && isCoach,
+    queryFn: async () => {
+      const { data } = await supabase.from("coach_athletes").select("athletes(id, name)").eq("coach_user_id", user!.id);
+      return (data ?? []).map((r: any) => r.athletes).filter(Boolean);
+    },
+  });
+
+  const [athleteId, setAthleteId] = useState<string>("");
+  const activeAthleteId = athleteId || myAthlete?.id || "";
+  const activeAthleteName =
+    activeAthleteId === myAthlete?.id ? myAthlete?.name : (roster ?? []).find((a: any) => a.id === activeAthleteId)?.name;
+
+  const [weekAnchor, setWeekAnchor] = useState(todayISO());
+  const weekStart = weekStartMonday(weekAnchor);
+  const weekEnd = addDaysISO(weekStart, 6);
+
+  const [generated, setGenerated] = useState(false);
+  const [emailTo, setEmailTo] = useState(user?.email ?? "");
+  const [sending, setSending] = useState(false);
+
+  const enabled = generated && !!activeAthleteId;
+
+  const { data: sessions, isFetching: sessionsLoading } = useQuery({
+    queryKey: ["report-sessions", activeAthleteId, weekStart],
+    enabled,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("sessions")
+        .select("id, title, session_date, total_distance_m, total_time_seconds, rpe, completed_at, day_type")
+        .eq("athlete_id", activeAthleteId)
+        .gte("session_date", weekStart)
+        .lte("session_date", weekEnd)
+        .order("session_date", { ascending: true });
+      return data ?? [];
+    },
+  });
+
+  const { data: weeklyDistanceRow } = useQuery({
+    queryKey: ["report-weekly-distance", activeAthleteId, weekStart],
+    enabled,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("athlete_weekly_distance" as any)
+        .select("*")
+        .eq("athlete_id", activeAthleteId)
+        .eq("week_start", weekStart)
+        .maybeSingle();
+      return data as any;
+    },
+  });
+
+  const { data: zoneTime } = useQuery({
+    queryKey: ["report-zone-time", activeAthleteId, weekStart],
+    enabled,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("athlete_zone_time_weekly" as any)
+        .select("*")
+        .eq("athlete_id", activeAthleteId)
+        .eq("week_start", weekStart);
+      return (data ?? []) as any[];
+    },
+  });
+
+  const { data: loadRows } = useQuery({
+    queryKey: ["report-load", activeAthleteId, weekStart, weekEnd],
+    enabled,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("athlete_load_daily")
+        .select("*")
+        .eq("athlete_id", activeAthleteId)
+        .gte("load_date", weekStart)
+        .lte("load_date", weekEnd)
+        .order("load_date", { ascending: true });
+      return data ?? [];
+    },
+  });
+
+  // Full performance history (not just this week) — needed to know whether
+  // a performance recorded this week is actually an all-time PB for its
+  // distance/type, same "current best per distance+type" logic used on the
+  // athlete detail and races pages.
+  const { data: allPerformances } = useQuery({
+    queryKey: ["report-performances", activeAthleteId],
+    enabled,
+    queryFn: async () => {
+      const { data } = await supabase.from("performances").select("*").eq("athlete_id", activeAthleteId);
+      return data ?? [];
+    },
+  });
+
+  const { data: feelRows } = useQuery({
+    queryKey: ["report-feel", activeAthleteId, weekStart, weekEnd, (sessions ?? []).map((s: any) => s.id).join(",")],
+    enabled: enabled && (sessions ?? []).length > 0,
+    queryFn: async () => {
+      const ids = (sessions ?? []).map((s: any) => s.id);
+      if (ids.length === 0) return [];
+      const { data } = await supabase.from("session_insights").select("session_id, feel_score").in("session_id", ids);
+      return data ?? [];
+    },
+  });
+
+  const weekPbs = useMemo(() => {
+    if (!allPerformances) return [];
+    const bestByKey = new Map<string, number>();
+    for (const p of allPerformances) {
+      if (p.time_seconds == null) continue;
+      const key = `${p.distance_m}-${p.race_type ?? "none"}`;
+      const cur = bestByKey.get(key);
+      if (cur == null || p.time_seconds < cur) bestByKey.set(key, p.time_seconds);
+    }
+    return allPerformances.filter((p: any) => {
+      if (p.performance_date < weekStart || p.performance_date > weekEnd) return false;
+      const key = `${p.distance_m}-${p.race_type ?? "none"}`;
+      return bestByKey.get(key) === p.time_seconds;
+    });
+  }, [allPerformances, weekStart, weekEnd]);
+
+  const stats = useMemo(() => {
+    const list = sessions ?? [];
+    const completed = list.filter((s: any) => s.completed_at);
+    const totalDistance = weeklyDistanceRow?.distance_m ?? completed.reduce((a, s) => a + (s.total_distance_m ?? 0), 0);
+    const totalTime = completed.reduce((a: number, s: any) => a + (s.total_time_seconds ?? 0), 0);
+    const rpes = completed.map((s: any) => s.rpe).filter((v: any) => v != null);
+    const avgRpe = rpes.length ? rpes.reduce((a: number, b: number) => a + b, 0) / rpes.length : null;
+    const feels = (feelRows ?? []).map((r: any) => r.feel_score).filter((v: any) => v != null);
+    const avgFeel = feels.length ? feels.reduce((a: number, b: number) => a + b, 0) / feels.length : null;
+    const weekLoad = (loadRows ?? []).reduce((a: number, r: any) => a + (Number(r.training_load) || 0), 0);
+    const lastLoadRow = (loadRows ?? [])[loadRows!.length - 1];
+    return {
+      total: list.length,
+      completedCount: completed.length,
+      totalDistance,
+      totalTime,
+      avgPace: totalDistance > 0 && totalTime > 0 ? (totalTime / totalDistance) * 1000 : null,
+      avgRpe,
+      avgFeel,
+      weekLoad,
+      ctl: lastLoadRow?.ctl ?? null,
+      atl: lastLoadRow?.atl ?? null,
+      tsb: lastLoadRow?.tsb ?? null,
+    };
+  }, [sessions, weeklyDistanceRow, feelRows, loadRows]);
+
+  const paceZones = (zoneTime ?? []).filter((r: any) => r.source === "pace");
+  const hrZones = (zoneTime ?? []).filter((r: any) => r.source === "hr");
+
+  async function sendEmail() {
+    if (!emailTo) {
+      toast.error("Enter an email address");
+      return;
+    }
+    setSending(true);
+    const el = document.getElementById("report-printable");
+    const html = `<div style="font-family: Arial, sans-serif; color:#111; max-width:640px;">${el?.innerHTML ?? ""}</div>`;
+    const { error } = await supabase.functions.invoke("send-report-email", {
+      body: {
+        to: emailTo,
+        subject: `${activeAthleteName ?? "Athlete"} — Weekly Report (${formatDateLong(weekStart)})`,
+        html,
+      },
+    });
+    setSending(false);
+    if (error) {
+      toast.error(`Send failed: ${error.message ?? "check that a sending domain is configured"}`);
+      return;
+    }
+    toast.success("Report emailed");
+  }
+
+  return (
+    <AppShell>
+      <div className="space-y-6 max-w-4xl print:max-w-none">
+        <div className="flex items-center gap-2 print:hidden">
+          <FileText className="h-5 w-5 text-[var(--accent-red)]" />
+          <h1 className="text-2xl font-bold">Athlete Weekly Report</h1>
+        </div>
+
+        {/* Controls — hidden on print/export, this is just for building the report */}
+        <Card className="print:hidden">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Report settings</CardTitle>
+            <CardDescription>Pick an athlete and week, then generate. Nothing here is AI-written — every number is pulled straight from recorded data.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid sm:grid-cols-3 gap-3 items-end">
+            {isCoach && (
+              <div>
+                <Label className="text-xs">Athlete</Label>
+                <Select value={activeAthleteId} onValueChange={(v) => { setAthleteId(v); setGenerated(false); }}>
+                  <SelectTrigger><SelectValue placeholder="Pick athlete" /></SelectTrigger>
+                  <SelectContent>
+                    {myAthlete && <SelectItem value={myAthlete.id}>{myAthlete.name} (me)</SelectItem>}
+                    {(roster ?? []).map((a: any) => (
+                      <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div>
+              <Label className="text-xs">Any day in the week</Label>
+              <Input type="date" value={weekAnchor} onChange={(e) => { setWeekAnchor(e.target.value); setGenerated(false); }} />
+            </div>
+            <Button onClick={() => setGenerated(true)} disabled={!activeAthleteId}>
+              Generate report
+            </Button>
+          </CardContent>
+        </Card>
+
+        {generated && activeAthleteId && (
+          <>
+            <div className="flex items-center gap-2 print:hidden">
+              <Button size="sm" variant="outline" onClick={() => window.print()}>
+                <Printer className="h-4 w-4 mr-1" /> Print / Save PDF
+              </Button>
+              <Input
+                className="w-56 h-9"
+                type="email"
+                value={emailTo}
+                onChange={(e) => setEmailTo(e.target.value)}
+                placeholder="Send to email"
+              />
+              <Button size="sm" variant="outline" disabled={sending} onClick={sendEmail}>
+                <Mail className="h-4 w-4 mr-1" /> {sending ? "Sending…" : "Email report"}
+              </Button>
+            </div>
+
+            {sessionsLoading ? (
+              <p className="text-sm text-muted-foreground">Building report…</p>
+            ) : (
+              <div id="report-printable" className="space-y-6">
+                <div>
+                  <h2 className="text-xl font-bold">{activeAthleteName ?? "Athlete"} — Weekly Report</h2>
+                  <p className="text-sm text-muted-foreground">
+                    {formatDateLong(weekStart)} – {formatDateLong(weekEnd)}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <StatBox label="Sessions" value={`${stats.completedCount}/${stats.total}`} sub="completed / planned" />
+                  <StatBox label="Distance" value={metersFmt(stats.totalDistance)} />
+                  <StatBox label="Time" value={secToClock(stats.totalTime)} />
+                  <StatBox label="Avg pace" value={stats.avgPace ? `${secToClock(stats.avgPace)}/km` : "—"} />
+                  <StatBox label="Weekly load" value={stats.weekLoad ? String(Math.round(stats.weekLoad)) : "—"} />
+                  <StatBox label="Fitness (CTL)" value={stats.ctl != null ? String(Math.round(stats.ctl)) : "—"} />
+                  <StatBox label="Form (TSB)" value={stats.tsb != null ? String(Math.round(stats.tsb)) : "—"} />
+                  <StatBox label="Avg RPE" value={stats.avgRpe != null ? stats.avgRpe.toFixed(1) : "—"} />
+                </div>
+
+                <Card>
+                  <CardHeader className="pb-2"><CardTitle className="text-base">Sessions this week</CardTitle></CardHeader>
+                  <CardContent className="p-0">
+                    {!sessions?.length ? (
+                      <p className="p-4 text-sm text-muted-foreground">No sessions logged this week.</p>
+                    ) : (
+                      <div className="divide-y">
+                        {sessions.map((s: any) => (
+                          <div key={s.id} className="flex items-center justify-between px-4 py-2 text-sm">
+                            <div className="min-w-0">
+                              <div className="font-medium truncate">{s.title ?? "Untitled session"}</div>
+                              <div className="text-xs text-muted-foreground">{s.session_date}</div>
+                            </div>
+                            <div className="text-right shrink-0 text-xs text-muted-foreground">
+                              <div>{metersFmt(s.total_distance_m ?? 0)} · {secToClock(s.total_time_seconds ?? 0)}</div>
+                              <div>{s.completed_at ? "Completed" : "Not completed"}{s.rpe != null ? ` · RPE ${s.rpe}` : ""}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {(paceZones.length > 0 || hrZones.length > 0) && (
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <ZoneTable title="Pace zones" rows={paceZones} />
+                    <ZoneTable title="HR zones" rows={hrZones} />
+                  </div>
+                )}
+
+                {weekPbs.length > 0 && (
+                  <Card>
+                    <CardHeader className="pb-2"><CardTitle className="text-base">Personal bests this week</CardTitle></CardHeader>
+                    <CardContent className="space-y-1">
+                      {weekPbs.map((p: any) => (
+                        <div key={p.id} className="text-sm flex justify-between">
+                          <span>{metersFmt(p.distance_m)} · {p.event_name ?? p.performance_date}</span>
+                          <span className="font-medium tabular-nums">{secToClock(p.time_seconds)}</span>
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
+                )}
+
+                <p className="text-xs text-muted-foreground print:mt-8">
+                  Generated {new Date().toLocaleString("en-AU")} — compiled directly from recorded training data, no AI summarization.
+                </p>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </AppShell>
+  );
+}
+
+function StatBox({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="rounded-md border border-border bg-card/40 p-3">
+      <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{label}</div>
+      <div className="font-display text-xl font-extrabold tabular-nums mt-1">{value}</div>
+      {sub && <div className="text-[10px] text-muted-foreground mt-0.5">{sub}</div>}
+    </div>
+  );
+}
+
+function ZoneTable({ title, rows }: { title: string; rows: any[] }) {
+  const order = ["z1", "z2", "z3", "z4", "z5"];
+  const byZone = new Map(rows.map((r) => [r.zone, r]));
+  const totalSec = rows.reduce((a, r) => a + (Number(r.seconds) || 0), 0);
+  return (
+    <Card>
+      <CardHeader className="pb-2"><CardTitle className="text-base">{title}</CardTitle></CardHeader>
+      <CardContent className="space-y-1.5">
+        {order.map((z) => {
+          const r = byZone.get(z);
+          const sec = Number(r?.seconds ?? 0);
+          const pct = totalSec > 0 ? Math.round((sec / totalSec) * 100) : 0;
+          return (
+            <div key={z} className="flex items-center gap-2 text-sm">
+              <span className="w-8 uppercase text-xs text-muted-foreground">{z}</span>
+              <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+                <div className="h-full bg-[var(--accent-red)]" style={{ width: `${pct}%` }} />
+              </div>
+              <span className="w-16 text-right tabular-nums text-xs">{secToClock(sec)}</span>
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
+}
