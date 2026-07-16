@@ -288,12 +288,25 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
   const monthlyFrequency = useMemo(() => buildMonthlyFrequency(races ?? []), [races]);
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[380px_1fr] items-start">
-      {/* Add race — left third on desktop; shown after results on mobile so
-          the roster of past races is what a person sees first when they land
-          on the page. */}
-      <div className="order-2 lg:order-1 lg:sticky lg:top-4">
-        <Card>
+    <div className="space-y-6">
+      {/* Quick stats — full width, above both columns */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <StatTile icon={<Trophy className="h-4 w-4" />} label="Total races" value={String(stats.total)} />
+        <StatTile icon={<CalendarClock className="h-4 w-4" />} label="This year" value={String(stats.thisYear)} />
+        <StatTile icon={<Medal className="h-4 w-4" />} label="PBs held" value={String(stats.pbCount)} />
+        <StatTile
+          icon={<TrendingUp className="h-4 w-4" />}
+          label="Last race"
+          value={stats.daysSinceLast == null ? "—" : stats.daysSinceLast === 0 ? "Today" : `${stats.daysSinceLast}d ago`}
+        />
+      </div>
+
+      {/* Add race (left third) + Results (right two-thirds) — same row,
+          same height. Results scrolls internally instead of pushing the
+          card taller than the Add race form beside it. */}
+      <div className="grid gap-6 lg:grid-cols-[380px_1fr] items-stretch">
+      <div className="order-2 lg:order-1">
+        <Card className="lg:h-full lg:flex lg:flex-col">
           <CardHeader>
             <CardTitle className="text-base">Add race (manual)</CardTitle>
             <CardDescription>
@@ -391,27 +404,17 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
         </Card>
       </div>
 
-      {/* Results + analysis — right two-thirds on desktop */}
-      <div className="order-1 lg:order-2 space-y-6 min-w-0">
-        {/* Quick stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <StatTile icon={<Trophy className="h-4 w-4" />} label="Total races" value={String(stats.total)} />
-          <StatTile icon={<CalendarClock className="h-4 w-4" />} label="This year" value={String(stats.thisYear)} />
-          <StatTile icon={<Medal className="h-4 w-4" />} label="PBs held" value={String(stats.pbCount)} />
-          <StatTile
-            icon={<TrendingUp className="h-4 w-4" />}
-            label="Last race"
-            value={stats.daysSinceLast == null ? "—" : stats.daysSinceLast === 0 ? "Today" : `${stats.daysSinceLast}d ago`}
-          />
-        </div>
-
-        <Card>
+      {/* Results — right two-thirds on desktop, height matched to the Add
+          race form via items-stretch, scrolling internally once it grows
+          past that. */}
+      <div className="order-1 lg:order-2 min-w-0">
+        <Card className="lg:h-full lg:flex lg:flex-col">
           <CardHeader>
             <CardTitle>Results</CardTitle>
             <CardDescription>Race results and personal bests</CardDescription>
           </CardHeader>
 
-          <CardContent className="p-0">
+          <CardContent className="p-0 lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
             {!races?.length ? (
               <p className="p-6 text-sm text-muted-foreground">No races yet.</p>
             ) : (
@@ -462,11 +465,13 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
             )}
           </CardContent>
         </Card>
+      </div>
+      </div>
 
-        <div className="grid md:grid-cols-2 gap-6">
-          <RaceFrequencyCard data={monthlyFrequency} />
-          <PerformanceProgressionCard races={races ?? []} primaryEvent={primaryEvent} />
-        </div>
+      {/* Frequency + progression — 50/50, full width, below everything */}
+      <div className="grid md:grid-cols-2 gap-6">
+        <RaceFrequencyCard data={monthlyFrequency} />
+        <PerformanceProgressionCard races={races ?? []} primaryEvent={primaryEvent} />
       </div>
     </div>
   );
