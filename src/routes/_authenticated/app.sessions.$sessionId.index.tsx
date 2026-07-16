@@ -1930,8 +1930,48 @@ function StepBlock({
     }
 
     await recomputeSessionAggregatesFromReps();
+    await recomputeStepTargetFromReps();
 
     invalidateSession(qc, session.id, session.athlete_id);
+  }
+
+  // Keeps this step's own target_distance_m/target_time_seconds — the
+  // numbers the block header ("Work · 5×1.60 Km") is built from — in sync
+  // with what was actually entered for its reps. Previously only the
+  // session-level aggregates got recomputed after a rep edit; the block
+  // header itself kept showing whatever the original plan/template said,
+  // so e.g. correcting a treadmill session's rep distances never updated
+  // the "5×1.60 Km" label above them. Only touches whichever target_kind
+  // the step already uses (distance vs time) — it never changes the kind
+  // itself, just keeps the displayed number honest. Uses the average of
+  // whatever reps have a value, so a single quick edit doesn't skew the
+  // label if only one rep out of several was corrected.
+  async function recomputeStepTargetFromReps() {
+    if (step.kind !== "work" && step.kind !== "strides") return;
+    if (step.target_kind !== "distance" && step.target_kind !== "time") return;
+
+    const { data: reps } = await supabase
+      .from("interval_results")
+      .select("actual_distance_m, actual_time_seconds")
+      .eq("step_id", step.id);
+
+    if (!reps || reps.length === 0) return;
+
+    if (step.target_kind === "distance") {
+      const values = reps.map((r: any) => Number(r.actual_distance_m)).filter((v: number) => Number.isFinite(v) && v > 0);
+      if (values.length === 0) return;
+      const avg = Math.round(values.reduce((a: number, b: number) => a + b, 0) / values.length);
+      if (avg === step.target_distance_m) return;
+      const { error } = await supabase.from("steps").update({ target_distance_m: avg } as any).eq("id", step.id);
+      if (error) console.error("Failed to recompute step target distance:", error.message);
+    } else {
+      const values = reps.map((r: any) => Number(r.actual_time_seconds)).filter((v: number) => Number.isFinite(v) && v > 0);
+      if (values.length === 0) return;
+      const avg = Math.round(values.reduce((a: number, b: number) => a + b, 0) / values.length);
+      if (avg === step.target_time_seconds) return;
+      const { error } = await supabase.from("steps").update({ target_time_seconds: avg } as any).eq("id", step.id);
+      if (error) console.error("Failed to recompute step target time:", error.message);
+    }
   }
 
   // Rolls up interval_results across every step in this session into the
