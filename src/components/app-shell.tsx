@@ -6,7 +6,6 @@ import { useMyRoles, useAuthUser } from "@/lib/use-auth";
 import { Button } from "@/components/ui/button";
 import {
   CalendarDays,
-  CalendarRange,
   Users,
   User2,
   LogOut,
@@ -20,10 +19,8 @@ import {
   Megaphone,
   MessageSquare,
   Trophy,
-  Gauge,
-  Calculator,
   IdCard,
-  ListChecks,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NotificationBell } from "@/components/notification-bell";
@@ -63,15 +60,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   const navItems: { to: string; label: string; icon: any; show: boolean }[] = [
     { to: "/app", label: "Home", icon: Home, show: true },
     { to: "/app/daily-log", label: "Daily Log", icon: ClipboardList, show: isAthlete },
-    { to: "/app/zones", label: "Zones", icon: Gauge, show: isAthlete || isCoach },
     { to: "/app/sessions", label: "Sessions", icon: CalendarDays, show: true },
-    { to: "/app/sessions/calendar", label: "Calendar", icon: CalendarRange, show: true },
     { to: "/app/analytics", label: "Analytics", icon: LineChart, show: true },
     { to: "/app/races", label: "Races", icon: Trophy, show: true },
-    { to: "/app/calculators", label: "Calculators", icon: Calculator, show: true },
+    { to: "/app/reports", label: "Reports", icon: FileText, show: true },
     { to: "/app/athletes", label: "Athletes", icon: Users, show: isCoach },
     { to: "/app/templates", label: "Templates", icon: BookmarkCheck, show: isCoach },
-    { to: "/app/plans", label: "Plans", icon: ListChecks, show: isCoach },
     { to: "/app/noticeboard", label: "Noticeboard", icon: Megaphone, show: true },
     { to: "/app/messages", label: "Messages", icon: MessageSquare, show: true },
 
@@ -95,7 +89,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       {/* Sidebar */}
       <aside
         className={cn(
-          "hidden md:flex flex-col shrink-0 border-r border-border bg-sidebar transition-[width] duration-200 sticky top-0 h-screen overflow-y-auto",
+          "hidden md:flex flex-col shrink-0 border-r border-border bg-sidebar transition-[width] duration-200 sticky top-0 h-screen overflow-y-auto print:hidden",
           collapsed ? "w-16" : "w-60",
         )}
       >
@@ -156,7 +150,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       {/* Main column */}
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-14 sticky top-0 z-10 border-b border-border bg-background/80 backdrop-blur-md flex items-center justify-between px-4 md:px-6">
+        <header className="h-14 sticky top-0 z-10 border-b border-border bg-background/80 backdrop-blur-md flex items-center justify-between px-4 md:px-6 print:hidden">
           <div className="flex items-center gap-3 min-w-0">
             <Link to="/app" className="md:hidden flex items-center gap-2">
               <span className="w-6 h-6 grid place-items-center rounded-md bg-[var(--accent-red)]">
@@ -179,7 +173,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </header>
 
         {/* Mobile bottom nav */}
-        <nav className="md:hidden order-last sticky bottom-0 z-10 border-t border-border bg-background/95 backdrop-blur-md flex overflow-x-auto">
+        <nav className="md:hidden order-last sticky bottom-0 z-10 border-t border-border bg-background/95 backdrop-blur-md flex overflow-x-auto print:hidden">
           {navItems.map((n) => {
             const active = n.to === "/app" ? path === "/app" : path.startsWith(n.to);
             return (
@@ -198,7 +192,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           })}
         </nav>
 
-        <main className="flex-1 px-4 md:px-8 py-6 md:py-8 max-w-7xl w-full mx-auto">{children}</main>
+        <main className="flex-1 px-4 md:px-8 py-6 md:py-8 max-w-7xl w-full mx-auto print:p-0 print:max-w-none">{children}</main>
       </div>
     </div>
   );
