@@ -99,14 +99,14 @@ export const listDashboardAlerts = createServerFn({ method: "GET" })
         push({
           alert_type: "atl_spike", severity: "critical",
           athlete_id: athId, athlete_name: name, athlete_image_url: img,
-          title: "ATL spiking",
-          trigger: "ATL +" + atlDelta.toFixed(0) + " over the past 7 days",
+          title: "Fatigue spiking",
+          trigger: "Fatigue +" + atlDelta.toFixed(0) + " over the past 7 days",
           guidance: "Training load has risen sharply this week. Consider reducing intensity or volume in tomorrow's session — swap threshold work for easy running or a rest day.",
           actions: nextSessionActions(sess),
         });
       }
       // Acute:chronic load ratio (atl/ctl) — scale-independent by
-      // construction, unlike raw TSB. Reuses the exact same 0.8-1.3
+      // construction, unlike raw Form. Reuses the exact same 0.8-1.3
       // "sweet spot" bounds recompute_readiness already uses for
       // load_balance, so this alert and the readiness score agree with
       // each other instead of using two different, disconnected
@@ -120,7 +120,7 @@ export const listDashboardAlerts = createServerFn({ method: "GET" })
           alert_type: "tsb_negative", severity: "critical",
           athlete_id: athId, athlete_name: name, athlete_image_url: img,
           title: "Acute load too high relative to fitness",
-          trigger: "Load ratio " + loadRatio.toFixed(2) + (tsb != null ? " (TSB " + tsb.toFixed(0) + ")" : ""),
+          trigger: "Load ratio " + loadRatio.toFixed(2) + (tsb != null ? " (Form " + tsb.toFixed(0) + ")" : ""),
           guidance: "Athlete is carrying significant accumulated fatigue. Recommend a recovery day or easy session before the next quality effort.",
           actions: nextSessionActions(sess),
         });
@@ -198,8 +198,8 @@ export const listDashboardAlerts = createServerFn({ method: "GET" })
         push({
           alert_type: "atl_drop", severity: "warning",
           athlete_id: athId, athlete_name: name, athlete_image_url: img,
-          title: "ATL dropping sharply",
-          trigger: "ATL " + atlDelta.toFixed(0) + " over the past 7 days",
+          title: "Fatigue dropping sharply",
+          trigger: "Fatigue " + atlDelta.toFixed(0) + " over the past 7 days",
           guidance: "Training load has dropped significantly this week. Confirm this is a planned taper or recovery week — if not, check athlete availability.",
           actions: [
             { label: "View training", kind: "link", target: "/app/athletes/" + athId },
@@ -232,7 +232,7 @@ export const listDashboardAlerts = createServerFn({ method: "GET" })
           alert_type: "tsb_positive", severity: "info",
           athlete_id: athId, athlete_name: name, athlete_image_url: img,
           title: "Acute load low relative to fitness",
-          trigger: "Load ratio " + loadRatio.toFixed(2) + (tsb != null ? " (TSB +" + tsb.toFixed(0) + ")" : ""),
+          trigger: "Load ratio " + loadRatio.toFixed(2) + (tsb != null ? " (Form +" + tsb.toFixed(0) + ")" : ""),
           guidance: "Athlete appears under-loaded relative to recent fitness. Consider adding a session or increasing volume if health and schedule allow.",
           actions: [
             { label: "View training", kind: "link", target: "/app/athletes/" + athId },
