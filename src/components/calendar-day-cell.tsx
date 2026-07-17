@@ -64,8 +64,15 @@ const INTENT_BAR: Record<string, string> = {
   speed: "bg-fuchsia-500",
 };
 const DAYTYPE_BAR: Record<string, string> = {
-  race: "bg-purple-600",
-  recovery: "bg-sky-400",
+  // pink-600 and teal-500 — chosen specifically to NOT collide with any
+  // INTENT_BAR color above (race previously shared purple-600 with
+  // anaerobic, recovery previously shared sky-400 with aerobic; a session
+  // is only ever colored from ONE of these two tables at a time, so the
+  // collision was invisible on the calendar itself, but became obvious
+  // wherever both dimensions get merged into one combined legend, e.g. the
+  // Analytics "Time by Training Intent" chart).
+  race: "bg-pink-600",
+  recovery: "bg-teal-500",
   cross_training: "bg-slate-400",
   rest: "bg-stone-300",
   training: "bg-muted",
