@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { secToClock, clockToSec, paceFmt } from "@/lib/format";
+import { secToClock, clockToSec, paceFmt, metersFmt } from "@/lib/format";
 
 // ----------------------------------------------------------------------------
 // Small inline-edit primitives. Hoisted to module scope (not defined inside
@@ -159,6 +159,7 @@ type ThresholdSource = "auto" | "manual" | "test";
 const METHOD_LABEL: Record<string, string> = {
   max_hr_pct: "90% of HR max",
   best_effort_3k_plus: "Best effort ≥3K (12mo)",
+  vdot: "VDOT (Daniels)",
 };
 
 type ZoneProfile =
@@ -185,6 +186,9 @@ type ZoneProfile =
       pace_zones_manual: boolean;
       pace_threshold_source: ThresholdSource;
       pace_method: string | null;
+      vdot: number | null;
+      vdot_source_performance_id: string | null;
+      vdot_source_override: boolean;
       preferred_zone_basis: "hr" | "pace";
     }
   | null
@@ -193,6 +197,25 @@ type ZoneProfile =
 export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; profile: ZoneProfile }) {
   const qc = useQueryClient();
   const [savingKey, setSavingKey] = useState<string | null>(null);
+
+  // Only fetched for the VDOT race-override picker — qualifying races
+  // (>=3000m, same distance floor the auto-pick itself uses), most recent
+  // first, so a coach can see and choose among them without needing to
+  // leave this card.
+  const { data: qualifyingPerformances } = useQuery({
+    queryKey: ["vdot-qualifying-performances", athleteId],
+    enabled: profile?.pace_method === "vdot",
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("performances")
+        .select("id, distance_m, time_seconds, performance_date, event_name")
+        .eq("athlete_id", athleteId)
+        .gte("distance_m", 3000)
+        .not("time_seconds", "is", null)
+        .order("performance_date", { ascending: false });
+      return data ?? [];
+    },
+  });
 
   function invalidate() {
     // Both the coach athlete page and the athlete's own profile page key
@@ -277,8 +300,40 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
   async function savePreferredBasis(basis: "hr" | "pace") {
     await run(
       "preferred_basis",
-      () => supabase.from("athlete_zone_profiles").update({ preferred_zone_basis: basis } as any).eq("athlete_id", athleteId),
+      () =>
+        supabase
+          .from("athlete_zone_profiles")
+          .update({ preferred_zone_basis: basis } as any)
+          .eq("athlete_id", athleteId),
       "Preferred basis updated",
+    );
+  }
+
+  // Switching the pace auto-method (Best effort vs VDOT) always implies
+  // Type=Auto — matches the same intent as picking a Type in the first
+  // place, so this forces pace_threshold_source back to 'auto' server-side
+  // even if it was previously Manual/Test.
+  async function savePaceMethod(method: string) {
+    await run(
+      "pace_method",
+      () => supabase.rpc("set_pace_auto_method", { _athlete_id: athleteId, _method: method }),
+      "Pace method updated",
+    );
+  }
+
+  async function saveVdotSource(performanceId: string) {
+    await run(
+      "vdot_source",
+      () => supabase.rpc("set_vdot_source_performance", { _athlete_id: athleteId, _performance_id: performanceId }),
+      "VDOT source race updated",
+    );
+  }
+
+  async function resetVdotSource() {
+    await run(
+      "vdot_reset",
+      () => supabase.rpc("reset_vdot_to_auto", { _athlete_id: athleteId }),
+      "VDOT reset to auto-pick",
     );
   }
 
@@ -355,9 +410,9 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
       <CardHeader>
         <CardTitle>Zone boundaries</CardTitle>
         <CardDescription>
-          One threshold value drives each set of zones. Choose Auto, Manual, or Test for how each was determined —
-          click any number to edit it directly. Both HR and pace stay visible here regardless of which one is
-          actually applied for classification (set below).
+          One threshold value drives each set of zones. Choose Auto, Manual, or Test for how each was determined — click
+          any number to edit it directly. Both HR and pace stay visible here regardless of which one is actually applied
+          for classification (set below).
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -375,7 +430,9 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
             onValueChange={(v) => savePreferredBasis(v as "hr" | "pace")}
             disabled={savingKey === "preferred_basis"}
           >
-            <SelectTrigger className="w-32 h-8 text-xs"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-32 h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="hr">Heart rate</SelectItem>
               <SelectItem value="pace">Pace</SelectItem>
@@ -383,7 +440,7 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
           </Select>
         </div>
 
-        <div className="grid sm:grid-cols-2 gap-3">
+        <div className="grid sm:grid-cols-3 gap-3">
           <div className="rounded-md border border-border bg-card/40 p-4">
             <div className="flex items-center justify-between gap-2">
               <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
@@ -394,7 +451,9 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
                 onValueChange={(v) => changeHrType(v as ThresholdSource)}
                 disabled={savingKey === "hr_threshold" || savingKey === "hr_reset"}
               >
-                <SelectTrigger className="w-24 h-6 text-[10px]"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-24 h-6 text-[10px]">
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="auto">Auto</SelectItem>
                   <SelectItem value="manual">Manual</SelectItem>
@@ -438,7 +497,9 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
                 onValueChange={(v) => changePaceType(v as ThresholdSource)}
                 disabled={savingKey === "pace_threshold" || savingKey === "pace_reset"}
               >
-                <SelectTrigger className="w-24 h-6 text-[10px]"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-24 h-6 text-[10px]">
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="auto">Auto</SelectItem>
                   <SelectItem value="manual">Manual</SelectItem>
@@ -453,6 +514,25 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
                 disabled={savingKey === "pace_threshold"}
               />
             </div>
+
+            {profile.pace_threshold_source === "auto" && (
+              <div className="mt-2">
+                <Select
+                  value={profile.pace_method ?? "best_effort_3k_plus"}
+                  onValueChange={savePaceMethod}
+                  disabled={savingKey === "pace_method"}
+                >
+                  <SelectTrigger className="h-6 text-[10px] w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="best_effort_3k_plus">Best effort ≥3K (12mo)</SelectItem>
+                    <SelectItem value="vdot">VDOT (Daniels)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             <div className="text-xs text-muted-foreground mt-1">
               {profile.pace_threshold_source === "auto"
                 ? `Auto-suggested — ${METHOD_LABEL[profile.pace_method ?? ""] ?? "best recent race pace"}.`
@@ -460,6 +540,40 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
                   ? "From a field/lab test — enter a new value to update it."
                   : "Entered manually — enter a new value to update it."}
             </div>
+
+            {profile.pace_threshold_source === "auto" && profile.pace_method === "vdot" && (
+              <div className="mt-2 space-y-1">
+                <Select
+                  value={profile.vdot_source_performance_id ?? ""}
+                  onValueChange={saveVdotSource}
+                  disabled={savingKey === "vdot_source"}
+                >
+                  <SelectTrigger className="h-6 text-[10px] w-full">
+                    <SelectValue placeholder="Auto-picked race" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(qualifyingPerformances ?? []).map((p: any) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {metersFmt(p.distance_m)} in {secToClock(p.time_seconds)} — {p.performance_date}
+                        {p.event_name ? ` (${p.event_name})` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {profile.vdot_source_override && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 px-2 text-xs"
+                    onClick={resetVdotSource}
+                    disabled={savingKey === "vdot_reset"}
+                  >
+                    Reset to auto-pick
+                  </Button>
+                )}
+              </div>
+            )}
+
             {profile.pace_threshold_source !== "auto" && (
               <Button
                 size="sm"
@@ -471,6 +585,22 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
                 Reset to auto
               </Button>
             )}
+          </div>
+          <div className="rounded-md border border-border bg-card/40 p-4">
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">VO2max (VDOT)</div>
+            <div className="font-display text-3xl font-extrabold tabular-nums mt-1">
+              {profile.vdot != null ? profile.vdot.toFixed(1) : "—"}
+            </div>
+            <div className="text-xs text-muted-foreground mt-1">
+              {profile.vdot != null
+                ? profile.vdot_source_override
+                  ? "From the race selected above."
+                  : "Auto-picked from best qualifying race (≥3K, 12mo)."
+                : "No qualifying race (≥3K) in the last 12 months."}
+            </div>
+            <div className="text-[10px] text-muted-foreground mt-1">
+              Always shown for reference — only drives Threshold Pace when its Method is set to VDOT.
+            </div>
           </div>
         </div>
 
