@@ -375,12 +375,29 @@ function AthleteAnalytics({
       // the source — means the chart lines, the area fill, and Recharts'
       // default tooltip all show clean whole numbers without needing a
       // formatter on every chart element that touches this data.
-      return (data ?? []).map((d) => ({
-        ...d,
-        ctl: d.ctl != null ? Math.round(Number(d.ctl)) : d.ctl,
-        atl: d.atl != null ? Math.round(Number(d.atl)) : d.atl,
-        tsb: d.tsb != null ? Math.round(Number(d.tsb)) : d.tsb,
-      }));
+      //
+      // Also derives, per day, the equivalent Fitness (CTL) value at each
+      // load-ratio guide threshold (0.8 / 1.3 / 1.5 — the same acute:chronic
+      // workload ratio convention already used for the readiness score and
+      // the dashboard alerts). Since tsb = ctl - atl and load_ratio = atl/ctl,
+      // a target ratio r corresponds to tsb = ctl * (1 - r) — which scales
+      // with the athlete's own current fitness level rather than being a
+      // fixed number, so these guide lines stay meaningful whether an
+      // athlete's day-to-day load numbers run in the tens or the hundreds.
+      return (data ?? []).map((d) => {
+        const ctlR = d.ctl != null ? Math.round(Number(d.ctl)) : null;
+        const atlR = d.atl != null ? Math.round(Number(d.atl)) : null;
+        const tsbR = d.tsb != null ? Math.round(Number(d.tsb)) : null;
+        return {
+          ...d,
+          ctl: ctlR,
+          atl: atlR,
+          tsb: tsbR,
+          ratioLow: ctlR != null ? Math.round(ctlR * (1 - 0.8)) : null,
+          ratioCaution: ctlR != null ? Math.round(ctlR * (1 - 1.3)) : null,
+          ratioHighRisk: ctlR != null ? Math.round(ctlR * (1 - 1.5)) : null,
+        };
+      });
     },
   });
 
@@ -619,10 +636,10 @@ function AthleteAnalytics({
         />
       </div>
 
-      {/* PMC */}
+      {/* Fitness / Fatigue / Form chart */}
       <Card>
         <CardHeader>
-          <CardTitle>Performance Management Chart</CardTitle>
+          <CardTitle>Fitness, Fatigue & Form</CardTitle>
           <CardDescription>
             Fitness, fatigue, and form over {RANGES[range].label.toLowerCase()}.
           </CardDescription>
@@ -660,21 +677,6 @@ function AthleteAnalytics({
                       labelStyle={{ color: "hsl(var(--foreground))" }}
                     />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
-                    {/* Form reference bands — this app's training load is
-                        session-RPE × duration (minutes), not TrainingPeaks'
-                        TSS, so the numbers run roughly 3-5x larger. These
-                        bands scale TrainingPeaks' own familiar TSB
-                        convention (very fresh >25, fresh 5-25, neutral -10
-                        to 5, productive -30 to -10, high risk <-30) by ~4x
-                        to land in this app's own units. They're a reasoned
-                        starting estimate, not empirically calibrated against
-                        real outcome data yet — worth revisiting once there's
-                        more history to check them against. */}
-                    <ReferenceArea y1={100} y2={100000} fill="#22d3ee" fillOpacity={0.06} />
-                    <ReferenceArea y1={20} y2={100} fill="#10b981" fillOpacity={0.06} />
-                    <ReferenceArea y1={-40} y2={20} fill="#94a3b8" fillOpacity={0.05} />
-                    <ReferenceArea y1={-120} y2={-40} fill="#f59e0b" fillOpacity={0.06} />
-                    <ReferenceArea y1={-100000} y2={-120} fill="#ef4444" fillOpacity={0.08} />
                     {lowConfidenceEndDate && (
                       <ReferenceArea
                         x1={load[0].load_date as string}
@@ -709,28 +711,48 @@ function AthleteAnalytics({
                       strokeDasharray="4 3"
                       dot={false}
                     />
+                    {/* Load-ratio guide lines — each one is that day's own
+                        Fitness value scaled to what Form would need to be to
+                        sit exactly at that ratio, so the guide tracks each
+                        athlete's own fitness level instead of a fixed
+                        number. Same 0.8/1.3/1.5 thresholds already used for
+                        the readiness score and dashboard alerts. */}
+                    <Line
+                      type="monotone"
+                      dataKey="ratioLow"
+                      name="Low load guide (ratio 0.8)"
+                      stroke="#94a3b8"
+                      strokeWidth={1}
+                      strokeDasharray="2 3"
+                      dot={false}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="ratioCaution"
+                      name="Caution guide (ratio 1.3)"
+                      stroke="#f59e0b"
+                      strokeWidth={1}
+                      strokeDasharray="2 3"
+                      dot={false}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="ratioHighRisk"
+                      name="High-risk guide (ratio 1.5)"
+                      stroke="#ef4444"
+                      strokeWidth={1}
+                      strokeDasharray="2 3"
+                      dot={false}
+                    />
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
-              <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-[11px] text-muted-foreground">
-                <span className="flex items-center gap-1">
-                  <span className="h-2 w-2 rounded-full" style={{ background: "#22d3ee" }} /> Very fresh (100+)
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="h-2 w-2 rounded-full" style={{ background: "#10b981" }} /> Fresh (20 to 100)
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="h-2 w-2 rounded-full" style={{ background: "#94a3b8" }} /> Neutral (-40 to 20)
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="h-2 w-2 rounded-full" style={{ background: "#f59e0b" }} /> Productive (-120 to -40)
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="h-2 w-2 rounded-full" style={{ background: "#ef4444" }} /> High risk (below -120)
-                </span>
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-1">
-                Bands are a starting estimate for this app's own training-load scale, not empirically tuned yet.
+              <p className="text-[11px] text-muted-foreground mt-2">
+                Dashed guide lines mark this athlete's own acute:chronic load-ratio thresholds (Fatigue ÷ Fitness) —
+                below the grey line is under-loaded, between grey and amber is the typical training zone, above amber
+                is worth watching, above red carries elevated injury risk. Same thresholds the readiness score and
+                "Needs Attention" alerts already use, so this chart, the alerts, and the reports all agree with each
+                other.
               </p>
               {lowConfidenceEndDate && (
                 <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1.5">
@@ -1131,12 +1153,12 @@ function ZoneBarCard({
 // calendar-day-cell.tsx, so a zone/intent reads the same color on the
 // calendar and here.
 const INTENT_PIE_COLORS: Record<string, string> = {
-  easy: "#10b981", // emerald-500
-  aerobic: "#14b8a6", // teal-500
-  tempo: "#f59e0b", // amber-500
+  easy: "#34d399", // emerald-400 — matches calendar-day-cell.tsx
+  aerobic: "#38bdf8", // sky-400 — matches calendar-day-cell.tsx
+  tempo: "#fbbf24", // amber-400 — matches calendar-day-cell.tsx
   threshold: "#f97316", // orange-500
   vo2: "#ef4444", // red-500
-  anaerobic: "#e11d48", // rose-600
+  anaerobic: "#9333ea", // purple-600 — matches calendar-day-cell.tsx
   speed: "#d946ef", // fuchsia-500
   race: "#9333ea", // purple-600
   recovery: "#38bdf8", // sky-400
