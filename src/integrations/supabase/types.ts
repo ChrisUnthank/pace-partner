@@ -1540,6 +1540,7 @@ export type Database = {
           id: string
           notes: string | null
           plan_template_id: string
+          session_template_id: string | null
           steps: Json | null
           title: string
           week_number: number
@@ -1550,6 +1551,7 @@ export type Database = {
           id?: string
           notes?: string | null
           plan_template_id: string
+          session_template_id?: string | null
           steps?: Json | null
           title: string
           week_number: number
@@ -1560,6 +1562,7 @@ export type Database = {
           id?: string
           notes?: string | null
           plan_template_id?: string
+          session_template_id?: string | null
           steps?: Json | null
           title?: string
           week_number?: number
@@ -1570,6 +1573,13 @@ export type Database = {
             columns: ["plan_template_id"]
             isOneToOne: false
             referencedRelation: "plan_templates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_template_sessions_session_template_id_fkey"
+            columns: ["session_template_id"]
+            isOneToOne: false
+            referencedRelation: "session_templates"
             referencedColumns: ["id"]
           },
         ]
