@@ -377,13 +377,15 @@ function AthleteAnalytics({
       // formatter on every chart element that touches this data.
       //
       // Also derives, per day, the equivalent Fitness (CTL) value at each
-      // load-ratio guide threshold (0.8 / 1.3 / 1.5 — the same acute:chronic
-      // workload ratio convention already used for the readiness score and
-      // the dashboard alerts). Since tsb = ctl - atl and load_ratio = atl/ctl,
-      // a target ratio r corresponds to tsb = ctl * (1 - r) — which scales
-      // with the athlete's own current fitness level rather than being a
-      // fixed number, so these guide lines stay meaningful whether an
-      // athlete's day-to-day load numbers run in the tens or the hundreds.
+      // load-ratio guide threshold (0.5 / 0.8 / 1.3 / 1.5). 0.8/1.3/1.5 are
+      // the same acute:chronic workload ratio convention already used for
+      // the readiness score and the dashboard alerts; 0.5 is a general
+      // taper/peaking guideline (not personalized to this athlete). Since
+      // tsb = ctl - atl and load_ratio = atl/ctl, a target ratio r
+      // corresponds to tsb = ctl * (1 - r) — which scales with the
+      // athlete's own current fitness level rather than being a fixed
+      // number, so these guide lines stay meaningful whether an athlete's
+      // day-to-day load numbers run in the tens or the hundreds.
       return (data ?? []).map((d) => {
         const ctlR = d.ctl != null ? Math.round(Number(d.ctl)) : null;
         const atlR = d.atl != null ? Math.round(Number(d.atl)) : null;
@@ -394,6 +396,7 @@ function AthleteAnalytics({
           atl: atlR,
           tsb: tsbR,
           ratioLow: ctlR != null ? Math.round(ctlR * (1 - 0.8)) : null,
+          ratioPeak: ctlR != null ? Math.round(ctlR * (1 - 0.5)) : null,
           ratioCaution: ctlR != null ? Math.round(ctlR * (1 - 1.3)) : null,
           ratioHighRisk: ctlR != null ? Math.round(ctlR * (1 - 1.5)) : null,
         };
@@ -492,6 +495,25 @@ function AthleteAnalytics({
         .eq("athlete_id", athleteId)
         .not("completed_at", "is", null)
         .gte("session_date", volumePeriodStart);
+      return data ?? [];
+    },
+  });
+
+  // Race days (past and any upcoming planned) within the loaded range —
+  // marked as vertical lines on the Fitness/Fatigue/Form chart so a coach
+  // can see how Form was trending into each one, and over time build a
+  // real picture of where THIS athlete tends to race well, rather than
+  // relying on a generic guideline alone.
+  const { data: raceDays } = useQuery({
+    queryKey: ["analytics-races", athleteId, since],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("sessions")
+        .select("id, session_date, title, completed_at")
+        .eq("athlete_id", athleteId)
+        .eq("day_type", "race")
+        .gte("session_date", since)
+        .order("session_date", { ascending: true });
       return data ?? [];
     },
   });
@@ -715,8 +737,19 @@ function AthleteAnalytics({
                         Fitness value scaled to what Form would need to be to
                         sit exactly at that ratio, so the guide tracks each
                         athlete's own fitness level instead of a fixed
-                        number. Same 0.8/1.3/1.5 thresholds already used for
-                        the readiness score and dashboard alerts. */}
+                        number. 0.8/1.3/1.5 are the same thresholds already
+                        used for the readiness score and dashboard alerts;
+                        0.5 is a general taper/peaking guideline, not
+                        personalized to this athlete. */}
+                    <Line
+                      type="monotone"
+                      dataKey="ratioPeak"
+                      name="Peak/taper guide (ratio ~0.5)"
+                      stroke="#22d3ee"
+                      strokeWidth={1}
+                      strokeDasharray="2 3"
+                      dot={false}
+                    />
                     <Line
                       type="monotone"
                       dataKey="ratioLow"
@@ -744,15 +777,38 @@ function AthleteAnalytics({
                       strokeDasharray="2 3"
                       dot={false}
                     />
+                    {/* Race days — vertical markers so it's visible how Form
+                        was trending into each actual race, past or planned.
+                        Dashed/lighter for a not-yet-completed (future
+                        planned) race vs a solid line for one that already
+                        happened. */}
+                    {(raceDays ?? []).map((r: any) => (
+                      <ReferenceLine
+                        key={r.id}
+                        x={r.session_date}
+                        stroke="#db2777"
+                        strokeWidth={1.5}
+                        strokeDasharray={r.completed_at ? undefined : "4 3"}
+                        label={{
+                          value: "🏁 " + (r.title ?? "Race"),
+                          position: "top",
+                          fontSize: 10,
+                          fill: "#db2777",
+                        }}
+                      />
+                    ))}
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
               <p className="text-[11px] text-muted-foreground mt-2">
                 Dashed guide lines mark this athlete's own acute:chronic load-ratio thresholds (Fatigue ÷ Fitness) —
                 below the grey line is under-loaded, between grey and amber is the typical training zone, above amber
-                is worth watching, above red carries elevated injury risk. Same thresholds the readiness score and
-                "Needs Attention" alerts already use, so this chart, the alerts, and the reports all agree with each
-                other.
+                is worth watching, above red carries elevated injury risk. The cyan line is a general peaking/taper
+                guideline for the final 1-2 weeks before a key race — not personalized to this athlete, just a common
+                starting point. Same thresholds the readiness score and "Needs Attention" alerts already use, so this
+                chart, the alerts, and the reports all agree with each other. Pink markers show actual race days
+                (solid = completed, dashed = planned) — worth building a picture over time of where this athlete's
+                own Form tends to sit when they race well.
               </p>
               {lowConfidenceEndDate && (
                 <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1.5">
@@ -1151,7 +1207,12 @@ function ZoneBarCard({
 
 // Matches the exact hex values behind sessionColorClass in
 // calendar-day-cell.tsx, so a zone/intent reads the same color on the
-// calendar and here.
+// calendar and here. race/recovery use pink-600/teal-500 rather than
+// purple-600/sky-400 specifically to not collide with anaerobic/aerobic —
+// those two pairs share a color in the underlying two-table split (a
+// session is only ever colored from one table at a time there, so it's
+// invisible on the calendar itself), but this chart merges both dimensions
+// into one legend, which is exactly where that collision became visible.
 const INTENT_PIE_COLORS: Record<string, string> = {
   easy: "#34d399", // emerald-400 — matches calendar-day-cell.tsx
   aerobic: "#38bdf8", // sky-400 — matches calendar-day-cell.tsx
@@ -1160,8 +1221,8 @@ const INTENT_PIE_COLORS: Record<string, string> = {
   vo2: "#ef4444", // red-500
   anaerobic: "#9333ea", // purple-600 — matches calendar-day-cell.tsx
   speed: "#d946ef", // fuchsia-500
-  race: "#9333ea", // purple-600
-  recovery: "#38bdf8", // sky-400
+  race: "#db2777", // pink-600 — matches calendar-day-cell.tsx
+  recovery: "#14b8a6", // teal-500 — matches calendar-day-cell.tsx
   cross_training: "#94a3b8", // slate-400
   rest: "#d6d3d1", // stone-300
 };
