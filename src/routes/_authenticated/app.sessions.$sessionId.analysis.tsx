@@ -128,6 +128,25 @@ function SessionAnalysis() {
     retry: false,
   });
 
+  // Zone boundaries for the chronological zone timeline strips below — a
+  // separate lightweight query rather than joining onto the session query,
+  // since it's only needed for that one section and keyed off athlete_id
+  // rather than session_id.
+  const { data: zoneProfile } = useQuery({
+    queryKey: ["zone-profile-boundaries", session?.athlete_id],
+    enabled: !!session?.athlete_id,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("athlete_zone_profiles")
+        .select(
+          "pace_z1_max_sec_per_km, pace_z2_max_sec_per_km, pace_z3_max_sec_per_km, pace_z4_max_sec_per_km, pace_z5_max_sec_per_km, hr_z1_max, hr_z2_max, hr_z3_max, hr_z4_max, hr_z5_max",
+        )
+        .eq("athlete_id", session!.athlete_id)
+        .maybeSingle();
+      return data;
+    },
+  });
+
   // Feel (Very Weak..Very Strong) — same session_insights.feel_score the
   // Overview page's faces and the post-session reflection modal both write
   // to; shown here read-only since this page doesn't have any save/edit
@@ -1016,6 +1035,18 @@ function SessionAnalysis() {
           <ZonePanel rows={safeZoneTime.filter((r: any) => r.source === "pace")} title="Pace zones" />
           <ZonePanel rows={safeZoneTime.filter((r: any) => r.source === "hr")} title="HR zones" />
         </div>
+
+        {/* Chronological zone timeline — a VO2 session still has real time
+            in Z1/Z2 (warmup, recoveries, cooldown), which the totals above
+            already capture correctly. What the totals can't show is WHEN
+            that happened — this answers that, at a glance, without needing
+            a GPS route (works for treadmill sessions too, unlike the
+            race-analysis map replay). Respects the same Full/Work/etc.
+            scope selector as the chart above it. */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+          <ZoneTimelineStrip samples={visibleSamples} profile={zoneProfile} basis="pace" title="Pace zone over time" />
+          <ZoneTimelineStrip samples={visibleSamples} profile={zoneProfile} basis="hr" title="HR zone over time" />
+        </div>
       </div>
     </AppShell>
   );
@@ -1157,6 +1188,123 @@ function ZonePanel({ rows, title }: { rows: any[]; title: string }) {
               <span className="tabular-nums">{secToClock(Number(r.seconds))}</span>
             </div>
           ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Hex versions of the same 6-zone palette used everywhere else (Zones
+// card, race analysis) — inline-style colors here since the strip below
+// is built from arbitrary-width divs, not Tailwind's fixed utility classes.
+const ZONE_HEX: Record<string, string> = {
+  z1: "#34d399",
+  z2: "#38bdf8",
+  z3: "#fbbf24",
+  z4: "#f97316",
+  z5: "#ef4444",
+  z6: "#9333ea",
+};
+
+type ZoneTimelineProfile = {
+  pace_z1_max_sec_per_km: number | null;
+  pace_z2_max_sec_per_km: number | null;
+  pace_z3_max_sec_per_km: number | null;
+  pace_z4_max_sec_per_km: number | null;
+  pace_z5_max_sec_per_km: number | null;
+  hr_z1_max: number | null;
+  hr_z2_max: number | null;
+  hr_z3_max: number | null;
+  hr_z4_max: number | null;
+  hr_z5_max: number | null;
+} | null | undefined;
+
+function paceValueToZone(pace: number | null | undefined, p: ZoneTimelineProfile): string | null {
+  if (pace == null || !p?.pace_z1_max_sec_per_km) return null;
+  if (pace >= p.pace_z1_max_sec_per_km) return "z1";
+  if (p.pace_z2_max_sec_per_km != null && pace >= p.pace_z2_max_sec_per_km) return "z2";
+  if (p.pace_z3_max_sec_per_km != null && pace >= p.pace_z3_max_sec_per_km) return "z3";
+  if (p.pace_z4_max_sec_per_km != null && pace >= p.pace_z4_max_sec_per_km) return "z4";
+  if (p.pace_z5_max_sec_per_km != null && pace >= p.pace_z5_max_sec_per_km) return "z5";
+  return "z6";
+}
+
+function hrValueToZone(hr: number | null | undefined, p: ZoneTimelineProfile): string | null {
+  if (hr == null || !p?.hr_z1_max) return null;
+  if (hr <= p.hr_z1_max) return "z1";
+  if (p.hr_z2_max != null && hr <= p.hr_z2_max) return "z2";
+  if (p.hr_z3_max != null && hr <= p.hr_z3_max) return "z3";
+  if (p.hr_z4_max != null && hr <= p.hr_z4_max) return "z4";
+  if (p.hr_z5_max != null && hr <= p.hr_z5_max) return "z5";
+  return "z6";
+}
+
+// Collapses per-sample zone values into contiguous runs (rather than one
+// div per sample, which for a long session could be hundreds of elements)
+// — each run becomes one segment of the strip, width proportional to how
+// long that stretch actually lasted.
+function buildZoneSegments(
+  samples: Sample[],
+  basis: "pace" | "hr",
+  profile: ZoneTimelineProfile,
+): { zone: string | null; startT: number; endT: number; pct: number }[] {
+  if (!samples.length) return [];
+  const totalT = samples[samples.length - 1].t - samples[0].t || 1;
+  const startAt = samples[0].t;
+
+  const segments: { zone: string | null; startT: number; endT: number }[] = [];
+  let current: { zone: string | null; startT: number; endT: number } | null = null;
+
+  for (const s of samples) {
+    const zone = basis === "pace" ? paceValueToZone(s.pace, profile) : hrValueToZone(s.hr, profile);
+    if (!current || current.zone !== zone) {
+      if (current) segments.push(current);
+      current = { zone, startT: s.t, endT: s.t };
+    } else {
+      current.endT = s.t;
+    }
+  }
+  if (current) segments.push(current);
+
+  return segments.map((seg) => ({ ...seg, pct: ((seg.endT - seg.startT) / totalT) * 100 }));
+}
+
+function ZoneTimelineStrip({
+  samples,
+  profile,
+  basis,
+  title,
+}: {
+  samples: Sample[];
+  profile: ZoneTimelineProfile;
+  basis: "pace" | "hr";
+  title: string;
+}) {
+  const segments = useMemo(() => buildZoneSegments(samples ?? [], basis, profile), [samples, basis, profile]);
+  const hasBoundaries = basis === "pace" ? profile?.pace_z1_max_sec_per_km != null : profile?.hr_z1_max != null;
+
+  if (!hasBoundaries || segments.length === 0) return null;
+
+  const durationSec = samples.length ? samples[samples.length - 1].t - samples[0].t : 0;
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="flex h-6 w-full overflow-hidden rounded">
+          {segments.map((seg, i) => (
+            <div
+              key={i}
+              style={{ width: `${seg.pct}%`, background: seg.zone ? ZONE_HEX[seg.zone] : "transparent" }}
+              title={seg.zone ? ZONE_LABEL[seg.zone] : "No data"}
+            />
+          ))}
+        </div>
+        <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+          <span>0:00</span>
+          <span>{secToClock(durationSec)}</span>
         </div>
       </CardContent>
     </Card>
