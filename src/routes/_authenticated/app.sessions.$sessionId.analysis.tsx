@@ -1107,14 +1107,15 @@ function RecoveryPanel({
   );
 }
 
-const ZONE_ORDER = ["z1", "z2", "z3", "z4", "z5"];
+const ZONE_ORDER = ["z1", "z2", "z3", "z4", "z5", "z6"];
 
 const ZONE_LABEL: Record<string, string> = {
-  z1: "Z1 Easy",
-  z2: "Z2 Aerobic",
-  z3: "Z3 Tempo",
-  z4: "Z4 VO2/5K",
-  z5: "Z5 Rep",
+  z1: "Z1 Recovery",
+  z2: "Z2 Easy/Aerobic",
+  z3: "Z3 Steady/Tempo",
+  z4: "Z4 Threshold",
+  z5: "Z5 VO2",
+  z6: "Z6 Anaerobic/Max",
 };
 
 function ZonePanel({ rows, title }: { rows: any[]; title: string }) {
@@ -1129,6 +1130,7 @@ function ZonePanel({ rows, title }: { rows: any[]; title: string }) {
     z3: "bg-amber-400",
     z4: "bg-orange-500",
     z5: "bg-red-500",
+    z6: "bg-purple-600",
   };
 
   return (
