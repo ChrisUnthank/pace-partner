@@ -13,17 +13,19 @@ import { metersFmt, secToClock, todayISO } from "@/lib/format";
 import { toast } from "sonner";
 import { Printer, Mail, FileText } from "lucide-react";
 
+// NOTE: keep whatever route string this file already has live — this is
+// content only, don't rename the file or change the createFileRoute path
+// unless you mean to (route-tree regeneration has been a headache once
+// already this project).
 export const Route = createFileRoute("/_authenticated/app/reports/athlete-weekly")({
-  component: AthleteWeeklyReportPage,
+  component: AthleteReportPage,
 });
 
-// Monday of the ISO week containing this date — same bucketing the
-// athlete_weekly_distance / athlete_zone_time_weekly views already use, and
-// the same logic already used elsewhere in the app (athlete detail page),
-// kept local here rather than shared since it's a one-line helper.
+type PeriodType = "weekly" | "monthly" | "custom";
+
 function weekStartMonday(dateStr: string) {
   const d = new Date(dateStr + "T00:00:00Z");
-  const day = d.getUTCDay() || 7; // Mon=1..Sun=7
+  const day = d.getUTCDay() || 7;
   d.setUTCDate(d.getUTCDate() - day + 1);
   return d.toISOString().slice(0, 10);
 }
@@ -32,15 +34,24 @@ function addDaysISO(dateStr: string, days: number) {
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
+function monthStart(dateStr: string) {
+  return dateStr.slice(0, 7) + "-01";
+}
+function monthEnd(dateStr: string) {
+  const [y, m] = dateStr.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m, 0)); // day 0 of next month = last day of this month
+  return d.toISOString().slice(0, 10);
+}
 function formatDateLong(dateStr: string) {
-  return new Date(dateStr + "T00:00:00").toLocaleDateString("en-AU", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+  return new Date(dateStr + "T00:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+}
+function periodLabel(type: PeriodType) {
+  if (type === "weekly") return "Weekly";
+  if (type === "monthly") return "Monthly";
+  return "Custom period";
 }
 
-function AthleteWeeklyReportPage() {
+function AthleteReportPage() {
   const { user } = useAuthUser();
   const { data: roles = [] } = useMyRoles();
   const { data: myAthlete } = useMyAthlete();
@@ -58,81 +69,83 @@ function AthleteWeeklyReportPage() {
   const [athleteId, setAthleteId] = useState<string>("");
   const activeAthleteId = athleteId || myAthlete?.id || "";
   const activeAthleteName =
-    activeAthleteId === myAthlete?.id
-      ? myAthlete?.name
-      : (roster ?? []).find((a: any) => a.id === activeAthleteId)?.name;
+    activeAthleteId === myAthlete?.id ? myAthlete?.name : (roster ?? []).find((a: any) => a.id === activeAthleteId)?.name;
 
-  const [weekAnchor, setWeekAnchor] = useState(todayISO());
-  const weekStart = weekStartMonday(weekAnchor);
-  const weekEnd = addDaysISO(weekStart, 6);
+  const [periodType, setPeriodType] = useState<PeriodType>("weekly");
+  const [anchor, setAnchor] = useState(todayISO());
+  const [customFrom, setCustomFrom] = useState(weekStartMonday(todayISO()));
+  const [customTo, setCustomTo] = useState(todayISO());
+
+  const periodStart =
+    periodType === "weekly" ? weekStartMonday(anchor) : periodType === "monthly" ? monthStart(anchor) : customFrom;
+  const periodEnd =
+    periodType === "weekly" ? addDaysISO(periodStart, 6) : periodType === "monthly" ? monthEnd(anchor) : customTo;
+  const periodValid = periodStart <= periodEnd;
 
   const [generated, setGenerated] = useState(false);
   const [emailTo, setEmailTo] = useState(user?.email ?? "");
   const [sending, setSending] = useState(false);
 
-  const enabled = generated && !!activeAthleteId;
+  const enabled = generated && !!activeAthleteId && periodValid;
 
   const { data: sessions, isFetching: sessionsLoading } = useQuery({
-    queryKey: ["report-sessions", activeAthleteId, weekStart],
+    queryKey: ["report-sessions", activeAthleteId, periodStart, periodEnd],
     enabled,
     queryFn: async () => {
       const { data } = await supabase
         .from("sessions")
         .select("id, title, session_date, total_distance_m, total_time_seconds, rpe, completed_at, day_type")
         .eq("athlete_id", activeAthleteId)
-        .gte("session_date", weekStart)
-        .lte("session_date", weekEnd)
+        .gte("session_date", periodStart)
+        .lte("session_date", periodEnd)
         .order("session_date", { ascending: true });
       return data ?? [];
     },
   });
 
   const { data: weeklyDistanceRow } = useQuery({
-    queryKey: ["report-weekly-distance", activeAthleteId, weekStart],
-    enabled,
+    queryKey: ["report-weekly-distance", activeAthleteId, periodStart],
+    enabled: enabled && periodType === "weekly",
     queryFn: async () => {
       const { data } = await supabase
         .from("athlete_weekly_distance" as any)
         .select("*")
         .eq("athlete_id", activeAthleteId)
-        .eq("week_start", weekStart)
+        .eq("week_start", periodStart)
         .maybeSingle();
       return data as any;
     },
   });
 
   const { data: zoneTime } = useQuery({
-    queryKey: ["report-zone-time", activeAthleteId, weekStart],
+    queryKey: ["report-zone-time", activeAthleteId, periodStart, periodEnd],
     enabled,
     queryFn: async () => {
       const { data } = await supabase
         .from("athlete_zone_time_weekly" as any)
         .select("*")
         .eq("athlete_id", activeAthleteId)
-        .eq("week_start", weekStart);
+        .gte("week_start", weekStartMonday(periodStart))
+        .lte("week_start", periodEnd);
       return (data ?? []) as any[];
     },
   });
 
   const { data: loadRows } = useQuery({
-    queryKey: ["report-load", activeAthleteId, weekStart, weekEnd],
+    queryKey: ["report-load", activeAthleteId, periodStart, periodEnd],
     enabled,
     queryFn: async () => {
       const { data } = await supabase
         .from("athlete_load_daily")
         .select("*")
         .eq("athlete_id", activeAthleteId)
-        .gte("load_date", weekStart)
-        .lte("load_date", weekEnd)
+        .gte("load_date", periodStart)
+        .lte("load_date", periodEnd)
         .order("load_date", { ascending: true });
       return data ?? [];
     },
   });
 
-  // Full performance history (not just this week) — needed to know whether
-  // a performance recorded this week is actually an all-time PB for its
-  // distance/type, same "current best per distance+type" logic used on the
-  // athlete detail and races pages.
   const { data: allPerformances } = useQuery({
     queryKey: ["report-performances", activeAthleteId],
     enabled,
@@ -143,7 +156,7 @@ function AthleteWeeklyReportPage() {
   });
 
   const { data: feelRows } = useQuery({
-    queryKey: ["report-feel", activeAthleteId, weekStart, weekEnd, (sessions ?? []).map((s: any) => s.id).join(",")],
+    queryKey: ["report-feel", activeAthleteId, periodStart, periodEnd, (sessions ?? []).map((s: any) => s.id).join(",")],
     enabled: enabled && (sessions ?? []).length > 0,
     queryFn: async () => {
       const ids = (sessions ?? []).map((s: any) => s.id);
@@ -153,7 +166,7 @@ function AthleteWeeklyReportPage() {
     },
   });
 
-  const weekPbs = useMemo(() => {
+  const periodPbs = useMemo(() => {
     if (!allPerformances) return [];
     const bestByKey = new Map<string, number>();
     for (const p of allPerformances) {
@@ -163,22 +176,25 @@ function AthleteWeeklyReportPage() {
       if (cur == null || p.time_seconds < cur) bestByKey.set(key, p.time_seconds);
     }
     return allPerformances.filter((p: any) => {
-      if (p.performance_date < weekStart || p.performance_date > weekEnd) return false;
+      if (p.performance_date < periodStart || p.performance_date > periodEnd) return false;
       const key = `${p.distance_m}-${p.race_type ?? "none"}`;
       return bestByKey.get(key) === p.time_seconds;
     });
-  }, [allPerformances, weekStart, weekEnd]);
+  }, [allPerformances, periodStart, periodEnd]);
 
   const stats = useMemo(() => {
     const list = sessions ?? [];
     const completed = list.filter((s: any) => s.completed_at);
-    const totalDistance = weeklyDistanceRow?.distance_m ?? completed.reduce((a, s) => a + (s.total_distance_m ?? 0), 0);
+    const totalDistance =
+      periodType === "weekly"
+        ? (weeklyDistanceRow?.distance_m ?? completed.reduce((a, s) => a + (s.total_distance_m ?? 0), 0))
+        : completed.reduce((a: number, s: any) => a + (s.total_distance_m ?? 0), 0);
     const totalTime = completed.reduce((a: number, s: any) => a + (s.total_time_seconds ?? 0), 0);
     const rpes = completed.map((s: any) => s.rpe).filter((v: any) => v != null);
     const avgRpe = rpes.length ? rpes.reduce((a: number, b: number) => a + b, 0) / rpes.length : null;
     const feels = (feelRows ?? []).map((r: any) => r.feel_score).filter((v: any) => v != null);
     const avgFeel = feels.length ? feels.reduce((a: number, b: number) => a + b, 0) / feels.length : null;
-    const weekLoad = (loadRows ?? []).reduce((a: number, r: any) => a + (Number(r.training_load) || 0), 0);
+    const periodLoad = (loadRows ?? []).reduce((a: number, r: any) => a + (Number(r.training_load) || 0), 0);
     const lastLoadRow = (loadRows ?? [])[(loadRows ?? []).length - 1];
     return {
       total: list.length,
@@ -188,12 +204,12 @@ function AthleteWeeklyReportPage() {
       avgPace: totalDistance > 0 && totalTime > 0 ? (totalTime / totalDistance) * 1000 : null,
       avgRpe,
       avgFeel,
-      weekLoad,
+      periodLoad,
       ctl: lastLoadRow?.ctl ?? null,
       atl: lastLoadRow?.atl ?? null,
       tsb: lastLoadRow?.tsb ?? null,
     };
-  }, [sessions, weeklyDistanceRow, feelRows, loadRows]);
+  }, [sessions, weeklyDistanceRow, feelRows, loadRows, periodType]);
 
   const paceZones = (zoneTime ?? []).filter((r: any) => r.source === "pace");
   const hrZones = (zoneTime ?? []).filter((r: any) => r.source === "hr");
@@ -209,7 +225,7 @@ function AthleteWeeklyReportPage() {
     const { error } = await supabase.functions.invoke("send-report-email", {
       body: {
         to: emailTo,
-        subject: `${activeAthleteName ?? "Athlete"} — Weekly Report (${formatDateLong(weekStart)})`,
+        subject: `${activeAthleteName ?? "Athlete"} — Report (${formatDateLong(periodStart)} – ${formatDateLong(periodEnd)})`,
         html,
       },
     });
@@ -226,61 +242,70 @@ function AthleteWeeklyReportPage() {
       <div className="space-y-6 max-w-4xl print:max-w-none">
         <div className="flex items-center gap-2 print:hidden">
           <FileText className="h-5 w-5 text-[var(--accent-red)]" />
-          <h1 className="text-2xl font-bold">Athlete Weekly Report</h1>
+          <h1 className="text-2xl font-bold">Athlete Report</h1>
         </div>
 
-        {/* Controls — hidden on print/export, this is just for building the report */}
         <Card className="print:hidden">
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Report settings</CardTitle>
             <CardDescription>
-              Pick an athlete and week, then generate. Nothing here is AI-written — every number is pulled straight from
-              recorded data.
+              Pick an athlete and a time frame, then generate. Nothing here is AI-written — every number is pulled
+              straight from recorded data.
             </CardDescription>
           </CardHeader>
-          <CardContent className="grid sm:grid-cols-3 gap-3 items-end">
+          <CardContent className="grid sm:grid-cols-4 gap-3 items-end">
             {isCoach && (
               <div>
                 <Label className="text-xs">Athlete</Label>
-                <Select
-                  value={activeAthleteId}
-                  onValueChange={(v) => {
-                    setAthleteId(v);
-                    setGenerated(false);
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Pick athlete" />
-                  </SelectTrigger>
+                <Select value={activeAthleteId} onValueChange={(v) => { setAthleteId(v); setGenerated(false); }}>
+                  <SelectTrigger><SelectValue placeholder="Pick athlete" /></SelectTrigger>
                   <SelectContent>
                     {myAthlete && <SelectItem value={myAthlete.id}>{myAthlete.name} (me)</SelectItem>}
                     {(roster ?? []).map((a: any) => (
-                      <SelectItem key={a.id} value={a.id}>
-                        {a.name}
-                      </SelectItem>
+                      <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
             )}
             <div>
-              <Label className="text-xs">Any day in the week</Label>
-              <Input
-                type="date"
-                value={weekAnchor}
-                onChange={(e) => {
-                  setWeekAnchor(e.target.value);
-                  setGenerated(false);
-                }}
-              />
+              <Label className="text-xs">Time frame</Label>
+              <Select value={periodType} onValueChange={(v) => { setPeriodType(v as PeriodType); setGenerated(false); }}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="weekly">Weekly</SelectItem>
+                  <SelectItem value="monthly">Monthly</SelectItem>
+                  <SelectItem value="custom">Custom dates</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-            <Button onClick={() => setGenerated(true)} disabled={!activeAthleteId}>
+
+            {periodType !== "custom" ? (
+              <div>
+                <Label className="text-xs">{periodType === "weekly" ? "Any day in the week" : "Any day in the month"}</Label>
+                <Input type="date" value={anchor} onChange={(e) => { setAnchor(e.target.value); setGenerated(false); }} />
+              </div>
+            ) : (
+              <>
+                <div>
+                  <Label className="text-xs">From</Label>
+                  <Input type="date" value={customFrom} onChange={(e) => { setCustomFrom(e.target.value); setGenerated(false); }} />
+                </div>
+                <div>
+                  <Label className="text-xs">To</Label>
+                  <Input type="date" value={customTo} onChange={(e) => { setCustomTo(e.target.value); setGenerated(false); }} />
+                </div>
+              </>
+            )}
+
+            <Button onClick={() => setGenerated(true)} disabled={!activeAthleteId || !periodValid}>
               Generate report
             </Button>
+            {!periodValid && <p className="text-xs text-destructive sm:col-span-4">"From" must be before "To".</p>}
           </CardContent>
         </Card>
 
-        {generated && activeAthleteId && (
+        {generated && activeAthleteId && periodValid && (
           <>
             <div className="flex items-center gap-2 print:hidden">
               <Button size="sm" variant="outline" onClick={() => window.print()}>
@@ -303,34 +328,28 @@ function AthleteWeeklyReportPage() {
             ) : (
               <div id="report-printable" className="space-y-6">
                 <div>
-                  <h2 className="text-xl font-bold">{activeAthleteName ?? "Athlete"} — Weekly Report</h2>
+                  <h2 className="text-xl font-bold">{activeAthleteName ?? "Athlete"} — {periodLabel(periodType)} Report</h2>
                   <p className="text-sm text-muted-foreground">
-                    {formatDateLong(weekStart)} – {formatDateLong(weekEnd)}
+                    {formatDateLong(periodStart)} – {formatDateLong(periodEnd)}
                   </p>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <StatBox
-                    label="Sessions"
-                    value={`${stats.completedCount}/${stats.total}`}
-                    sub="completed / planned"
-                  />
+                  <StatBox label="Sessions" value={`${stats.completedCount}/${stats.total}`} sub="completed / planned" />
                   <StatBox label="Distance" value={metersFmt(stats.totalDistance)} />
                   <StatBox label="Time" value={secToClock(stats.totalTime)} />
                   <StatBox label="Avg pace" value={stats.avgPace ? `${secToClock(stats.avgPace)}/km` : "—"} />
-                  <StatBox label="Weekly load" value={stats.weekLoad ? String(Math.round(stats.weekLoad)) : "—"} />
+                  <StatBox label="Total load" value={stats.periodLoad ? String(Math.round(stats.periodLoad)) : "—"} />
                   <StatBox label="Fitness (CTL)" value={stats.ctl != null ? String(Math.round(stats.ctl)) : "—"} />
                   <StatBox label="Form (TSB)" value={stats.tsb != null ? String(Math.round(stats.tsb)) : "—"} />
                   <StatBox label="Avg RPE" value={stats.avgRpe != null ? stats.avgRpe.toFixed(1) : "—"} />
                 </div>
 
                 <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base">Sessions this week</CardTitle>
-                  </CardHeader>
+                  <CardHeader className="pb-2"><CardTitle className="text-base">Sessions in this period</CardTitle></CardHeader>
                   <CardContent className="p-0">
                     {!sessions?.length ? (
-                      <p className="p-4 text-sm text-muted-foreground">No sessions logged this week.</p>
+                      <p className="p-4 text-sm text-muted-foreground">No sessions logged in this period.</p>
                     ) : (
                       <div className="divide-y">
                         {sessions.map((s: any) => (
@@ -340,13 +359,8 @@ function AthleteWeeklyReportPage() {
                               <div className="text-xs text-muted-foreground">{s.session_date}</div>
                             </div>
                             <div className="text-right shrink-0 text-xs text-muted-foreground">
-                              <div>
-                                {metersFmt(s.total_distance_m ?? 0)} · {secToClock(s.total_time_seconds ?? 0)}
-                              </div>
-                              <div>
-                                {s.completed_at ? "Completed" : "Not completed"}
-                                {s.rpe != null ? ` · RPE ${s.rpe}` : ""}
-                              </div>
+                              <div>{metersFmt(s.total_distance_m ?? 0)} · {secToClock(s.total_time_seconds ?? 0)}</div>
+                              <div>{s.completed_at ? "Completed" : "Not completed"}{s.rpe != null ? ` · RPE ${s.rpe}` : ""}</div>
                             </div>
                           </div>
                         ))}
@@ -362,17 +376,13 @@ function AthleteWeeklyReportPage() {
                   </div>
                 )}
 
-                {weekPbs.length > 0 && (
+                {periodPbs.length > 0 && (
                   <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-base">Personal bests this week</CardTitle>
-                    </CardHeader>
+                    <CardHeader className="pb-2"><CardTitle className="text-base">Personal bests in this period</CardTitle></CardHeader>
                     <CardContent className="space-y-1">
-                      {weekPbs.map((p: any) => (
+                      {periodPbs.map((p: any) => (
                         <div key={p.id} className="text-sm flex justify-between">
-                          <span>
-                            {metersFmt(p.distance_m)} · {p.event_name ?? p.performance_date}
-                          </span>
+                          <span>{metersFmt(p.distance_m)} · {p.event_name ?? p.performance_date}</span>
                           <span className="font-medium tabular-nums">{secToClock(p.time_seconds)}</span>
                         </div>
                       ))}
@@ -381,8 +391,7 @@ function AthleteWeeklyReportPage() {
                 )}
 
                 <p className="text-xs text-muted-foreground print:mt-8">
-                  Generated {new Date().toLocaleString("en-AU")} — compiled directly from recorded training data, no AI
-                  summarization.
+                  Generated {new Date().toLocaleString("en-AU")} — compiled directly from recorded training data, no AI summarization.
                 </p>
               </div>
             )}
@@ -405,17 +414,15 @@ function StatBox({ label, value, sub }: { label: string; value: string; sub?: st
 
 function ZoneTable({ title, rows }: { title: string; rows: any[] }) {
   const order = ["z1", "z2", "z3", "z4", "z5"];
-  const byZone = new Map(rows.map((r) => [r.zone, r]));
-  const totalSec = rows.reduce((a, r) => a + (Number(r.seconds) || 0), 0);
+  const byZone = new Map<string, number>();
+  for (const r of rows) byZone.set(r.zone, (byZone.get(r.zone) ?? 0) + (Number(r.seconds) || 0));
+  const totalSec = Array.from(byZone.values()).reduce((a, b) => a + b, 0);
   return (
     <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">{title}</CardTitle>
-      </CardHeader>
+      <CardHeader className="pb-2"><CardTitle className="text-base">{title}</CardTitle></CardHeader>
       <CardContent className="space-y-1.5">
         {order.map((z) => {
-          const r = byZone.get(z);
-          const sec = Number(r?.seconds ?? 0);
+          const sec = byZone.get(z) ?? 0;
           const pct = totalSec > 0 ? Math.round((sec / totalSec) * 100) : 0;
           return (
             <div key={z} className="flex items-center gap-2 text-sm">
