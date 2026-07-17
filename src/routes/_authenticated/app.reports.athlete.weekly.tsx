@@ -233,7 +233,10 @@ function AthleteReportPage() {
       periodType === "weekly"
         ? (weeklyDistanceRow?.distance_m ?? completed.reduce((a, s) => a + (s.total_distance_m ?? 0), 0))
         : completed.reduce((a: number, s: any) => a + (s.total_distance_m ?? 0), 0);
-    const totalTime = completed.reduce((a: number, s: any) => a + (s.total_time_seconds ?? 0), 0);
+    const totalTime = completed.reduce(
+      (a: number, s: any) => a + (s.total_moving_time_seconds ?? s.total_time_seconds ?? 0),
+      0,
+    );
     const rpes = completed.map((s: any) => s.rpe).filter((v: any) => v != null);
     const avgRpe = rpes.length ? rpes.reduce((a: number, b: number) => a + b, 0) / rpes.length : null;
     const feels = (feelRows ?? []).map((r: any) => r.feel_score).filter((v: any) => v != null);
@@ -408,7 +411,7 @@ function AthleteReportPage() {
                               {metersFmt(s.total_distance_m ?? 0)}
                             </span>
                             <span className="shrink-0 tabular-nums text-muted-foreground w-14 text-right">
-                              {secToClock(s.total_time_seconds ?? 0)}
+                              {secToClock(s.total_moving_time_seconds ?? s.total_time_seconds ?? 0)}
                             </span>
                             <span
                               className={`shrink-0 w-4 text-center ${s.completed_at ? "text-emerald-600" : "text-muted-foreground/50"}`}
