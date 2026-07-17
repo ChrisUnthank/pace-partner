@@ -13,7 +13,7 @@ import { metersFmt, secToClock, todayISO } from "@/lib/format";
 import { toast } from "sonner";
 import { Printer, Mail, FileText } from "lucide-react";
 
-export const Route = createFileRoute("/_authenticated/app/reports/athlete-weekly")({
+export const Route = createFileRoute("/_authenticated/app/reports/athlete/weekly")({
   component: AthleteWeeklyReportPage,
 });
 
