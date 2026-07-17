@@ -1921,17 +1921,18 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
     const { data: zoneProfile } = await sb
       .from("athlete_zone_profiles")
       .select(
-        "preferred_zone_basis, pace_z1_max_sec_per_km, pace_z2_max_sec_per_km, pace_z3_max_sec_per_km, pace_z4_max_sec_per_km, hr_z1_max, hr_z2_max, hr_z3_max, hr_z4_max",
+        "preferred_zone_basis, pace_z1_max_sec_per_km, pace_z2_max_sec_per_km, pace_z3_max_sec_per_km, pace_z4_max_sec_per_km, pace_z5_max_sec_per_km, hr_z1_max, hr_z2_max, hr_z3_max, hr_z4_max, hr_z5_max",
       )
       .eq("athlete_id", sess.athlete_id)
       .maybeSingle();
 
-    const ZONE_RANK: Record<"z1" | "z2" | "z3" | "z4" | "z5", number> = {
+    const ZONE_RANK: Record<"z1" | "z2" | "z3" | "z4" | "z5" | "z6", number> = {
       z1: 1,
       z2: 2,
       z3: 3,
       z4: 4,
       z5: 5,
+      z6: 6,
     };
     const RANK_TO_INTENT: Record<number, string> = {
       1: "easy",
@@ -1939,6 +1940,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
       3: "tempo",
       4: "threshold",
       5: "vo2",
+      6: "anaerobic",
     };
 
     const useHr = zoneProfile?.preferred_zone_basis === "hr";
@@ -1953,7 +1955,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
         // direction from pace (where slower sec/km = easier) since HR and
         // pace naturally run in opposite numeric directions — same
         // convention recompute_session_zones uses in the DB for HR.
-        const zone: "z1" | "z2" | "z3" | "z4" | "z5" =
+        const zone: "z1" | "z2" | "z3" | "z4" | "z5" | "z6" =
           lapHr <= zoneProfile.hr_z1_max
             ? "z1"
             : zoneProfile.hr_z2_max != null && lapHr <= zoneProfile.hr_z2_max
@@ -1962,7 +1964,9 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
                 ? "z3"
                 : zoneProfile.hr_z4_max != null && lapHr <= zoneProfile.hr_z4_max
                   ? "z4"
-                  : "z5";
+                  : zoneProfile.hr_z5_max != null && lapHr <= zoneProfile.hr_z5_max
+                    ? "z5"
+                    : "z6";
 
         fastestRank = Math.max(fastestRank, ZONE_RANK[zone]);
       }
@@ -1980,7 +1984,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
 
         // Same ascending "slower sec/km = easier zone" bucketing as
         // recompute_session_zones in the DB.
-        const zone: "z1" | "z2" | "z3" | "z4" | "z5" =
+        const zone: "z1" | "z2" | "z3" | "z4" | "z5" | "z6" =
           lapPace >= zoneProfile.pace_z1_max_sec_per_km
             ? "z1"
             : zoneProfile.pace_z2_max_sec_per_km != null && lapPace >= zoneProfile.pace_z2_max_sec_per_km
@@ -1989,7 +1993,9 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
                 ? "z3"
                 : zoneProfile.pace_z4_max_sec_per_km != null && lapPace >= zoneProfile.pace_z4_max_sec_per_km
                   ? "z4"
-                  : "z5";
+                  : zoneProfile.pace_z5_max_sec_per_km != null && lapPace >= zoneProfile.pace_z5_max_sec_per_km
+                    ? "z5"
+                    : "z6";
 
         fastestRank = Math.max(fastestRank, ZONE_RANK[zone]);
       }
