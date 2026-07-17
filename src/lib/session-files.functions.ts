@@ -717,14 +717,9 @@ function splitLapsByPaceContrast(
   // distance comfortably separates "one dominant continuous effort" from
   // legitimate rep-length variation (even a 2km rep among 1km reps is
   // nowhere near 5x a ~1km median).
-  const candidateDistances = candidates
-    .map((l) => Number(l.total_distance ?? 0))
-    .filter((d) => d > 0)
-    .sort((a, b) => a - b);
-  const medianDistance =
-    candidateDistances.length > 0 ? candidateDistances[Math.floor(candidateDistances.length / 2)] : 0;
-  const outlierLaps =
-    medianDistance > 0 ? candidates.filter((l) => Number(l.total_distance ?? 0) > medianDistance * 5) : [];
+  const candidateDistances = candidates.map((l) => Number(l.total_distance ?? 0)).filter((d) => d > 0).sort((a, b) => a - b);
+  const medianDistance = candidateDistances.length > 0 ? candidateDistances[Math.floor(candidateDistances.length / 2)] : 0;
+  const outlierLaps = medianDistance > 0 ? candidates.filter((l) => Number(l.total_distance ?? 0) > medianDistance * 5) : [];
   const clusteringCandidates =
     medianDistance > 0 ? candidates.filter((l) => Number(l.total_distance ?? 0) <= medianDistance * 5) : candidates;
 
@@ -1915,30 +1910,66 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   // same convention needs_review/structure already lean on elsewhere in
   // this file (e.g. a race is whichever file has the fastest pace, not an
   // average across warmup+race+cooldown).
+  // Which basis actually drives classification is per-athlete
+  // (preferred_zone_basis, set on the Zones card) — both HR and pace
+  // thresholds are always computed/stored regardless of which one is
+  // preferred, this just decides which one this session's intent is
+  // derived from. Defaults to pace if the profile predates this column or
+  // was never explicitly set (matches the column's own DB default).
   let derivedIntent: string | null = null;
   if (workLaps.length > 0) {
     const { data: zoneProfile } = await sb
       .from("athlete_zone_profiles")
-      .select("pace_z1_max_sec_per_km, pace_z2_max_sec_per_km, pace_z3_max_sec_per_km, pace_z4_max_sec_per_km")
+      .select(
+        "preferred_zone_basis, pace_z1_max_sec_per_km, pace_z2_max_sec_per_km, pace_z3_max_sec_per_km, pace_z4_max_sec_per_km, hr_z1_max, hr_z2_max, hr_z3_max, hr_z4_max",
+      )
       .eq("athlete_id", sess.athlete_id)
       .maybeSingle();
 
-    if (zoneProfile?.pace_z1_max_sec_per_km != null) {
-      const ZONE_RANK: Record<"z1" | "z2" | "z3" | "z4" | "z5", number> = {
-        z1: 1,
-        z2: 2,
-        z3: 3,
-        z4: 4,
-        z5: 5,
-      };
-      const RANK_TO_INTENT: Record<number, string> = {
-        1: "easy",
-        2: "aerobic",
-        3: "tempo",
-        4: "threshold",
-        5: "vo2",
-      };
+    const ZONE_RANK: Record<"z1" | "z2" | "z3" | "z4" | "z5", number> = {
+      z1: 1,
+      z2: 2,
+      z3: 3,
+      z4: 4,
+      z5: 5,
+    };
+    const RANK_TO_INTENT: Record<number, string> = {
+      1: "easy",
+      2: "aerobic",
+      3: "tempo",
+      4: "threshold",
+      5: "vo2",
+    };
 
+    const useHr = zoneProfile?.preferred_zone_basis === "hr";
+
+    if (useHr && zoneProfile?.hr_z1_max != null) {
+      let fastestRank = 0;
+      for (const lap of workLaps) {
+        const lapHr = lap.avg_heart_rate != null ? Number(lap.avg_heart_rate) : null;
+        if (lapHr == null) continue;
+
+        // Ascending "higher bpm = harder zone" bucketing, opposite
+        // direction from pace (where slower sec/km = easier) since HR and
+        // pace naturally run in opposite numeric directions — same
+        // convention recompute_session_zones uses in the DB for HR.
+        const zone: "z1" | "z2" | "z3" | "z4" | "z5" =
+          lapHr <= zoneProfile.hr_z1_max
+            ? "z1"
+            : zoneProfile.hr_z2_max != null && lapHr <= zoneProfile.hr_z2_max
+              ? "z2"
+              : zoneProfile.hr_z3_max != null && lapHr <= zoneProfile.hr_z3_max
+                ? "z3"
+                : zoneProfile.hr_z4_max != null && lapHr <= zoneProfile.hr_z4_max
+                  ? "z4"
+                  : "z5";
+
+        fastestRank = Math.max(fastestRank, ZONE_RANK[zone]);
+      }
+      if (fastestRank > 0) {
+        derivedIntent = RANK_TO_INTENT[fastestRank];
+      }
+    } else if (!useHr && zoneProfile?.pace_z1_max_sec_per_km != null) {
       let fastestRank = 0;
       for (const lap of workLaps) {
         const stopped = stoppedSecondsByLapIndex.get(lap.index) ?? 0;
