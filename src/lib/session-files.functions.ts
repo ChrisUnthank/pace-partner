@@ -717,9 +717,14 @@ function splitLapsByPaceContrast(
   // distance comfortably separates "one dominant continuous effort" from
   // legitimate rep-length variation (even a 2km rep among 1km reps is
   // nowhere near 5x a ~1km median).
-  const candidateDistances = candidates.map((l) => Number(l.total_distance ?? 0)).filter((d) => d > 0).sort((a, b) => a - b);
-  const medianDistance = candidateDistances.length > 0 ? candidateDistances[Math.floor(candidateDistances.length / 2)] : 0;
-  const outlierLaps = medianDistance > 0 ? candidates.filter((l) => Number(l.total_distance ?? 0) > medianDistance * 5) : [];
+  const candidateDistances = candidates
+    .map((l) => Number(l.total_distance ?? 0))
+    .filter((d) => d > 0)
+    .sort((a, b) => a - b);
+  const medianDistance =
+    candidateDistances.length > 0 ? candidateDistances[Math.floor(candidateDistances.length / 2)] : 0;
+  const outlierLaps =
+    medianDistance > 0 ? candidates.filter((l) => Number(l.total_distance ?? 0) > medianDistance * 5) : [];
   const clusteringCandidates =
     medianDistance > 0 ? candidates.filter((l) => Number(l.total_distance ?? 0) <= medianDistance * 5) : candidates;
 
@@ -1886,19 +1891,20 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   // "Aerobic" purely because that placeholder was never replaced, not
   // because of any warmup/cooldown dilution.
   //
-  // Guarded to only overwrite intent on sessions that were never actually
-  // planned (is_planned = false) — i.e. bare uploads with no real coach
-  // input behind their current intent value, regardless of which
-  // placeholder they happened to get. This matters because there turned
-  // out to be TWO different hardcoded placeholders in two different
-  // upload paths: session-files.functions.ts's own session-creation branch
-  // defaults to "aerobic", while the Calendar page's "+ Upload file" flow
-  // (app.sessions.calendar.tsx, handleCalendarUpload) separately defaults
-  // to "easy". Checking for one specific string would silently treat the
-  // other placeholder as if a coach had deliberately chosen it and never
-  // reclassify those sessions at all. A genuinely planned session
-  // (is_planned = true, created via "Create Session" with a real
-  // coach-picked intent) is never touched here.
+  // Always applied when we have a derived value — this whole function
+  // (rebuildSessionFromAllFiles) only ever reaches this point when real
+  // recorded laps exist (it returns early above when a session has no
+  // files at all), so by the time derivedIntent is computed we already
+  // have actual pace data, not a guess. A previous version gated this on
+  // `is_planned === false`, intending to protect a coach's deliberately
+  // chosen intent on a file-less manual session — but a file-less session
+  // never reaches this code path in the first place, so that guard only
+  // ever did one thing in practice: permanently freezing intent at
+  // whatever a plan template's generic per-day effort_type happened to be
+  // (e.g. "threshold") even after real uploaded laps showed the athlete's
+  // actual hardest effort was faster (e.g. 5×1km reps at VO2 pace within
+  // a session whose planned label was just "threshold"). Real data should
+  // always win once it exists.
   //
   // Classifies by the FASTEST work lap, not a time-weighted average across
   // every work lap — a session with a 2km tempo opener followed by 5×1km
@@ -1962,7 +1968,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
       }
     }
   }
-  const shouldUpdateIntent = derivedIntent != null && sess.is_planned === false;
+  const shouldUpdateIntent = derivedIntent != null;
 
   // Recompute the Morning/Afternoon/Evening title using the athlete's actual
   // timezone. This runs on every rebuild (not just initial creation) since a
