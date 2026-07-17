@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { metersFmt, todayISO } from "@/lib/format";
+import { metersFmt, secToClock, todayISO } from "@/lib/format";
 import { toast } from "sonner";
 import { Printer, Mail, Users } from "lucide-react";
 
@@ -55,12 +55,14 @@ function periodLabel(type: PeriodType) {
 // breakdown, kept local to this file per this project's convention of not
 // sharing small helpers across report pages.
 const SESSION_TYPES: { key: string; label: string; color: string }[] = [
-  { key: "easy", label: "Easy", color: "#64748b" },
-  { key: "tempo", label: "Tempo", color: "#0ea5e9" },
-  { key: "threshold", label: "Threshold", color: "#f59e0b" },
-  { key: "vo2", label: "VO2", color: "var(--accent-red)" },
-  { key: "cross_train", label: "Cross-train", color: "#8b5cf6" },
-  { key: "other", label: "Other", color: "#94a3b8" },
+  { key: "easy", label: "Easy", color: "#34d399" },
+  { key: "aerobic", label: "Aerobic", color: "#38bdf8" },
+  { key: "tempo", label: "Tempo", color: "#fbbf24" },
+  { key: "threshold", label: "Threshold", color: "#f97316" },
+  { key: "vo2", label: "VO2", color: "#ef4444" },
+  { key: "anaerobic", label: "Anaerobic", color: "#9333ea" },
+  { key: "cross_train", label: "Cross-train", color: "#94a3b8" },
+  { key: "other", label: "Other", color: "#d6d3d1" },
 ];
 function sessionTypeCounts(sessions: any[]): Record<string, number> {
   const counts: Record<string, number> = {};
@@ -125,7 +127,7 @@ function CoachRosterSummaryPage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("sessions")
-        .select("athlete_id, total_distance_m, total_time_seconds, rpe, completed_at, is_planned, session_date, intent, day_type")
+        .select("athlete_id, total_distance_m, total_time_seconds, total_moving_time_seconds, rpe, completed_at, is_planned, session_date, intent, day_type")
         .in("athlete_id", athleteIds)
         .gte("session_date", periodStart)
         .lte("session_date", periodEnd);
@@ -181,6 +183,19 @@ function CoachRosterSummaryPage() {
       );
       const distanceRow = periodType === "weekly" ? distanceByAthlete.get(a.id) : null;
       const distance = distanceRow?.distance_m ?? completed.reduce((x: number, s: any) => x + (s.total_distance_m ?? 0), 0);
+      // Avg pace deliberately sums distance/time straight from this
+      // athlete's own completed sessions here (not the pre-aggregated
+      // weekly-distance view used for `distance` above) — keeps the
+      // numerator and denominator from the same source. Uses moving time
+      // (elapsed minus detected stops), same as the Athlete Report and the
+      // session Overview page's own Total Avg Pace — a shoe-change pause
+      // or a gap between merged files shouldn't drag pace down.
+      const paceDistance = completed.reduce((x: number, s: any) => x + (s.total_distance_m ?? 0), 0);
+      const paceTime = completed.reduce(
+        (x: number, s: any) => x + (s.total_moving_time_seconds ?? s.total_time_seconds ?? 0),
+        0,
+      );
+      const avgPace = paceDistance > 0 && paceTime > 0 ? (paceTime / paceDistance) * 1000 : null;
       const load = lastLoadByAthlete.get(a.id);
       const typeCounts = sessionTypeCounts(completed);
 
@@ -195,6 +210,7 @@ function CoachRosterSummaryPage() {
         plannedCount: athleteSessions.length,
         completedCount: completed.length,
         distance,
+        avgPace,
         typeCounts,
         ctl: load?.ctl ?? null,
         atl: load?.atl ?? null,
@@ -356,6 +372,7 @@ function CoachRosterSummaryPage() {
                             <div className="text-right shrink-0 text-xs text-muted-foreground">
                               <div>
                                 {r.completedCount}/{r.plannedCount} sessions · {metersFmt(r.distance)}
+                                {r.avgPace ? ` · ${secToClock(r.avgPace)}/km` : ""}
                               </div>
                               <div>
                                 Fitness {r.ctl != null ? Math.round(r.ctl) : "—"} · Fatigue {r.atl != null ? Math.round(r.atl) : "—"} · Form{" "}
