@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { secToClock, clockToSec, paceFmt } from "@/lib/format";
 
@@ -152,6 +153,13 @@ const ZONE_COLORS: Record<string, { row: string; border: string; dot: string }> 
 // Main card
 // ----------------------------------------------------------------------------
 
+type ThresholdSource = "auto" | "manual" | "test";
+
+const METHOD_LABEL: Record<string, string> = {
+  max_hr_pct: "90% of HR max",
+  best_effort_3k_plus: "Best effort ≥3K (12mo)",
+};
+
 type ZoneProfile =
   | {
       hr_max: number | null;
@@ -162,6 +170,8 @@ type ZoneProfile =
       hr_z4_max: number | null;
       hr_z5_max: number | null;
       hr_zones_manual: boolean;
+      hr_threshold_source: ThresholdSource;
+      hr_method: string | null;
       pace_5k_sec_per_km: number | null;
       pace_threshold_sec_per_km: number | null;
       pace_z1_max_sec_per_km: number | null;
@@ -170,6 +180,9 @@ type ZoneProfile =
       pace_z4_max_sec_per_km: number | null;
       pace_z5_max_sec_per_km: number | null;
       pace_zones_manual: boolean;
+      pace_threshold_source: ThresholdSource;
+      pace_method: string | null;
+      preferred_zone_basis: "hr" | "pace";
     }
   | null
   | undefined;
@@ -199,19 +212,74 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
     invalidate();
   }
 
-  async function saveHrThreshold(bpm: number) {
+  async function saveHrThreshold(bpm: number, source: ThresholdSource = profile?.hr_threshold_source ?? "manual") {
     await run(
       "hr_threshold",
-      () => supabase.rpc("set_hr_threshold_manual", { _athlete_id: athleteId, _hr_threshold: bpm }),
+      () => supabase.rpc("set_hr_threshold_manual", { _athlete_id: athleteId, _hr_threshold: bpm, _source: source }),
       "Threshold HR updated",
     );
   }
 
-  async function savePaceThreshold(secPerKm: number) {
+  async function savePaceThreshold(
+    secPerKm: number,
+    source: ThresholdSource = profile?.pace_threshold_source ?? "manual",
+  ) {
     await run(
       "pace_threshold",
-      () => supabase.rpc("set_pace_threshold_manual", { _athlete_id: athleteId, _threshold_sec_per_km: secPerKm }),
+      () =>
+        supabase.rpc("set_pace_threshold_manual", {
+          _athlete_id: athleteId,
+          _threshold_sec_per_km: secPerKm,
+          _source: source,
+        }),
       "Threshold pace updated",
+    );
+  }
+
+  // Changing Type (Auto/Manual/Test) via the dropdown, independent of
+  // editing the value itself. Auto always resets to the formula-derived
+  // value (same as "Reset to auto" already did). Manual/Test carry the
+  // athlete's current threshold value forward unchanged — switching from
+  // Manual to Test (or back) is just relabeling where the number came
+  // from, not a reason to lose it. Switching TO Manual/Test with no
+  // existing value yet is blocked with a prompt to set one first, since
+  // there'd otherwise be nothing to carry over.
+  async function changeHrType(newType: ThresholdSource) {
+    if (newType === "auto") {
+      await resetHr();
+      return;
+    }
+    if (profile?.hr_threshold == null) {
+      toast.error("Set a threshold value first, then choose Manual or Test.");
+      return;
+    }
+    await saveHrThreshold(profile.hr_threshold, newType);
+  }
+
+  async function changePaceType(newType: ThresholdSource) {
+    if (newType === "auto") {
+      await resetPace();
+      return;
+    }
+    if (profile?.pace_threshold_sec_per_km == null) {
+      toast.error("Set a threshold value first, then choose Manual or Test.");
+      return;
+    }
+    await savePaceThreshold(profile.pace_threshold_sec_per_km, newType);
+  }
+
+  // Which basis (HR or pace) actually drives session/zone classification
+  // for this athlete — both stay visible on this card regardless of which
+  // one is preferred.
+  async function savePreferredBasis(basis: "hr" | "pace") {
+    await run(
+      "preferred_basis",
+      () =>
+        supabase
+          .from("athlete_zone_profiles")
+          .update({ preferred_zone_basis: basis } as any)
+          .eq("athlete_id", athleteId),
+      "Preferred basis updated",
     );
   }
 
@@ -286,22 +354,56 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
       <CardHeader>
         <CardTitle>Zone boundaries</CardTitle>
         <CardDescription>
-          One threshold value drives each set of zones. Click any number to override it directly — that switches this
-          set to manual and stops it from being recalculated when a new PB or HR max comes in.
+          One threshold value drives each set of zones. Choose Auto, Manual, or Test for how each was determined — click
+          any number to edit it directly. Both HR and pace stay visible here regardless of which one is actually applied
+          for classification (set below).
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
+        <div className="rounded-md border border-border bg-card/40 p-3 flex items-center justify-between gap-3">
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+              Preferred basis
+            </div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              Which one actually drives session zone/intent classification for this athlete.
+            </div>
+          </div>
+          <Select
+            value={profile.preferred_zone_basis}
+            onValueChange={(v) => savePreferredBasis(v as "hr" | "pace")}
+            disabled={savingKey === "preferred_basis"}
+          >
+            <SelectTrigger className="w-32 h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="hr">Heart rate</SelectItem>
+              <SelectItem value="pace">Pace</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
         <div className="grid sm:grid-cols-2 gap-3">
           <div className="rounded-md border border-border bg-card/40 p-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
                 Threshold HR
               </div>
-              {profile.hr_zones_manual ? (
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-600">Manual</span>
-              ) : (
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Auto</span>
-              )}
+              <Select
+                value={profile.hr_threshold_source}
+                onValueChange={(v) => changeHrType(v as ThresholdSource)}
+                disabled={savingKey === "hr_threshold" || savingKey === "hr_reset"}
+              >
+                <SelectTrigger className="w-24 h-6 text-[10px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Auto</SelectItem>
+                  <SelectItem value="manual">Manual</SelectItem>
+                  <SelectItem value="test">Test</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="font-display text-3xl font-extrabold tabular-nums mt-1">
               <EditableBpm
@@ -311,11 +413,13 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
               />
             </div>
             <div className="text-xs text-muted-foreground mt-1">
-              {profile.hr_zones_manual
-                ? "Set from a field test — enter a new value to update it."
-                : "Auto-suggested as 90% of HR max."}
+              {profile.hr_threshold_source === "auto"
+                ? `Auto-suggested — ${METHOD_LABEL[profile.hr_method ?? ""] ?? "90% of HR max"}.`
+                : profile.hr_threshold_source === "test"
+                  ? "From a field/lab test — enter a new value to update it."
+                  : "Entered manually — enter a new value to update it."}
             </div>
-            {profile.hr_zones_manual && (
+            {profile.hr_threshold_source !== "auto" && (
               <Button
                 size="sm"
                 variant="ghost"
@@ -328,15 +432,24 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
             )}
           </div>
           <div className="rounded-md border border-border bg-card/40 p-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
                 Threshold Pace
               </div>
-              {profile.pace_zones_manual ? (
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-600">Manual</span>
-              ) : (
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Auto</span>
-              )}
+              <Select
+                value={profile.pace_threshold_source}
+                onValueChange={(v) => changePaceType(v as ThresholdSource)}
+                disabled={savingKey === "pace_threshold" || savingKey === "pace_reset"}
+              >
+                <SelectTrigger className="w-24 h-6 text-[10px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Auto</SelectItem>
+                  <SelectItem value="manual">Manual</SelectItem>
+                  <SelectItem value="test">Test</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="font-display text-3xl font-extrabold tabular-nums mt-1">
               <EditablePace
@@ -346,11 +459,13 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
               />
             </div>
             <div className="text-xs text-muted-foreground mt-1">
-              {profile.pace_zones_manual
-                ? "Set from a field test — enter a new value to update it."
-                : "Auto-suggested from recent 5K/3K/10K PBs."}
+              {profile.pace_threshold_source === "auto"
+                ? `Auto-suggested — ${METHOD_LABEL[profile.pace_method ?? ""] ?? "best recent race pace"}.`
+                : profile.pace_threshold_source === "test"
+                  ? "From a field/lab test — enter a new value to update it."
+                  : "Entered manually — enter a new value to update it."}
             </div>
-            {profile.pace_zones_manual && (
+            {profile.pace_threshold_source !== "auto" && (
               <Button
                 size="sm"
                 variant="ghost"
