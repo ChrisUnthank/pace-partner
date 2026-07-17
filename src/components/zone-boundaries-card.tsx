@@ -147,6 +147,7 @@ const ZONE_COLORS: Record<string, { row: string; border: string; dot: string }> 
   Z3: { row: "bg-amber-400/10", border: "border-l-amber-400", dot: "bg-amber-400" },
   Z4: { row: "bg-orange-500/10", border: "border-l-orange-500", dot: "bg-orange-500" },
   Z5: { row: "bg-red-500/10", border: "border-l-red-500", dot: "bg-red-500" },
+  Z6: { row: "bg-purple-600/10", border: "border-l-purple-600", dot: "bg-purple-600" },
 };
 
 // ----------------------------------------------------------------------------
@@ -169,6 +170,7 @@ type ZoneProfile =
       hr_z3_max: number | null;
       hr_z4_max: number | null;
       hr_z5_max: number | null;
+      hr_z6_max: number | null;
       hr_zones_manual: boolean;
       hr_threshold_source: ThresholdSource;
       hr_method: string | null;
@@ -179,6 +181,7 @@ type ZoneProfile =
       pace_z3_max_sec_per_km: number | null;
       pace_z4_max_sec_per_km: number | null;
       pace_z5_max_sec_per_km: number | null;
+      pace_z6_max_sec_per_km: number | null;
       pace_zones_manual: boolean;
       pace_threshold_source: ThresholdSource;
       pace_method: string | null;
@@ -334,7 +337,8 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
     { z: "Z2", field: "hr_z2_max", value: profile.hr_z2_max, editable: true },
     { z: "Z3", field: "hr_z3_max", value: profile.hr_z3_max, editable: true },
     { z: "Z4", field: "hr_z4_max", value: profile.hr_z4_max, editable: true },
-    { z: "Z5", field: "hr_z5_max", value: profile.hr_z5_max, editable: false }, // open-ended fastest zone; display only
+    { z: "Z5", field: "hr_z5_max", value: profile.hr_z5_max, editable: true },
+    { z: "Z6", field: "hr_z6_max", value: profile.hr_z6_max, editable: false }, // open-ended fastest zone; display only
   ];
 
   const paceRows: Array<{ z: string; field: string; value: number | null; editable: boolean }> = [
@@ -342,7 +346,8 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
     { z: "Z2", field: "pace_z2_max_sec_per_km", value: profile.pace_z2_max_sec_per_km, editable: true },
     { z: "Z3", field: "pace_z3_max_sec_per_km", value: profile.pace_z3_max_sec_per_km, editable: true },
     { z: "Z4", field: "pace_z4_max_sec_per_km", value: profile.pace_z4_max_sec_per_km, editable: true },
-    { z: "Z5", field: "pace_z5_max_sec_per_km", value: profile.pace_z5_max_sec_per_km, editable: false }, // open-ended fastest zone; display only
+    { z: "Z5", field: "pace_z5_max_sec_per_km", value: profile.pace_z5_max_sec_per_km, editable: true },
+    { z: "Z6", field: "pace_z6_max_sec_per_km", value: profile.pace_z6_max_sec_per_km, editable: false }, // open-ended fastest zone; display only
   ];
 
   return (
