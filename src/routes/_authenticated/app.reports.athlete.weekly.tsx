@@ -13,7 +13,7 @@ import { metersFmt, secToClock, todayISO } from "@/lib/format";
 import { toast } from "sonner";
 import { Printer, Mail, FileText } from "lucide-react";
 
-export const Route = createFileRoute("/_authenticated/app/reports/athlete/weekly")({
+export const Route = createFileRoute("/_authenticated/app/reports/athlete-weekly")({
   component: AthleteWeeklyReportPage,
 });
 
@@ -33,7 +33,11 @@ function addDaysISO(dateStr: string, days: number) {
   return d.toISOString().slice(0, 10);
 }
 function formatDateLong(dateStr: string) {
-  return new Date(dateStr + "T00:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+  return new Date(dateStr + "T00:00:00").toLocaleDateString("en-AU", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 }
 
 function AthleteWeeklyReportPage() {
@@ -54,7 +58,9 @@ function AthleteWeeklyReportPage() {
   const [athleteId, setAthleteId] = useState<string>("");
   const activeAthleteId = athleteId || myAthlete?.id || "";
   const activeAthleteName =
-    activeAthleteId === myAthlete?.id ? myAthlete?.name : (roster ?? []).find((a: any) => a.id === activeAthleteId)?.name;
+    activeAthleteId === myAthlete?.id
+      ? myAthlete?.name
+      : (roster ?? []).find((a: any) => a.id === activeAthleteId)?.name;
 
   const [weekAnchor, setWeekAnchor] = useState(todayISO());
   const weekStart = weekStartMonday(weekAnchor);
@@ -173,7 +179,7 @@ function AthleteWeeklyReportPage() {
     const feels = (feelRows ?? []).map((r: any) => r.feel_score).filter((v: any) => v != null);
     const avgFeel = feels.length ? feels.reduce((a: number, b: number) => a + b, 0) / feels.length : null;
     const weekLoad = (loadRows ?? []).reduce((a: number, r: any) => a + (Number(r.training_load) || 0), 0);
-    const lastLoadRow = (loadRows ?? [])[loadRows!.length - 1];
+    const lastLoadRow = (loadRows ?? [])[(loadRows ?? []).length - 1];
     return {
       total: list.length,
       completedCount: completed.length,
@@ -227,18 +233,31 @@ function AthleteWeeklyReportPage() {
         <Card className="print:hidden">
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Report settings</CardTitle>
-            <CardDescription>Pick an athlete and week, then generate. Nothing here is AI-written — every number is pulled straight from recorded data.</CardDescription>
+            <CardDescription>
+              Pick an athlete and week, then generate. Nothing here is AI-written — every number is pulled straight from
+              recorded data.
+            </CardDescription>
           </CardHeader>
           <CardContent className="grid sm:grid-cols-3 gap-3 items-end">
             {isCoach && (
               <div>
                 <Label className="text-xs">Athlete</Label>
-                <Select value={activeAthleteId} onValueChange={(v) => { setAthleteId(v); setGenerated(false); }}>
-                  <SelectTrigger><SelectValue placeholder="Pick athlete" /></SelectTrigger>
+                <Select
+                  value={activeAthleteId}
+                  onValueChange={(v) => {
+                    setAthleteId(v);
+                    setGenerated(false);
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Pick athlete" />
+                  </SelectTrigger>
                   <SelectContent>
                     {myAthlete && <SelectItem value={myAthlete.id}>{myAthlete.name} (me)</SelectItem>}
                     {(roster ?? []).map((a: any) => (
-                      <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
+                      <SelectItem key={a.id} value={a.id}>
+                        {a.name}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -246,7 +265,14 @@ function AthleteWeeklyReportPage() {
             )}
             <div>
               <Label className="text-xs">Any day in the week</Label>
-              <Input type="date" value={weekAnchor} onChange={(e) => { setWeekAnchor(e.target.value); setGenerated(false); }} />
+              <Input
+                type="date"
+                value={weekAnchor}
+                onChange={(e) => {
+                  setWeekAnchor(e.target.value);
+                  setGenerated(false);
+                }}
+              />
             </div>
             <Button onClick={() => setGenerated(true)} disabled={!activeAthleteId}>
               Generate report
@@ -284,7 +310,11 @@ function AthleteWeeklyReportPage() {
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <StatBox label="Sessions" value={`${stats.completedCount}/${stats.total}`} sub="completed / planned" />
+                  <StatBox
+                    label="Sessions"
+                    value={`${stats.completedCount}/${stats.total}`}
+                    sub="completed / planned"
+                  />
                   <StatBox label="Distance" value={metersFmt(stats.totalDistance)} />
                   <StatBox label="Time" value={secToClock(stats.totalTime)} />
                   <StatBox label="Avg pace" value={stats.avgPace ? `${secToClock(stats.avgPace)}/km` : "—"} />
@@ -295,7 +325,9 @@ function AthleteWeeklyReportPage() {
                 </div>
 
                 <Card>
-                  <CardHeader className="pb-2"><CardTitle className="text-base">Sessions this week</CardTitle></CardHeader>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">Sessions this week</CardTitle>
+                  </CardHeader>
                   <CardContent className="p-0">
                     {!sessions?.length ? (
                       <p className="p-4 text-sm text-muted-foreground">No sessions logged this week.</p>
@@ -308,8 +340,13 @@ function AthleteWeeklyReportPage() {
                               <div className="text-xs text-muted-foreground">{s.session_date}</div>
                             </div>
                             <div className="text-right shrink-0 text-xs text-muted-foreground">
-                              <div>{metersFmt(s.total_distance_m ?? 0)} · {secToClock(s.total_time_seconds ?? 0)}</div>
-                              <div>{s.completed_at ? "Completed" : "Not completed"}{s.rpe != null ? ` · RPE ${s.rpe}` : ""}</div>
+                              <div>
+                                {metersFmt(s.total_distance_m ?? 0)} · {secToClock(s.total_time_seconds ?? 0)}
+                              </div>
+                              <div>
+                                {s.completed_at ? "Completed" : "Not completed"}
+                                {s.rpe != null ? ` · RPE ${s.rpe}` : ""}
+                              </div>
                             </div>
                           </div>
                         ))}
@@ -327,11 +364,15 @@ function AthleteWeeklyReportPage() {
 
                 {weekPbs.length > 0 && (
                   <Card>
-                    <CardHeader className="pb-2"><CardTitle className="text-base">Personal bests this week</CardTitle></CardHeader>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base">Personal bests this week</CardTitle>
+                    </CardHeader>
                     <CardContent className="space-y-1">
                       {weekPbs.map((p: any) => (
                         <div key={p.id} className="text-sm flex justify-between">
-                          <span>{metersFmt(p.distance_m)} · {p.event_name ?? p.performance_date}</span>
+                          <span>
+                            {metersFmt(p.distance_m)} · {p.event_name ?? p.performance_date}
+                          </span>
                           <span className="font-medium tabular-nums">{secToClock(p.time_seconds)}</span>
                         </div>
                       ))}
@@ -340,7 +381,8 @@ function AthleteWeeklyReportPage() {
                 )}
 
                 <p className="text-xs text-muted-foreground print:mt-8">
-                  Generated {new Date().toLocaleString("en-AU")} — compiled directly from recorded training data, no AI summarization.
+                  Generated {new Date().toLocaleString("en-AU")} — compiled directly from recorded training data, no AI
+                  summarization.
                 </p>
               </div>
             )}
@@ -367,7 +409,9 @@ function ZoneTable({ title, rows }: { title: string; rows: any[] }) {
   const totalSec = rows.reduce((a, r) => a + (Number(r.seconds) || 0), 0);
   return (
     <Card>
-      <CardHeader className="pb-2"><CardTitle className="text-base">{title}</CardTitle></CardHeader>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">{title}</CardTitle>
+      </CardHeader>
       <CardContent className="space-y-1.5">
         {order.map((z) => {
           const r = byZone.get(z);
