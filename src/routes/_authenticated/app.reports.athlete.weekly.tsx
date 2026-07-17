@@ -42,11 +42,7 @@ function monthEnd(dateStr: string) {
   return d.toISOString().slice(0, 10);
 }
 function formatDateLong(dateStr: string) {
-  return new Date(dateStr + "T00:00:00").toLocaleDateString("en-AU", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+  return new Date(dateStr + "T00:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
 }
 function periodLabel(type: PeriodType) {
   if (type === "weekly") return "Weekly";
@@ -95,9 +91,7 @@ function AthleteReportPage() {
   const [athleteId, setAthleteId] = useState<string>("");
   const activeAthleteId = athleteId || myAthlete?.id || "";
   const activeAthleteName =
-    activeAthleteId === myAthlete?.id
-      ? myAthlete?.name
-      : (roster ?? []).find((a: any) => a.id === activeAthleteId)?.name;
+    activeAthleteId === myAthlete?.id ? myAthlete?.name : (roster ?? []).find((a: any) => a.id === activeAthleteId)?.name;
 
   const [periodType, setPeriodType] = useState<PeriodType>("weekly");
   const [anchor, setAnchor] = useState(todayISO());
@@ -184,13 +178,7 @@ function AthleteReportPage() {
   });
 
   const { data: feelRows } = useQuery({
-    queryKey: [
-      "report-feel",
-      activeAthleteId,
-      periodStart,
-      periodEnd,
-      (sessions ?? []).map((s: any) => s.id).join(","),
-    ],
+    queryKey: ["report-feel", activeAthleteId, periodStart, periodEnd, (sessions ?? []).map((s: any) => s.id).join(",")],
     enabled: enabled && (sessions ?? []).length > 0,
     queryFn: async () => {
       const ids = (sessions ?? []).map((s: any) => s.id);
@@ -293,22 +281,12 @@ function AthleteReportPage() {
             {isCoach && (
               <div>
                 <Label className="text-xs">Athlete</Label>
-                <Select
-                  value={activeAthleteId}
-                  onValueChange={(v) => {
-                    setAthleteId(v);
-                    setGenerated(false);
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Pick athlete" />
-                  </SelectTrigger>
+                <Select value={activeAthleteId} onValueChange={(v) => { setAthleteId(v); setGenerated(false); }}>
+                  <SelectTrigger><SelectValue placeholder="Pick athlete" /></SelectTrigger>
                   <SelectContent>
                     {myAthlete && <SelectItem value={myAthlete.id}>{myAthlete.name} (me)</SelectItem>}
                     {(roster ?? []).map((a: any) => (
-                      <SelectItem key={a.id} value={a.id}>
-                        {a.name}
-                      </SelectItem>
+                      <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -316,16 +294,8 @@ function AthleteReportPage() {
             )}
             <div>
               <Label className="text-xs">Time frame</Label>
-              <Select
-                value={periodType}
-                onValueChange={(v) => {
-                  setPeriodType(v as PeriodType);
-                  setGenerated(false);
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
+              <Select value={periodType} onValueChange={(v) => { setPeriodType(v as PeriodType); setGenerated(false); }}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="weekly">Weekly</SelectItem>
                   <SelectItem value="monthly">Monthly</SelectItem>
@@ -336,41 +306,18 @@ function AthleteReportPage() {
 
             {periodType !== "custom" ? (
               <div>
-                <Label className="text-xs">
-                  {periodType === "weekly" ? "Any day in the week" : "Any day in the month"}
-                </Label>
-                <Input
-                  type="date"
-                  value={anchor}
-                  onChange={(e) => {
-                    setAnchor(e.target.value);
-                    setGenerated(false);
-                  }}
-                />
+                <Label className="text-xs">{periodType === "weekly" ? "Any day in the week" : "Any day in the month"}</Label>
+                <Input type="date" value={anchor} onChange={(e) => { setAnchor(e.target.value); setGenerated(false); }} />
               </div>
             ) : (
               <>
                 <div>
                   <Label className="text-xs">From</Label>
-                  <Input
-                    type="date"
-                    value={customFrom}
-                    onChange={(e) => {
-                      setCustomFrom(e.target.value);
-                      setGenerated(false);
-                    }}
-                  />
+                  <Input type="date" value={customFrom} onChange={(e) => { setCustomFrom(e.target.value); setGenerated(false); }} />
                 </div>
                 <div>
                   <Label className="text-xs">To</Label>
-                  <Input
-                    type="date"
-                    value={customTo}
-                    onChange={(e) => {
-                      setCustomTo(e.target.value);
-                      setGenerated(false);
-                    }}
-                  />
+                  <Input type="date" value={customTo} onChange={(e) => { setCustomTo(e.target.value); setGenerated(false); }} />
                 </div>
               </>
             )}
@@ -405,35 +352,27 @@ function AthleteReportPage() {
             ) : (
               <div id="report-printable" className="space-y-6">
                 <div>
-                  <h2 className="text-xl font-bold">
-                    {activeAthleteName ?? "Athlete"} — {periodLabel(periodType)} Report
-                  </h2>
+                  <h2 className="text-xl font-bold">{activeAthleteName ?? "Athlete"} — {periodLabel(periodType)} Report</h2>
                   <p className="text-sm text-muted-foreground">
                     {formatDateLong(periodStart)} – {formatDateLong(periodEnd)}
                   </p>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <StatBox
-                    label="Sessions"
-                    value={`${stats.completedCount}/${stats.total}`}
-                    sub="completed / planned"
-                  />
+                  <StatBox label="Sessions" value={`${stats.completedCount}/${stats.total}`} sub="completed / planned" />
                   <StatBox label="Distance" value={metersFmt(stats.totalDistance)} />
                   <StatBox label="Time" value={secToClock(stats.totalTime)} />
                   <StatBox label="Avg pace" value={stats.avgPace ? `${secToClock(stats.avgPace)}/km` : "—"} />
                   <StatBox label="Total load" value={stats.periodLoad ? String(Math.round(stats.periodLoad)) : "—"} />
-                  <StatBox label="Fitness (CTL)" value={stats.ctl != null ? String(Math.round(stats.ctl)) : "—"} />
-                  <StatBox label="Form (TSB)" value={stats.tsb != null ? String(Math.round(stats.tsb)) : "—"} />
-                  <StatBox label="Fatigue (ATL)" value={stats.atl != null ? String(Math.round(stats.atl)) : "—"} />
+                  <StatBox label="Fitness" value={stats.ctl != null ? String(Math.round(stats.ctl)) : "—"} />
+                  <StatBox label="Form" value={stats.tsb != null ? String(Math.round(stats.tsb)) : "—"} />
+                  <StatBox label="Fatigue" value={stats.atl != null ? String(Math.round(stats.atl)) : "—"} />
                 </div>
 
                 <TypeBreakdownCard counts={typeCounts} />
 
                 <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base">Sessions in this period</CardTitle>
-                  </CardHeader>
+                  <CardHeader className="pb-2"><CardTitle className="text-base">Sessions in this period</CardTitle></CardHeader>
                   <CardContent className="p-0">
                     {!sessions?.length ? (
                       <p className="p-4 text-sm text-muted-foreground">No sessions logged in this period.</p>
@@ -441,9 +380,7 @@ function AthleteReportPage() {
                       <div className="divide-y max-h-[420px] overflow-y-auto print:max-h-none print:overflow-visible">
                         {sessions.map((s: any) => (
                           <div key={s.id} className="flex items-center gap-2 px-3 py-1.5 text-xs">
-                            <span className="w-16 shrink-0 text-muted-foreground tabular-nums">
-                              {s.session_date.slice(5)}
-                            </span>
+                            <span className="w-16 shrink-0 text-muted-foreground tabular-nums">{s.session_date.slice(5)}</span>
                             <TypeDot type={s.intent ?? (s.day_type === "cross_training" ? "cross_train" : "other")} />
                             <span className="min-w-0 flex-1 truncate font-medium">{s.title ?? "Untitled session"}</span>
                             <span className="shrink-0 tabular-nums text-muted-foreground w-16 text-right">
@@ -474,15 +411,11 @@ function AthleteReportPage() {
 
                 {periodPbs.length > 0 && (
                   <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-base">Personal bests in this period</CardTitle>
-                    </CardHeader>
+                    <CardHeader className="pb-2"><CardTitle className="text-base">Personal bests in this period</CardTitle></CardHeader>
                     <CardContent className="space-y-1">
                       {periodPbs.map((p: any) => (
                         <div key={p.id} className="text-sm flex justify-between">
-                          <span>
-                            {metersFmt(p.distance_m)} · {p.event_name ?? p.performance_date}
-                          </span>
+                          <span>{metersFmt(p.distance_m)} · {p.event_name ?? p.performance_date}</span>
                           <span className="font-medium tabular-nums">{secToClock(p.time_seconds)}</span>
                         </div>
                       ))}
@@ -491,8 +424,7 @@ function AthleteReportPage() {
                 )}
 
                 <p className="text-xs text-muted-foreground print:mt-8">
-                  Generated {new Date().toLocaleString("en-AU")} — compiled directly from recorded training data, no AI
-                  summarization.
+                  Generated {new Date().toLocaleString("en-AU")} — compiled directly from recorded training data, no AI summarization.
                 </p>
               </div>
             )}
@@ -515,9 +447,7 @@ function StatBox({ label, value, sub }: { label: string; value: string; sub?: st
 
 function TypeDot({ type }: { type: string }) {
   const t = SESSION_TYPES.find((x) => x.key === type) ?? SESSION_TYPES[SESSION_TYPES.length - 1];
-  return (
-    <span className="inline-block h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: t.color }} title={t.label} />
-  );
+  return <span className="inline-block h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: t.color }} title={t.label} />;
 }
 
 function TypeBreakdownCard({ counts }: { counts: Record<string, number> }) {
@@ -526,9 +456,7 @@ function TypeBreakdownCard({ counts }: { counts: Record<string, number> }) {
   if (total === 0) return null;
   return (
     <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">Sessions by type</CardTitle>
-      </CardHeader>
+      <CardHeader className="pb-2"><CardTitle className="text-base">Sessions by type</CardTitle></CardHeader>
       <CardContent className="space-y-1.5">
         {present.map((t) => {
           const n = counts[t.key] ?? 0;
@@ -556,9 +484,7 @@ function ZoneTable({ title, rows }: { title: string; rows: any[] }) {
   const totalSec = Array.from(byZone.values()).reduce((a, b) => a + b, 0);
   return (
     <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">{title}</CardTitle>
-      </CardHeader>
+      <CardHeader className="pb-2"><CardTitle className="text-base">{title}</CardTitle></CardHeader>
       <CardContent className="space-y-1.5">
         {order.map((z) => {
           const sec = byZone.get(z) ?? 0;
