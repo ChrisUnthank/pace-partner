@@ -43,12 +43,51 @@ function monthEnd(dateStr: string) {
   return d.toISOString().slice(0, 10);
 }
 function formatDateLong(dateStr: string) {
-  return new Date(dateStr + "T00:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+  return new Date(dateStr + "T00:00:00").toLocaleDateString("en-AU", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 }
 function periodLabel(type: PeriodType) {
   if (type === "weekly") return "Weekly";
   if (type === "monthly") return "Monthly";
   return "Custom period";
+}
+
+// Mirrors the same vocabulary/colors used on the Athlete Report's type
+// breakdown, kept local to this file per this project's convention of not
+// sharing small helpers across report pages.
+const SESSION_TYPES: { key: string; label: string; color: string }[] = [
+  { key: "easy", label: "Easy", color: "#64748b" },
+  { key: "tempo", label: "Tempo", color: "#0ea5e9" },
+  { key: "threshold", label: "Threshold", color: "#f59e0b" },
+  { key: "vo2", label: "VO2", color: "var(--accent-red)" },
+  { key: "cross_train", label: "Cross-train", color: "#8b5cf6" },
+  { key: "other", label: "Other", color: "#94a3b8" },
+];
+function sessionTypeCounts(sessions: any[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const s of sessions) {
+    const key = s.intent ?? (s.day_type === "cross_training" ? "cross_train" : "other");
+    counts[key] = (counts[key] ?? 0) + 1;
+  }
+  return counts;
+}
+
+// Compact per-athlete-row bar — a single stacked bar rather than a full
+// legend-and-bars breakdown (that's the Athlete Report's job), since this
+// needs to fit on one line next to a dozen other roster rows.
+function MiniTypeBar({ counts }: { counts: Record<string, number> }) {
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  if (total === 0) return <div className="h-1.5 w-24 rounded-full bg-muted" />;
+  return (
+    <div className="h-1.5 w-24 rounded-full overflow-hidden flex bg-muted" title="Sessions by type">
+      {SESSION_TYPES.filter((t) => (counts[t.key] ?? 0) > 0).map((t) => (
+        <div key={t.key} style={{ width: `${((counts[t.key] ?? 0) / total) * 100}%`, backgroundColor: t.color }} />
+      ))}
+    </div>
+  );
 }
 
 function CoachRosterSummaryPage() {
@@ -90,7 +129,9 @@ function CoachRosterSummaryPage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("sessions")
-        .select("athlete_id, total_distance_m, total_time_seconds, rpe, completed_at, is_planned, session_date")
+        .select(
+          "athlete_id, total_distance_m, total_time_seconds, rpe, completed_at, is_planned, session_date, intent, day_type",
+        )
         .in("athlete_id", athleteIds)
         .gte("session_date", periodStart)
         .lte("session_date", periodEnd);
@@ -144,11 +185,11 @@ function CoachRosterSummaryPage() {
       const missed = athleteSessions.filter(
         (s) => s.is_planned && !s.completed_at && isPastOrCurrentDay(s.session_date),
       );
-      const rpes = completed.map((s) => s.rpe).filter((v) => v != null);
-      const avgRpe = rpes.length ? rpes.reduce((x: number, y: number) => x + y, 0) / rpes.length : null;
       const distanceRow = periodType === "weekly" ? distanceByAthlete.get(a.id) : null;
-      const distance = distanceRow?.distance_m ?? completed.reduce((x: number, s: any) => x + (s.total_distance_m ?? 0), 0);
+      const distance =
+        distanceRow?.distance_m ?? completed.reduce((x: number, s: any) => x + (s.total_distance_m ?? 0), 0);
       const load = lastLoadByAthlete.get(a.id);
+      const typeCounts = sessionTypeCounts(completed);
 
       const flags: string[] = [];
       if (athleteSessions.length === 0) flags.push("No sessions logged");
@@ -161,7 +202,9 @@ function CoachRosterSummaryPage() {
         plannedCount: athleteSessions.length,
         completedCount: completed.length,
         distance,
-        avgRpe,
+        typeCounts,
+        ctl: load?.ctl ?? null,
+        atl: load?.atl ?? null,
         tsb: load?.tsb ?? null,
         flags,
       };
@@ -222,8 +265,16 @@ function CoachRosterSummaryPage() {
           <CardContent className="grid sm:grid-cols-4 gap-3 items-end">
             <div>
               <Label className="text-xs">Time frame</Label>
-              <Select value={periodType} onValueChange={(v) => { setPeriodType(v as PeriodType); setGenerated(false); }}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Select
+                value={periodType}
+                onValueChange={(v) => {
+                  setPeriodType(v as PeriodType);
+                  setGenerated(false);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="weekly">Weekly</SelectItem>
                   <SelectItem value="monthly">Monthly</SelectItem>
@@ -234,18 +285,41 @@ function CoachRosterSummaryPage() {
 
             {periodType !== "custom" ? (
               <div>
-                <Label className="text-xs">{periodType === "weekly" ? "Any day in the week" : "Any day in the month"}</Label>
-                <Input type="date" value={anchor} onChange={(e) => { setAnchor(e.target.value); setGenerated(false); }} />
+                <Label className="text-xs">
+                  {periodType === "weekly" ? "Any day in the week" : "Any day in the month"}
+                </Label>
+                <Input
+                  type="date"
+                  value={anchor}
+                  onChange={(e) => {
+                    setAnchor(e.target.value);
+                    setGenerated(false);
+                  }}
+                />
               </div>
             ) : (
               <>
                 <div>
                   <Label className="text-xs">From</Label>
-                  <Input type="date" value={customFrom} onChange={(e) => { setCustomFrom(e.target.value); setGenerated(false); }} />
+                  <Input
+                    type="date"
+                    value={customFrom}
+                    onChange={(e) => {
+                      setCustomFrom(e.target.value);
+                      setGenerated(false);
+                    }}
+                  />
                 </div>
                 <div>
                   <Label className="text-xs">To</Label>
-                  <Input type="date" value={customTo} onChange={(e) => { setCustomTo(e.target.value); setGenerated(false); }} />
+                  <Input
+                    type="date"
+                    value={customTo}
+                    onChange={(e) => {
+                      setCustomTo(e.target.value);
+                      setGenerated(false);
+                    }}
+                  />
                 </div>
               </>
             )}
@@ -306,12 +380,19 @@ function CoachRosterSummaryPage() {
                           <div key={r.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
                             <div className="min-w-0">
                               <div className="font-medium truncate">{r.name}</div>
-                              <div className="flex flex-wrap gap-1 mt-1">
-                                {r.flags.map((f) => (
-                                  <Badge key={f} variant="outline" className="text-[10px] border-amber-500/50 text-amber-600">
-                                    {f}
-                                  </Badge>
-                                ))}
+                              <div className="flex items-center gap-2 mt-1">
+                                <MiniTypeBar counts={r.typeCounts} />
+                                <div className="flex flex-wrap gap-1">
+                                  {r.flags.map((f) => (
+                                    <Badge
+                                      key={f}
+                                      variant="outline"
+                                      className="text-[10px] border-amber-500/50 text-amber-600"
+                                    >
+                                      {f}
+                                    </Badge>
+                                  ))}
+                                </div>
                               </div>
                             </div>
                             <div className="text-right shrink-0 text-xs text-muted-foreground">
@@ -319,8 +400,9 @@ function CoachRosterSummaryPage() {
                                 {r.completedCount}/{r.plannedCount} sessions · {metersFmt(r.distance)}
                               </div>
                               <div>
-                                {r.avgRpe != null ? `Avg RPE ${r.avgRpe.toFixed(1)}` : "No RPE data"}
-                                {r.tsb != null ? ` · TSB ${Math.round(r.tsb)}` : ""}
+                                Fitness {r.ctl != null ? Math.round(r.ctl) : "—"} · Fatigue{" "}
+                                {r.atl != null ? Math.round(r.atl) : "—"} · Form{" "}
+                                {r.tsb != null ? Math.round(r.tsb) : "—"}
                               </div>
                             </div>
                           </div>
@@ -331,7 +413,8 @@ function CoachRosterSummaryPage() {
                 </Card>
 
                 <p className="text-xs text-muted-foreground print:mt-8">
-                  Generated {new Date().toLocaleString("en-AU")} — compiled directly from recorded training data, no AI summarization.
+                  Generated {new Date().toLocaleString("en-AU")} — compiled directly from recorded training data, no AI
+                  summarization.
                 </p>
               </div>
             )}
