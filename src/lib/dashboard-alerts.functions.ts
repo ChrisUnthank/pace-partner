@@ -51,7 +51,7 @@ export const listDashboardAlerts = createServerFn({ method: "GET" })
     const ids = roster.map((r) => r.athlete_id);
 
     const [loadRes, ckRes, sessRes, insRes, dismRes] = await Promise.all([
-      sb.from("athlete_load_daily").select("athlete_id, load_date, atl, tsb").in("athlete_id", ids).gte("load_date", since28).order("load_date", { ascending: false }),
+      sb.from("athlete_load_daily").select("athlete_id, load_date, atl, tsb, load_ratio").in("athlete_id", ids).gte("load_date", since28).order("load_date", { ascending: false }),
       sb.from("daily_checkins").select("athlete_id, checkin_date, sleep_quality, soreness, injury_flag, injury_notes").in("athlete_id", ids).gte("checkin_date", since28).order("checkin_date", { ascending: false }),
       sb.from("sessions").select("id, athlete_id, session_date, title, day_type, intent, completed_at").in("athlete_id", ids).gte("session_date", since28).order("session_date", { ascending: false }),
       sb.from("session_insights").select("athlete_id, session_id, feel_score, created_at").in("athlete_id", ids).order("created_at", { ascending: false }).limit(200),
@@ -81,6 +81,7 @@ export const listDashboardAlerts = createServerFn({ method: "GET" })
       const atl7 = sevenAgo ? Number(sevenAgo.atl ?? 0) : null;
       const atlDelta = atlToday != null && atl7 != null ? atlToday - atl7 : null;
       const tsb = todayLoad ? Number(todayLoad.tsb ?? 0) : null;
+      const loadRatio = todayLoad?.load_ratio != null ? Number(todayLoad.load_ratio) : null;
 
       const cks = checkins.filter((c: any) => c.athlete_id === athId);
       const todayCk = cks.find((c: any) => c.checkin_date === today);
@@ -104,12 +105,22 @@ export const listDashboardAlerts = createServerFn({ method: "GET" })
           actions: nextSessionActions(sess),
         });
       }
-      if (tsb != null && tsb < -20) {
+      // Acute:chronic load ratio (atl/ctl) — scale-independent by
+      // construction, unlike raw TSB. Reuses the exact same 0.8-1.3
+      // "sweet spot" bounds recompute_readiness already uses for
+      // load_balance, so this alert and the readiness score agree with
+      // each other instead of using two different, disconnected
+      // calibrations. Raw tsb is still shown in the trigger text for
+      // context, but no longer decides whether the alert fires — tsb's
+      // actual magnitude depends on this app's training_load units
+      // (rpe × duration, unnormalized), which don't match the
+      // conventional TSS-scale assumptions a fixed tsb threshold implies.
+      if (loadRatio != null && loadRatio > 1.3) {
         push({
           alert_type: "tsb_negative", severity: "critical",
           athlete_id: athId, athlete_name: name, athlete_image_url: img,
-          title: "TSB too negative",
-          trigger: "TSB " + tsb.toFixed(0),
+          title: "Acute load too high relative to fitness",
+          trigger: "Load ratio " + loadRatio.toFixed(2) + (tsb != null ? " (TSB " + tsb.toFixed(0) + ")" : ""),
           guidance: "Athlete is carrying significant accumulated fatigue. Recommend a recovery day or easy session before the next quality effort.",
           actions: nextSessionActions(sess),
         });
@@ -212,12 +223,16 @@ export const listDashboardAlerts = createServerFn({ method: "GET" })
       }
 
       // INFO
-      if (tsb != null && tsb > 25) {
+      // Symmetric fix to the critical alert above — under-loaded relative
+      // to fitness, same scale-independent load_ratio basis, reusing the
+      // same 0.8 lower bound recompute_readiness already treats as the
+      // start of the sweet spot.
+      if (loadRatio != null && loadRatio < 0.8) {
         push({
           alert_type: "tsb_positive", severity: "info",
           athlete_id: athId, athlete_name: name, athlete_image_url: img,
-          title: "TSB very positive",
-          trigger: "TSB +" + tsb.toFixed(0),
+          title: "Acute load low relative to fitness",
+          trigger: "Load ratio " + loadRatio.toFixed(2) + (tsb != null ? " (TSB +" + tsb.toFixed(0) + ")" : ""),
           guidance: "Athlete appears under-loaded relative to recent fitness. Consider adding a session or increasing volume if health and schedule allow.",
           actions: [
             { label: "View training", kind: "link", target: "/app/athletes/" + athId },
