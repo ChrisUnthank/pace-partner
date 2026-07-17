@@ -14,9 +14,10 @@ import { metersFmt, todayISO } from "@/lib/format";
 import { toast } from "sonner";
 import { Printer, Mail, Users } from "lucide-react";
 
-// NOTE: keep whatever route string this file already has live — content
-// only, don't rename the file/path unless you mean to.
-export const Route = createFileRoute("/_authenticated/app/reports/coach-weekly")({
+// NOTE: this file's actual path is app.reports.coach.weekly.tsx (dots),
+// serving /app/reports/coach/weekly — the createFileRoute string below
+// must match that exactly, or the route silently drops from the tree.
+export const Route = createFileRoute("/_authenticated/app/reports/coach/weekly")({
   component: CoachRosterSummaryPage,
 });
 
