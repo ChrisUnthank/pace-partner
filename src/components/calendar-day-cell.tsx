@@ -45,14 +45,22 @@ export type DayForecast = {
   windMax: number | null;
 };
 
-// Tailwind colors keyed by intent/day_type — reused from session-categories vocabulary.
+// Tailwind colors keyed by intent/day_type. The zone-derived intents (easy
+// through anaerobic) are colored to exactly match their corresponding zone
+// rank from the classifier (session-files.functions.ts's RANK_TO_INTENT:
+// Z1 easy, Z2 aerobic, Z3 tempo, Z4 threshold, Z5 vo2, Z6 anaerobic) — same
+// palette as the Zones card, session analysis, and race analysis pages, so
+// a session's color reads the same everywhere regardless of which page
+// it's viewed from. `speed` isn't zone-derived (the classifier never
+// produces it), so it keeps its own distinct color rather than borrowing
+// one of the six.
 const INTENT_BAR: Record<string, string> = {
-  easy: "bg-emerald-500",
-  aerobic: "bg-teal-500",
-  tempo: "bg-amber-500",
+  easy: "bg-emerald-400",
+  aerobic: "bg-sky-400",
+  tempo: "bg-amber-400",
   threshold: "bg-orange-500",
   vo2: "bg-red-500",
-  anaerobic: "bg-rose-600",
+  anaerobic: "bg-purple-600",
   speed: "bg-fuchsia-500",
 };
 const DAYTYPE_BAR: Record<string, string> = {
