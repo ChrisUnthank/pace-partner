@@ -43,11 +43,7 @@ function monthEnd(dateStr: string) {
   return d.toISOString().slice(0, 10);
 }
 function formatDateLong(dateStr: string) {
-  return new Date(dateStr + "T00:00:00").toLocaleDateString("en-AU", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+  return new Date(dateStr + "T00:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
 }
 function periodLabel(type: PeriodType) {
   if (type === "weekly") return "Weekly";
@@ -129,9 +125,7 @@ function CoachRosterSummaryPage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("sessions")
-        .select(
-          "athlete_id, total_distance_m, total_time_seconds, rpe, completed_at, is_planned, session_date, intent, day_type",
-        )
+        .select("athlete_id, total_distance_m, total_time_seconds, rpe, completed_at, is_planned, session_date, intent, day_type")
         .in("athlete_id", athleteIds)
         .gte("session_date", periodStart)
         .lte("session_date", periodEnd);
@@ -186,15 +180,14 @@ function CoachRosterSummaryPage() {
         (s) => s.is_planned && !s.completed_at && isPastOrCurrentDay(s.session_date),
       );
       const distanceRow = periodType === "weekly" ? distanceByAthlete.get(a.id) : null;
-      const distance =
-        distanceRow?.distance_m ?? completed.reduce((x: number, s: any) => x + (s.total_distance_m ?? 0), 0);
+      const distance = distanceRow?.distance_m ?? completed.reduce((x: number, s: any) => x + (s.total_distance_m ?? 0), 0);
       const load = lastLoadByAthlete.get(a.id);
       const typeCounts = sessionTypeCounts(completed);
 
       const flags: string[] = [];
       if (athleteSessions.length === 0) flags.push("No sessions logged");
       if (missed.length > 0) flags.push(`${missed.length} missed`);
-      if (load?.tsb != null && load.tsb < -25) flags.push("High fatigue (TSB)");
+      if (load?.tsb != null && load.tsb < -25) flags.push("High fatigue");
 
       return {
         id: a.id,
@@ -265,16 +258,8 @@ function CoachRosterSummaryPage() {
           <CardContent className="grid sm:grid-cols-4 gap-3 items-end">
             <div>
               <Label className="text-xs">Time frame</Label>
-              <Select
-                value={periodType}
-                onValueChange={(v) => {
-                  setPeriodType(v as PeriodType);
-                  setGenerated(false);
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
+              <Select value={periodType} onValueChange={(v) => { setPeriodType(v as PeriodType); setGenerated(false); }}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="weekly">Weekly</SelectItem>
                   <SelectItem value="monthly">Monthly</SelectItem>
@@ -285,41 +270,18 @@ function CoachRosterSummaryPage() {
 
             {periodType !== "custom" ? (
               <div>
-                <Label className="text-xs">
-                  {periodType === "weekly" ? "Any day in the week" : "Any day in the month"}
-                </Label>
-                <Input
-                  type="date"
-                  value={anchor}
-                  onChange={(e) => {
-                    setAnchor(e.target.value);
-                    setGenerated(false);
-                  }}
-                />
+                <Label className="text-xs">{periodType === "weekly" ? "Any day in the week" : "Any day in the month"}</Label>
+                <Input type="date" value={anchor} onChange={(e) => { setAnchor(e.target.value); setGenerated(false); }} />
               </div>
             ) : (
               <>
                 <div>
                   <Label className="text-xs">From</Label>
-                  <Input
-                    type="date"
-                    value={customFrom}
-                    onChange={(e) => {
-                      setCustomFrom(e.target.value);
-                      setGenerated(false);
-                    }}
-                  />
+                  <Input type="date" value={customFrom} onChange={(e) => { setCustomFrom(e.target.value); setGenerated(false); }} />
                 </div>
                 <div>
                   <Label className="text-xs">To</Label>
-                  <Input
-                    type="date"
-                    value={customTo}
-                    onChange={(e) => {
-                      setCustomTo(e.target.value);
-                      setGenerated(false);
-                    }}
-                  />
+                  <Input type="date" value={customTo} onChange={(e) => { setCustomTo(e.target.value); setGenerated(false); }} />
                 </div>
               </>
             )}
@@ -384,11 +346,7 @@ function CoachRosterSummaryPage() {
                                 <MiniTypeBar counts={r.typeCounts} />
                                 <div className="flex flex-wrap gap-1">
                                   {r.flags.map((f) => (
-                                    <Badge
-                                      key={f}
-                                      variant="outline"
-                                      className="text-[10px] border-amber-500/50 text-amber-600"
-                                    >
+                                    <Badge key={f} variant="outline" className="text-[10px] border-amber-500/50 text-amber-600">
                                       {f}
                                     </Badge>
                                   ))}
@@ -400,8 +358,7 @@ function CoachRosterSummaryPage() {
                                 {r.completedCount}/{r.plannedCount} sessions · {metersFmt(r.distance)}
                               </div>
                               <div>
-                                Fitness {r.ctl != null ? Math.round(r.ctl) : "—"} · Fatigue{" "}
-                                {r.atl != null ? Math.round(r.atl) : "—"} · Form{" "}
+                                Fitness {r.ctl != null ? Math.round(r.ctl) : "—"} · Fatigue {r.atl != null ? Math.round(r.atl) : "—"} · Form{" "}
                                 {r.tsb != null ? Math.round(r.tsb) : "—"}
                               </div>
                             </div>
@@ -413,8 +370,7 @@ function CoachRosterSummaryPage() {
                 </Card>
 
                 <p className="text-xs text-muted-foreground print:mt-8">
-                  Generated {new Date().toLocaleString("en-AU")} — compiled directly from recorded training data, no AI
-                  summarization.
+                  Generated {new Date().toLocaleString("en-AU")} — compiled directly from recorded training data, no AI summarization.
                 </p>
               </div>
             )}
