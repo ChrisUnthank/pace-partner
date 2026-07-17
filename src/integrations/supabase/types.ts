@@ -258,6 +258,81 @@ export type Database = {
           },
         ]
       }
+      athlete_goals: {
+        Row: {
+          athlete_id: string
+          created_at: string
+          created_by: string | null
+          distance_m: number | null
+          goal_type: string
+          id: string
+          is_primary: boolean
+          notes: string | null
+          performance_id: string | null
+          priority: string | null
+          race_date: string | null
+          race_type: string | null
+          status: string
+          target_date: string | null
+          target_time_seconds: number | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          athlete_id: string
+          created_at?: string
+          created_by?: string | null
+          distance_m?: number | null
+          goal_type: string
+          id?: string
+          is_primary?: boolean
+          notes?: string | null
+          performance_id?: string | null
+          priority?: string | null
+          race_date?: string | null
+          race_type?: string | null
+          status?: string
+          target_date?: string | null
+          target_time_seconds?: number | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          athlete_id?: string
+          created_at?: string
+          created_by?: string | null
+          distance_m?: number | null
+          goal_type?: string
+          id?: string
+          is_primary?: boolean
+          notes?: string | null
+          performance_id?: string | null
+          priority?: string | null
+          race_date?: string | null
+          race_type?: string | null
+          status?: string
+          target_date?: string | null
+          target_time_seconds?: number | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "athlete_goals_athlete_id_fkey"
+            columns: ["athlete_id"]
+            isOneToOne: false
+            referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "athlete_goals_performance_id_fkey"
+            columns: ["performance_id"]
+            isOneToOne: false
+            referencedRelation: "performances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       athlete_invites: {
         Row: {
           accepted_at: string | null
@@ -451,6 +526,103 @@ export type Database = {
             columns: ["athlete_id"]
             isOneToOne: true
             referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      athlete_plan_sessions: {
+        Row: {
+          athlete_plan_id: string
+          id: string
+          session_id: string
+          week_number: number
+        }
+        Insert: {
+          athlete_plan_id: string
+          id?: string
+          session_id: string
+          week_number: number
+        }
+        Update: {
+          athlete_plan_id?: string
+          id?: string
+          session_id?: string
+          week_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "athlete_plan_sessions_athlete_plan_id_fkey"
+            columns: ["athlete_plan_id"]
+            isOneToOne: false
+            referencedRelation: "athlete_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "athlete_plan_sessions_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: true
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      athlete_plans: {
+        Row: {
+          athlete_id: string
+          created_at: string
+          created_by: string | null
+          duration_weeks: number
+          goal_id: string | null
+          id: string
+          name: string
+          plan_template_id: string | null
+          start_date: string
+          status: string
+        }
+        Insert: {
+          athlete_id: string
+          created_at?: string
+          created_by?: string | null
+          duration_weeks: number
+          goal_id?: string | null
+          id?: string
+          name: string
+          plan_template_id?: string | null
+          start_date: string
+          status?: string
+        }
+        Update: {
+          athlete_id?: string
+          created_at?: string
+          created_by?: string | null
+          duration_weeks?: number
+          goal_id?: string | null
+          id?: string
+          name?: string
+          plan_template_id?: string | null
+          start_date?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "athlete_plans_athlete_id_fkey"
+            columns: ["athlete_id"]
+            isOneToOne: false
+            referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "athlete_plans_goal_id_fkey"
+            columns: ["goal_id"]
+            isOneToOne: false
+            referencedRelation: "athlete_goals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "athlete_plans_plan_template_id_fkey"
+            columns: ["plan_template_id"]
+            isOneToOne: false
+            referencedRelation: "plan_templates"
             referencedColumns: ["id"]
           },
         ]
@@ -1360,6 +1532,89 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      plan_template_sessions: {
+        Row: {
+          day_of_week: number
+          effort_type: string
+          id: string
+          notes: string | null
+          plan_template_id: string
+          steps: Json | null
+          title: string
+          week_number: number
+        }
+        Insert: {
+          day_of_week: number
+          effort_type: string
+          id?: string
+          notes?: string | null
+          plan_template_id: string
+          steps?: Json | null
+          title: string
+          week_number: number
+        }
+        Update: {
+          day_of_week?: number
+          effort_type?: string
+          id?: string
+          notes?: string | null
+          plan_template_id?: string
+          steps?: Json | null
+          title?: string
+          week_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plan_template_sessions_plan_template_id_fkey"
+            columns: ["plan_template_id"]
+            isOneToOne: false
+            referencedRelation: "plan_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plan_templates: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          days_per_week: number
+          description: string | null
+          distance_focus: string | null
+          duration_weeks: number
+          id: string
+          is_system: boolean
+          level: string | null
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          days_per_week: number
+          description?: string | null
+          distance_focus?: string | null
+          duration_weeks: number
+          id?: string
+          is_system?: boolean
+          level?: string | null
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          days_per_week?: number
+          description?: string | null
+          distance_focus?: string | null
+          duration_weeks?: number
+          id?: string
+          is_system?: boolean
+          level?: string | null
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       profiles: {
         Row: {
