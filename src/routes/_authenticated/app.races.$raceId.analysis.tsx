@@ -143,7 +143,7 @@ function RaceAnalysisPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("athlete_zone_profiles")
-        .select("hr_z1_max, hr_z2_max, hr_z3_max, hr_z4_max, hr_z5_max")
+        .select("hr_z1_max, hr_z2_max, hr_z3_max, hr_z4_max, hr_z5_max, hr_z6_max")
         .eq("athlete_id", race.athlete_id)
         .maybeSingle();
 
@@ -696,14 +696,16 @@ const ZONE_COLORS: Record<string, string> = {
   z3: "#fbbf24",
   z4: "#f97316",
   z5: "#ef4444",
+  z6: "#9333ea",
 };
 
 const ZONE_LABELS: Record<string, string> = {
-  z1: "Z1 Easy",
-  z2: "Z2 Aerobic",
-  z3: "Z3 Tempo",
-  z4: "Z4 VO2/5K",
-  z5: "Z5 Rep",
+  z1: "Z1 Recovery",
+  z2: "Z2 Easy/Aerobic",
+  z3: "Z3 Steady/Tempo",
+  z4: "Z4 Threshold",
+  z5: "Z5 VO2",
+  z6: "Z6 Anaerobic/Max",
 };
 
 type ZoneProfile = {
@@ -712,6 +714,7 @@ type ZoneProfile = {
   hr_z3_max: number | null;
   hr_z4_max: number | null;
   hr_z5_max: number | null;
+  hr_z6_max: number | null;
 } | null | undefined;
 
 function hrToZone(hr: number | null, profile: ZoneProfile): string | null {
@@ -720,7 +723,8 @@ function hrToZone(hr: number | null, profile: ZoneProfile): string | null {
   if (profile.hr_z2_max != null && hr <= profile.hr_z2_max) return "z2";
   if (profile.hr_z3_max != null && hr <= profile.hr_z3_max) return "z3";
   if (profile.hr_z4_max != null && hr <= profile.hr_z4_max) return "z4";
-  return "z5";
+  if (profile.hr_z5_max != null && hr <= profile.hr_z5_max) return "z5";
+  return "z6";
 }
 
 function RaceMapPanel({
@@ -881,7 +885,7 @@ function RaceMapPanel({
       <CardContent className="flex-1 flex flex-col gap-2">
         {zoneProfile?.hr_z1_max != null && (
           <div className="flex flex-wrap gap-3 text-xs -mt-1">
-            {(["z1", "z2", "z3", "z4", "z5"] as const).map((z) => (
+            {(["z1", "z2", "z3", "z4", "z5", "z6"] as const).map((z) => (
               <div key={z} className="flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-full" style={{ background: ZONE_COLORS[z] }} />
                 <span className="text-muted-foreground">{ZONE_LABELS[z]}</span>
@@ -1079,7 +1083,7 @@ function ZoneGradientBar({
 
         {hasZoneData && (
           <div className="flex flex-wrap gap-3 text-xs mt-3">
-            {(["z1", "z2", "z3", "z4", "z5"] as const).map((z) => (
+            {(["z1", "z2", "z3", "z4", "z5", "z6"] as const).map((z) => (
               <div key={z} className="flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-full" style={{ background: ZONE_COLORS[z] }} />
                 <span className="text-muted-foreground">{ZONE_LABELS[z]}</span>
