@@ -300,11 +300,7 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
   async function savePreferredBasis(basis: "hr" | "pace") {
     await run(
       "preferred_basis",
-      () =>
-        supabase
-          .from("athlete_zone_profiles")
-          .update({ preferred_zone_basis: basis } as any)
-          .eq("athlete_id", athleteId),
+      () => supabase.from("athlete_zone_profiles").update({ preferred_zone_basis: basis } as any).eq("athlete_id", athleteId),
       "Preferred basis updated",
     );
   }
@@ -410,9 +406,9 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
       <CardHeader>
         <CardTitle>Zone boundaries</CardTitle>
         <CardDescription>
-          One threshold value drives each set of zones. Choose Auto, Manual, or Test for how each was determined — click
-          any number to edit it directly. Both HR and pace stay visible here regardless of which one is actually applied
-          for classification (set below).
+          One threshold value drives each set of zones. Choose Auto, Manual, or Test for how each was determined —
+          click any number to edit it directly. Both HR and pace stay visible here regardless of which one is
+          actually applied for classification (set below).
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -430,9 +426,7 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
             onValueChange={(v) => savePreferredBasis(v as "hr" | "pace")}
             disabled={savingKey === "preferred_basis"}
           >
-            <SelectTrigger className="w-32 h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
+            <SelectTrigger className="w-32 h-8 text-xs"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="hr">Heart rate</SelectItem>
               <SelectItem value="pace">Pace</SelectItem>
@@ -451,9 +445,7 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
                 onValueChange={(v) => changeHrType(v as ThresholdSource)}
                 disabled={savingKey === "hr_threshold" || savingKey === "hr_reset"}
               >
-                <SelectTrigger className="w-24 h-6 text-[10px]">
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger className="w-24 h-6 text-[10px]"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="auto">Auto</SelectItem>
                   <SelectItem value="manual">Manual</SelectItem>
@@ -497,9 +489,7 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
                 onValueChange={(v) => changePaceType(v as ThresholdSource)}
                 disabled={savingKey === "pace_threshold" || savingKey === "pace_reset"}
               >
-                <SelectTrigger className="w-24 h-6 text-[10px]">
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger className="w-24 h-6 text-[10px]"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="auto">Auto</SelectItem>
                   <SelectItem value="manual">Manual</SelectItem>
@@ -522,9 +512,7 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
                   onValueChange={savePaceMethod}
                   disabled={savingKey === "pace_method"}
                 >
-                  <SelectTrigger className="h-6 text-[10px] w-full">
-                    <SelectValue />
-                  </SelectTrigger>
+                  <SelectTrigger className="h-6 text-[10px] w-full"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="best_effort_3k_plus">Best effort ≥3K (12mo)</SelectItem>
                     <SelectItem value="vdot">VDOT (Daniels)</SelectItem>
