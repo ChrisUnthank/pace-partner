@@ -8,14 +8,22 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { metersFmt, secToClock } from "@/lib/format";
 import { sessionClassificationLabel } from "@/lib/session-categories";
-import { Plus, CalendarDays, Upload } from "lucide-react";
+import { Plus, CalendarDays, Upload, Users } from "lucide-react";
 import { ActivityIcon } from "@/lib/activity-icon";
 import { useState, useMemo } from "react";
 import { BulkFitUpload } from "@/components/bulk-fit-upload";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { sessionColorClass } from "@/components/calendar-day-cell";
 import { cn } from "@/lib/utils";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { ReadinessBadge } from "@/components/readiness-badge";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/")({
@@ -302,28 +310,39 @@ function SessionsList() {
           )}
 
           {(isCoach || athlete) && athleteOptions.length > 1 && (
-            <Card className="mt-3">
+            <Card className="mt-3 border-[var(--accent-red)]/40">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Filter</CardTitle>
+                <CardTitle className="text-sm flex items-center gap-1.5">
+                  <Users className="h-3.5 w-3.5 text-[var(--accent-red)]" /> Athlete
+                </CardTitle>
               </CardHeader>
-              <CardContent className="flex flex-col gap-2">
+              <CardContent className="flex flex-col gap-3">
                 <Select value={filterAthlete} onValueChange={setFilterAthlete}>
-                  <SelectTrigger className="h-9 w-full"><SelectValue placeholder="All athletes" /></SelectTrigger>
+                  <SelectTrigger className="h-9 w-full">
+                    <SelectValue placeholder="All athletes" />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All athletes</SelectItem>
                     {athleteOptions.map(([id, name]) => (
-                      <SelectItem key={id} value={id}>{name}</SelectItem>
+                      <SelectItem key={id} value={id}>
+                        {name}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                <Select value={filterStatus} onValueChange={setFilterStatus}>
-                  <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All statuses</SelectItem>
-                    <SelectItem value="planned">Planned</SelectItem>
-                    <SelectItem value="done">Completed</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-1 block">Status</Label>
+                  <Select value={filterStatus} onValueChange={setFilterStatus}>
+                    <SelectTrigger className="h-9 w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All statuses</SelectItem>
+                      <SelectItem value="planned">Planned</SelectItem>
+                      <SelectItem value="done">Completed</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </CardContent>
             </Card>
           )}
@@ -346,23 +365,47 @@ function SessionsList() {
                       const startedAt = sessionStartTimes?.get(s.id);
                       const localTime = startedAt ? formatLocalTime(startedAt, s.athletes?.timezone) : null;
                       return (
-                        <Link key={s.id} to="/app/sessions/$sessionId" params={{ sessionId: s.id }}
-                          className="flex items-stretch gap-3 hover:bg-accent/40 overflow-hidden">
+                        <Link
+                          key={s.id}
+                          to="/app/sessions/$sessionId"
+                          params={{ sessionId: s.id }}
+                          className="flex items-stretch gap-3 hover:bg-accent/40 overflow-hidden"
+                        >
                           <span className={cn("w-1.5 shrink-0", sessionColorClass(s))} />
                           <div className="flex-1 flex items-center justify-between gap-2 py-3 pr-4 min-w-0">
                             <div className="flex items-center gap-2 min-w-0">
                               <ActivityIcon session={s} size={18} className="text-muted-foreground shrink-0" />
                               <div className="min-w-0">
-                              <div className="font-medium truncate">{s.title}</div>
-                              <div className="text-xs text-muted-foreground truncate">
-                                {new Date(s.session_date + "T00:00:00").toLocaleDateString(undefined, { weekday: "long" })}, {s.session_date}{localTime ? ` · ${localTime}` : ""} · {s.athletes?.name} · {sessionClassificationLabel(s)}
-                              </div>
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className="font-medium truncate">{s.title}</span>
+                                  {s.athletes?.name && (
+                                    <Badge
+                                      variant="secondary"
+                                      className="shrink-0 text-[10px] font-bold uppercase tracking-wide"
+                                    >
+                                      {s.athletes.name}
+                                    </Badge>
+                                  )}
+                                </div>
+                                <div className="text-xs text-muted-foreground truncate">
+                                  {new Date(s.session_date + "T00:00:00").toLocaleDateString(undefined, {
+                                    weekday: "long",
+                                  })}
+                                  , {s.session_date}
+                                  {localTime ? ` · ${localTime}` : ""} · {sessionClassificationLabel(s)}
+                                </div>
                               </div>
                             </div>
                             <div className="flex gap-2 items-center text-sm">
-                              {s.total_distance_m && <span className="text-muted-foreground">{metersFmt(s.total_distance_m)}</span>}
-                              {s.total_time_seconds && <span className="text-muted-foreground">{secToClock(s.total_time_seconds)}</span>}
-                              <Badge variant={s.completed_at ? "default" : "outline"}>{s.completed_at ? "Done" : "Planned"}</Badge>
+                              {s.total_distance_m && (
+                                <span className="text-muted-foreground">{metersFmt(s.total_distance_m)}</span>
+                              )}
+                              {s.total_time_seconds && (
+                                <span className="text-muted-foreground">{secToClock(s.total_time_seconds)}</span>
+                              )}
+                              <Badge variant={s.completed_at ? "default" : "outline"}>
+                                {s.completed_at ? "Done" : "Planned"}
+                              </Badge>
                             </div>
                           </div>
                         </Link>
