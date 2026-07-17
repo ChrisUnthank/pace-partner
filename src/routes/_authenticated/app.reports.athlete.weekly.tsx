@@ -42,12 +42,39 @@ function monthEnd(dateStr: string) {
   return d.toISOString().slice(0, 10);
 }
 function formatDateLong(dateStr: string) {
-  return new Date(dateStr + "T00:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+  return new Date(dateStr + "T00:00:00").toLocaleDateString("en-AU", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 }
 function periodLabel(type: PeriodType) {
   if (type === "weekly") return "Weekly";
   if (type === "monthly") return "Monthly";
   return "Custom period";
+}
+
+// Session type vocabulary — mirrors sessions.intent (the same values
+// session-files.functions.ts's classifier and the Training Plans
+// effort_type→intent mapping already produce), plus "cross_train" and a
+// catch-all "other" for anything with no intent set (rest days, unclassified
+// manual entries). Shared shape for both the type-breakdown bars here and
+// the per-athlete mini graph on the coach report.
+const SESSION_TYPES: { key: string; label: string; color: string }[] = [
+  { key: "easy", label: "Easy", color: "#64748b" },
+  { key: "tempo", label: "Tempo", color: "#0ea5e9" },
+  { key: "threshold", label: "Threshold", color: "#f59e0b" },
+  { key: "vo2", label: "VO2", color: "var(--accent-red)" },
+  { key: "cross_train", label: "Cross-train", color: "#8b5cf6" },
+  { key: "other", label: "Other", color: "#94a3b8" },
+];
+function sessionTypeCounts(sessions: any[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const s of sessions) {
+    const key = s.intent ?? (s.day_type === "cross_training" ? "cross_train" : "other");
+    counts[key] = (counts[key] ?? 0) + 1;
+  }
+  return counts;
 }
 
 function AthleteReportPage() {
@@ -68,7 +95,9 @@ function AthleteReportPage() {
   const [athleteId, setAthleteId] = useState<string>("");
   const activeAthleteId = athleteId || myAthlete?.id || "";
   const activeAthleteName =
-    activeAthleteId === myAthlete?.id ? myAthlete?.name : (roster ?? []).find((a: any) => a.id === activeAthleteId)?.name;
+    activeAthleteId === myAthlete?.id
+      ? myAthlete?.name
+      : (roster ?? []).find((a: any) => a.id === activeAthleteId)?.name;
 
   const [periodType, setPeriodType] = useState<PeriodType>("weekly");
   const [anchor, setAnchor] = useState(todayISO());
@@ -93,7 +122,7 @@ function AthleteReportPage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("sessions")
-        .select("id, title, session_date, total_distance_m, total_time_seconds, rpe, completed_at, day_type")
+        .select("id, title, session_date, total_distance_m, total_time_seconds, rpe, completed_at, day_type, intent")
         .eq("athlete_id", activeAthleteId)
         .gte("session_date", periodStart)
         .lte("session_date", periodEnd)
@@ -155,7 +184,13 @@ function AthleteReportPage() {
   });
 
   const { data: feelRows } = useQuery({
-    queryKey: ["report-feel", activeAthleteId, periodStart, periodEnd, (sessions ?? []).map((s: any) => s.id).join(",")],
+    queryKey: [
+      "report-feel",
+      activeAthleteId,
+      periodStart,
+      periodEnd,
+      (sessions ?? []).map((s: any) => s.id).join(","),
+    ],
     enabled: enabled && (sessions ?? []).length > 0,
     queryFn: async () => {
       const ids = (sessions ?? []).map((s: any) => s.id);
@@ -210,6 +245,8 @@ function AthleteReportPage() {
     };
   }, [sessions, weeklyDistanceRow, feelRows, loadRows, periodType]);
 
+  const typeCounts = useMemo(() => sessionTypeCounts((sessions ?? []).filter((s: any) => s.completed_at)), [sessions]);
+
   const paceZones = (zoneTime ?? []).filter((r: any) => r.source === "pace");
   const hrZones = (zoneTime ?? []).filter((r: any) => r.source === "hr");
 
@@ -256,12 +293,22 @@ function AthleteReportPage() {
             {isCoach && (
               <div>
                 <Label className="text-xs">Athlete</Label>
-                <Select value={activeAthleteId} onValueChange={(v) => { setAthleteId(v); setGenerated(false); }}>
-                  <SelectTrigger><SelectValue placeholder="Pick athlete" /></SelectTrigger>
+                <Select
+                  value={activeAthleteId}
+                  onValueChange={(v) => {
+                    setAthleteId(v);
+                    setGenerated(false);
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Pick athlete" />
+                  </SelectTrigger>
                   <SelectContent>
                     {myAthlete && <SelectItem value={myAthlete.id}>{myAthlete.name} (me)</SelectItem>}
                     {(roster ?? []).map((a: any) => (
-                      <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
+                      <SelectItem key={a.id} value={a.id}>
+                        {a.name}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -269,8 +316,16 @@ function AthleteReportPage() {
             )}
             <div>
               <Label className="text-xs">Time frame</Label>
-              <Select value={periodType} onValueChange={(v) => { setPeriodType(v as PeriodType); setGenerated(false); }}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Select
+                value={periodType}
+                onValueChange={(v) => {
+                  setPeriodType(v as PeriodType);
+                  setGenerated(false);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="weekly">Weekly</SelectItem>
                   <SelectItem value="monthly">Monthly</SelectItem>
@@ -281,18 +336,41 @@ function AthleteReportPage() {
 
             {periodType !== "custom" ? (
               <div>
-                <Label className="text-xs">{periodType === "weekly" ? "Any day in the week" : "Any day in the month"}</Label>
-                <Input type="date" value={anchor} onChange={(e) => { setAnchor(e.target.value); setGenerated(false); }} />
+                <Label className="text-xs">
+                  {periodType === "weekly" ? "Any day in the week" : "Any day in the month"}
+                </Label>
+                <Input
+                  type="date"
+                  value={anchor}
+                  onChange={(e) => {
+                    setAnchor(e.target.value);
+                    setGenerated(false);
+                  }}
+                />
               </div>
             ) : (
               <>
                 <div>
                   <Label className="text-xs">From</Label>
-                  <Input type="date" value={customFrom} onChange={(e) => { setCustomFrom(e.target.value); setGenerated(false); }} />
+                  <Input
+                    type="date"
+                    value={customFrom}
+                    onChange={(e) => {
+                      setCustomFrom(e.target.value);
+                      setGenerated(false);
+                    }}
+                  />
                 </div>
                 <div>
                   <Label className="text-xs">To</Label>
-                  <Input type="date" value={customTo} onChange={(e) => { setCustomTo(e.target.value); setGenerated(false); }} />
+                  <Input
+                    type="date"
+                    value={customTo}
+                    onChange={(e) => {
+                      setCustomTo(e.target.value);
+                      setGenerated(false);
+                    }}
+                  />
                 </div>
               </>
             )}
@@ -327,40 +405,59 @@ function AthleteReportPage() {
             ) : (
               <div id="report-printable" className="space-y-6">
                 <div>
-                  <h2 className="text-xl font-bold">{activeAthleteName ?? "Athlete"} — {periodLabel(periodType)} Report</h2>
+                  <h2 className="text-xl font-bold">
+                    {activeAthleteName ?? "Athlete"} — {periodLabel(periodType)} Report
+                  </h2>
                   <p className="text-sm text-muted-foreground">
                     {formatDateLong(periodStart)} – {formatDateLong(periodEnd)}
                   </p>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <StatBox label="Sessions" value={`${stats.completedCount}/${stats.total}`} sub="completed / planned" />
+                  <StatBox
+                    label="Sessions"
+                    value={`${stats.completedCount}/${stats.total}`}
+                    sub="completed / planned"
+                  />
                   <StatBox label="Distance" value={metersFmt(stats.totalDistance)} />
                   <StatBox label="Time" value={secToClock(stats.totalTime)} />
                   <StatBox label="Avg pace" value={stats.avgPace ? `${secToClock(stats.avgPace)}/km` : "—"} />
                   <StatBox label="Total load" value={stats.periodLoad ? String(Math.round(stats.periodLoad)) : "—"} />
                   <StatBox label="Fitness (CTL)" value={stats.ctl != null ? String(Math.round(stats.ctl)) : "—"} />
                   <StatBox label="Form (TSB)" value={stats.tsb != null ? String(Math.round(stats.tsb)) : "—"} />
-                  <StatBox label="Avg RPE" value={stats.avgRpe != null ? stats.avgRpe.toFixed(1) : "—"} />
+                  <StatBox label="Fatigue (ATL)" value={stats.atl != null ? String(Math.round(stats.atl)) : "—"} />
                 </div>
 
+                <TypeBreakdownCard counts={typeCounts} />
+
                 <Card>
-                  <CardHeader className="pb-2"><CardTitle className="text-base">Sessions in this period</CardTitle></CardHeader>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">Sessions in this period</CardTitle>
+                  </CardHeader>
                   <CardContent className="p-0">
                     {!sessions?.length ? (
                       <p className="p-4 text-sm text-muted-foreground">No sessions logged in this period.</p>
                     ) : (
-                      <div className="divide-y">
+                      <div className="divide-y max-h-[420px] overflow-y-auto print:max-h-none print:overflow-visible">
                         {sessions.map((s: any) => (
-                          <div key={s.id} className="flex items-center justify-between px-4 py-2 text-sm">
-                            <div className="min-w-0">
-                              <div className="font-medium truncate">{s.title ?? "Untitled session"}</div>
-                              <div className="text-xs text-muted-foreground">{s.session_date}</div>
-                            </div>
-                            <div className="text-right shrink-0 text-xs text-muted-foreground">
-                              <div>{metersFmt(s.total_distance_m ?? 0)} · {secToClock(s.total_time_seconds ?? 0)}</div>
-                              <div>{s.completed_at ? "Completed" : "Not completed"}{s.rpe != null ? ` · RPE ${s.rpe}` : ""}</div>
-                            </div>
+                          <div key={s.id} className="flex items-center gap-2 px-3 py-1.5 text-xs">
+                            <span className="w-16 shrink-0 text-muted-foreground tabular-nums">
+                              {s.session_date.slice(5)}
+                            </span>
+                            <TypeDot type={s.intent ?? (s.day_type === "cross_training" ? "cross_train" : "other")} />
+                            <span className="min-w-0 flex-1 truncate font-medium">{s.title ?? "Untitled session"}</span>
+                            <span className="shrink-0 tabular-nums text-muted-foreground w-16 text-right">
+                              {metersFmt(s.total_distance_m ?? 0)}
+                            </span>
+                            <span className="shrink-0 tabular-nums text-muted-foreground w-14 text-right">
+                              {secToClock(s.total_time_seconds ?? 0)}
+                            </span>
+                            <span
+                              className={`shrink-0 w-4 text-center ${s.completed_at ? "text-emerald-600" : "text-muted-foreground/50"}`}
+                              title={s.completed_at ? "Completed" : "Not completed"}
+                            >
+                              {s.completed_at ? "✓" : "·"}
+                            </span>
                           </div>
                         ))}
                       </div>
@@ -377,11 +474,15 @@ function AthleteReportPage() {
 
                 {periodPbs.length > 0 && (
                   <Card>
-                    <CardHeader className="pb-2"><CardTitle className="text-base">Personal bests in this period</CardTitle></CardHeader>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base">Personal bests in this period</CardTitle>
+                    </CardHeader>
                     <CardContent className="space-y-1">
                       {periodPbs.map((p: any) => (
                         <div key={p.id} className="text-sm flex justify-between">
-                          <span>{metersFmt(p.distance_m)} · {p.event_name ?? p.performance_date}</span>
+                          <span>
+                            {metersFmt(p.distance_m)} · {p.event_name ?? p.performance_date}
+                          </span>
                           <span className="font-medium tabular-nums">{secToClock(p.time_seconds)}</span>
                         </div>
                       ))}
@@ -390,7 +491,8 @@ function AthleteReportPage() {
                 )}
 
                 <p className="text-xs text-muted-foreground print:mt-8">
-                  Generated {new Date().toLocaleString("en-AU")} — compiled directly from recorded training data, no AI summarization.
+                  Generated {new Date().toLocaleString("en-AU")} — compiled directly from recorded training data, no AI
+                  summarization.
                 </p>
               </div>
             )}
@@ -411,6 +513,42 @@ function StatBox({ label, value, sub }: { label: string; value: string; sub?: st
   );
 }
 
+function TypeDot({ type }: { type: string }) {
+  const t = SESSION_TYPES.find((x) => x.key === type) ?? SESSION_TYPES[SESSION_TYPES.length - 1];
+  return (
+    <span className="inline-block h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: t.color }} title={t.label} />
+  );
+}
+
+function TypeBreakdownCard({ counts }: { counts: Record<string, number> }) {
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  const present = SESSION_TYPES.filter((t) => (counts[t.key] ?? 0) > 0);
+  if (total === 0) return null;
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Sessions by type</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-1.5">
+        {present.map((t) => {
+          const n = counts[t.key] ?? 0;
+          const pct = total > 0 ? Math.round((n / total) * 100) : 0;
+          return (
+            <div key={t.key} className="flex items-center gap-2 text-sm">
+              <TypeDot type={t.key} />
+              <span className="w-24 shrink-0 text-xs text-muted-foreground">{t.label}</span>
+              <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+                <div className="h-full" style={{ width: `${pct}%`, backgroundColor: t.color }} />
+              </div>
+              <span className="w-6 text-right tabular-nums text-xs">{n}</span>
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
+}
+
 function ZoneTable({ title, rows }: { title: string; rows: any[] }) {
   const order = ["z1", "z2", "z3", "z4", "z5"];
   const byZone = new Map<string, number>();
@@ -418,7 +556,9 @@ function ZoneTable({ title, rows }: { title: string; rows: any[] }) {
   const totalSec = Array.from(byZone.values()).reduce((a, b) => a + b, 0);
   return (
     <Card>
-      <CardHeader className="pb-2"><CardTitle className="text-base">{title}</CardTitle></CardHeader>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">{title}</CardTitle>
+      </CardHeader>
       <CardContent className="space-y-1.5">
         {order.map((z) => {
           const sec = byZone.get(z) ?? 0;
