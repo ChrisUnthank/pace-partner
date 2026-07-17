@@ -22,7 +22,7 @@ function ReportsHub() {
         </p>
 
         <div className="grid sm:grid-cols-2 gap-4">
-          <Link to="/app/reports/athlete-weekly">
+          <Link to="/app/reports/athlete/weekly">
             <Card className="hover:bg-accent/40 transition h-full">
               <CardHeader>
                 <FileText className="h-5 w-5 text-[var(--accent-red)] mb-1" />

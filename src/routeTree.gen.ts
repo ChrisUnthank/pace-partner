@@ -32,6 +32,7 @@ import { Route as AuthenticatedAppCalculatorsRouteImport } from './routes/_authe
 import { Route as AuthenticatedAppAthletesRouteImport } from './routes/_authenticated/app.athletes'
 import { Route as AuthenticatedAppAnalyticsRouteImport } from './routes/_authenticated/app.analytics'
 import { Route as AuthenticatedAppSessionsIndexRouteImport } from './routes/_authenticated/app.sessions.index'
+import { Route as AuthenticatedAppReportsIndexRouteImport } from './routes/_authenticated/app.reports.index'
 import { Route as AuthenticatedAppRacesIndexRouteImport } from './routes/_authenticated/app.races.index'
 import { Route as AuthenticatedAppCoachIndexRouteImport } from './routes/_authenticated/app.coach.index'
 import { Route as AuthenticatedAppCalculatorsIndexRouteImport } from './routes/_authenticated/app.calculators.index'
@@ -49,6 +50,7 @@ import { Route as AuthenticatedAppAthletesAthleteIdRouteImport } from './routes/
 import { Route as AuthenticatedAppSessionsSessionIdIndexRouteImport } from './routes/_authenticated/app.sessions.$sessionId.index'
 import { Route as AuthenticatedAppRacesRaceIdIndexRouteImport } from './routes/_authenticated/app.races.$raceId.index'
 import { Route as AuthenticatedAppSessionsSessionIdAnalysisRouteImport } from './routes/_authenticated/app.sessions.$sessionId.analysis'
+import { Route as AuthenticatedAppReportsAthleteWeeklyRouteImport } from './routes/_authenticated/app.reports.athlete.weekly'
 import { Route as AuthenticatedAppRacesRaceIdAnalysisRouteImport } from './routes/_authenticated/app.races.$raceId.analysis'
 
 const AuthRoute = AuthRouteImport.update({
@@ -175,6 +177,12 @@ const AuthenticatedAppSessionsIndexRoute =
     path: '/',
     getParentRoute: () => AuthenticatedAppSessionsRoute,
   } as any)
+const AuthenticatedAppReportsIndexRoute =
+  AuthenticatedAppReportsIndexRouteImport.update({
+    id: '/app/reports/',
+    path: '/app/reports/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAppRacesIndexRoute =
   AuthenticatedAppRacesIndexRouteImport.update({
     id: '/',
@@ -277,6 +285,12 @@ const AuthenticatedAppSessionsSessionIdAnalysisRoute =
     path: '/analysis',
     getParentRoute: () => AuthenticatedAppSessionsSessionIdRoute,
   } as any)
+const AuthenticatedAppReportsAthleteWeeklyRoute =
+  AuthenticatedAppReportsAthleteWeeklyRouteImport.update({
+    id: '/app/reports/athlete/weekly',
+    path: '/app/reports/athlete/weekly',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAppRacesRaceIdAnalysisRoute =
   AuthenticatedAppRacesRaceIdAnalysisRouteImport.update({
     id: '/analysis',
@@ -320,8 +334,10 @@ export interface FileRoutesByFullPath {
   '/app/calculators/': typeof AuthenticatedAppCalculatorsIndexRoute
   '/app/coach/': typeof AuthenticatedAppCoachIndexRoute
   '/app/races/': typeof AuthenticatedAppRacesIndexRoute
+  '/app/reports/': typeof AuthenticatedAppReportsIndexRoute
   '/app/sessions/': typeof AuthenticatedAppSessionsIndexRoute
   '/app/races/$raceId/analysis': typeof AuthenticatedAppRacesRaceIdAnalysisRoute
+  '/app/reports/athlete/weekly': typeof AuthenticatedAppReportsAthleteWeeklyRoute
   '/app/sessions/$sessionId/analysis': typeof AuthenticatedAppSessionsSessionIdAnalysisRoute
   '/app/races/$raceId/': typeof AuthenticatedAppRacesRaceIdIndexRoute
   '/app/sessions/$sessionId/': typeof AuthenticatedAppSessionsSessionIdIndexRoute
@@ -356,8 +372,10 @@ export interface FileRoutesByTo {
   '/app/calculators': typeof AuthenticatedAppCalculatorsIndexRoute
   '/app/coach': typeof AuthenticatedAppCoachIndexRoute
   '/app/races': typeof AuthenticatedAppRacesIndexRoute
+  '/app/reports': typeof AuthenticatedAppReportsIndexRoute
   '/app/sessions': typeof AuthenticatedAppSessionsIndexRoute
   '/app/races/$raceId/analysis': typeof AuthenticatedAppRacesRaceIdAnalysisRoute
+  '/app/reports/athlete/weekly': typeof AuthenticatedAppReportsAthleteWeeklyRoute
   '/app/sessions/$sessionId/analysis': typeof AuthenticatedAppSessionsSessionIdAnalysisRoute
   '/app/races/$raceId': typeof AuthenticatedAppRacesRaceIdIndexRoute
   '/app/sessions/$sessionId': typeof AuthenticatedAppSessionsSessionIdIndexRoute
@@ -400,8 +418,10 @@ export interface FileRoutesById {
   '/_authenticated/app/calculators/': typeof AuthenticatedAppCalculatorsIndexRoute
   '/_authenticated/app/coach/': typeof AuthenticatedAppCoachIndexRoute
   '/_authenticated/app/races/': typeof AuthenticatedAppRacesIndexRoute
+  '/_authenticated/app/reports/': typeof AuthenticatedAppReportsIndexRoute
   '/_authenticated/app/sessions/': typeof AuthenticatedAppSessionsIndexRoute
   '/_authenticated/app/races/$raceId/analysis': typeof AuthenticatedAppRacesRaceIdAnalysisRoute
+  '/_authenticated/app/reports/athlete/weekly': typeof AuthenticatedAppReportsAthleteWeeklyRoute
   '/_authenticated/app/sessions/$sessionId/analysis': typeof AuthenticatedAppSessionsSessionIdAnalysisRoute
   '/_authenticated/app/races/$raceId/': typeof AuthenticatedAppRacesRaceIdIndexRoute
   '/_authenticated/app/sessions/$sessionId/': typeof AuthenticatedAppSessionsSessionIdIndexRoute
@@ -444,8 +464,10 @@ export interface FileRouteTypes {
     | '/app/calculators/'
     | '/app/coach/'
     | '/app/races/'
+    | '/app/reports/'
     | '/app/sessions/'
     | '/app/races/$raceId/analysis'
+    | '/app/reports/athlete/weekly'
     | '/app/sessions/$sessionId/analysis'
     | '/app/races/$raceId/'
     | '/app/sessions/$sessionId/'
@@ -480,8 +502,10 @@ export interface FileRouteTypes {
     | '/app/calculators'
     | '/app/coach'
     | '/app/races'
+    | '/app/reports'
     | '/app/sessions'
     | '/app/races/$raceId/analysis'
+    | '/app/reports/athlete/weekly'
     | '/app/sessions/$sessionId/analysis'
     | '/app/races/$raceId'
     | '/app/sessions/$sessionId'
@@ -523,8 +547,10 @@ export interface FileRouteTypes {
     | '/_authenticated/app/calculators/'
     | '/_authenticated/app/coach/'
     | '/_authenticated/app/races/'
+    | '/_authenticated/app/reports/'
     | '/_authenticated/app/sessions/'
     | '/_authenticated/app/races/$raceId/analysis'
+    | '/_authenticated/app/reports/athlete/weekly'
     | '/_authenticated/app/sessions/$sessionId/analysis'
     | '/_authenticated/app/races/$raceId/'
     | '/_authenticated/app/sessions/$sessionId/'
@@ -703,6 +729,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppSessionsIndexRouteImport
       parentRoute: typeof AuthenticatedAppSessionsRoute
     }
+    '/_authenticated/app/reports/': {
+      id: '/_authenticated/app/reports/'
+      path: '/app/reports'
+      fullPath: '/app/reports/'
+      preLoaderRoute: typeof AuthenticatedAppReportsIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/app/races/': {
       id: '/_authenticated/app/races/'
       path: '/'
@@ -821,6 +854,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/app/sessions/$sessionId/analysis'
       preLoaderRoute: typeof AuthenticatedAppSessionsSessionIdAnalysisRouteImport
       parentRoute: typeof AuthenticatedAppSessionsSessionIdRoute
+    }
+    '/_authenticated/app/reports/athlete/weekly': {
+      id: '/_authenticated/app/reports/athlete/weekly'
+      path: '/app/reports/athlete/weekly'
+      fullPath: '/app/reports/athlete/weekly'
+      preLoaderRoute: typeof AuthenticatedAppReportsAthleteWeeklyRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/app/races/$raceId/analysis': {
       id: '/_authenticated/app/races/$raceId/analysis'
@@ -964,6 +1004,8 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAppIndexRoute: typeof AuthenticatedAppIndexRoute
   AuthenticatedAppCoachSlugRoute: typeof AuthenticatedAppCoachSlugRoute
   AuthenticatedAppCoachIndexRoute: typeof AuthenticatedAppCoachIndexRoute
+  AuthenticatedAppReportsIndexRoute: typeof AuthenticatedAppReportsIndexRoute
+  AuthenticatedAppReportsAthleteWeeklyRoute: typeof AuthenticatedAppReportsAthleteWeeklyRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
@@ -987,6 +1029,9 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAppIndexRoute: AuthenticatedAppIndexRoute,
   AuthenticatedAppCoachSlugRoute: AuthenticatedAppCoachSlugRoute,
   AuthenticatedAppCoachIndexRoute: AuthenticatedAppCoachIndexRoute,
+  AuthenticatedAppReportsIndexRoute: AuthenticatedAppReportsIndexRoute,
+  AuthenticatedAppReportsAthleteWeeklyRoute:
+    AuthenticatedAppReportsAthleteWeeklyRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =
@@ -1004,13 +1049,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
