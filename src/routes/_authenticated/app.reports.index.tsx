@@ -22,13 +22,26 @@ function ReportsHub() {
         </p>
 
         <div className="grid sm:grid-cols-2 gap-4">
-          <Link to="/app/reports/athlete/weekly">
+          <Link to="/app/reports/athlete-weekly">
             <Card className="hover:bg-accent/40 transition h-full">
               <CardHeader>
                 <FileText className="h-5 w-5 text-[var(--accent-red)] mb-1" />
-                <CardTitle className="text-base">Athlete Weekly Report</CardTitle>
+                <CardTitle className="text-base">Athlete Report</CardTitle>
                 <CardDescription>
-                  Distance, load, zones, sessions, and PBs for one athlete's week.
+                  Distance, load, zones, sessions, and PBs for one athlete — weekly, monthly, or a custom date range.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+          </Link>
+
+          <Link to="/app/reports/coach-weekly">
+            <Card className="hover:bg-accent/40 transition h-full">
+              <CardHeader>
+                <Users className="h-5 w-5 text-[var(--accent-red)] mb-1" />
+                <CardTitle className="text-base">Coach Roster Summary</CardTitle>
+                <CardDescription>
+                  Roster-wide view: volume, completion, and flags across every athlete — weekly, monthly, or a custom
+                  date range.
                 </CardDescription>
               </CardHeader>
             </Card>
@@ -37,22 +50,13 @@ function ReportsHub() {
           <Card className="opacity-60 h-full">
             <CardHeader>
               <div className="flex items-center justify-between">
-                <Users className="h-5 w-5 text-muted-foreground mb-1" />
-                <Badge variant="outline" className="text-[10px]">Coming soon</Badge>
-              </div>
-              <CardTitle className="text-base">Coach Weekly Summary</CardTitle>
-              <CardDescription>Roster-wide view: volume, completion, and flags across every athlete.</CardDescription>
-            </CardHeader>
-          </Card>
-
-          <Card className="opacity-60 h-full">
-            <CardHeader>
-              <div className="flex items-center justify-between">
                 <ClipboardList className="h-5 w-5 text-muted-foreground mb-1" />
                 <Badge variant="outline" className="text-[10px]">Coming soon</Badge>
               </div>
               <CardTitle className="text-base">Training Plan Report</CardTitle>
-              <CardDescription>Planned vs. actual for an assigned plan — weekly, monthly, or by block.</CardDescription>
+              <CardDescription>
+                Planned vs. actual for an assigned plan — weekly, monthly, by training block, or a custom date range.
+              </CardDescription>
             </CardHeader>
           </Card>
         </div>
