@@ -56,21 +56,43 @@ function periodLabel(type: PeriodType) {
 // catch-all "other" for anything with no intent set (rest days, unclassified
 // manual entries). Shared shape for both the type-breakdown bars here and
 // the per-athlete mini graph on the coach report.
+// Same 6-zone palette used everywhere else (Zones card, calendar,
+// session/race analysis) — was previously a separate, uncoordinated color
+// set here, and was also missing "aerobic" and "anaerobic" as valid
+// categories entirely (a session classified as either would silently never
+// show up in the breakdown below, which is why "Easy" sessions that
+// actually classified as Z2/aerobic looked like they'd vanished).
 const SESSION_TYPES: { key: string; label: string; color: string }[] = [
-  { key: "easy", label: "Easy", color: "#64748b" },
-  { key: "tempo", label: "Tempo", color: "#0ea5e9" },
-  { key: "threshold", label: "Threshold", color: "#f59e0b" },
-  { key: "vo2", label: "VO2", color: "var(--accent-red)" },
-  { key: "cross_train", label: "Cross-train", color: "#8b5cf6" },
-  { key: "other", label: "Other", color: "#94a3b8" },
+  { key: "easy", label: "Easy", color: "#34d399" },
+  { key: "aerobic", label: "Aerobic", color: "#38bdf8" },
+  { key: "tempo", label: "Tempo", color: "#fbbf24" },
+  { key: "threshold", label: "Threshold", color: "#f97316" },
+  { key: "vo2", label: "VO2", color: "#ef4444" },
+  { key: "anaerobic", label: "Anaerobic", color: "#9333ea" },
+  { key: "cross_train", label: "Cross-train", color: "#94a3b8" },
+  { key: "other", label: "Other", color: "#d6d3d1" },
 ];
-function sessionTypeCounts(sessions: any[]): Record<string, number> {
-  const counts: Record<string, number> = {};
+// Distance/time per type, so pace can be shown per type rather than one
+// blended overall number — averaging an easy run's pace with a VO2
+// interval's pace produces a figure that doesn't actually represent either
+// of them. Warmup, cooldown, and recovery ARE included (they're real
+// continuous effort, same as the classifier already treats them) — only
+// genuinely stopped/idle time is excluded, via total_moving_time_seconds
+// (elapsed time minus detected real stops), the same "moving time" the
+// session Overview page's own Total Avg Pace already prefers, for the
+// same reason: a shoe-change pause or a gap between merged files shouldn't
+// make the pace look slower than the athlete actually ran.
+function sessionTypeStats(sessions: any[]): Record<string, { count: number; distance: number; time: number }> {
+  const stats: Record<string, { count: number; distance: number; time: number }> = {};
   for (const s of sessions) {
     const key = s.intent ?? (s.day_type === "cross_training" ? "cross_train" : "other");
-    counts[key] = (counts[key] ?? 0) + 1;
+    const cur = stats[key] ?? { count: 0, distance: 0, time: 0 };
+    cur.count += 1;
+    cur.distance += Number(s.total_distance_m ?? 0);
+    cur.time += Number(s.total_moving_time_seconds ?? s.total_time_seconds ?? 0);
+    stats[key] = cur;
   }
-  return counts;
+  return stats;
 }
 
 function AthleteReportPage() {
@@ -116,7 +138,7 @@ function AthleteReportPage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("sessions")
-        .select("id, title, session_date, total_distance_m, total_time_seconds, rpe, completed_at, day_type, intent")
+        .select("id, title, session_date, total_distance_m, total_time_seconds, total_moving_time_seconds, rpe, completed_at, day_type, intent")
         .eq("athlete_id", activeAthleteId)
         .gte("session_date", periodStart)
         .lte("session_date", periodEnd)
@@ -233,7 +255,7 @@ function AthleteReportPage() {
     };
   }, [sessions, weeklyDistanceRow, feelRows, loadRows, periodType]);
 
-  const typeCounts = useMemo(() => sessionTypeCounts((sessions ?? []).filter((s: any) => s.completed_at)), [sessions]);
+  const typeStats = useMemo(() => sessionTypeStats((sessions ?? []).filter((s: any) => s.completed_at)), [sessions]);
 
   const paceZones = (zoneTime ?? []).filter((r: any) => r.source === "pace");
   const hrZones = (zoneTime ?? []).filter((r: any) => r.source === "hr");
@@ -362,14 +384,13 @@ function AthleteReportPage() {
                   <StatBox label="Sessions" value={`${stats.completedCount}/${stats.total}`} sub="completed / planned" />
                   <StatBox label="Distance" value={metersFmt(stats.totalDistance)} />
                   <StatBox label="Time" value={secToClock(stats.totalTime)} />
-                  <StatBox label="Avg pace" value={stats.avgPace ? `${secToClock(stats.avgPace)}/km` : "—"} />
                   <StatBox label="Total load" value={stats.periodLoad ? String(Math.round(stats.periodLoad)) : "—"} />
                   <StatBox label="Fitness" value={stats.ctl != null ? String(Math.round(stats.ctl)) : "—"} />
                   <StatBox label="Form" value={stats.tsb != null ? String(Math.round(stats.tsb)) : "—"} />
                   <StatBox label="Fatigue" value={stats.atl != null ? String(Math.round(stats.atl)) : "—"} />
                 </div>
 
-                <TypeBreakdownCard counts={typeCounts} />
+                <TypeBreakdownCard stats={typeStats} />
 
                 <Card>
                   <CardHeader className="pb-2"><CardTitle className="text-base">Sessions in this period</CardTitle></CardHeader>
@@ -450,17 +471,21 @@ function TypeDot({ type }: { type: string }) {
   return <span className="inline-block h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: t.color }} title={t.label} />;
 }
 
-function TypeBreakdownCard({ counts }: { counts: Record<string, number> }) {
-  const total = Object.values(counts).reduce((a, b) => a + b, 0);
-  const present = SESSION_TYPES.filter((t) => (counts[t.key] ?? 0) > 0);
+function TypeBreakdownCard({ stats }: { stats: Record<string, { count: number; distance: number; time: number }> }) {
+  const total = Object.values(stats).reduce((a, b) => a + b.count, 0);
+  const present = SESSION_TYPES.filter((t) => (stats[t.key]?.count ?? 0) > 0);
   if (total === 0) return null;
   return (
     <Card>
-      <CardHeader className="pb-2"><CardTitle className="text-base">Sessions by type</CardTitle></CardHeader>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Sessions by type</CardTitle>
+        <CardDescription>Pace shown per type — an overall blended pace across easy and hard sessions isn't a meaningful number.</CardDescription>
+      </CardHeader>
       <CardContent className="space-y-1.5">
         {present.map((t) => {
-          const n = counts[t.key] ?? 0;
-          const pct = total > 0 ? Math.round((n / total) * 100) : 0;
+          const s = stats[t.key];
+          const pct = total > 0 ? Math.round((s.count / total) * 100) : 0;
+          const avgPace = s.distance > 0 && s.time > 0 ? (s.time / s.distance) * 1000 : null;
           return (
             <div key={t.key} className="flex items-center gap-2 text-sm">
               <TypeDot type={t.key} />
@@ -468,7 +493,10 @@ function TypeBreakdownCard({ counts }: { counts: Record<string, number> }) {
               <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
                 <div className="h-full" style={{ width: `${pct}%`, backgroundColor: t.color }} />
               </div>
-              <span className="w-6 text-right tabular-nums text-xs">{n}</span>
+              <span className="w-16 text-right tabular-nums text-xs text-muted-foreground">
+                {avgPace ? `${secToClock(avgPace)}/km` : "—"}
+              </span>
+              <span className="w-6 text-right tabular-nums text-xs">{s.count}</span>
             </div>
           );
         })}
