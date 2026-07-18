@@ -879,6 +879,7 @@ function SessionAnalysis() {
           }
           results={safeResults}
           steps={safeSteps}
+          terrain={session?.terrain}
         />
 
         {/* ✅ START 2-COLUMN LAYOUT */}
@@ -2032,24 +2033,34 @@ function SessionInsightCard({ rows }: { rows: SplitRow[] }) {
   );
 }
 
-// Bar chart of pace (or time) per rep/lap — "By reps" uses the exact
-// recorded rep splits (the request this was built for: seeing whether the
-// 5x1km held pace across reps at a glance, faster than scanning a table).
-// "By km" recomputes fixed 1km splits from the raw trace instead, for a
-// continuous effort with no rep structure to chart. Only offers the toggle
-// when both are actually meaningful — an interval session doesn't need
-// "by km" (the reps already are the splits), and a continuous run has no
-// reps to chart in the first place.
-function RepPaceChart({ rows, points }: { rows: SplitRow[]; points: any[] }) {
-  const repRows = useMemo(() => rows.filter((r) => r.type === "work" || r.type === "strides"), [rows]);
-  const kmRows = useMemo(() => buildEvenKmSplits(points), [points]);
-  const hasReps = repRows.length > 1;
-  const hasKm = kmRows.length > 1;
+// Bar chart of pace (or time) per rep, or per real track lap / km split.
+// "By reps" uses the exact recorded rep splits (the request this was built
+// for: seeing whether the 5x1km held pace across reps at a glance, faster
+// than scanning a table). The distance-based mode recomputes splits from
+// the raw GPS/watch trace instead, for a continuous effort with no rep
+// structure to chart — using real 400m laps on a track session (matching
+// how a coach actually thinks about track splits) or 1km splits everywhere
+// else. Only offers the toggle when both are actually meaningful — an
+// interval session doesn't need the distance-based mode (the reps already
+// are the splits), and a continuous run has no reps to chart in the first
+// place. See buildEvenDistanceSplits for how dead time (standing drills,
+// walking recoveries not captured as their own step) gets excluded from
+// each split's duration so it doesn't inflate that split's time.
+function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any[]; terrain?: string | null }) {
+  const isTrack = terrain === "track";
+  const splitDistanceM = isTrack ? 400 : 1000;
+  const distanceLabel = isTrack ? "lap" : "km";
+  const distanceLabelCap = isTrack ? "Lap" : "Km";
 
-  const [mode, setMode] = useState<"reps" | "km">(hasReps ? "reps" : "km");
+  const repRows = useMemo(() => rows.filter((r) => r.type === "work" || r.type === "strides"), [rows]);
+  const distanceRows = useMemo(() => buildEvenDistanceSplits(points, splitDistanceM), [points, splitDistanceM]);
+  const hasReps = repRows.length > 1;
+  const hasDistanceSplits = distanceRows.length > 1;
+
+  const [mode, setMode] = useState<"reps" | "distance">(hasReps ? "reps" : "distance");
   const [metric, setMetric] = useState<"pace" | "time">("pace");
 
-  if (!hasReps && !hasKm) return null;
+  if (!hasReps && !hasDistanceSplits) return null;
 
   const chartData =
     mode === "reps"
@@ -2059,7 +2070,12 @@ function RepPaceChart({ rows, points }: { rows: SplitRow[]; points: any[] }) {
           time: r.durationS ?? 0,
           isBest: !!r.isBest,
         }))
-      : kmRows.map((r) => ({ label: `Km ${r.km}`, pace: r.avgPace ?? 0, time: r.durationS, isBest: false }));
+      : distanceRows.map((r) => ({
+          label: `${distanceLabelCap} ${r.index}`,
+          pace: r.avgPace ?? 0,
+          time: r.durationS,
+          isBest: false,
+        }));
 
   const values = chartData.map((d) => Number(d[metric])).filter((v) => v > 0);
   const avgY = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
@@ -2071,11 +2087,13 @@ function RepPaceChart({ rows, points }: { rows: SplitRow[]; points: any[] }) {
           <div>
             <CardTitle>Lap times</CardTitle>
             <CardDescription>
-              {mode === "reps" ? "One bar per recorded rep." : "Recomputed at even 1km splits."}
+              {mode === "reps"
+                ? "One bar per recorded rep."
+                : `Recomputed at even ${distanceLabel === "lap" ? "400m laps" : "1km splits"}, with dead/standing time excluded.`}
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            {hasReps && hasKm && (
+            {hasReps && hasDistanceSplits && (
               <div className="flex border rounded-md overflow-hidden text-xs">
                 <button
                   type="button"
@@ -2086,10 +2104,10 @@ function RepPaceChart({ rows, points }: { rows: SplitRow[]; points: any[] }) {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setMode("km")}
-                  className={`px-2.5 py-1 border-l ${mode === "km" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+                  onClick={() => setMode("distance")}
+                  className={`px-2.5 py-1 border-l ${mode === "distance" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
                 >
-                  By km
+                  {isTrack ? "By laps" : "By km"}
                 </button>
               </div>
             )}
@@ -2152,11 +2170,13 @@ function UnifiedSessionTable({
   results,
   steps,
   speedMode,
+  terrain,
 }: {
   points: any[];
   results: any[];
   steps: any[];
   speedMode: "pace" | "speed";
+  terrain?: string | null;
 }) {
   const [segmentFilter, setSegmentFilter] = useState<ScopeKey>("full");
   const [detailMode, setDetailMode] = useState<"basic" | "advanced">("basic");
@@ -2213,7 +2233,7 @@ function UnifiedSessionTable({
 
   return (
     <>
-      <RepPaceChart rows={rows} points={points} />
+      <RepPaceChart rows={rows} points={points} terrain={terrain} />
       <Card>
         <CardHeader>
           <CardTitle>Session segments</CardTitle>
@@ -2451,33 +2471,72 @@ function buildTraceGroups(points: any[]): TraceGroup[] {
   return groups;
 }
 
-// Buckets the raw trace into fixed 1km chunks regardless of rep/lap
-// boundaries — the "By km" chart mode. Reuses the same per-slice metrics
-// computation buildSplitsFromTrace already relies on, just walking
-// distance-based windows instead of lap/rep windows. Only meaningful for a
-// continuous effort (an easy run, a race) — an interval session with real
-// laps should use "By reps" instead, which is exact rather than a
-// re-bucketed approximation.
-function buildEvenKmSplits(points: any[]): { km: number; durationS: number; distanceM: number; avgPace: number | null }[] {
-  if (!Array.isArray(points) || points.length === 0) return [];
+// A "dead" interval is one where the athlete was essentially stationary —
+// standing drills, a breather, walking back — rather than genuinely
+// covering ground, however slowly. 0.3 m/s is roughly 56 min/km: well
+// below even a very easy walk, so a real (if slow) recovery jog is never
+// caught by this, only true standing/near-zero-movement time. This is
+// deliberately narrower than the "real stop" gap-detection used elsewhere
+// in the app (session-files.functions.ts's 20s-gap rule) because here the
+// watch keeps recording samples throughout a drill instead of leaving a
+// gap — there's no gap to detect, just a long stretch of near-zero
+// displacement that needs to be measured and excluded directly.
+const DEAD_TIME_SPEED_THRESHOLD_MPS = 0.3;
+
+function computeDeadSecondsInSlice(slice: any[]): number {
+  if (!Array.isArray(slice) || slice.length < 2) return 0;
+  let dead = 0;
+  for (let i = 1; i < slice.length; i++) {
+    const dt = Number(slice[i].elapsed_s ?? 0) - Number(slice[i - 1].elapsed_s ?? 0);
+    if (dt <= 0) continue;
+    const dd = Math.max(0, Number(slice[i].distance_m ?? 0) - Number(slice[i - 1].distance_m ?? 0));
+    const speed = dd / dt;
+    if (speed < DEAD_TIME_SPEED_THRESHOLD_MPS) {
+      dead += dt;
+    }
+  }
+  return dead;
+}
+
+// Buckets the raw trace into fixed-distance chunks regardless of rep/lap
+// boundaries — the distance-based "By laps"/"By km" chart mode.
+// splitDistanceM is 400 for a track session (a real lap) or 1000
+// otherwise. Reuses the same per-slice metrics computation
+// buildSplitsFromTrace already relies on, just walking distance-based
+// windows instead of lap/rep windows, then subtracts any dead/standing
+// time (see computeDeadSecondsInSlice) from that window's duration so a
+// warm-up's drills don't get silently baked into a split's pace/time —
+// this is exactly what previously showed a "26:58" split when a warm-up's
+// standing drills happened to fall inside one distance bucket. Only
+// meaningful for a continuous effort (an easy run, a race, a track
+// session) — an interval session with real rep structure should use "By
+// reps" instead, which is exact rather than a re-bucketed approximation.
+function buildEvenDistanceSplits(
+  points: any[],
+  splitDistanceM: number,
+): { index: number; durationS: number; distanceM: number; avgPace: number | null }[] {
+  if (!Array.isArray(points) || points.length === 0 || !splitDistanceM || splitDistanceM <= 0) return [];
   const sorted = [...points].sort((a, b) => Number(a.elapsed_s ?? 0) - Number(b.elapsed_s ?? 0));
   const totalDistance = Number(sorted[sorted.length - 1]?.distance_m ?? 0);
-  if (totalDistance < 1000) return [];
+  if (totalDistance < splitDistanceM) return [];
 
-  const out: { km: number; durationS: number; distanceM: number; avgPace: number | null }[] = [];
-  let kmIndex = 1;
+  const out: { index: number; durationS: number; distanceM: number; avgPace: number | null }[] = [];
+  let splitIndex = 1;
   let sliceStart = 0;
 
   for (let i = 0; i < sorted.length; i++) {
     const d = Number(sorted[i].distance_m ?? 0);
-    if (d >= kmIndex * 1000 || i === sorted.length - 1) {
+    if (d >= splitIndex * splitDistanceM || i === sorted.length - 1) {
       const slice = sorted.slice(sliceStart, i + 1);
       const m = computeMetricsFromTraceSlice(slice);
       if (m.distanceM > 0) {
-        out.push({ km: kmIndex, durationS: m.durationS, distanceM: m.distanceM, avgPace: m.avgPace });
+        const deadS = computeDeadSecondsInSlice(slice);
+        const movingDurationS = Math.max(0, m.durationS - deadS);
+        const avgPace = movingDurationS > 0 && m.distanceM > 0 ? (movingDurationS / m.distanceM) * 1000 : m.avgPace;
+        out.push({ index: splitIndex, durationS: movingDurationS, distanceM: m.distanceM, avgPace });
       }
       sliceStart = i;
-      kmIndex++;
+      splitIndex++;
     }
   }
   return out;
