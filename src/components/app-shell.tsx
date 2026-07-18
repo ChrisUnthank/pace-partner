@@ -26,6 +26,7 @@ import {
   IdCard,
   ListChecks,
   FileText,
+  Flag,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NotificationBell } from "@/components/notification-bell";
@@ -70,6 +71,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     { to: "/app/sessions/calendar", label: "Calendar", icon: CalendarRange, show: true },
     { to: "/app/analytics", label: "Analytics", icon: LineChart, show: true },
     { to: "/app/races", label: "Races", icon: Trophy, show: true },
+    { to: "/app/race-tactics", label: "Race Tactics", icon: Flag, show: isAthlete || isCoach },
     { to: "/app/calculators", label: "Calculators", icon: Calculator, show: true },
     { to: "/app/compare", label: "Compare", icon: GitCompare, show: true },
     { to: "/app/reports", label: "Reports", icon: FileText, show: true },
