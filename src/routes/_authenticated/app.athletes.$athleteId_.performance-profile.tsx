@@ -13,6 +13,7 @@ import { PhysiologicalTestingCard } from "@/components/physiological-testing-car
 import { AthleteIdentityCard, ATHLETE_STATUS_OPTIONS, ATHLETE_STATUS_STYLES } from "@/components/athlete-identity-card";
 import { PerformanceCurveCard } from "@/components/performance-curve-card";
 import { TrainingResponseCard } from "@/components/training-response-card";
+import { StrengthsDevelopmentCard } from "@/components/strengths-development-card";
 
 export const Route = createFileRoute("/_authenticated/app/athletes/$athleteId/performance-profile")({
   component: PerformanceProfilePage,
@@ -117,10 +118,7 @@ function PerformanceProfilePage() {
           </TabsContent>
 
           <TabsContent value="strengths" className="mt-4">
-            <ComingSoonCard
-              title="Strengths & Development Areas"
-              body="Phase 4 — a coach-editable summary layered on top of the auto-computed archetype already shown on the main athlete profile (Aerobic Engine / Balanced / Speed-Dominant, with speed-reserve bucket)."
-            />
+            <StrengthsDevelopmentCard athleteId={athleteId} />
           </TabsContent>
 
           <TabsContent value="race" className="mt-4">
