@@ -4,11 +4,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ComposedChart,
   Line,
+  Bar,
+  Cell,
   XAxis,
   YAxis,
   Tooltip,
   ResponsiveContainer,
   ReferenceArea,
+  ReferenceLine,
   CartesianGrid,
   Legend,
 } from "recharts";
@@ -884,7 +887,7 @@ function SessionAnalysis() {
           {/* ✅ LEFT COLUMN (visual + session content) */}
           <div className="lg:col-span-2 flex flex-col">
             <div className="flex-1">
-              <MapPanel points={Array.isArray(gpsPoints) ? gpsPoints : []} />
+              <MapPanel points={Array.isArray(gpsPoints) ? gpsPoints : []} terrain={session?.terrain} />
             </div>
           </div>
 
@@ -1379,16 +1382,25 @@ function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number)
 // of a treadmill or other GPS-denied segment: the watch's accelerometer
 // keeps estimating distance accurately, but the GPS chip can't get a clean
 // fix indoors and drifts pseudo-randomly within a small area instead of
-// freezing at one exact point. Known limitation: a genuine outdoor route
-// that loops tightly (many laps of a small park, say) can trip the same
-// heuristic — there's no way to fully tell the two apart from GPS +
-// distance alone, short of the athlete marking the session's terrain.
+// freezing at one exact point.
+//
+// A genuine track session trips this exact same signature legitimately — a
+// 400m track has roughly a 64m radius, so any rep of 800m+ covers real
+// distance while staying well inside INDOOR_MAX_RADIUS_M, with no way to
+// distinguish it from treadmill drift using GPS + distance alone. Since
+// `sessions.terrain` already lets a coach mark a session as 'track',
+// that's used here directly: track sessions skip indoor classification
+// entirely rather than trying to guess. Any other terrain (or none set)
+// keeps the original heuristic.
 const INDOOR_GAP_THRESHOLD_S = 60;
 const INDOOR_MIN_DISTANCE_M = 800;
 const INDOOR_MAX_RADIUS_M = 700;
 const INDOOR_MIN_RATIO = 2.5;
 
-function splitIndoorRuns<T extends { lat?: number; lng?: number; t?: number; d?: number }>(points: T[]) {
+function splitIndoorRuns<T extends { lat?: number; lng?: number; t?: number; d?: number }>(
+  points: T[],
+  terrain?: string | null,
+) {
   const runs: T[][] = [];
   let current: T[] = [];
   let prevT: number | null = null;
@@ -1405,9 +1417,10 @@ function splitIndoorRuns<T extends { lat?: number; lng?: number; t?: number; d?:
 
   const outdoorPoints: T[] = [];
   const indoorRuns: { centroid: [number, number]; startD: number; endD: number }[] = [];
+  const skipIndoorDetection = terrain === "track";
 
   for (const run of runs) {
-    if (run.length < 2) {
+    if (run.length < 2 || skipIndoorDetection) {
       outdoorPoints.push(...run);
       continue;
     }
@@ -1448,7 +1461,13 @@ function treadmillDivIcon() {
   });
 }
 
-function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?: string; t?: number; d?: number }[] }) {
+function MapPanel({
+  points,
+  terrain,
+}: {
+  points: { lat?: number; lng?: number; stepKind?: string; t?: number; d?: number }[];
+  terrain?: string | null;
+}) {
   const safePoints = useMemo(() => {
     return Array.isArray(points)
       ? points.filter((p) => p && Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)))
@@ -1462,12 +1481,18 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?:
   // through the raw points including the excluded treadmill drift, showing
   // the marker travel across map area with no route line under it, since
   // the line itself only draws geoPoints.
-  const { outdoorPoints, indoorRuns } = useMemo(() => splitIndoorRuns(safePoints), [safePoints]);
+  const { outdoorPoints, indoorRuns } = useMemo(() => splitIndoorRuns(safePoints, terrain), [safePoints, terrain]);
   const geoPoints = outdoorPoints.length >= 2 ? outdoorPoints : safePoints;
 
   const [playing, setPlaying] = useState(false);
   const [playIndex, setPlayIndex] = useState(0);
   const [mapStyle, setMapStyle] = useState<"streets" | "satellite" | "light">("streets");
+  // Off by default for a track session — a session already anchored to one
+  // small physical loop doesn't need km waypoints scattered across it the
+  // way a genuine point-to-point outdoor route does. Still toggleable
+  // either way regardless of terrain, since a coach might want them back
+  // on for a long track workout.
+  const [showKmMarkers, setShowKmMarkers] = useState(terrain !== "track");
   const rafRef = useRef<number | null>(null);
   const startTimeRef = useRef<number | null>(null);
 
@@ -1601,6 +1626,13 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?:
             <CardDescription>Route from uploaded GPS trace, colored by segment</CardDescription>
           </div>
           <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant={showKmMarkers ? "default" : "outline"}
+              onClick={() => setShowKmMarkers((v) => !v)}
+            >
+              Km markers
+            </Button>
             <div className="flex border rounded-md overflow-hidden text-xs">
               <button
                 type="button"
@@ -1671,9 +1703,10 @@ function MapPanel({ points }: { points: { lat?: number; lng?: number; stepKind?:
                 pathOptions={{ color: STEP_STROKE[seg.kind] ?? "#ef4444", weight: 4 }}
               />
             ))}
-            {kmMarkers.map((m) => (
-              <Marker key={m.km} position={m.position} icon={kmDivIcon(m.km)} />
-            ))}
+            {showKmMarkers &&
+              kmMarkers.map((m) => (
+                <Marker key={m.km} position={m.position} icon={kmDivIcon(m.km)} />
+              ))}
             {treadmillMarkers.map((m, i) => (
               <Marker key={`tm-${i}`} position={m.position} icon={treadmillDivIcon()}>
                 <LeafletTooltip permanent direction="top" offset={[0, -14]} className="text-xs font-medium">
@@ -1999,6 +2032,121 @@ function SessionInsightCard({ rows }: { rows: SplitRow[] }) {
   );
 }
 
+// Bar chart of pace (or time) per rep/lap — "By reps" uses the exact
+// recorded rep splits (the request this was built for: seeing whether the
+// 5x1km held pace across reps at a glance, faster than scanning a table).
+// "By km" recomputes fixed 1km splits from the raw trace instead, for a
+// continuous effort with no rep structure to chart. Only offers the toggle
+// when both are actually meaningful — an interval session doesn't need
+// "by km" (the reps already are the splits), and a continuous run has no
+// reps to chart in the first place.
+function RepPaceChart({ rows, points }: { rows: SplitRow[]; points: any[] }) {
+  const repRows = useMemo(() => rows.filter((r) => r.type === "work" || r.type === "strides"), [rows]);
+  const kmRows = useMemo(() => buildEvenKmSplits(points), [points]);
+  const hasReps = repRows.length > 1;
+  const hasKm = kmRows.length > 1;
+
+  const [mode, setMode] = useState<"reps" | "km">(hasReps ? "reps" : "km");
+  const [metric, setMetric] = useState<"pace" | "time">("pace");
+
+  if (!hasReps && !hasKm) return null;
+
+  const chartData =
+    mode === "reps"
+      ? repRows.map((r, i) => ({
+          label: r.repLabel || `Rep ${i + 1}`,
+          pace: r.avgPace ?? 0,
+          time: r.durationS ?? 0,
+          isBest: !!r.isBest,
+        }))
+      : kmRows.map((r) => ({ label: `Km ${r.km}`, pace: r.avgPace ?? 0, time: r.durationS, isBest: false }));
+
+  const values = chartData.map((d) => Number(d[metric])).filter((v) => v > 0);
+  const avgY = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div>
+            <CardTitle>Lap times</CardTitle>
+            <CardDescription>
+              {mode === "reps" ? "One bar per recorded rep." : "Recomputed at even 1km splits."}
+            </CardDescription>
+          </div>
+          <div className="flex items-center gap-2">
+            {hasReps && hasKm && (
+              <div className="flex border rounded-md overflow-hidden text-xs">
+                <button
+                  type="button"
+                  onClick={() => setMode("reps")}
+                  className={`px-2.5 py-1 ${mode === "reps" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+                >
+                  By reps
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode("km")}
+                  className={`px-2.5 py-1 border-l ${mode === "km" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+                >
+                  By km
+                </button>
+              </div>
+            )}
+            <div className="flex border rounded-md overflow-hidden text-xs">
+              <button
+                type="button"
+                onClick={() => setMetric("pace")}
+                className={`px-2.5 py-1 ${metric === "pace" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+              >
+                Pace
+              </button>
+              <button
+                type="button"
+                onClick={() => setMetric("time")}
+                className={`px-2.5 py-1 border-l ${metric === "time" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+              >
+                Time
+              </button>
+            </div>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="h-[240px] w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={chartData} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+              <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+              <YAxis
+                reversed={metric === "pace"}
+                tickFormatter={(v) => (metric === "pace" ? `${paceFmt(v)}/km` : secToClock(v))}
+                tick={{ fontSize: 11 }}
+                width={58}
+                domain={["dataMin", "dataMax"]}
+              />
+              <Tooltip
+                formatter={(v: number) => [metric === "pace" ? `${paceFmt(v)}/km` : secToClock(v), metric === "pace" ? "Pace" : "Time"]}
+              />
+              {avgY != null && (
+                <ReferenceLine y={avgY} stroke="hsl(var(--muted-foreground))" strokeDasharray="4 3" label={{ value: "avg", fontSize: 10, position: "insideTopLeft" }} />
+              )}
+              <Bar dataKey={metric} radius={[3, 3, 0, 0]}>
+                {chartData.map((d, i) => (
+                  <Cell key={i} fill={d.isBest ? "#f59e0b" : "var(--accent-red)"} />
+                ))}
+              </Bar>
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+        {mode === "reps" && chartData.some((d) => d.isBest) && (
+          <p className="text-[11px] text-muted-foreground mt-1">Gold bar = best-scoring rep (same scoring already used in the table below).</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function UnifiedSessionTable({
   points,
   results,
@@ -2065,6 +2213,7 @@ function UnifiedSessionTable({
 
   return (
     <>
+      <RepPaceChart rows={rows} points={points} />
       <Card>
         <CardHeader>
           <CardTitle>Session segments</CardTitle>
@@ -2300,6 +2449,38 @@ function buildTraceGroups(points: any[]): TraceGroup[] {
   }
 
   return groups;
+}
+
+// Buckets the raw trace into fixed 1km chunks regardless of rep/lap
+// boundaries — the "By km" chart mode. Reuses the same per-slice metrics
+// computation buildSplitsFromTrace already relies on, just walking
+// distance-based windows instead of lap/rep windows. Only meaningful for a
+// continuous effort (an easy run, a race) — an interval session with real
+// laps should use "By reps" instead, which is exact rather than a
+// re-bucketed approximation.
+function buildEvenKmSplits(points: any[]): { km: number; durationS: number; distanceM: number; avgPace: number | null }[] {
+  if (!Array.isArray(points) || points.length === 0) return [];
+  const sorted = [...points].sort((a, b) => Number(a.elapsed_s ?? 0) - Number(b.elapsed_s ?? 0));
+  const totalDistance = Number(sorted[sorted.length - 1]?.distance_m ?? 0);
+  if (totalDistance < 1000) return [];
+
+  const out: { km: number; durationS: number; distanceM: number; avgPace: number | null }[] = [];
+  let kmIndex = 1;
+  let sliceStart = 0;
+
+  for (let i = 0; i < sorted.length; i++) {
+    const d = Number(sorted[i].distance_m ?? 0);
+    if (d >= kmIndex * 1000 || i === sorted.length - 1) {
+      const slice = sorted.slice(sliceStart, i + 1);
+      const m = computeMetricsFromTraceSlice(slice);
+      if (m.distanceM > 0) {
+        out.push({ km: kmIndex, durationS: m.durationS, distanceM: m.distanceM, avgPace: m.avgPace });
+      }
+      sliceStart = i;
+      kmIndex++;
+    }
+  }
+  return out;
 }
 
 function computeMetricsFromTraceSlice(slice: any[]) {
