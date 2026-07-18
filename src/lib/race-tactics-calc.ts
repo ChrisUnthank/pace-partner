@@ -103,3 +103,83 @@ export function averagePaceSecPerKm(raceDistanceM: number, goalTimeSeconds: numb
 export function averageSpeedKmh(raceDistanceM: number, goalTimeSeconds: number): number {
   return raceDistanceM / 1000 / (goalTimeSeconds / 3600);
 }
+
+// ============================================================
+// Phase 8 — Strategy Builder
+// ============================================================
+// Each strategy is a pace-multiplier CURVE over the race (relative to
+// average pace, 1.0 = exactly average), not a fixed set of numbers — the
+// raw times from that curve get scaled so the total always lands exactly
+// on the goal time, regardless of how many splits are being generated.
+// That scaling step is what keeps the shape honest at any split increment
+// without hand-tuning percentages per distance.
+
+export type Strategy = "even_pace" | "negative_split" | "positive_split" | "fast_start" | "controlled_start" | "custom";
+
+export const STRATEGY_OPTIONS: { value: Strategy; label: string; description: string }[] = [
+  { value: "even_pace", label: "Even Pace", description: "Same pace start to finish." },
+  { value: "negative_split", label: "Negative Split", description: "Second half faster than the first." },
+  { value: "positive_split", label: "Positive Split", description: "First half faster, fading toward the end." },
+  { value: "fast_start", label: "Fast Start", description: "Quick opening, then settle for the rest." },
+  { value: "controlled_start", label: "Controlled Start", description: "Deliberately conservative opening, then even through the rest." },
+  { value: "custom", label: "Custom", description: "Start even, then edit any split by hand." },
+];
+
+// fraction = midpoint of the segment as a proportion of total race
+// distance (0 at the start, 1 at the finish). Returned value is a
+// relative-pace multiplier — above 1 is slower than average, below 1 is
+// faster.
+function strategyMultiplier(strategy: Strategy, fraction: number): number {
+  switch (strategy) {
+    case "negative_split":
+      // Slower at the start (+3%), faster at the finish (-3%), linear.
+      return 1.03 - 0.06 * fraction;
+    case "positive_split":
+      // Faster at the start (-3%), slower at the finish (+3%), linear.
+      return 0.97 + 0.06 * fraction;
+    case "fast_start":
+      // Quick first 15%, then a slightly-slower steady pace for the rest.
+      return fraction < 0.15 ? 0.9 : 1.02;
+    case "controlled_start":
+      // Deliberately conservative first 20%, then even through the rest.
+      return fraction < 0.2 ? 1.05 : 0.99;
+    case "even_pace":
+    case "custom":
+    default:
+      return 1;
+  }
+}
+
+// Generates a fresh split set shaped by the given strategy, always
+// summing to exactly goalTimeSeconds. This is what both the create form
+// and "change strategy" on an existing plan call — always a full
+// regeneration (clears any is_edited flags), never a partial adjustment.
+export function generateStrategySplits(raceDistanceM: number, incrementM: number, goalTimeSeconds: number, strategy: Strategy): SplitRow[] {
+  const boundaries = buildBoundaries(raceDistanceM, incrementM);
+  const basePaceSecPerM = goalTimeSeconds / raceDistanceM;
+
+  let prevBoundary = 0;
+  const raw = boundaries.map((b) => {
+    const segDist = b - prevBoundary;
+    const midpointFraction = (prevBoundary + b) / 2 / raceDistanceM;
+    const rawTime = segDist * basePaceSecPerM * strategyMultiplier(strategy, midpointFraction);
+    prevBoundary = b;
+    return { distance_m: segDist, cumulative_distance_m: b, rawTime };
+  });
+
+  const rawTotal = raw.reduce((a, r) => a + r.rawTime, 0);
+  const scale = rawTotal > 0 ? goalTimeSeconds / rawTotal : 1;
+
+  let cumulativeTime = 0;
+  return raw.map((r) => {
+    const segTime = r.rawTime * scale;
+    cumulativeTime += segTime;
+    return {
+      distance_m: r.distance_m,
+      cumulative_distance_m: r.cumulative_distance_m,
+      segment_time_seconds: segTime,
+      cumulative_time_seconds: cumulativeTime,
+      is_edited: false,
+    };
+  });
+}
