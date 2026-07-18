@@ -17,15 +17,62 @@ import { Flag, Plus, Trash2, User, UserCog, Database, Sparkles } from "lucide-re
 // populate them yet, so they simply won't appear until those systems
 // exist. See 20260718000004_race_profile_phase6.sql.
 
-const QUICK_PHRASES = [
-  "Strong final 200m",
-  "Strong final 300m",
-  "Good at changing pace",
-  "Performs well from the front",
-  "Performs well in tactical races",
-  "Vulnerable when boxed in",
-  "Strong in evenly paced races",
-  "Struggles with aggressive opening pace",
+// Grouped rather than a single flat list — a wall of 25+ ungrouped chips
+// stops being scannable. Deliberately includes both directions of most
+// traits (e.g. both "struggles with X" and "prefers X") since the same
+// tendency is a strength for one athlete and a limiter for another; the
+// coach picks whichever actually applies rather than the phrase set
+// silently assuming a direction.
+const PHRASE_GROUPS: { label: string; phrases: string[] }[] = [
+  {
+    label: "Pacing",
+    phrases: [
+      "Strong in evenly paced races",
+      "Struggles with aggressive opening pace",
+      "Struggles with uneven or surging pace",
+      "Handles mid-race pace changes well",
+      "Good at changing pace",
+    ],
+  },
+  {
+    label: "Start",
+    phrases: [
+      "Prefers a slow, controlled start",
+      "Struggles with a slow, tactical start",
+      "Needs a fast start to settle into rhythm",
+      "Slow to wind up — needs a gradual build",
+    ],
+  },
+  {
+    label: "Positioning",
+    phrases: [
+      "Strong positional awareness",
+      "Poor positional awareness",
+      "Runs too wide — struggles to find a sit",
+      "Good at finding and holding a sit",
+      "Vulnerable when boxed in",
+      "Comfortable racing boxed in",
+    ],
+  },
+  {
+    label: "Race dynamics",
+    phrases: [
+      "Performs well from the front",
+      "Performs well in tactical races",
+      "Doesn't respond well to jostling or position changes",
+      "Handles jostling and contact well",
+      "Struggles to react to a sudden surge",
+    ],
+  },
+  {
+    label: "Finishing",
+    phrases: [
+      "Strong final 200m",
+      "Strong final 300m",
+      "Unable to kick — relies on sustained pace",
+      "Fades in the final stages",
+    ],
+  },
 ];
 
 type SourceType = "coach" | "athlete" | "data_derived" | "ai_suggestion";
@@ -239,16 +286,23 @@ function AddObservationForm({
 
   return (
     <div className="rounded-md border p-3 space-y-3 bg-card/40">
-      <div className="flex flex-wrap gap-1.5">
-        {QUICK_PHRASES.map((phrase) => (
-          <button
-            key={phrase}
-            type="button"
-            onClick={() => setText(phrase)}
-            className="px-2.5 py-1 text-xs rounded-md border text-muted-foreground hover:text-foreground hover:border-foreground transition-colors"
-          >
-            {phrase}
-          </button>
+      <div className="space-y-2">
+        {PHRASE_GROUPS.map((group) => (
+          <div key={group.label}>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">{group.label}</div>
+            <div className="flex flex-wrap gap-1.5">
+              {group.phrases.map((phrase) => (
+                <button
+                  key={phrase}
+                  type="button"
+                  onClick={() => setText(phrase)}
+                  className="px-2.5 py-1 text-xs rounded-md border text-muted-foreground hover:text-foreground hover:border-foreground transition-colors"
+                >
+                  {phrase}
+                </button>
+              ))}
+            </div>
+          </div>
         ))}
       </div>
 
