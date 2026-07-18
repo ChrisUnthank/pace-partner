@@ -1,49 +1,33 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyRoles } from "@/lib/use-auth";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { toast } from "sonner";
 import { ChevronLeft, IdCard } from "lucide-react";
 import { GoalsCard } from "@/components/goals-card";
 import { PhysiologicalTestingCard } from "@/components/physiological-testing-card";
+import { AthleteIdentityCard, ATHLETE_STATUS_OPTIONS, ATHLETE_STATUS_STYLES } from "@/components/athlete-identity-card";
 
 export const Route = createFileRoute("/_authenticated/app/athletes/$athleteId/performance-profile")({
   component: PerformanceProfilePage,
 });
 
-const ATHLETE_STATUS_OPTIONS = [
-  { value: "active", label: "Active" },
-  { value: "injured", label: "Injured" },
-  { value: "off_season", label: "Off-season" },
-  { value: "on_hiatus", label: "On hiatus" },
-  { value: "retired", label: "Retired" },
-];
-
-const ATHLETE_STATUS_STYLES: Record<string, string> = {
-  active: "bg-emerald-100 text-emerald-700 border-emerald-200",
-  injured: "bg-rose-100 text-rose-700 border-rose-200",
-  off_season: "bg-slate-100 text-slate-700 border-slate-200",
-  on_hiatus: "bg-amber-100 text-amber-700 border-amber-200",
-  retired: "bg-muted text-muted-foreground border-border",
-};
-
 function PerformanceProfilePage() {
   const { athleteId } = Route.useParams();
-  const qc = useQueryClient();
   const { data: roles = [] } = useMyRoles();
   const isCoach = roles.includes("coach");
 
+  // Same ["athlete", athleteId] key the main profile page
+  // (app.athletes.$athleteId.tsx) uses — both pages render the shared
+  // AthleteIdentityCard, which invalidates this exact key on save, so
+  // editing on either page refreshes both rather than the two silently
+  // drifting apart the way the old separate query keys did.
   const { data: athlete, isLoading } = useQuery({
-    queryKey: ["athlete-profile-full", athleteId],
+    queryKey: ["athlete", athleteId],
     queryFn: async () => {
       const { data, error } = await supabase.from("athletes").select("*").eq("id", athleteId).single();
       if (error) throw error;
@@ -113,13 +97,7 @@ function PerformanceProfilePage() {
           </TabsList>
 
           <TabsContent value="information" className="mt-4">
-            <AthleteInformationCard
-              athlete={athlete}
-              athleteId={athleteId}
-              isCoach={isCoach}
-              rollingActuals={last28d}
-              onSaved={() => qc.invalidateQueries({ queryKey: ["athlete-profile-full", athleteId] })}
-            />
+            <AthleteIdentityCard athlete={athlete} athleteId={athleteId} isCoach={isCoach} rollingActuals={last28d} />
           </TabsContent>
 
           <TabsContent value="physiological" className="mt-4">
@@ -172,148 +150,6 @@ function ComingSoonCard({ title, body }: { title: string; body: string }) {
       </CardHeader>
       <CardContent>
         <p className="text-sm text-muted-foreground leading-relaxed">{body}</p>
-      </CardContent>
-    </Card>
-  );
-}
-
-function AthleteInformationCard({
-  athlete,
-  athleteId,
-  isCoach,
-  rollingActuals,
-  onSaved,
-}: {
-  athlete: any;
-  athleteId: string;
-  isCoach: boolean;
-  rollingActuals?: { totalKm: number; weeklyAvgKm: number; sessionCount: number };
-  onSaved: () => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [height, setHeight] = useState(athlete?.height_cm != null ? String(athlete.height_cm) : "");
-  const [secondaryEvents, setSecondaryEvents] = useState((athlete?.secondary_events ?? []).join(", "));
-  const [club, setClub] = useState(athlete?.club ?? "");
-  const [status, setStatus] = useState(athlete?.athlete_status ?? "active");
-  const [frequency, setFrequency] = useState(
-    athlete?.typical_training_frequency != null ? String(athlete.typical_training_frequency) : "",
-  );
-  const [saving, setSaving] = useState(false);
-
-  const ageYears = athlete?.dob
-    ? Math.floor((Date.now() - new Date(athlete.dob).getTime()) / (365.25 * 24 * 3600 * 1000))
-    : null;
-
-  async function save() {
-    setSaving(true);
-    const { error } = await supabase
-      .from("athletes")
-      .update({
-        height_cm: height ? Number(height) : null,
-        secondary_events: secondaryEvents
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean),
-        club: club.trim() || null,
-        athlete_status: status,
-        typical_training_frequency: frequency ? Number(frequency) : null,
-      } as any)
-      .eq("id", athleteId);
-    setSaving(false);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    toast.success("Athlete information updated");
-    setEditing(false);
-    onSaved();
-  }
-
-  const rows: Array<[string, string]> = [
-    ["Age", ageYears != null ? `${ageYears}y` : "—"],
-    ["Date of birth", athlete?.dob ?? "—"],
-    ["Sex", athlete?.sex ?? "—"],
-    ["Height", athlete?.height_cm != null ? `${athlete.height_cm} cm` : "—"],
-    ["Primary event", athlete?.primary_event ?? "—"],
-    ["Secondary events", (athlete?.secondary_events ?? []).length ? athlete.secondary_events.join(", ") : "—"],
-    ["Training age", athlete?.training_age_years != null ? `${athlete.training_age_years} yrs` : "—"],
-    ["Typical training frequency", athlete?.typical_training_frequency != null ? `${athlete.typical_training_frequency}/week` : "—"],
-    ["Club", athlete?.club ?? "—"],
-  ];
-
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-2">
-        <div>
-          <CardTitle className="text-base">Athlete Information</CardTitle>
-          <CardDescription>
-            Last 28 days actual:{" "}
-            {rollingActuals ? `${rollingActuals.totalKm.toFixed(0)} km · ${rollingActuals.sessionCount} sessions (${rollingActuals.weeklyAvgKm.toFixed(0)} km/wk avg)` : "—"}
-          </CardDescription>
-        </div>
-        {isCoach && !editing && (
-          <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
-            Edit
-          </Button>
-        )}
-      </CardHeader>
-      <CardContent>
-        {!editing ? (
-          <dl className="grid sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
-            {rows.map(([k, v]) => (
-              <div key={k} className="flex justify-between border-b py-1">
-                <dt className="text-muted-foreground">{k}</dt>
-                <dd className="font-medium tabular-nums text-right">{v}</dd>
-              </div>
-            ))}
-          </dl>
-        ) : (
-          <div className="space-y-3">
-            <div className="grid sm:grid-cols-2 gap-3">
-              <div>
-                <Label className="text-xs">Height (cm)</Label>
-                <Input type="number" value={height} onChange={(e) => setHeight(e.target.value)} />
-              </div>
-              <div>
-                <Label className="text-xs">Typical training frequency (sessions/week)</Label>
-                <Input type="number" value={frequency} onChange={(e) => setFrequency(e.target.value)} />
-              </div>
-            </div>
-            <div>
-              <Label className="text-xs">Secondary events (comma-separated)</Label>
-              <Input value={secondaryEvents} onChange={(e) => setSecondaryEvents(e.target.value)} placeholder="e.g. 800m, 3000m steeplechase" />
-            </div>
-            <div className="grid sm:grid-cols-2 gap-3">
-              <div>
-                <Label className="text-xs">Club</Label>
-                <Input value={club} onChange={(e) => setClub(e.target.value)} />
-              </div>
-              <div>
-                <Label className="text-xs">Status</Label>
-                <Select value={status} onValueChange={setStatus}>
-                  <SelectTrigger className="mt-1">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ATHLETE_STATUS_OPTIONS.map((o) => (
-                      <SelectItem key={o.value} value={o.value}>
-                        {o.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <Button size="sm" onClick={save} disabled={saving}>
-                {saving ? "Saving…" : "Save"}
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
-                Cancel
-              </Button>
-            </div>
-          </div>
-        )}
       </CardContent>
     </Card>
   );
