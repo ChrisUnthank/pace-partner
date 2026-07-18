@@ -149,7 +149,11 @@ function SessionDetail() {
     retry: false,
   });
 
-  const { data: race } = useQuery({
+  const {
+    data: race,
+    isLoading: raceLoading,
+    error: raceError,
+  } = useQuery({
     queryKey: ["race-by-session", sessionId],
     enabled: !!sessionId,
     queryFn: async () => {
@@ -518,6 +522,64 @@ function SessionDetail() {
     reader.readAsDataURL(file);
   }
 
+  // Creates the performances row for this race-marked session, using
+  // work-only distance/time where available (excludes any attached
+  // warmup/cooldown — using the whole session's totals here was what
+  // previously produced wildly inflated "Official Distance" values, e.g.
+  // 14km instead of 7.4km). Shared by the "Mark as race" toggle below and
+  // the "Recreate race record" recovery action on the Official Distance
+  // card — a race-marked session can end up with no performances row at
+  // all if a previous creation attempt errored, was interrupted, or predates
+  // this fix, which is exactly the state that leaves Official Distance stuck
+  // showing the full GPS total (uneditable) and the Race analysis button
+  // unable to find anything to open.
+  async function createPerformanceRecord() {
+    if (!session) return false;
+
+    if (!(session.completed_at && session.total_time_seconds && session.total_distance_m)) {
+      toast("Add totals to create race");
+      return false;
+    }
+
+    const { data: existing } = await (supabase.from("performances") as any)
+      .select("id")
+      .eq("session_id", sessionId)
+      .maybeSingle();
+
+    if (existing) {
+      toast("Race already exists");
+      qc.invalidateQueries({ queryKey: ["race-by-session", sessionId] });
+      return true;
+    }
+
+    const payload = {
+      athlete_id: session.athlete_id,
+      performance_date: session.session_date,
+      distance_m: Math.round(Number((session as any).work_distance_m ?? session.total_distance_m)),
+      time_seconds: Number((session as any).work_time_s ?? session.total_time_seconds),
+      event_name: session.title || null,
+      notes: session.notes || null,
+      session_id: sessionId, // ✅ critical
+      is_pb: false,
+      context: "race",
+    };
+
+    const { error: perfError } = await (supabase.from("performances") as any).insert(payload);
+
+    if (perfError) {
+      toast.error(perfError.message);
+      return false;
+    }
+
+    toast.success("Race record created ✅");
+
+    qc.invalidateQueries({ queryKey: ["session", sessionId] });
+    qc.invalidateQueries({ queryKey: ["races", session.athlete_id] });
+    qc.invalidateQueries({ queryKey: ["my-pbs", session.athlete_id] });
+    qc.invalidateQueries({ queryKey: ["race-by-session", sessionId] });
+    return true;
+  }
+
   async function toggleRaceStatus() {
     if (!session) return;
 
@@ -565,55 +627,9 @@ function SessionDetail() {
 
     qc.setQueryData(["session", sessionId], updatedSession);
 
-    if (session.completed_at && session.total_time_seconds && session.total_distance_m) {
-      // ✅ prevent duplicates
-      const { data: existing } = await (supabase.from("performances") as any)
-        .select("id")
-        .eq("session_id", sessionId)
-        .maybeSingle();
-
-      if (existing) {
-        toast("Race already exists");
-        return;
-      }
-
-      // ✅ FORCE CACHE UPDATE
-      qc.setQueryData(["session", sessionId], updatedSession);
-
-      // create performance — prefer work-only distance/time (correctly
-      // excludes any attached warmup/cooldown) over the whole session's
-      // totals, which was creating wildly inflated "Official Distance"
-      // values (e.g. 14km instead of 7.4km) for any race with a merged
-      // warmup or cooldown file attached.
-      const payload = {
-        athlete_id: session.athlete_id,
-        performance_date: session.session_date,
-        distance_m: Math.round(Number((session as any).work_distance_m ?? session.total_distance_m)),
-        time_seconds: Number((session as any).work_time_s ?? session.total_time_seconds),
-        event_name: session.title || null,
-        notes: session.notes || null,
-        session_id: sessionId, // ✅ critical
-        is_pb: false,
-        context: "race",
-      };
-
-      const { error: perfError } = await (supabase.from("performances") as any).insert(payload);
-
-      if (perfError) {
-        toast.error(perfError.message);
-        return;
-      }
-
-      toast.success("Race created ✅");
-
-      qc.invalidateQueries({ queryKey: ["session", sessionId] });
-      qc.invalidateQueries({ queryKey: ["races", session.athlete_id] });
-      qc.invalidateQueries({ queryKey: ["my-pbs", session.athlete_id] });
-      qc.invalidateQueries({ queryKey: ["race-by-session", sessionId] });
-    } else {
-      toast("Add totals to create race");
-    }
+    await createPerformanceRecord();
   }
+
   async function saveTitle() {
     if (!session?.id) return;
 
@@ -850,14 +866,21 @@ function SessionDetail() {
                         size="sm"
                         variant="outline"
                         onClick={async () => {
-                          const { data } = await (supabase as any)
+                          const { data, error } = await (supabase as any)
                             .from("performances")
                             .select("id")
                             .eq("session_id", sessionId)
                             .maybeSingle();
 
+                          if (error) {
+                            toast.error(`Couldn't open race analysis: ${error.message}`);
+                            return;
+                          }
+
                           if (!data?.id) {
-                            console.log("No race found yet");
+                            toast.error(
+                              "No race record found for this session — use \"Recreate race record\" on the Official Distance card below to fix it.",
+                            );
                             return;
                           }
 
@@ -1112,6 +1135,23 @@ function SessionDetail() {
                       metersFmt(session.total_distance_m ?? 0)
                     )}
                   </div>
+
+                  {/* No performances row for a race-marked session — this is
+                      exactly the state that leaves this field stuck showing
+                      the uneditable full GPS total (a previous creation
+                      attempt errored, was interrupted, or predates the
+                      work-only-distance fix). Surfaced clearly instead of
+                      silently falling back, with a one-click way to fix it. */}
+                  {session.day_type === "race" && !raceLoading && !race && (
+                    <div className="text-xs text-amber-600 mt-1 space-y-1">
+                      <div>
+                        {raceError ? `Couldn't load race record: ${raceError.message}` : "No race record found for this session."}
+                      </div>
+                      <Button size="sm" variant="outline" className="h-6 text-xs" onClick={createPerformanceRecord}>
+                        Recreate race record
+                      </Button>
+                    </div>
+                  )}
 
                   {/* ✅ ✅ GPS REFERENCE LINE (THIS IS THE FIX) */}
                   {session.day_type === "race" && (
