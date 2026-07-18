@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useMyRoles } from "@/lib/use-auth";
+import { useMyRoles, useMyAthlete } from "@/lib/use-auth";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,8 @@ function PerformanceProfilePage() {
   const { athleteId } = Route.useParams();
   const { data: roles = [] } = useMyRoles();
   const isCoach = roles.includes("coach");
+  const { data: myAthlete } = useMyAthlete();
+  const canEdit = isCoach || myAthlete?.id === athleteId;
 
   // Same ["athlete", athleteId] key the main profile page
   // (app.athletes.$athleteId.tsx) uses — both pages render the shared
@@ -97,7 +99,7 @@ function PerformanceProfilePage() {
           </TabsList>
 
           <TabsContent value="information" className="mt-4">
-            <AthleteIdentityCard athlete={athlete} athleteId={athleteId} isCoach={isCoach} rollingActuals={last28d} />
+            <AthleteIdentityCard athlete={athlete} athleteId={athleteId} canEdit={canEdit} rollingActuals={last28d} />
           </TabsContent>
 
           <TabsContent value="physiological" className="mt-4">
