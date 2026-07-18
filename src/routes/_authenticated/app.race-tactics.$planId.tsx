@@ -27,6 +27,7 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tool
 import { EventTacticsCard } from "@/components/event-tactics-card";
 import { TacticalDecisionPointsCard } from "@/components/tactical-decision-points-card";
 import { AthleteContextCard } from "@/components/athlete-context-card";
+import { AiStrategySuggestionCard } from "@/components/ai-strategy-suggestion-card";
 import { clockToSec, secToClock, paceFmt } from "@/lib/format";
 import {
   type SplitRow,
@@ -261,6 +262,8 @@ function RaceTacticsDetail() {
           canEdit={!!canEdit}
           onApplyStrategy={changeStrategy}
         />
+
+        <AiStrategySuggestionCard planId={planId} onApplyStrategy={changeStrategy} />
 
         <Card>
           <CardHeader>
