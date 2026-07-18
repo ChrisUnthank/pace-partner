@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyRoles, useMyAthlete } from "@/lib/use-auth";
 import { AppShell } from "@/components/app-shell";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -14,6 +13,7 @@ import { AthleteIdentityCard, ATHLETE_STATUS_OPTIONS, ATHLETE_STATUS_STYLES } fr
 import { PerformanceCurveCard } from "@/components/performance-curve-card";
 import { TrainingResponseCard } from "@/components/training-response-card";
 import { StrengthsDevelopmentCard } from "@/components/strengths-development-card";
+import { RaceProfileCard } from "@/components/race-profile-card";
 
 export const Route = createFileRoute("/_authenticated/app/athletes/$athleteId/performance-profile")({
   component: PerformanceProfilePage,
@@ -122,10 +122,7 @@ function PerformanceProfilePage() {
           </TabsContent>
 
           <TabsContent value="race" className="mt-4">
-            <ComingSoonCard
-              title="Race Profile"
-              body="Phase 6 — tactical observations (closing speed, pacing tendencies, box/tactical vulnerabilities), tagged by source: coach, athlete, data-derived, or AI-suggested."
-            />
+            <RaceProfileCard athleteId={athleteId} />
           </TabsContent>
 
           <TabsContent value="goals" className="mt-4">
@@ -134,19 +131,5 @@ function PerformanceProfilePage() {
         </Tabs>
       </div>
     </AppShell>
-  );
-}
-
-function ComingSoonCard({ title, body }: { title: string; body: string }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">{title}</CardTitle>
-        <CardDescription>Not built yet</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <p className="text-sm text-muted-foreground leading-relaxed">{body}</p>
-      </CardContent>
-    </Card>
   );
 }
