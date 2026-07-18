@@ -163,6 +163,8 @@ function NewSession() {
   const [activityType, setActivityType] = useState<string>("gym");
   const [gymCategory, setGymCategory] = useState<string>("");
   const [gymSubtype, setGymSubtype] = useState<string>("");
+  const [gymDuration, setGymDuration] = useState<number>(60);
+  const [gymIntensity, setGymIntensity] = useState<string>("");
   const [notes, setNotes] = useState("");
   const [appliedFromTemplateId, setAppliedFromTemplateId] = useState<string | null>(null);
   const [steps, setSteps] = useState<StepDraft[]>([
@@ -318,6 +320,14 @@ function NewSession() {
       return;
     }
 
+    const isGymPlan = dayType === "cross_training" && activityType === "gym";
+    // Maps the coach-friendly easy/moderate/hard picker to a concrete RPE —
+    // sessions.rpe is already correctly wired into session_training_load(),
+    // so this gets the planned session counting toward training load
+    // immediately without needing to touch that function (see the
+    // migration's note on why that's being avoided for now).
+    const GYM_INTENSITY_TO_RPE: Record<string, number> = { easy: 3, moderate: 5, hard: 8 };
+
     const { data: sess, error } = await supabase
       .from("sessions")
       .insert({
@@ -333,11 +343,11 @@ function NewSession() {
         is_planned: true,
         applied_from_template_id: appliedFromTemplateId,
         activity_type: dayType === "cross_training" ? activityType : null,
-        gym_category: dayType === "cross_training" && activityType === "gym" ? gymCategory || null : null,
-        gym_subtype:
-          dayType === "cross_training" && activityType === "gym" && gymCategory === "strength_resistance"
-            ? gymSubtype || null
-            : null,
+        gym_category: isGymPlan ? gymCategory || null : null,
+        gym_subtype: isGymPlan && gymCategory === "strength_resistance" ? gymSubtype || null : null,
+        gym_intensity: isGymPlan ? gymIntensity || null : null,
+        total_time_seconds: isGymPlan && gymDuration > 0 ? gymDuration * 60 : null,
+        rpe: isGymPlan && gymIntensity ? GYM_INTENSITY_TO_RPE[gymIntensity] : null,
       } as any)
       .select()
       .single();
@@ -574,6 +584,32 @@ function NewSession() {
                         <SelectItem value="upper">Upper</SelectItem>
                         <SelectItem value="lower">Lower</SelectItem>
                         <SelectItem value="full_body">Full body</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {activityType === "gym" && (
+                  <div>
+                    <Label>Duration (min)</Label>
+                    <Input
+                      type="number"
+                      value={gymDuration}
+                      onChange={(e) => setGymDuration(Number(e.target.value))}
+                      className="mt-1"
+                    />
+                  </div>
+                )}
+                {activityType === "gym" && (
+                  <div>
+                    <Label>Intensity</Label>
+                    <Select value={gymIntensity} onValueChange={setGymIntensity}>
+                      <SelectTrigger className="mt-1">
+                        <SelectValue placeholder="Pick intensity…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="easy">Easy</SelectItem>
+                        <SelectItem value="moderate">Moderate</SelectItem>
+                        <SelectItem value="hard">Hard</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
