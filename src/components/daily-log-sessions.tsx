@@ -27,13 +27,34 @@ type Block = {
   niggles: string;
   note: string;
   gymDuration: number;
+  gymCategory: string;
+  gymSubtype: string;
+  swimDistance: number;
+  swimDuration: number;
   uploadedFiles: { name: string; started_at: string | null; points: number }[];
   uploading: boolean;
   saved: boolean;
 };
 
 function newBlock(): Block {
-  return { uid: crypto.randomUUID(), sessionId: null, activity: "run", feel: 7, wentWell: "", wasDifficult: "", niggles: "", note: "", gymDuration: 60, uploadedFiles: [], uploading: false, saved: false };
+  return {
+    uid: crypto.randomUUID(),
+    sessionId: null,
+    activity: "run",
+    feel: 7,
+    wentWell: "",
+    wasDifficult: "",
+    niggles: "",
+    note: "",
+    gymDuration: 60,
+    gymCategory: "",
+    gymSubtype: "",
+    swimDistance: 1000,
+    swimDuration: 30,
+    uploadedFiles: [],
+    uploading: false,
+    saved: false,
+  };
 }
 
 export function DailyLogSessions({ athleteId }: { athleteId: string }) {
@@ -83,7 +104,7 @@ export function DailyLogSessions({ athleteId }: { athleteId: string }) {
 
   async function handleFiles(b: Block, files: FileList) {
     if (b.activity === "gym" || b.activity === "swim") {
-      toast.error(b.activity === "swim" ? "Swim FIT parsing coming soon — log manually." : "Gym is logged manually (no file).");
+      toast.error(b.activity === "swim" ? "Swim FIT parsing coming soon — log distance and duration manually below." : "Gym is logged manually (no file).");
       return;
     }
     updateBlock(b.uid, { uploading: true });
@@ -119,7 +140,15 @@ export function DailyLogSessions({ athleteId }: { athleteId: string }) {
     try {
       const sessionId = await ensureSession(b, `${labelFor(b.activity)} session`);
       const sessionPatch: any = { rpe: b.feel };
-      if (b.activity === "gym") sessionPatch.total_time_seconds = b.gymDuration * 60;
+      if (b.activity === "gym") {
+        sessionPatch.total_time_seconds = b.gymDuration * 60;
+        sessionPatch.gym_category = b.gymCategory || null;
+        sessionPatch.gym_subtype = b.gymCategory === "strength_resistance" ? b.gymSubtype || null : null;
+      }
+      if (b.activity === "swim") {
+        sessionPatch.total_time_seconds = b.swimDuration * 60;
+        sessionPatch.total_distance_m = b.swimDistance;
+      }
       if (b.note) sessionPatch.notes = b.note;
       await supabase.from("sessions").update(sessionPatch).eq("id", sessionId);
       await supabase.from("session_insights").upsert({
@@ -192,6 +221,49 @@ export function DailyLogSessions({ athleteId }: { athleteId: string }) {
                   <div>
                     <Label className="text-xs">Duration (min)</Label>
                     <Input type="number" value={b.gymDuration} onChange={(e) => updateBlock(b.uid, { gymDuration: Number(e.target.value) })} className="mt-1" />
+                  </div>
+                )}
+                {b.activity === "gym" && (
+                  <div>
+                    <Label className="text-xs">Gym type</Label>
+                    <Select
+                      value={b.gymCategory}
+                      onValueChange={(v) => updateBlock(b.uid, { gymCategory: v, gymSubtype: v === "strength_resistance" ? b.gymSubtype : "" })}
+                    >
+                      <SelectTrigger className="mt-1"><SelectValue placeholder="Pick a type…" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="mobility">Mobility</SelectItem>
+                        <SelectItem value="flexibility_core">Flexibility / Core</SelectItem>
+                        <SelectItem value="circuit">Circuit</SelectItem>
+                        <SelectItem value="strength_resistance">Strength &amp; Resistance</SelectItem>
+                        <SelectItem value="cardio">Cardio</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {b.activity === "gym" && b.gymCategory === "strength_resistance" && (
+                  <div>
+                    <Label className="text-xs">Focus</Label>
+                    <Select value={b.gymSubtype} onValueChange={(v) => updateBlock(b.uid, { gymSubtype: v })}>
+                      <SelectTrigger className="mt-1"><SelectValue placeholder="Pick a focus…" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="upper">Upper</SelectItem>
+                        <SelectItem value="lower">Lower</SelectItem>
+                        <SelectItem value="full_body">Full body</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {b.activity === "swim" && (
+                  <div>
+                    <Label className="text-xs">Distance (m)</Label>
+                    <Input type="number" value={b.swimDistance} onChange={(e) => updateBlock(b.uid, { swimDistance: Number(e.target.value) })} className="mt-1" />
+                  </div>
+                )}
+                {b.activity === "swim" && (
+                  <div>
+                    <Label className="text-xs">Duration (min)</Label>
+                    <Input type="number" value={b.swimDuration} onChange={(e) => updateBlock(b.uid, { swimDuration: Number(e.target.value) })} className="mt-1" />
                   </div>
                 )}
               </div>
