@@ -153,6 +153,16 @@ function NewSession() {
   const [intent, setIntent] = useState<string>("threshold");
   const [structure, setStructure] = useState<string>("reps_intervals");
   const [isLongRun, setIsLongRun] = useState<boolean>(false);
+  // Cross-training doesn't get the full running steps builder below — per
+  // instruction, most runners do swim/bike as supplementary (often during
+  // injury recovery) and gym more consistently, but none of them need
+  // warmup/work/cooldown rep structure planned in advance. Activity type
+  // (gym/ride/swim) plus, for gym specifically, a lightweight category/
+  // subtype is enough to plan the day; actual duration/distance/RPE gets
+  // logged later (Daily Log, or directly on the session once it happens).
+  const [activityType, setActivityType] = useState<string>("gym");
+  const [gymCategory, setGymCategory] = useState<string>("");
+  const [gymSubtype, setGymSubtype] = useState<string>("");
   const [notes, setNotes] = useState("");
   const [appliedFromTemplateId, setAppliedFromTemplateId] = useState<string | null>(null);
   const [steps, setSteps] = useState<StepDraft[]>([
@@ -303,6 +313,10 @@ function NewSession() {
         return;
       }
     }
+    if (dayType === "cross_training" && !activityType) {
+      toast.error("Pick an activity type (Gym / Ride / Swim)");
+      return;
+    }
 
     const { data: sess, error } = await supabase
       .from("sessions")
@@ -318,11 +332,25 @@ function NewSession() {
         notes: notes || null,
         is_planned: true,
         applied_from_template_id: appliedFromTemplateId,
+        activity_type: dayType === "cross_training" ? activityType : null,
+        gym_category: dayType === "cross_training" && activityType === "gym" ? gymCategory || null : null,
+        gym_subtype:
+          dayType === "cross_training" && activityType === "gym" && gymCategory === "strength_resistance"
+            ? gymSubtype || null
+            : null,
       } as any)
       .select()
       .single();
     if (error || !sess) {
       toast.error(error?.message ?? "Failed");
+      return;
+    }
+
+    // Cross-training (gym/ride/swim) doesn't use the running warmup/work/
+    // cooldown step model — nothing to insert into `steps` for it.
+    if (dayType === "cross_training") {
+      toast.success("Session created");
+      navigate({ to: "/app/sessions/$sessionId", params: { sessionId: sess.id } });
       return;
     }
 
@@ -493,6 +521,65 @@ function NewSession() {
                 </div>
               </>
             )}
+            {dayType === "cross_training" && (
+              <>
+                <div>
+                  <Label>Activity type</Label>
+                  <Select value={activityType} onValueChange={setActivityType}>
+                    <SelectTrigger className="mt-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="gym">Gym</SelectItem>
+                      <SelectItem value="ride">Ride</SelectItem>
+                      <SelectItem value="swim">Swim</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {activityType === "gym" && (
+                  <div>
+                    <Label>Gym type</Label>
+                    <Select
+                      value={gymCategory}
+                      onValueChange={(v) => {
+                        setGymCategory(v);
+                        // Subtype only ever applies to Strength & Resistance —
+                        // clear any stale value if the category changes away
+                        // from it, so a leftover "Upper" doesn't silently
+                        // stick to e.g. a Mobility session.
+                        if (v !== "strength_resistance") setGymSubtype("");
+                      }}
+                    >
+                      <SelectTrigger className="mt-1">
+                        <SelectValue placeholder="Pick a type…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="mobility">Mobility</SelectItem>
+                        <SelectItem value="flexibility_core">Flexibility / Core</SelectItem>
+                        <SelectItem value="circuit">Circuit</SelectItem>
+                        <SelectItem value="strength_resistance">Strength &amp; Resistance</SelectItem>
+                        <SelectItem value="cardio">Cardio</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {activityType === "gym" && gymCategory === "strength_resistance" && (
+                  <div>
+                    <Label>Focus</Label>
+                    <Select value={gymSubtype} onValueChange={setGymSubtype}>
+                      <SelectTrigger className="mt-1">
+                        <SelectValue placeholder="Pick a focus…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="upper">Upper</SelectItem>
+                        <SelectItem value="lower">Lower</SelectItem>
+                        <SelectItem value="full_body">Full body</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </>
+            )}
             <div className="sm:col-span-2">
               <Label>Notes</Label>
               <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
@@ -500,25 +587,27 @@ function NewSession() {
           </CardContent>
         </Card>
 
-        <StepsCard
-          steps={steps}
-          structure={structure}
-          updateStep={updateStep}
-          removeStep={removeStep}
-          addStep={addStep}
-          moveStep={moveStep}
-          reorder={(uids) =>
-            setSteps((prev) => {
-              // uids = new order of middle uids; warmups stay leading, cooldowns trailing
-              const warm = prev.filter((s) => s.kind === "warmup");
-              const cool = prev.filter((s) => s.kind === "cooldown");
-              const middle = prev.filter((s) => s.kind !== "warmup" && s.kind !== "cooldown");
-              const byUid = new Map(middle.map((s) => [s._uid!, s]));
-              const newMiddle = uids.map((u) => byUid.get(u)!).filter(Boolean);
-              return [...warm, ...newMiddle, ...cool];
-            })
-          }
-        />
+        {dayType !== "cross_training" && (
+          <StepsCard
+            steps={steps}
+            structure={structure}
+            updateStep={updateStep}
+            removeStep={removeStep}
+            addStep={addStep}
+            moveStep={moveStep}
+            reorder={(uids) =>
+              setSteps((prev) => {
+                // uids = new order of middle uids; warmups stay leading, cooldowns trailing
+                const warm = prev.filter((s) => s.kind === "warmup");
+                const cool = prev.filter((s) => s.kind === "cooldown");
+                const middle = prev.filter((s) => s.kind !== "warmup" && s.kind !== "cooldown");
+                const byUid = new Map(middle.map((s) => [s._uid!, s]));
+                const newMiddle = uids.map((u) => byUid.get(u)!).filter(Boolean);
+                return [...warm, ...newMiddle, ...cool];
+              })
+            }
+          />
+        )}
 
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={() => navigate({ to: "/app/sessions" })}>
