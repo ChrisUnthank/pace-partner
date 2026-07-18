@@ -24,6 +24,7 @@ import {
 import { toast } from "sonner";
 import { AlertTriangle, ChevronLeft, Flag, RotateCcw, Trash2 } from "lucide-react";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
+import { EventTacticsCard } from "@/components/event-tactics-card";
 import { clockToSec, secToClock, paceFmt } from "@/lib/format";
 import {
   type SplitRow,
@@ -345,6 +346,14 @@ function RaceTacticsDetail() {
             </div>
           </CardContent>
         </Card>
+
+        <EventTacticsCard
+          planId={planId}
+          raceDistanceM={plan.race_distance_m}
+          raceType={plan.race_type}
+          eventTactics={plan.event_tactics}
+          canEdit={!!canEdit}
+        />
 
         {canEdit && (
           <AlertDialog>
