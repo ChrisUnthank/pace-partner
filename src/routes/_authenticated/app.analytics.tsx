@@ -647,6 +647,34 @@ function AthleteAnalytics({
 
   const intentTotalMinutes = useMemo(() => intentData.reduce((a, d) => a + d.minutes, 0), [intentData]);
 
+  // Higher-level rollup than intentData above — that one breaks training
+  // sessions down by intent (and now cross-training by gym/ride/swim).
+  // This one steps back to the top-level day_type only: how many sessions
+  // (and how many hours) were Training vs Race vs Recovery vs
+  // Cross-training vs Rest, in one glance. Reuses the same intentRollup
+  // query rather than firing a second query for the same date range.
+  const dayTypeData = useMemo(() => {
+    const buckets = new Map<string, { count: number; minutes: number }>();
+    for (const r of (intentRollup as any[]) ?? []) {
+      const key = r.day_type ?? "training";
+      const cur = buckets.get(key) ?? { count: 0, minutes: 0 };
+      cur.count += 1;
+      cur.minutes += Number(r.total_time_seconds ?? 0) / 60;
+      buckets.set(key, cur);
+    }
+    return DAY_TYPE_ORDER.filter((k) => buckets.has(k)).map((key) => {
+      const b = buckets.get(key)!;
+      return {
+        key,
+        label: DAY_TYPE_PIE_LABELS[key] ?? key,
+        sessions: b.count,
+        hours: Math.round((b.minutes / 60) * 10) / 10,
+      };
+    });
+  }, [intentRollup]);
+
+  const dayTypeTotalSessions = useMemo(() => dayTypeData.reduce((a, d) => a + d.sessions, 0), [dayTypeData]);
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -1064,6 +1092,56 @@ function AthleteAnalytics({
           </CardContent>
         </Card>
 
+        <Card>
+          <CardHeader>
+            <CardTitle>Sessions by Type</CardTitle>
+            <CardDescription>How many sessions — and how many hours — were Training vs Race vs Recovery vs Cross-training vs Rest.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {dayTypeData.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No completed sessions in this range.</p>
+            ) : (
+              <div className="h-[220px] w-full">
+                <ResponsiveContainer>
+                  <PieChart>
+                    <Pie
+                      data={dayTypeData}
+                      dataKey="sessions"
+                      nameKey="label"
+                      innerRadius={45}
+                      outerRadius={80}
+                      paddingAngle={2}
+                      label={({ value }: any) => {
+                        const pct = dayTypeTotalSessions ? Math.round((Number(value) / dayTypeTotalSessions) * 100) : 0;
+                        return `${pct}%`;
+                      }}
+                      labelLine={{ stroke: "hsl(var(--muted-foreground))", strokeWidth: 1 }}
+                    >
+                      {dayTypeData.map((d) => (
+                        <Cell key={d.key} fill={DAY_TYPE_PIE_COLORS[d.key] ?? "#8b5cf6"} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{
+                        background: "hsl(var(--background))",
+                        border: "1px solid hsl(var(--border))",
+                        fontSize: 12,
+                      }}
+                      itemStyle={{ color: "hsl(var(--foreground))" }}
+                      labelStyle={{ color: "hsl(var(--foreground))" }}
+                      formatter={(_value: number, name: string, entry: any) => {
+                        const d = entry?.payload;
+                        return [`${d?.sessions ?? 0} session${d?.sessions === 1 ? "" : "s"} · ${d?.hours ?? 0}h`, name];
+                      }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         <VolumeShareCard sessions={(stepVolumeSessions as any[]) ?? []} granularity={granularity} />
       </div>
 
@@ -1274,6 +1352,26 @@ const INTENT_PIE_COLORS: Record<string, string> = {
   swim: "#06b6d4", // cyan-500 — distinct from aerobic's sky-400
   cross_training: "#94a3b8", // slate-400 — kept as the "other/unset" fallback
   rest: "#d6d3d1", // stone-300
+};
+
+// Top-level day_type rollup — a coarser view than INTENT_PIE_COLORS above
+// (which breaks "training" down by intent). Reuses the same race/recovery/
+// rest colors from that palette for consistency, since those two charts
+// will often sit next to each other on the page.
+const DAY_TYPE_ORDER = ["training", "race", "recovery", "cross_training", "rest"];
+const DAY_TYPE_PIE_LABELS: Record<string, string> = {
+  training: "Training",
+  race: "Race",
+  recovery: "Recovery",
+  cross_training: "Cross-training",
+  rest: "Rest",
+};
+const DAY_TYPE_PIE_COLORS: Record<string, string> = {
+  training: "#38bdf8", // sky-400
+  race: "#db2777", // pink-600 — matches INTENT_PIE_COLORS
+  recovery: "#14b8a6", // teal-500 — matches INTENT_PIE_COLORS
+  cross_training: "#a78bfa", // violet-400
+  rest: "#d6d3d1", // stone-300 — matches INTENT_PIE_COLORS
 };
 
 const KIND_COLORS: Record<string, string> = {
