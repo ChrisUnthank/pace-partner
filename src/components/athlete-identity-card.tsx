@@ -38,12 +38,17 @@ export const ATHLETE_STATUS_STYLES: Record<string, string> = {
 export function AthleteIdentityCard({
   athlete,
   athleteId,
-  isCoach,
+  canEdit,
   rollingActuals,
 }: {
   athlete: any;
   athleteId: string;
-  isCoach: boolean;
+  // True if the current user is either this athlete's coach OR the
+  // athlete themself — matches the athletes table's own RLS update policy
+  // (`user_id = auth.uid() OR is_coach_of(...)`) exactly, so the Edit
+  // button's visibility never promises something the database would then
+  // refuse to save.
+  canEdit: boolean;
   // Optional last-28-days rollup — only the Performance Profile page
   // currently fetches this; the main profile page passes nothing and the
   // line simply doesn't show, rather than this card doing a duplicate
@@ -150,6 +155,13 @@ export function AthleteIdentityCard({
     // it happens to still be mounted) picks up the change without a
     // manual refresh.
     qc.invalidateQueries({ queryKey: ["athlete", athleteId] });
+    // Also invalidate useMyAthlete's key (["my-athlete", userId]) — used
+    // only by the self-service Profile page (app.profile.tsx), which
+    // fetches the athlete row a different way (by user_id, not athleteId).
+    // Invalidating a prefix with no matching active query elsewhere is a
+    // harmless no-op, so this is safe to always do rather than needing an
+    // extra prop just for that one page.
+    qc.invalidateQueries({ queryKey: ["my-athlete"] });
   }
 
   const rows: Array<[string, string]> = [
@@ -186,7 +198,7 @@ export function AthleteIdentityCard({
           <Badge variant="outline" className={ATHLETE_STATUS_STYLES[athlete?.athlete_status ?? "active"]}>
             {ATHLETE_STATUS_OPTIONS.find((o) => o.value === athlete?.athlete_status)?.label ?? "Active"}
           </Badge>
-          {isCoach && !editing && (
+          {canEdit && !editing && (
             <Button size="sm" variant="outline" onClick={startEditing}>
               Edit
             </Button>
