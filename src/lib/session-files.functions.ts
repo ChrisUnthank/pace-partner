@@ -114,6 +114,7 @@ async function fetchLocationName(lat: number, lon: number) {
 function mapFitSport(sport: string | null | undefined): string {
   const s = (sport ?? "").toLowerCase();
   if (s.includes("swim")) return "swim";
+  if (s.includes("cycling") || s.includes("biking") || s.includes("bike") || s.includes("cycle")) return "ride";
   if (s.includes("training") || s.includes("gym") || s.includes("strength")) return "gym";
   if (s.includes("track")) return "track";
   return "run";
@@ -1367,6 +1368,81 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   mergedLaps.forEach((l, i) => {
     l.index = i;
   });
+
+  // Cross-training FIT/GPX uploads (currently just 'ride' — swim FIT
+  // parsing isn't built yet, and gym has no file-upload path at all) skip
+  // the running-specific classification pipeline entirely from here on:
+  // lap classification, warmup/work/cooldown splitting, and pace-zone
+  // intent scoring are all calibrated to running and would produce
+  // nonsense against a bike ride (e.g. scoring a hard bike interval as a
+  // running "VO2" effort, or splitting a ride into "warmup"/"work" laps
+  // based on running pace contrast). Instead: keep the merged raw points
+  // (so the map/trace still renders on the analysis page), write simple
+  // whole-session totals, and skip laps/steps/interval_results entirely.
+  // HR zone time still gets populated separately, via
+  // recompute_session_zones()'s whole-session HR fallback for sessions
+  // with no interval_results to bucket (see
+  // migration_02_cross_training_hr_zones.sql) — triggered automatically
+  // by the sessions UPDATE below, same as it always has been.
+  if (sess.activity_type && sess.activity_type !== "run" && sess.activity_type !== "track") {
+    const totalStoppedS = computeTotalStoppedSeconds(mergedPoints);
+    const totalDistanceM =
+      mergedPoints.length > 0
+        ? Number(mergedPoints[mergedPoints.length - 1].distance_m ?? 0)
+        : parsedFiles.reduce((s, p) => s + Number(p.parsed.totalDistanceM ?? 0), 0);
+    const totalTimeS =
+      mergedPoints.length > 0
+        ? Number(mergedPoints[mergedPoints.length - 1].elapsed_s ?? 0)
+        : parsedFiles.reduce((s, p) => s + Number(p.parsed.totalTimeS ?? 0), 0);
+    const totalMovingTimeS = Math.max(0, totalTimeS - totalStoppedS);
+    const { avgHr, maxHr, avgTemp } = summarizeImportedPoints(mergedPoints);
+
+    if (mergedPoints.length > 0) {
+      const rows = mergedPoints.map((p) => ({
+        session_id: sessionId,
+        file_id: p.file_id,
+        segment_type: "work",
+        elapsed_s: p.elapsed_s,
+        distance_m: p.distance_m ?? null,
+        lat: p.lat ?? null,
+        lng: p.lng ?? null,
+        hr: p.hr ?? null,
+        pace_sec_per_km: p.pace_sec_per_km ?? null,
+        cadence: p.cadence ?? null,
+        elevation_m: p.elevation_m ?? null,
+        vertical_oscillation_cm: p.vertical_oscillation_cm ?? null,
+        ground_contact_time_ms: p.ground_contact_time_ms ?? null,
+        temperature_c: p.temperature_c ?? null,
+      }));
+
+      for (let i = 0; i < rows.length; i += 500) {
+        const { error } = await sb.from("raw_session_points").insert(rows.slice(i, i + 500) as any);
+        if (error) throw error;
+      }
+    }
+
+    await sb
+      .from("sessions")
+      .update({
+        total_distance_m: totalDistanceM || null,
+        total_time_seconds: totalTimeS || null,
+        total_moving_time_seconds: totalMovingTimeS || null,
+        work_distance_m: null,
+        work_time_s: null,
+        avg_hr: avgHr,
+        max_hr: maxHr,
+        average_temp_c: avgTemp,
+        work_avg_hr: null,
+        work_avg_pace_sec_per_km: null,
+        work_avg_cadence: null,
+        completion_pct: 100,
+        structure: "continuous",
+        needs_review: false,
+      } as any)
+      .eq("id", sessionId);
+
+    return;
+  }
 
   // Real-world stops (traffic, a gel, a toilet break) get baked into
   // whichever lap's total_elapsed_time they fell inside, inflating that
