@@ -52,10 +52,16 @@ function periodLabel(type: PeriodType) {
 
 // Session type vocabulary — mirrors sessions.intent (the same values
 // session-files.functions.ts's classifier and the Training Plans
-// effort_type→intent mapping already produce), plus "cross_train" and a
-// catch-all "other" for anything with no intent set (rest days, unclassified
-// manual entries). Shared shape for both the type-breakdown bars here and
-// the per-athlete mini graph on the coach report.
+// effort_type→intent mapping already produce), plus one bucket per
+// cross-training activity_type (gym/ride/swim) and a catch-all "other" for
+// anything with no intent set (rest days, unclassified manual entries).
+// Cross-training used to be a single lumped "Cross-train" bucket — split
+// out once activity_type existed to fill it, so a coach can actually see
+// "how much gym vs bike vs swim" instead of one undifferentiated blob.
+// "cross_train" is kept as a further fallback for any cross_training-day
+// session with no activity_type set (older data, or a manual entry that
+// predates this field). Shared shape for both the type-breakdown bars here
+// and the per-athlete mini graph on the coach report.
 // Same 6-zone palette used everywhere else (Zones card, calendar,
 // session/race analysis) — was previously a separate, uncoordinated color
 // set here, and was also missing "aerobic" and "anaerobic" as valid
@@ -69,9 +75,28 @@ const SESSION_TYPES: { key: string; label: string; color: string }[] = [
   { key: "threshold", label: "Threshold", color: "#f97316" },
   { key: "vo2", label: "VO2", color: "#ef4444" },
   { key: "anaerobic", label: "Anaerobic", color: "#9333ea" },
-  { key: "cross_train", label: "Cross-train", color: "#94a3b8" },
+  { key: "gym", label: "Gym", color: "#a78bfa" },
+  { key: "ride", label: "Ride", color: "#22c55e" },
+  { key: "swim", label: "Swim", color: "#06b6d4" },
+  { key: "cross_train", label: "Cross-train (other)", color: "#94a3b8" },
   { key: "other", label: "Other", color: "#d6d3d1" },
 ];
+
+// Single source of truth for "what bucket does this session fall into" —
+// used by both sessionTypeStats (the breakdown bars) and the per-row dot
+// in the session list below, so the two can never disagree with each
+// other about how a given session is classified.
+function sessionTypeKey(s: { intent?: string | null; day_type?: string | null; activity_type?: string | null }): string {
+  if (s.intent) return s.intent;
+  if (s.day_type === "cross_training") {
+    if (s.activity_type === "gym" || s.activity_type === "ride" || s.activity_type === "swim") {
+      return s.activity_type;
+    }
+    return "cross_train";
+  }
+  return "other";
+}
+
 // Distance/time per type, so pace can be shown per type rather than one
 // blended overall number — averaging an easy run's pace with a VO2
 // interval's pace produces a figure that doesn't actually represent either
@@ -85,7 +110,7 @@ const SESSION_TYPES: { key: string; label: string; color: string }[] = [
 function sessionTypeStats(sessions: any[]): Record<string, { count: number; distance: number; time: number }> {
   const stats: Record<string, { count: number; distance: number; time: number }> = {};
   for (const s of sessions) {
-    const key = s.intent ?? (s.day_type === "cross_training" ? "cross_train" : "other");
+    const key = sessionTypeKey(s);
     const cur = stats[key] ?? { count: 0, distance: 0, time: 0 };
     cur.count += 1;
     cur.distance += Number(s.total_distance_m ?? 0);
@@ -138,7 +163,7 @@ function AthleteReportPage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("sessions")
-        .select("id, title, session_date, total_distance_m, total_time_seconds, total_moving_time_seconds, rpe, completed_at, day_type, intent")
+        .select("id, title, session_date, total_distance_m, total_time_seconds, total_moving_time_seconds, rpe, completed_at, day_type, intent, activity_type")
         .eq("athlete_id", activeAthleteId)
         .gte("session_date", periodStart)
         .lte("session_date", periodEnd)
@@ -405,7 +430,7 @@ function AthleteReportPage() {
                         {sessions.map((s: any) => (
                           <div key={s.id} className="flex items-center gap-2 px-3 py-1.5 text-xs">
                             <span className="w-16 shrink-0 text-muted-foreground tabular-nums">{s.session_date.slice(5)}</span>
-                            <TypeDot type={s.intent ?? (s.day_type === "cross_training" ? "cross_train" : "other")} />
+                            <TypeDot type={sessionTypeKey(s)} />
                             <span className="min-w-0 flex-1 truncate font-medium">{s.title ?? "Untitled session"}</span>
                             <span className="shrink-0 tabular-nums text-muted-foreground w-16 text-right">
                               {metersFmt(s.total_distance_m ?? 0)}
