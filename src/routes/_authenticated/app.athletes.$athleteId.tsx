@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useMyRoles } from "@/lib/use-auth";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,9 +17,9 @@ import { UserAvatar } from "@/components/user-avatar";
 import { GenerateReviewCard } from "@/components/generate-review-card";
 import { AthleteReminderSettings } from "@/components/reminder-settings";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { TIMEZONE_OPTIONS, guessLocalTimezone } from "@/lib/timezones";
 import { ZoneBoundariesCard } from "@/components/zone-boundaries-card";
 import { GoalsCard } from "@/components/goals-card";
+import { AthleteIdentityCard } from "@/components/athlete-identity-card";
 import { Badge } from "@/components/ui/badge";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
@@ -100,6 +101,8 @@ function primaryEventDistanceM(text: string | null | undefined): number | null {
 function AthleteDetail() {
   const { athleteId } = Route.useParams();
   const qc = useQueryClient();
+  const { data: roles = [] } = useMyRoles();
+  const isCoach = roles.includes("coach");
 
   const { data: athlete } = useQuery({
     queryKey: ["athlete", athleteId],
@@ -331,7 +334,7 @@ function AthleteDetail() {
           </div>
         </div>
 
-        <IdentityCard athlete={athlete} athleteId={athleteId} />
+        <AthleteIdentityCard athlete={athlete} athleteId={athleteId} isCoach={isCoach} />
 
         <GoalsCard athleteId={athleteId} />
 
@@ -717,90 +720,5 @@ function PieSplit({ aerobic, anaerobic }: { aerobic: number; anaerobic: number }
       style={{ background: `conic-gradient(rgb(16 185 129) 0 ${aerAngle}deg, rgb(244 63 94) ${aerAngle}deg 360deg)` }}
       aria-label={`${aerobic}% aerobic, ${anaerobic}% anaerobic`}
     />
-  );
-}
-
-function IdentityCard({ athlete, athleteId }: { athlete: any; athleteId: string }) {
-  const qc = useQueryClient();
-  const ageYears = athlete?.dob
-    ? Math.floor((Date.now() - new Date(athlete.dob).getTime()) / (365.25 * 24 * 3600 * 1000))
-    : null;
-
-  const { data: latestVitals } = useQuery({
-    queryKey: ["latest_vitals", athleteId],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("daily_vitals" as any)
-        .select("weight_kg, vitals_date")
-        .eq("athlete_id", athleteId)
-        .not("weight_kg", "is", null)
-        .order("vitals_date", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      return data as any;
-    },
-  });
-
-  const weightDisplay = latestVitals?.weight_kg != null
-    ? `${Number(latestVitals.weight_kg).toFixed(1)} kg`
-    : athlete?.weight != null
-      ? `${Number(athlete.weight).toFixed(1)} kg (baseline)`
-      : "not yet logged";
-
-  const rows: Array<[string, string]> = [
-    ["Name", athlete?.name ?? "—"],
-    ["Sex", athlete?.sex ?? "—"],
-    ["Date of birth", athlete?.dob ? `${athlete.dob}${ageYears != null ? ` (${ageYears}y)` : ""}` : "—"],
-    ["Training age", athlete?.training_age_years != null ? `${athlete.training_age_years} yrs` : "—"],
-    ["Primary event", athlete?.primary_event ?? "—"],
-    ["Weight", weightDisplay],
-    ["HR max", athlete?.hr_max != null ? `${athlete.hr_max} bpm` : "—"],
-    ["HR rest", athlete?.hr_rest != null ? `${athlete.hr_rest} bpm` : "—"],
-  ];
-
-  // The one editable field on this otherwise read-only card. This is the
-  // timezone that actually drives how this athlete's uploaded sessions get
-  // classified (Morning/Afternoon/Evening) and how local session times get
-  // displayed — was previously never settable anywhere for a coach editing
-  // an athlete directly, so new athletes silently sat on UTC. Saves
-  // immediately on change, same pattern as other single-field selects
-  // elsewhere in the app (e.g. reassigning a session step's kind).
-  async function saveTimezone(tz: string) {
-    const { error } = await supabase.from("athletes").update({ timezone: tz } as any).eq("id", athleteId);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    toast.success("Time zone updated");
-    qc.invalidateQueries({ queryKey: ["athlete", athleteId] });
-  }
-
-  return (
-    <Card>
-      <CardHeader><CardTitle>Athlete profile</CardTitle></CardHeader>
-      <CardContent>
-        <dl className="grid sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
-          {rows.map(([k, v]) => (
-            <div key={k} className="flex justify-between border-b py-1">
-              <dt className="text-muted-foreground">{k}</dt>
-              <dd className="font-medium tabular-nums">{v}</dd>
-            </div>
-          ))}
-          <div className="flex justify-between items-center border-b py-1 sm:col-span-2">
-            <dt className="text-muted-foreground">Time zone</dt>
-            <dd>
-              <Select value={athlete?.timezone ?? guessLocalTimezone()} onValueChange={saveTimezone}>
-                <SelectTrigger className="h-7 w-[220px] text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {TIMEZONE_OPTIONS.map((z) => (
-                    <SelectItem key={z.value} value={z.value}>{z.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </dd>
-          </div>
-        </dl>
-      </CardContent>
-    </Card>
   );
 }
