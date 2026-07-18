@@ -468,7 +468,7 @@ function AthleteAnalytics({
     queryFn: async () => {
       const { data } = await supabase
         .from("sessions")
-        .select("intent, total_time_seconds, day_type")
+        .select("intent, total_time_seconds, day_type, activity_type")
         .eq("athlete_id", athleteId)
         .not("completed_at", "is", null)
         .gte("session_date", since);
@@ -606,18 +606,35 @@ function AthleteAnalytics({
       // clearly existing. day_type takes priority for anything not
       // "training", matching the same logic sessionColorClass already uses
       // for the calendar.
-      const key = r.day_type && r.day_type !== "training" ? r.day_type : r.intent;
+      //
+      // cross_training used to collapse into one lumped bucket regardless
+      // of what it actually was — split by activity_type (gym/ride/swim)
+      // where set, same fallback pattern as the athlete weekly report, so
+      // a coach can see "how much gym vs bike vs swim" instead of one
+      // undifferentiated blob. Falls back to the old single
+      // "cross_training" bucket for older data with no activity_type set.
+      let key: string | null;
+      if (r.day_type && r.day_type !== "training") {
+        if (r.day_type === "cross_training" && (r.activity_type === "gym" || r.activity_type === "ride" || r.activity_type === "swim")) {
+          key = r.activity_type;
+        } else {
+          key = r.day_type;
+        }
+      } else {
+        key = r.intent;
+      }
       if (!key) continue;
       buckets.set(key, (buckets.get(key) ?? 0) + Number(r.total_time_seconds ?? 0));
     }
     const order = [
       "easy", "aerobic", "tempo", "threshold", "vo2", "anaerobic", "speed",
-      "race", "recovery", "cross_training", "rest",
+      "race", "recovery", "gym", "ride", "swim", "cross_training", "rest",
     ];
     const LABELS: Record<string, string> = {
       easy: "Easy", aerobic: "Aerobic", tempo: "Tempo", threshold: "Threshold", vo2: "VO2",
       anaerobic: "Anaerobic", speed: "Speed", race: "Race", recovery: "Recovery",
-      cross_training: "Cross-training", rest: "Rest",
+      gym: "Gym", ride: "Ride", swim: "Swim",
+      cross_training: "Cross-training (other)", rest: "Rest",
     };
     return order
       .filter((k) => buckets.has(k))
@@ -1252,7 +1269,10 @@ const INTENT_PIE_COLORS: Record<string, string> = {
   speed: "#d946ef", // fuchsia-500
   race: "#db2777", // pink-600 — matches calendar-day-cell.tsx
   recovery: "#14b8a6", // teal-500 — matches calendar-day-cell.tsx
-  cross_training: "#94a3b8", // slate-400
+  gym: "#a78bfa", // violet-400 — distinct from anaerobic's purple-600
+  ride: "#22c55e", // green-500 — distinct from easy's emerald-400
+  swim: "#06b6d4", // cyan-500 — distinct from aerobic's sky-400
+  cross_training: "#94a3b8", // slate-400 — kept as the "other/unset" fallback
   rest: "#d6d3d1", // stone-300
 };
 
