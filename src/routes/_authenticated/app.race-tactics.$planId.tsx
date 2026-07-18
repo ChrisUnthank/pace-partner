@@ -33,6 +33,7 @@ import {
   type SplitRow,
   type Strategy,
   generateStrategySplits,
+  splitIncrementOptions,
   recalcAfterEdit,
   recalcFromEditedFlags,
   isOverGoalTime,
@@ -51,6 +52,12 @@ const STATUS_OPTIONS = [
   { value: "approved", label: "Approved" },
   { value: "race_ready", label: "Race Ready" },
   { value: "completed", label: "Completed" },
+];
+
+const RACE_TYPE_OPTIONS = [
+  { value: "track", label: "Track" },
+  { value: "road", label: "Road" },
+  { value: "cross_country", label: "Cross Country" },
 ];
 
 function RaceTacticsDetail() {
@@ -137,6 +144,59 @@ function RaceTacticsDetail() {
     qc.invalidateQueries({ queryKey: ["race-tactics-plan", planId] });
   }
 
+  // Goal time / distance / split increment are the inputs the whole split
+  // engine is built from — editing any of them means the existing splits
+  // no longer correspond to the new numbers, so they're regenerated (using
+  // whatever strategy shape is already set) exactly like changeStrategy
+  // does. Editing anything else here (name, date, PBs, conditions) is a
+  // plain field update with no effect on splits.
+  async function saveRaceDetails(fields: {
+    eventName: string;
+    raceType: string;
+    raceDistanceM: number;
+    raceDate: string | null;
+    goalTimeSeconds: number;
+    currentPbSeconds: number | null;
+    targetPbSeconds: number | null;
+    splitIncrementM: number;
+    conditions: Record<string, string> | null;
+  }) {
+    if (!plan) return;
+    const needsRegeneration =
+      fields.raceDistanceM !== plan.race_distance_m ||
+      fields.goalTimeSeconds !== Number(plan.goal_time_seconds) ||
+      fields.splitIncrementM !== plan.split_increment_m;
+
+    const nextSplits = needsRegeneration
+      ? generateStrategySplits(fields.raceDistanceM, fields.splitIncrementM, fields.goalTimeSeconds, plan.strategy as Strategy)
+      : splits;
+
+    if (needsRegeneration) setSplits(nextSplits);
+
+    const { error } = await supabase
+      .from("race_tactics_plans" as any)
+      .update({
+        event_name: fields.eventName,
+        race_type: fields.raceType,
+        race_distance_m: fields.raceDistanceM,
+        race_date: fields.raceDate,
+        goal_time_seconds: fields.goalTimeSeconds,
+        current_pb_seconds: fields.currentPbSeconds,
+        target_pb_seconds: fields.targetPbSeconds,
+        split_increment_m: fields.splitIncrementM,
+        conditions: fields.conditions as any,
+        splits: nextSplits as any,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", planId);
+    if (error) {
+      toast.error(error.message);
+      throw error;
+    }
+    toast.success(needsRegeneration ? "Race details updated — splits regenerated" : "Race details updated");
+    qc.invalidateQueries({ queryKey: ["race-tactics-plan", planId] });
+  }
+
   async function updateStatus(status: string) {
     const { error } = await supabase.from("race_tactics_plans" as any).update({ status }).eq("id", planId);
     if (error) {
@@ -175,7 +235,6 @@ function RaceTacticsDetail() {
   const overBudget = isOverGoalTime(splits, goalTime);
   const avgPace = averagePaceSecPerKm(plan.race_distance_m, goalTime);
   const avgSpeed = averageSpeedKmh(plan.race_distance_m, goalTime);
-  const conditions = plan.conditions as { temperature_c?: string; wind?: string; weather?: string; surface?: string } | null;
 
   return (
     <AppShell>
@@ -214,45 +273,36 @@ function RaceTacticsDetail() {
             ) : (
               <Badge variant="outline">{STATUS_OPTIONS.find((o) => o.value === plan.status)?.label ?? plan.status}</Badge>
             )}
+            {canEdit && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" title="Delete plan">
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete this race plan?</AlertDialogTitle>
+                    <AlertDialogDescription>This can't be undone.</AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={deletePlan}>Delete</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
           </div>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Goal</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid sm:grid-cols-4 gap-3 text-sm">
-              <div>
-                <div className="text-xs text-muted-foreground">Goal time</div>
-                <div className="font-semibold tabular-nums">{secToClock(goalTime)}</div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Average pace</div>
-                <div className="font-semibold tabular-nums">{paceFmt(avgPace)}</div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Average speed</div>
-                <div className="font-semibold tabular-nums">{avgSpeed.toFixed(1)} km/h</div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Current PB / Target PB</div>
-                <div className="font-semibold tabular-nums">
-                  {plan.current_pb_seconds ? secToClock(plan.current_pb_seconds) : "—"} /{" "}
-                  {plan.target_pb_seconds ? secToClock(plan.target_pb_seconds) : "—"}
-                </div>
-              </div>
-            </div>
-            {conditions && (conditions.temperature_c || conditions.wind || conditions.weather || conditions.surface) && (
-              <div className="flex flex-wrap gap-1.5 mt-3">
-                {conditions.temperature_c && <Badge variant="outline">{conditions.temperature_c}</Badge>}
-                {conditions.wind && <Badge variant="outline">{conditions.wind}</Badge>}
-                {conditions.weather && <Badge variant="outline">{conditions.weather}</Badge>}
-                {conditions.surface && <Badge variant="outline">{conditions.surface}</Badge>}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <RaceDetailsCard
+          plan={plan}
+          canEdit={!!canEdit}
+          hasManualSplitEdits={splits.some((s) => s.is_edited)}
+          avgPace={avgPace}
+          avgSpeed={avgSpeed}
+          onSave={saveRaceDetails}
+        />
 
         <AthleteContextCard
           athleteId={plan.athlete_id}
@@ -370,29 +420,257 @@ function RaceTacticsDetail() {
         />
 
         <TacticalDecisionPointsCard planId={planId} raceDistanceM={plan.race_distance_m} canEdit={!!canEdit} />
-
-        {canEdit && (
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="ghost" size="sm" className="text-destructive">
-                <Trash2 className="h-4 w-4 mr-1" />
-                Delete plan
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete this race plan?</AlertDialogTitle>
-                <AlertDialogDescription>This can't be undone.</AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={deletePlan}>Delete</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        )}
       </div>
     </AppShell>
+  );
+}
+
+// Goal time, distance, and split increment are the actual inputs the
+// whole split engine is built from — this card is the only place they
+// (plus name/date/PBs/conditions) can be edited after creation, since
+// there was previously no way back to the create form. Editing any of the
+// three regenerates splits (see saveRaceDetails in the parent); everything
+// else here is a plain field update.
+function RaceDetailsCard({
+  plan,
+  canEdit,
+  hasManualSplitEdits,
+  avgPace,
+  avgSpeed,
+  onSave,
+}: {
+  plan: any;
+  canEdit: boolean;
+  hasManualSplitEdits: boolean;
+  avgPace: number;
+  avgSpeed: number;
+  onSave: (fields: {
+    eventName: string;
+    raceType: string;
+    raceDistanceM: number;
+    raceDate: string | null;
+    goalTimeSeconds: number;
+    currentPbSeconds: number | null;
+    targetPbSeconds: number | null;
+    splitIncrementM: number;
+    conditions: Record<string, string> | null;
+  }) => Promise<void>;
+}) {
+  const conditions = (plan.conditions as { temperature_c?: string; wind?: string; weather?: string; surface?: string } | null) ?? {};
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const [eventName, setEventName] = useState(plan.event_name);
+  const [raceType, setRaceType] = useState(plan.race_type);
+  const [distance, setDistance] = useState(String(plan.race_distance_m));
+  const [raceDate, setRaceDate] = useState(plan.race_date ?? "");
+  const [goalTimeInput, setGoalTimeInput] = useState(secToClock(plan.goal_time_seconds));
+  const [currentPbInput, setCurrentPbInput] = useState(plan.current_pb_seconds ? secToClock(plan.current_pb_seconds) : "");
+  const [targetPbInput, setTargetPbInput] = useState(plan.target_pb_seconds ? secToClock(plan.target_pb_seconds) : "");
+  const [splitIncrement, setSplitIncrement] = useState(plan.split_increment_m);
+  const [temperature, setTemperature] = useState(conditions.temperature_c ?? "");
+  const [wind, setWind] = useState(conditions.wind ?? "");
+  const [weather, setWeather] = useState(conditions.weather ?? "");
+  const [surface, setSurface] = useState(conditions.surface ?? "");
+
+  const incrementOptions = splitIncrementOptions(raceType);
+
+  function startEditing() {
+    setEventName(plan.event_name);
+    setRaceType(plan.race_type);
+    setDistance(String(plan.race_distance_m));
+    setRaceDate(plan.race_date ?? "");
+    setGoalTimeInput(secToClock(plan.goal_time_seconds));
+    setCurrentPbInput(plan.current_pb_seconds ? secToClock(plan.current_pb_seconds) : "");
+    setTargetPbInput(plan.target_pb_seconds ? secToClock(plan.target_pb_seconds) : "");
+    setSplitIncrement(plan.split_increment_m);
+    setTemperature(conditions.temperature_c ?? "");
+    setWind(conditions.wind ?? "");
+    setWeather(conditions.weather ?? "");
+    setSurface(conditions.surface ?? "");
+    setEditing(true);
+  }
+
+  const distanceNum = Number(distance);
+  const goalSec = clockToSec(goalTimeInput);
+  const willRegenerate =
+    (Number.isFinite(distanceNum) && distanceNum !== plan.race_distance_m) ||
+    (goalSec != null && goalSec !== Number(plan.goal_time_seconds)) ||
+    splitIncrement !== plan.split_increment_m;
+
+  async function save() {
+    if (!eventName.trim()) {
+      toast.error("Enter an event name");
+      return;
+    }
+    if (!Number.isFinite(distanceNum) || distanceNum <= 0) {
+      toast.error("Enter a valid race distance");
+      return;
+    }
+    if (!goalSec || goalSec <= 0) {
+      toast.error("Enter a goal time (mm:ss or h:mm:ss)");
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave({
+        eventName: eventName.trim(),
+        raceType,
+        raceDistanceM: Math.round(distanceNum),
+        raceDate: raceDate || null,
+        goalTimeSeconds: goalSec,
+        currentPbSeconds: currentPbInput ? clockToSec(currentPbInput) : null,
+        targetPbSeconds: targetPbInput ? clockToSec(targetPbInput) : null,
+        splitIncrementM: splitIncrement,
+        conditions: temperature || wind || weather || surface ? { temperature_c: temperature, wind, weather, surface } : null,
+      });
+      setEditing(false);
+    } catch {
+      // onSave already toasts the error
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between gap-2">
+        <CardTitle className="text-base">Race details</CardTitle>
+        {canEdit && !editing && (
+          <Button size="sm" variant="outline" onClick={startEditing}>
+            Edit
+          </Button>
+        )}
+      </CardHeader>
+      <CardContent>
+        {!editing ? (
+          <>
+            <div className="grid sm:grid-cols-4 gap-3 text-sm">
+              <div>
+                <div className="text-xs text-muted-foreground">Goal time</div>
+                <div className="font-semibold tabular-nums">{secToClock(Number(plan.goal_time_seconds))}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Average pace</div>
+                <div className="font-semibold tabular-nums">{paceFmt(avgPace)}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Average speed</div>
+                <div className="font-semibold tabular-nums">{avgSpeed.toFixed(1)} km/h</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Current PB / Target PB</div>
+                <div className="font-semibold tabular-nums">
+                  {plan.current_pb_seconds ? secToClock(plan.current_pb_seconds) : "—"} /{" "}
+                  {plan.target_pb_seconds ? secToClock(plan.target_pb_seconds) : "—"}
+                </div>
+              </div>
+            </div>
+            {(conditions.temperature_c || conditions.wind || conditions.weather || conditions.surface) && (
+              <div className="flex flex-wrap gap-1.5 mt-3">
+                {conditions.temperature_c && <Badge variant="outline">{conditions.temperature_c}</Badge>}
+                {conditions.wind && <Badge variant="outline">{conditions.wind}</Badge>}
+                {conditions.weather && <Badge variant="outline">{conditions.weather}</Badge>}
+                {conditions.surface && <Badge variant="outline">{conditions.surface}</Badge>}
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="space-y-3">
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Event name</Label>
+                <Input value={eventName} onChange={(e) => setEventName(e.target.value)} />
+              </div>
+              <div>
+                <Label className="text-xs">Race date</Label>
+                <Input type="date" value={raceDate} onChange={(e) => setRaceDate(e.target.value)} />
+              </div>
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Race type</Label>
+                <Select value={raceType} onValueChange={setRaceType}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {RACE_TYPE_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Distance (meters)</Label>
+                <Input type="number" value={distance} onChange={(e) => setDistance(e.target.value)} />
+              </div>
+            </div>
+
+            <div className="grid sm:grid-cols-3 gap-3">
+              <div>
+                <Label className="text-xs">Goal time (mm:ss)</Label>
+                <Input value={goalTimeInput} onChange={(e) => setGoalTimeInput(e.target.value)} />
+              </div>
+              <div>
+                <Label className="text-xs">Current PB</Label>
+                <Input value={currentPbInput} onChange={(e) => setCurrentPbInput(e.target.value)} placeholder="mm:ss" />
+              </div>
+              <div>
+                <Label className="text-xs">Target PB</Label>
+                <Input value={targetPbInput} onChange={(e) => setTargetPbInput(e.target.value)} placeholder="mm:ss" />
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-xs">Split every</Label>
+              <Select value={String(splitIncrement)} onValueChange={(v) => setSplitIncrement(Number(v))}>
+                <SelectTrigger className="mt-1 w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {incrementOptions.map((inc) => (
+                    <SelectItem key={inc} value={String(inc)}>
+                      {inc}m
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label className="text-xs">Conditions</Label>
+              <div className="grid sm:grid-cols-4 gap-2 mt-1">
+                <Input value={temperature} onChange={(e) => setTemperature(e.target.value)} placeholder="Temp" />
+                <Input value={wind} onChange={(e) => setWind(e.target.value)} placeholder="Wind" />
+                <Input value={weather} onChange={(e) => setWeather(e.target.value)} placeholder="Weather" />
+                <Input value={surface} onChange={(e) => setSurface(e.target.value)} placeholder="Surface" />
+              </div>
+            </div>
+
+            {willRegenerate && (
+              <p className="text-xs text-amber-600 flex items-center gap-1">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                Changing distance, goal time, or split increment regenerates every split
+                {hasManualSplitEdits ? " and discards your manual split edits" : ""}.
+              </p>
+            )}
+
+            <div className="flex gap-2">
+              <Button size="sm" onClick={save} disabled={saving}>
+                {saving ? "Saving…" : "Save"}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
