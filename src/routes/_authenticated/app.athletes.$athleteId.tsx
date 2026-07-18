@@ -11,7 +11,7 @@ import { ReadinessBadge } from "@/components/readiness-badge";
 import { VitalsPanel } from "@/components/vitals-panel";
 import { CoachChat } from "@/components/coach-chat";
 import { toast } from "sonner";
-import { RefreshCw, CalendarDays } from "lucide-react";
+import { RefreshCw, CalendarDays, IdCard } from "lucide-react";
 import { UserAvatar } from "@/components/user-avatar";
 import { GenerateReviewCard } from "@/components/generate-review-card";
 import { AthleteReminderSettings } from "@/components/reminder-settings";
@@ -312,6 +312,11 @@ function AthleteDetail() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <Button asChild variant="outline" size="sm">
+                <Link to="/app/athletes/$athleteId/performance-profile" params={{ athleteId }}>
+                  <IdCard className="h-4 w-4 mr-1" /> Performance Profile
+                </Link>
+              </Button>
               <Button asChild variant="outline" size="sm">
                 <Link to="/app/sessions/calendar" search={{ athleteId } as any}>
                   <CalendarDays className="h-4 w-4 mr-1" /> Calendar
