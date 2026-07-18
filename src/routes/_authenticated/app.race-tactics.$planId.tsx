@@ -26,6 +26,7 @@ import { AlertTriangle, ChevronLeft, Flag, RotateCcw, Trash2 } from "lucide-reac
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 import { EventTacticsCard } from "@/components/event-tactics-card";
 import { TacticalDecisionPointsCard } from "@/components/tactical-decision-points-card";
+import { AthleteContextCard } from "@/components/athlete-context-card";
 import { clockToSec, secToClock, paceFmt } from "@/lib/format";
 import {
   type SplitRow,
@@ -251,6 +252,15 @@ function RaceTacticsDetail() {
             )}
           </CardContent>
         </Card>
+
+        <AthleteContextCard
+          athleteId={plan.athlete_id}
+          raceDistanceM={plan.race_distance_m}
+          goalTimeSeconds={goalTime}
+          currentStrategy={plan.strategy}
+          canEdit={!!canEdit}
+          onApplyStrategy={changeStrategy}
+        />
 
         <Card>
           <CardHeader>
