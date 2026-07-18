@@ -15,11 +15,10 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogTrigger,
   DialogFooter,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Plus, FlaskConical } from "lucide-react";
+import { Plus, FlaskConical, Zap } from "lucide-react";
 
 // One row per measurement — "current" value for a metric is simply the
 // most recent row, so a lab-tested VO2max and a watch-estimated VO2max
@@ -86,6 +85,24 @@ function typeLabel(t: string) {
   return TYPE_OPTIONS.find((o) => o.value === t)?.label ?? t;
 }
 
+// Same labels the Zones page's own Method dropdown uses
+// (zone-boundaries-card.tsx's METHOD_LABEL) — kept in sync manually since
+// this is a read-only display copy, not a shared import, to avoid coupling
+// this card to that one's internals.
+const ZONE_METHOD_LABEL: Record<string, string> = {
+  max_hr_pct: "90% of HR max",
+  best_effort_3k_plus: "Best effort ≥3K (12mo)",
+  vdot: "VDOT (Daniels)",
+};
+
+type PrefillTest = {
+  metric: string;
+  value: string;
+  source: string;
+  measurementType: string;
+  method: string;
+};
+
 type TestRow = {
   id: string;
   metric: string;
@@ -103,7 +120,8 @@ export function PhysiologicalTestingCard({ athleteId }: { athleteId: string }) {
   const qc = useQueryClient();
   const { data: roles = [] } = useMyRoles();
   const isCoach = roles.includes("coach");
-  const [showForm, setShowForm] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [prefill, setPrefill] = useState<PrefillTest | null>(null);
   const [showAllHistory, setShowAllHistory] = useState(false);
 
   const { data: tests, isLoading } = useQuery({
@@ -135,6 +153,11 @@ export function PhysiologicalTestingCard({ athleteId }: { athleteId: string }) {
     qc.invalidateQueries({ queryKey: ["physio-tests", athleteId] });
   }
 
+  function openAdd(pre?: PrefillTest) {
+    setPrefill(pre ?? null);
+    setDialogOpen(true);
+  }
+
   const historyRows = showAllHistory ? (tests ?? []) : (tests ?? []).slice(0, 8);
 
   return (
@@ -150,24 +173,15 @@ export function PhysiologicalTestingCard({ athleteId }: { athleteId: string }) {
           </CardDescription>
         </div>
         {isCoach && (
-          <Dialog open={showForm} onOpenChange={setShowForm}>
-            <DialogTrigger asChild>
-              <Button size="sm" variant="outline">
-                <Plus className="h-4 w-4 mr-1" />
-                Add measurement
-              </Button>
-            </DialogTrigger>
-            <AddTestDialog
-              athleteId={athleteId}
-              onSaved={() => {
-                setShowForm(false);
-                invalidate();
-              }}
-            />
-          </Dialog>
+          <Button size="sm" variant="outline" onClick={() => openAdd()}>
+            <Plus className="h-4 w-4 mr-1" />
+            Add measurement
+          </Button>
         )}
       </CardHeader>
       <CardContent className="space-y-5">
+        <PlatformValuesSection athleteId={athleteId} isCoach={isCoach} onLog={openAdd} />
+
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : latestByMetric.size === 0 ? (
@@ -228,18 +242,181 @@ export function PhysiologicalTestingCard({ athleteId }: { athleteId: string }) {
           </div>
         )}
       </CardContent>
+
+      {isCoach && (
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <AddTestDialog
+            key={prefill ? `${prefill.metric}-${prefill.value}` : "blank"}
+            athleteId={athleteId}
+            initial={prefill}
+            onSaved={() => {
+              setDialogOpen(false);
+              invalidate();
+            }}
+          />
+        </Dialog>
+      )}
     </Card>
   );
 }
 
-function AddTestDialog({ athleteId, onSaved }: { athleteId: string; onSaved: () => void }) {
-  const [metric, setMetric] = useState("vo2max");
-  const [value, setValue] = useState("");
+// Read-only values already computed elsewhere in the app (Zones page /
+// athlete_zone_profiles) — shown here so a coach doesn't have to retype a
+// number the platform already knows, with a one-click way to drop it into
+// dated history instead of leaving it as a number that's only ever
+// "current". Deliberately its own query rather than folded into the
+// zone-boundaries-card component — same table, same query key
+// (["zone-profile", athleteId]) as that card and the athlete's own zones
+// view, so a change on either page invalidates and refreshes both without
+// a duplicate fetch.
+function PlatformValuesSection({
+  athleteId,
+  isCoach,
+  onLog,
+}: {
+  athleteId: string;
+  isCoach: boolean;
+  onLog: (pre: PrefillTest) => void;
+}) {
+  const { data: zoneProfile } = useQuery({
+    queryKey: ["zone-profile", athleteId],
+    queryFn: async () => {
+      const { data } = await supabase.from("athlete_zone_profiles").select("*").eq("athlete_id", athleteId).maybeSingle();
+      return data as any;
+    },
+  });
+
+  if (!zoneProfile) return null;
+
+  // Maps the Zones page's own Auto/Manual/Test distinction onto this
+  // table's source + type vocabulary, so a value that was actually lab- or
+  // field-tested on the Zones page doesn't get logged here as merely
+  // "estimated" — same three-way distinction, just relabeled for this
+  // table's schema.
+  function sourceForThresholdType(thresholdSource: string | null | undefined): { source: string; type: string } {
+    if (thresholdSource === "test") return { source: "laboratory", type: "measured" };
+    if (thresholdSource === "manual") return { source: "coach_entered", type: "coach_entered" };
+    return { source: "platform_calculated", type: "estimated" };
+  }
+
+  const rows: Array<{
+    key: string;
+    label: string;
+    value: number | null | undefined;
+    unit: string;
+    metric: string;
+    method: string;
+    source: string;
+    type: string;
+  }> = [];
+
+  if (zoneProfile.hr_max != null) {
+    rows.push({
+      key: "hr_max",
+      label: "Max HR",
+      value: zoneProfile.hr_max,
+      unit: "bpm",
+      metric: "max_hr",
+      method: "",
+      source: "coach_entered",
+      type: "coach_entered",
+    });
+  }
+  if (zoneProfile.hr_threshold != null) {
+    const st = sourceForThresholdType(zoneProfile.hr_threshold_source);
+    rows.push({
+      key: "hr_threshold",
+      label: "Threshold HR",
+      value: zoneProfile.hr_threshold,
+      unit: "bpm",
+      metric: "threshold_hr",
+      method: zoneProfile.hr_method ? ZONE_METHOD_LABEL[zoneProfile.hr_method] ?? zoneProfile.hr_method : "",
+      ...st,
+    });
+  }
+  if (zoneProfile.pace_threshold_sec_per_km != null) {
+    const st = sourceForThresholdType(zoneProfile.pace_threshold_source);
+    rows.push({
+      key: "pace_threshold",
+      label: "Threshold pace",
+      value: zoneProfile.pace_threshold_sec_per_km,
+      unit: "sec/km",
+      metric: "threshold_pace",
+      method: zoneProfile.pace_method ? ZONE_METHOD_LABEL[zoneProfile.pace_method] ?? zoneProfile.pace_method : "",
+      ...st,
+    });
+  }
+  if (zoneProfile.vdot != null) {
+    rows.push({
+      key: "vdot",
+      label: "VDOT",
+      value: zoneProfile.vdot,
+      unit: "VDOT",
+      metric: "vo2max",
+      method: "VDOT (Daniels) \u2014 from best qualifying race",
+      source: "platform_calculated",
+      type: "estimated",
+    });
+  }
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="rounded-md border border-dashed p-3 bg-muted/30">
+      <div className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-muted-foreground mb-2">
+        <Zap className="h-3.5 w-3.5" />
+        Already on the Zones page
+      </div>
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2">
+        {rows.map((r) => (
+          <div key={r.key} className="rounded border bg-background p-2.5">
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wide">{r.label}</div>
+            <div className="text-base font-semibold tabular-nums">
+              {typeof r.value === "number" ? (Number.isInteger(r.value) ? r.value : r.value.toFixed(1)) : r.value}
+              <span className="text-xs font-normal text-muted-foreground ml-1">{r.unit}</span>
+            </div>
+            {r.method && <div className="text-[10px] text-muted-foreground mt-0.5">{r.method}</div>}
+            {isCoach && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-1.5 mt-1 text-xs"
+                onClick={() =>
+                  onLog({
+                    metric: r.metric,
+                    value: String(r.value),
+                    source: r.source,
+                    measurementType: r.type,
+                    method: r.method,
+                  })
+                }
+              >
+                Log this value
+              </Button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AddTestDialog({
+  athleteId,
+  onSaved,
+  initial,
+}: {
+  athleteId: string;
+  onSaved: () => void;
+  initial?: PrefillTest | null;
+}) {
+  const [metric, setMetric] = useState(initial?.metric ?? "vo2max");
+  const [value, setValue] = useState(initial?.value ?? "");
   const [testDate, setTestDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [source, setSource] = useState("coach_entered");
-  const [measurementType, setMeasurementType] = useState("coach_entered");
+  const [source, setSource] = useState(initial?.source ?? "coach_entered");
+  const [measurementType, setMeasurementType] = useState(initial?.measurementType ?? "coach_entered");
   const [confidence, setConfidence] = useState("moderate");
-  const [method, setMethod] = useState("");
+  const [method, setMethod] = useState(initial?.method ?? "");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -276,10 +453,11 @@ function AddTestDialog({ athleteId, onSaved }: { athleteId: string; onSaved: () 
   return (
     <DialogContent>
       <DialogHeader>
-        <DialogTitle>Add measurement</DialogTitle>
+        <DialogTitle>{initial ? "Log platform value" : "Add measurement"}</DialogTitle>
         <DialogDescription>
-          Every measurement is kept, never overwritten — this lets you compare a lab test against a watch estimate
-          side by side instead of losing one to the other.
+          {initial
+            ? "Pulled from the Zones page — review the date and confidence, then save it into this athlete's dated history."
+            : "Every measurement is kept, never overwritten \u2014 this lets you compare a lab test against a watch estimate side by side instead of losing one to the other."}
         </DialogDescription>
       </DialogHeader>
 
