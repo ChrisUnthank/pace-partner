@@ -23,15 +23,18 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { AlertTriangle, ChevronLeft, Flag, RotateCcw, Trash2 } from "lucide-react";
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 import { clockToSec, secToClock, paceFmt } from "@/lib/format";
 import {
   type SplitRow,
-  generateEvenSplits,
+  type Strategy,
+  generateStrategySplits,
   recalcAfterEdit,
   recalcFromEditedFlags,
   isOverGoalTime,
   averagePaceSecPerKm,
   averageSpeedKmh,
+  STRATEGY_OPTIONS,
 } from "@/lib/race-tactics-calc";
 
 export const Route = createFileRoute("/_authenticated/app/race-tactics/$planId")({
@@ -110,8 +113,24 @@ function RaceTacticsDetail() {
 
   function resetAllSplits() {
     if (!plan) return;
-    const next = generateEvenSplits(plan.race_distance_m, plan.split_increment_m, Number(plan.goal_time_seconds));
+    const next = generateStrategySplits(plan.race_distance_m, plan.split_increment_m, Number(plan.goal_time_seconds), plan.strategy as Strategy);
     persistSplits(next);
+  }
+
+  async function changeStrategy(strategy: Strategy) {
+    if (!plan) return;
+    const next = generateStrategySplits(plan.race_distance_m, plan.split_increment_m, Number(plan.goal_time_seconds), strategy);
+    setSplits(next);
+    const { error } = await supabase
+      .from("race_tactics_plans" as any)
+      .update({ strategy, splits: next as any, updated_at: new Date().toISOString() })
+      .eq("id", planId);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(`Strategy set to ${STRATEGY_OPTIONS.find((o) => o.value === strategy)?.label}`);
+    qc.invalidateQueries({ queryKey: ["race-tactics-plan", planId] });
   }
 
   async function updateStatus(status: string) {
@@ -232,6 +251,64 @@ function RaceTacticsDetail() {
         </Card>
 
         <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Strategy</CardTitle>
+            <CardDescription>Shapes how pace is distributed across the race, not just the total time.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {canEdit ? (
+              <Select value={plan.strategy} onValueChange={(v) => changeStrategy(v as Strategy)}>
+                <SelectTrigger className="w-64">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {STRATEGY_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Badge variant="outline">{STRATEGY_OPTIONS.find((o) => o.value === plan.strategy)?.label ?? plan.strategy}</Badge>
+            )}
+            <p className="text-xs text-muted-foreground">{STRATEGY_OPTIONS.find((o) => o.value === plan.strategy)?.description}</p>
+            {canEdit && splits.some((s) => s.is_edited) && (
+              <p className="text-xs text-amber-600">Changing strategy regenerates every split and discards your manual edits above.</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Pace plan</CardTitle>
+            <CardDescription>Planned pace at each split against the flat goal pace — the shape is the strategy.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart
+                  data={splits.map((s) => ({
+                    label: `${s.cumulative_distance_m}m`,
+                    plannedPace: (s.segment_time_seconds / s.distance_m) * 1000,
+                    goalPace: avgPace,
+                  }))}
+                  margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                  <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                  <YAxis reversed tickFormatter={(v) => secToClock(v)} tick={{ fontSize: 11 }} width={55} />
+                  <Tooltip formatter={(value: number) => paceFmt(value)} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Line type="monotone" dataKey="plannedPace" name="Planned pace" stroke="#2563eb" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="goalPace" name="Goal pace (flat)" stroke="#94a3b8" strokeDasharray="4 4" strokeWidth={1.5} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
           <CardHeader className="flex flex-row items-start justify-between gap-2">
             <div>
               <CardTitle className="text-base">Splits</CardTitle>
@@ -243,7 +320,7 @@ function RaceTacticsDetail() {
             {canEdit && (
               <Button size="sm" variant="ghost" onClick={resetAllSplits}>
                 <RotateCcw className="h-4 w-4 mr-1" />
-                Reset all to even
+                Reset all to {STRATEGY_OPTIONS.find((o) => o.value === plan.strategy)?.label ?? "strategy"}
               </Button>
             )}
           </CardHeader>
