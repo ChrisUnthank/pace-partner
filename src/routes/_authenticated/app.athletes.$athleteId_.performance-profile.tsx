@@ -11,6 +11,7 @@ import { ChevronLeft, IdCard } from "lucide-react";
 import { GoalsCard } from "@/components/goals-card";
 import { PhysiologicalTestingCard } from "@/components/physiological-testing-card";
 import { AthleteIdentityCard, ATHLETE_STATUS_OPTIONS, ATHLETE_STATUS_STYLES } from "@/components/athlete-identity-card";
+import { PerformanceCurveCard } from "@/components/performance-curve-card";
 
 export const Route = createFileRoute("/_authenticated/app/athletes/$athleteId/performance-profile")({
   component: PerformanceProfilePage,
@@ -107,10 +108,7 @@ function PerformanceProfilePage() {
           </TabsContent>
 
           <TabsContent value="performance" className="mt-4">
-            <ComingSoonCard
-              title="Performance Profile"
-              body="Phase 2 — a performance curve across distances (PBs already tracked in Performances), plus relative-strength observations derived from it. The underlying PB data already exists; this tab will visualize it."
-            />
+            <PerformanceCurveCard athleteId={athleteId} />
           </TabsContent>
 
           <TabsContent value="training" className="mt-4">
