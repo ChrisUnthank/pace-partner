@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyRoles } from "@/lib/use-auth";
+import { paceFmt, secToClock, clockToSec } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,11 +19,14 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Plus, FlaskConical, Zap } from "lucide-react";
+import { Plus, FlaskConical, Zap, Trash2 } from "lucide-react";
 
-// One row per measurement — "current" value for a metric is simply the
-// most recent row, so a lab-tested VO2max and a watch-estimated VO2max
-// both stay visible in history without ever overwriting one another.
+// One row per athlete+metric — adding a new measurement replaces whatever
+// was previously recorded for that metric (per Chris's call), rather than
+// keeping both side by side. "Current" value is simply that one row; the
+// history list below will normally match the current-values grid 1:1,
+// since there's nothing left to differentiate once older entries are
+// replaced rather than retained.
 // See supabase/migrations/20260718000001_performance_profile_phase1.sql
 // for the schema + RLS (coach-only write for now, per Chris's call).
 
@@ -83,6 +87,29 @@ function sourceLabel(source: string) {
 }
 function typeLabel(t: string) {
   return TYPE_OPTIONS.find((o) => o.value === t)?.label ?? t;
+}
+
+// Threshold pace is stored as raw sec/km (so it stays comparable as a
+// number), but is never shown as raw seconds anywhere else in the app —
+// the Zones page always renders it through paceFmt (mm:ss /km). This
+// keeps that same convention here instead of leaking "185.766 sec/km" to
+// a coach. Every other metric just rounds to 1 decimal (whole numbers
+// like HR stay whole) rather than trailing raw floating-point digits from
+// formulas like VDOT.
+function formatMeasurementValue(metric: string, value: number, unit: string | null): string {
+  if (metric === "threshold_pace") return paceFmt(value);
+  const rounded = Number.isInteger(value) ? value : Math.round(value * 10) / 10;
+  return unit ? `${rounded} ${unit}` : String(rounded);
+}
+
+// Rounds a raw numeric value the same way formatMeasurementValue displays
+// it, for pre-filling the Add Measurement form so what a coach sees typed
+// in the box matches what they saw on the tile they clicked "Log this
+// value" from — pace metrics round to the nearest whole second (mm:ss
+// only has second-level resolution anyway), everything else to 1 decimal.
+function roundForEntry(metric: string, value: number): number {
+  if (metric === "threshold_pace") return Math.round(value);
+  return Number.isInteger(value) ? value : Math.round(value * 10) / 10;
 }
 
 // Same labels the Zones page's own Method dropdown uses
@@ -158,6 +185,16 @@ export function PhysiologicalTestingCard({ athleteId }: { athleteId: string }) {
     setDialogOpen(true);
   }
 
+  async function deleteTest(id: string) {
+    const { error } = await supabase.from("athlete_physiological_tests" as any).delete().eq("id", id);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("Measurement deleted");
+    invalidate();
+  }
+
   const historyRows = showAllHistory ? (tests ?? []) : (tests ?? []).slice(0, 8);
 
   return (
@@ -169,7 +206,7 @@ export function PhysiologicalTestingCard({ athleteId }: { athleteId: string }) {
             Physiological testing
           </CardTitle>
           <CardDescription>
-            Dated, sourced measurements. Estimated and measured values are shown separately — never blended.
+            Dated, sourced measurements — one current value per metric. Adding a new measurement replaces the old one.
           </CardDescription>
         </div>
         {isCoach && (
@@ -192,10 +229,21 @@ export function PhysiologicalTestingCard({ athleteId }: { athleteId: string }) {
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {Array.from(latestByMetric.values()).map((row) => (
               <div key={row.metric} className="rounded-md border p-3">
-                <div className="text-xs text-muted-foreground uppercase tracking-wide">{metricLabel(row.metric)}</div>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="text-xs text-muted-foreground uppercase tracking-wide">{metricLabel(row.metric)}</div>
+                  {isCoach && (
+                    <button
+                      type="button"
+                      onClick={() => deleteTest(row.id)}
+                      className="text-muted-foreground hover:text-destructive shrink-0"
+                      aria-label={`Delete ${metricLabel(row.metric)} measurement`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
                 <div className="text-lg font-semibold tabular-nums mt-0.5">
-                  {row.value}
-                  <span className="text-xs font-normal text-muted-foreground ml-1">{row.unit}</span>
+                  {formatMeasurementValue(row.metric, row.value, row.unit)}
                 </div>
                 <div className="flex flex-wrap gap-1.5 mt-2">
                   <Badge variant="outline" className={TYPE_STYLES[row.measurement_type] ?? ""}>
@@ -224,12 +272,20 @@ export function PhysiologicalTestingCard({ athleteId }: { athleteId: string }) {
                     <span className="font-medium truncate">{metricLabel(row.metric)}</span>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="tabular-nums">
-                      {row.value} {row.unit}
-                    </span>
+                    <span className="tabular-nums">{formatMeasurementValue(row.metric, row.value, row.unit)}</span>
                     <Badge variant="outline" className={`text-[10px] ${CONFIDENCE_STYLES[row.confidence] ?? ""}`}>
                       {row.confidence}
                     </Badge>
+                    {isCoach && (
+                      <button
+                        type="button"
+                        onClick={() => deleteTest(row.id)}
+                        className="text-muted-foreground hover:text-destructive"
+                        aria-label={`Delete ${metricLabel(row.metric)} measurement from ${row.test_date}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -371,10 +427,7 @@ function PlatformValuesSection({
         {rows.map((r) => (
           <div key={r.key} className="rounded border bg-background p-2.5">
             <div className="text-[10px] text-muted-foreground uppercase tracking-wide">{r.label}</div>
-            <div className="text-base font-semibold tabular-nums">
-              {typeof r.value === "number" ? (Number.isInteger(r.value) ? r.value : r.value.toFixed(1)) : r.value}
-              <span className="text-xs font-normal text-muted-foreground ml-1">{r.unit}</span>
-            </div>
+            <div className="text-base font-semibold tabular-nums">{formatMeasurementValue(r.metric, r.value, r.unit)}</div>
             {r.method && <div className="text-[10px] text-muted-foreground mt-0.5">{r.method}</div>}
             {isCoach && (
               <Button
@@ -384,7 +437,7 @@ function PlatformValuesSection({
                 onClick={() =>
                   onLog({
                     metric: r.metric,
-                    value: String(r.value),
+                    value: String(roundForEntry(r.metric, r.value)),
                     source: r.source,
                     measurementType: r.type,
                     method: r.method,
@@ -420,15 +473,71 @@ function AddTestDialog({
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
 
+  const isPace = metric === "threshold_pace";
+
+  // Threshold pace is entered as mm:ss, same as every pace field elsewhere
+  // in the app (Zones page's EditablePace) — this draft holds the typed
+  // text; `value` (the numeric sec/km that actually gets saved) only
+  // updates once the text is a valid mm:ss on blur, same commit pattern as
+  // EditablePace.
+  const [paceDraft, setPaceDraft] = useState(() => (isPace && initial?.value ? secToClock(Number(initial.value)) : ""));
+
+  // Only relevant if the coach changes the Metric dropdown mid-dialog to
+  // Threshold pace — keeps the mm:ss field in sync with whatever numeric
+  // value (if any) is already sitting in `value` at that point.
+  useEffect(() => {
+    if (metric === "threshold_pace") {
+      setPaceDraft(value ? secToClock(Number(value)) : "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [metric]);
+
+  function commitPaceDraft() {
+    const sec = clockToSec(paceDraft);
+    if (sec != null && sec > 0) {
+      setValue(String(Math.round(sec)));
+      setPaceDraft(secToClock(sec));
+    } else {
+      setPaceDraft(value ? secToClock(Number(value)) : "");
+    }
+  }
+
   const unit = METRIC_OPTIONS.find((m) => m.value === metric)?.unit ?? "";
 
   async function save() {
-    const numericValue = Number(value);
-    if (!value || Number.isNaN(numericValue)) {
+    let numericValue = Number(value);
+    if (isPace) {
+      const sec = clockToSec(paceDraft);
+      if (sec == null || sec <= 0) {
+        toast.error("Enter a pace as mm:ss");
+        return;
+      }
+      numericValue = Math.round(sec);
+    }
+    if (!isPace && (!value || Number.isNaN(numericValue))) {
       toast.error("Enter a numeric value");
       return;
     }
     setSaving(true);
+    // Overriding rather than appending, per Chris's call: a new measurement
+    // for a metric replaces the previous one for this athlete rather than
+    // sitting alongside it. This is a deliberate change from the original
+    // "never overwrite" design (see the comment at the top of this file) —
+    // there's now exactly one row per athlete+metric, so "history" below
+    // reduces to "current values" over time. No unique DB constraint
+    // backs this (the table still allows multiple rows per metric), so
+    // it's enforced here: delete any existing row(s) for this metric, then
+    // insert the new one.
+    const { error: deleteError } = await supabase
+      .from("athlete_physiological_tests" as any)
+      .delete()
+      .eq("athlete_id", athleteId)
+      .eq("metric", metric);
+    if (deleteError) {
+      setSaving(false);
+      toast.error(deleteError.message);
+      return;
+    }
     const { error } = await supabase.from("athlete_physiological_tests" as any).insert({
       athlete_id: athleteId,
       metric,
@@ -446,7 +555,7 @@ function AddTestDialog({
       toast.error(error.message);
       return;
     }
-    toast.success("Measurement added");
+    toast.success("Measurement saved");
     onSaved();
   }
 
@@ -456,8 +565,8 @@ function AddTestDialog({
         <DialogTitle>{initial ? "Log platform value" : "Add measurement"}</DialogTitle>
         <DialogDescription>
           {initial
-            ? "Pulled from the Zones page — review the date and confidence, then save it into this athlete's dated history."
-            : "Every measurement is kept, never overwritten \u2014 this lets you compare a lab test against a watch estimate side by side instead of losing one to the other."}
+            ? "Pulled from the Zones page — review the date and confidence, then save it into this athlete's history."
+            : "Saving replaces any existing measurement for this metric \u2014 each metric keeps just its most current value."}
         </DialogDescription>
       </DialogHeader>
 
@@ -479,8 +588,19 @@ function AddTestDialog({
             </Select>
           </div>
           <div>
-            <Label className="text-xs">Value ({unit || "no unit"})</Label>
-            <Input type="number" inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} />
+            <Label className="text-xs">Value {isPace ? "(mm:ss per km)" : `(${unit || "no unit"})`}</Label>
+            {isPace ? (
+              <Input
+                type="text"
+                inputMode="numeric"
+                placeholder="mm:ss"
+                value={paceDraft}
+                onChange={(e) => setPaceDraft(e.target.value)}
+                onBlur={commitPaceDraft}
+              />
+            ) : (
+              <Input type="number" inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} />
+            )}
           </div>
         </div>
 
