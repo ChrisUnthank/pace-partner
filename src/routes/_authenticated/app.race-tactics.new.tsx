@@ -13,7 +13,7 @@ import { toast } from "sonner";
 import { ChevronLeft, Flag } from "lucide-react";
 import { clockToSec, secToClock } from "@/lib/format";
 import { predictTime } from "@/lib/race-predict";
-import { generateEvenSplits, splitIncrementOptions } from "@/lib/race-tactics-calc";
+import { generateStrategySplits, splitIncrementOptions, STRATEGY_OPTIONS, type Strategy } from "@/lib/race-tactics-calc";
 
 export const Route = createFileRoute("/_authenticated/app/race-tactics/new")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -80,6 +80,7 @@ function NewRaceTacticsPlan() {
   const [currentPbInput, setCurrentPbInput] = useState("");
   const [targetPbInput, setTargetPbInput] = useState("");
   const [splitIncrement, setSplitIncrement] = useState(300);
+  const [strategy, setStrategy] = useState<Strategy>("even_pace");
   const [temperature, setTemperature] = useState("");
   const [wind, setWind] = useState("");
   const [weather, setWeather] = useState("");
@@ -158,7 +159,7 @@ function NewRaceTacticsPlan() {
       return;
     }
 
-    const splits = generateEvenSplits(raceDistanceM, splitIncrement, goalTimeSeconds);
+    const splits = generateStrategySplits(raceDistanceM, splitIncrement, goalTimeSeconds, strategy);
     const currentPbSeconds = currentPbInput ? clockToSec(currentPbInput) : null;
     const targetPbSeconds = targetPbInput ? clockToSec(targetPbInput) : null;
     const conditions =
@@ -179,6 +180,7 @@ function NewRaceTacticsPlan() {
         current_pb_seconds: currentPbSeconds,
         target_pb_seconds: targetPbSeconds,
         split_increment_m: splitIncrement,
+        strategy,
         splits: splits as any,
         conditions: conditions as any,
         status: "draft",
@@ -308,6 +310,25 @@ function NewRaceTacticsPlan() {
                 same prediction the Pace Predictor calculator uses — adjust either freely.
               </p>
             )}
+
+            <div>
+              <Label className="text-xs">Strategy</Label>
+              <Select value={strategy} onValueChange={(v) => setStrategy(v as Strategy)}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {STRATEGY_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">
+                {STRATEGY_OPTIONS.find((o) => o.value === strategy)?.description}
+              </p>
+            </div>
 
             <div>
               <Label className="text-xs">Split every</Label>
