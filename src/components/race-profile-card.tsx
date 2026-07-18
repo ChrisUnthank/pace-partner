@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyRoles, useMyAthlete } from "@/lib/use-auth";
@@ -110,12 +111,22 @@ export function RaceProfileCard({ athleteId }: { athleteId: string }) {
               from — coach, athlete, data, or AI — never blended together.
             </CardDescription>
           </div>
-          {canAdd && !showForm && (
-            <Button size="sm" variant="outline" onClick={() => setShowForm(true)}>
-              <Plus className="h-4 w-4 mr-1" />
-              Add observation
-            </Button>
-          )}
+          <div className="flex items-center gap-2 shrink-0">
+            {canAdd && (
+              <Button asChild size="sm" variant="outline">
+                <Link to="/app/race-tactics/new" search={{ athleteId }}>
+                  <Flag className="h-4 w-4 mr-1" />
+                  New race plan
+                </Link>
+              </Button>
+            )}
+            {canAdd && !showForm && (
+              <Button size="sm" variant="outline" onClick={() => setShowForm(true)}>
+                <Plus className="h-4 w-4 mr-1" />
+                Add observation
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           {showForm && (
