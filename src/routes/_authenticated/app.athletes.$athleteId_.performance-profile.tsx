@@ -12,6 +12,7 @@ import { GoalsCard } from "@/components/goals-card";
 import { PhysiologicalTestingCard } from "@/components/physiological-testing-card";
 import { AthleteIdentityCard, ATHLETE_STATUS_OPTIONS, ATHLETE_STATUS_STYLES } from "@/components/athlete-identity-card";
 import { PerformanceCurveCard } from "@/components/performance-curve-card";
+import { TrainingResponseCard } from "@/components/training-response-card";
 
 export const Route = createFileRoute("/_authenticated/app/athletes/$athleteId/performance-profile")({
   component: PerformanceProfilePage,
@@ -112,10 +113,7 @@ function PerformanceProfilePage() {
           </TabsContent>
 
           <TabsContent value="training" className="mt-4">
-            <ComingSoonCard
-              title="Training Profile"
-              body="Phase 3 — observed training-response patterns (e.g. typical recovery time after high-intensity sessions), built from existing session/load history."
-            />
+            <TrainingResponseCard athleteId={athleteId} />
           </TabsContent>
 
           <TabsContent value="strengths" className="mt-4">
