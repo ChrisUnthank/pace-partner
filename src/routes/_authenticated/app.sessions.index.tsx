@@ -7,12 +7,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { metersFmt, secToClock } from "@/lib/format";
-import { sessionClassificationLabel, SESSION_INTENTS, INTENT_LABEL } from "@/lib/session-categories";
+import { sessionClassificationLabel, SESSION_INTENTS, INTENT_LABEL, DAY_TYPE_LABEL } from "@/lib/session-categories";
 import { Plus, CalendarDays, Upload, Users } from "lucide-react";
 import { ActivityIcon } from "@/lib/activity-icon";
 import { useState, useMemo } from "react";
 import { BulkFitUpload } from "@/components/bulk-fit-upload";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { sessionColorClass } from "@/components/calendar-day-cell";
 import { cn } from "@/lib/utils";
@@ -31,6 +31,13 @@ export const Route = createFileRoute("/_authenticated/app/sessions/")({
 });
 
 const PAGE_SIZE = 10;
+
+// Race/Recovery/Cross-training/Rest days have no `intent` value at all
+// (that column only ever gets set for day_type "training") — same
+// exclusion the Analytics "Time by Training Intent" chart already had to
+// account for. Included in the same filter dropdown as the training
+// intents, just matched against day_type instead of intent.
+const NON_TRAINING_DAY_TYPES = ["race", "recovery", "cross_training", "rest"] as const;
 
 // "6:42 PM" style local time for a session, converted via the athlete's own
 // timezone (falls back to UTC, matching the same fallback used server-side
@@ -177,11 +184,14 @@ function SessionsList() {
         .range(pageParam, pageParam + PAGE_SIZE - 1);
       if (filterStatus === "done") q = q.not("completed_at", "is", null);
       if (filterStatus === "planned") q = q.is("completed_at", null);
-      // Intent (easy/aerobic/tempo/threshold/vo2/anaerobic/speed/time_trial)
-      // only ever exists on training-day sessions — filtering by it
-      // naturally excludes races/recovery/cross-training/rest days, which
-      // is the right behavior since none of those carry an intent value.
-      if (filterIntent !== "all") q = q.eq("intent", filterIntent);
+      // filterIntent is either "all", "intent:<value>" (training-day
+      // intents — easy/aerobic/.../vo2/etc) or "daytype:<value>" (Race/
+      // Recovery/Cross-training/Rest, which have no intent value at all).
+      if (filterIntent !== "all") {
+        const [kind, value] = filterIntent.split(":");
+        if (kind === "intent") q = q.eq("intent", value);
+        else if (kind === "daytype") q = q.eq("day_type", value);
+      }
       const { data, error, count } = await q;
       if (error) throw error;
       return { rows: data ?? [], count: count ?? 0, nextOffset: pageParam + PAGE_SIZE };
@@ -357,11 +367,22 @@ function SessionsList() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All intents</SelectItem>
-                      {SESSION_INTENTS.map((i) => (
-                        <SelectItem key={i} value={i}>
-                          {INTENT_LABEL[i]}
-                        </SelectItem>
-                      ))}
+                      <SelectGroup>
+                        <SelectLabel>Training</SelectLabel>
+                        {SESSION_INTENTS.map((i) => (
+                          <SelectItem key={i} value={`intent:${i}`}>
+                            {INTENT_LABEL[i]}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                      <SelectGroup>
+                        <SelectLabel>Day type</SelectLabel>
+                        {NON_TRAINING_DAY_TYPES.map((d) => (
+                          <SelectItem key={d} value={`daytype:${d}`}>
+                            {DAY_TYPE_LABEL[d]}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
                     </SelectContent>
                   </Select>
                 </div>
