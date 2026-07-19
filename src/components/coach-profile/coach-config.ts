@@ -51,6 +51,12 @@ export interface CoachConfig {
   certifications: string[];
   sampleSessions: { name: string; target: string; purpose: string }[];
   galleryImages: string[];
+  // Layout controls — columns per row, crop shape, and per-image focal
+  // point (keyed by image URL, only meaningful for non-"auto" aspects).
+  // A missing entry in galleryImagePositions means center (50/50).
+  galleryColumns: 2 | 3 | 4;
+  galleryAspect: "square" | "portrait" | "landscape" | "auto";
+  galleryImagePositions: Record<string, { x: number; y: number }>;
   plans: {
     name: string;
     price: string;
@@ -198,6 +204,9 @@ export const defaultCoachConfig: CoachConfig = {
     "https://images.unsplash.com/photo-1571008887538-b36bb32f4571?w=800&q=80",
     "https://images.unsplash.com/photo-1476480862126-209bfaa8edc8?w=800&q=80",
   ],
+  galleryColumns: 3,
+  galleryAspect: "square",
+  galleryImagePositions: {},
   plans: [
     { name: "Foundation", price: "89", period: "mo", description: "Monthly check-in" },
     {
@@ -297,6 +306,13 @@ export function coachRowToConfig(
       purpose: s.purpose ?? "",
     })),
     galleryImages: asArray<string>(row.gallery_images),
+    galleryColumns: [2, 3, 4].includes(row.gallery_columns) ? row.gallery_columns : 3,
+    galleryAspect: ["square", "portrait", "landscape", "auto"].includes(row.gallery_aspect)
+      ? row.gallery_aspect
+      : "square",
+    galleryImagePositions: row.gallery_image_positions && typeof row.gallery_image_positions === "object"
+      ? row.gallery_image_positions
+      : {},
     plans: asArray(row.plans).map((p: any) => ({
       name: p.name ?? p.title ?? "",
       price: String(p.price ?? ""),
