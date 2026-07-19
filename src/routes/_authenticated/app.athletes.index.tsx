@@ -10,8 +10,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { CalendarDays } from "lucide-react";
+import { CalendarDays, UserMinus } from "lucide-react";
 import { AthleteSummaryPanel } from "@/components/athlete-summary-panel";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TIMEZONE_OPTIONS, guessLocalTimezone } from "@/lib/timezones";
@@ -119,6 +130,25 @@ function AthletesPage() {
     catch { toast.error("Copy failed — select the link manually"); }
   }
 
+  // Unlinks this athlete from the current coach's own roster
+  // (coach_athletes) — doesn't touch the athletes row itself or any of
+  // their training data, and doesn't affect any OTHER coach who might
+  // also have this athlete linked. If they were invited but never
+  // claimed their account, this also means the invite link (if still
+  // unused) no longer has a roster link to attach to — they'd need a
+  // fresh "Add an athlete" + invite to be added back.
+  async function removeFromRoster(athleteId: string) {
+    const { error } = await supabase
+      .from("coach_athletes")
+      .delete()
+      .eq("coach_user_id", user!.id)
+      .eq("athlete_id", athleteId);
+    if (error) { toast.error(error.message); return; }
+    if (selectedAthleteId === athleteId) setSelectedAthleteId(null);
+    toast.success("Removed from your roster");
+    qc.invalidateQueries({ queryKey: ["roster"] });
+  }
+
   async function sendJoinRequest() {
     if (!joinEmail) { toast.error("Email required"); return; }
     const { data, error } = await (supabase.rpc as any)("request_athlete_join_by_email", {
@@ -187,6 +217,33 @@ function AthletesPage() {
                                 {r.athlete_invites?.length ? "Copy invite link" : "Generate invite link"}
                               </Button>
                             </>
+                          )}
+                          {/* Manager view lists every athlete in the org
+                              directly from the athletes table, not via a
+                              personal coach_athletes link — there's nothing
+                              to "remove" in the same sense there, so this
+                              only shows for a regular coach's own roster. */}
+                          {!isManager && (
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button size="icon" variant="ghost" title="Remove from roster" className="text-muted-foreground hover:text-destructive">
+                                  <UserMinus className="h-4 w-4" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Remove {r.athletes?.name} from your roster?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    This only removes them from your own roster — their account and training data
+                                    aren't deleted, and any other coach they're linked to keeps their own access.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction onClick={() => removeFromRoster(r.athlete_id)}>Remove</AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
                           )}
                         </div>
                       </div>
