@@ -51,6 +51,15 @@ export interface AthleteConfig {
   name: string;
   primaryEvent?: string;
   photoUrl?: string;
+  club?: string;
+
+  // Who coaches this athlete — auto-derived from coach_athletes, not
+  // stored on athlete_profiles and not editable here (factual, not
+  // curated, unlike trainingPartners). slug/isPublished let the page
+  // link to a coach's own public page when they have one live; when a
+  // coach hasn't published a page, their name still shows, just as
+  // plain text rather than a link.
+  coaches: { name: string; teamName?: string; slug?: string; isPublished: boolean }[];
 
   slug: string;
   tagline: string;
@@ -183,6 +192,8 @@ export const defaultAthleteConfig: AthleteConfig = {
   name: "Sarah Kim",
   primaryEvent: "1500m",
   photoUrl: undefined,
+  club: "Fawkner Park Athletics Club",
+  coaches: [{ name: "Marcus Webb", teamName: "redLINE Running", slug: "marcus-webb", isPublished: true }],
   slug: "sarah-kim",
   tagline: "Chasing a sub-4:10 1500m and a spot on the state team",
   disciplines: ["Track", "1500m", "5000m"],
@@ -240,6 +251,7 @@ export function athleteRowToConfig(
     trainingPartners?: AthleteConfig["trainingPartners"];
     blogPosts?: AthleteConfig["blogPosts"];
     goal?: AthleteGoal | null;
+    coaches?: AthleteConfig["coaches"];
   } = {},
 ): AthleteConfig {
   const d = defaultAthleteConfig;
@@ -257,6 +269,8 @@ export function athleteRowToConfig(
     name: athleteRow.name || d.name,
     primaryEvent: athleteRow.primary_event || undefined,
     photoUrl: athleteRow.profile_image_url || undefined,
+    club: athleteRow.club || undefined,
+    coaches: extras.coaches ?? [],
 
     slug: profileRow.slug || d.slug,
     tagline: profileRow.tagline || "",
