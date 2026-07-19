@@ -381,6 +381,33 @@ function Hero({ config }: { config: AthleteConfig }) {
                 </span>
               ))}
             </div>
+            {(config.club || config.coaches.length > 0) && (
+              <div
+                className={`mt-3 text-sm ${modern ? "" : "text-center"}`}
+                style={{ color: "var(--text-secondary)" }}
+              >
+                {config.club}
+                {config.club && config.coaches.length > 0 && " · "}
+                {config.coaches.length > 0 && (
+                  <>
+                    Coached by{" "}
+                    {config.coaches.map((c, i) => (
+                      <span key={c.name + i}>
+                        {i > 0 && ", "}
+                        {c.slug && c.isPublished ? (
+                          <a href={`/c/${c.slug}`} className="underline hover:opacity-70">
+                            {c.name}
+                          </a>
+                        ) : (
+                          c.name
+                        )}
+                        {c.teamName && ` (${c.teamName})`}
+                      </span>
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
             <div className={`mt-8 flex flex-wrap gap-3 ${modern ? "" : "justify-center"}`}>
               <ContactCTA />
               {config.donate && (
