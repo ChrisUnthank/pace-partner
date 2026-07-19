@@ -37,6 +37,10 @@ export interface CoachConfig {
   tagline: string;
   disciplines: string[];
   heroImageUrl: string;
+  // Focal point as a percentage pair (0-100 each) — passed straight
+  // through to CSS object-position on the hero <img>. {x:50,y:50} is
+  // dead center, today's existing behavior with no override.
+  heroImagePosition: { x: number; y: number };
   coachPhotoUrl?: string;
   logoInitials: string;
   teamLogoUrl?: string;
@@ -170,6 +174,7 @@ export const defaultCoachConfig: CoachConfig = {
   tagline: "Track and interval-based coaching for runners chasing their next PR",
   disciplines: ["Track & Interval", "Marathon", "5K/10K"],
   heroImageUrl: "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=1200&q=80",
+  heroImagePosition: { x: 50, y: 50 },
   logoInitials: "MW",
   stats: [
     { label: "Years coaching", value: "11" },
@@ -271,6 +276,10 @@ export function coachRowToConfig(
     tagline: row.tagline || "",
     disciplines: asArray<string>(row.disciplines),
     heroImageUrl: row.hero_image_url || d.heroImageUrl,
+    heroImagePosition: {
+      x: typeof row.hero_image_position_x === "number" ? row.hero_image_position_x : 50,
+      y: typeof row.hero_image_position_y === "number" ? row.hero_image_position_y : 50,
+    },
     coachPhotoUrl: row.coach_photo_url || undefined,
     logoInitials: row.logo_initials || initials(row.name || d.name),
     teamLogoUrl: row.logo_url || undefined,
