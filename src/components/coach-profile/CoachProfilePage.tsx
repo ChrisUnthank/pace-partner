@@ -94,8 +94,19 @@ export function CoachProfilePage({ config, showDevControls, onConfigChange, isOw
       ({
         "--brand": config.brandColor,
         "--on-brand": onColorFor(config.brandColor),
+        // Falls back to the primary brand color when no secondary is set,
+        // so every existing coach page (pre-dating this field) renders
+        // exactly as it did before — nothing suddenly looks two-tone
+        // unless a secondary color is actually chosen.
+        "--brand-secondary": config.secondaryColor || config.brandColor,
+        "--on-brand-secondary": onColorFor(config.secondaryColor || config.brandColor),
+        // Inline styles win over the stylesheet's per-style --section-py,
+        // so this overrides coach-profile-tokens.css's modern/traditional
+        // default only when "compact" is explicitly chosen — no CSS file
+        // changes needed.
+        ...(config.density === "compact" ? { "--section-py": "2.5rem" } : {}),
       }) as React.CSSProperties,
-    [config.brandColor],
+    [config.brandColor, config.secondaryColor, config.density],
   );
 
   return (
@@ -307,6 +318,12 @@ function SectionHeading({ children, centered }: { children: React.ReactNode; cen
 
 function Hero({ config }: { config: CoachConfig }) {
   const modern = config.style === "modern";
+  const imageLeft = modern && config.heroImageSide === "left";
+  // The wider track (1.1fr) always follows the text, whichever side it's
+  // on — swapping which column is wider along with `order` below, rather
+  // than just reordering, so text doesn't get squeezed into the narrower
+  // track when the image moves to the left.
+  const heroGridCols = imageLeft ? "md:grid-cols-[1fr_1.1fr]" : "md:grid-cols-[1.1fr_1fr]";
   return (
     <section
       id="home"
@@ -318,7 +335,9 @@ function Hero({ config }: { config: CoachConfig }) {
     >
       <div
         className={
-          modern ? "grid items-center gap-10 md:grid-cols-[1.1fr_1fr]" : "mx-auto max-w-3xl lg:max-w-4xl xl:max-w-5xl"
+          modern
+            ? `grid items-center gap-10 ${heroGridCols}`
+            : "mx-auto max-w-3xl lg:max-w-4xl xl:max-w-5xl"
         }
       >
         {!modern && (
@@ -338,7 +357,7 @@ function Hero({ config }: { config: CoachConfig }) {
             )}
           </div>
         )}
-        <div className={modern ? "" : "mx-auto max-w-2xl px-4 pt-6 text-center sm:px-0"}>
+        <div className={modern ? (imageLeft ? "md:order-2" : "") : "mx-auto max-w-2xl px-4 pt-6 text-center sm:px-0"}>
           {config.teamName && (
             <div className="coach-heading mb-1 text-sm uppercase tracking-wide" style={{ color: "var(--brand)" }}>
               {config.teamName}
@@ -360,11 +379,11 @@ function Hero({ config }: { config: CoachConfig }) {
             <Button
               variant="outline"
               onClick={() => scrollToSection("plans")}
-              className="!border-[var(--brand)] !bg-[var(--bg-elevated)] !text-[var(--brand)] hover:!bg-[var(--brand)] hover:!text-[var(--on-brand)]"
+              className="!border-[var(--brand-secondary)] !bg-[var(--bg-elevated)] !text-[var(--brand-secondary)] hover:!bg-[var(--brand-secondary)] hover:!text-[var(--on-brand-secondary)]"
               style={{
                 background: "var(--bg-elevated) !important" as any,
-                color: "var(--brand) !important" as any,
-                borderColor: "var(--brand) !important" as any,
+                color: "var(--brand-secondary) !important" as any,
+                borderColor: "var(--brand-secondary) !important" as any,
                 borderRadius: "var(--radius-sm)",
               }}
             >
@@ -373,7 +392,7 @@ function Hero({ config }: { config: CoachConfig }) {
           </div>
         </div>
         {modern && (
-          <div className="relative">
+          <div className={`relative ${imageLeft ? "md:order-1" : ""}`}>
             <img
               src={config.heroImageUrl}
               alt={config.name}
@@ -399,9 +418,12 @@ function Stats({ config }: { config: CoachConfig }) {
   return (
     <section className="border-t coach-divider py-10">
       <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
-        {config.stats.map((s) => (
-          <div key={s.label} className="text-center">
-            <div className="coach-mono coach-heading text-3xl" style={{ color: "var(--brand)" }}>
+        {config.stats.map((s, i) => (
+          <div key={s.label + i} className="text-center">
+            <div
+              className="coach-mono coach-heading text-3xl"
+              style={{ color: i % 2 === 0 ? "var(--brand)" : "var(--brand-secondary)" }}
+            >
               {s.value}
             </div>
             <div className="mt-1 text-xs uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
