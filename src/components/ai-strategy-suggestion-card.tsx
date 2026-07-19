@@ -92,7 +92,10 @@ export function AiStrategySuggestionCard({
             <Sparkles className="h-4 w-4 text-[var(--accent-red)]" />
             AI Strategy Assistant
           </CardTitle>
-          <CardDescription>A suggestion only — nothing changes on this plan until you accept it.</CardDescription>
+          <CardDescription>
+            A suggestion only — nothing changes on this plan until you accept it.
+            {generating && " This can take up to a minute or so — it's writing a full, reasoned suggestion, not a quick lookup."}
+          </CardDescription>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {access && <span className="text-[10px] text-muted-foreground">{access.used}/{access.limit} today</span>}
