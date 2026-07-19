@@ -10,12 +10,30 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ExternalLink, Plus, Trash2 } from "lucide-react";
+import { ExternalLink, GripVertical, Plus, Trash2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { SingleImageUpload, MultiImageUpload } from "@/components/coach-profile/image-upload";
 import { useAuthUser } from "@/lib/use-auth";
 import { cn } from "@/lib/utils";
+import { DEFAULT_SECTION_ORDER, SECTION_ORDER_LABELS, normalizeSectionOrder } from "@/components/coach-profile/coach-config";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 export const Route = createFileRoute("/_authenticated/app/coach/$slug")({
   component: CoachEditorPage,
@@ -121,6 +139,9 @@ function CoachEditorPage() {
   }
   function setSectionOn(key: string, v: boolean) {
     setForm({ ...form, sections: { ...(form.sections || DEFAULT_SECTIONS), [key]: v } });
+  }
+  function reorderSections(newOrder: string[]) {
+    setForm({ ...form, section_order: newOrder });
   }
 
   async function toggleAthleteVisibility(coachAthleteId: string, next: boolean) {
@@ -288,6 +309,8 @@ function CoachEditorPage() {
         secondary_color: c.secondary_color || "",
         hero_image_side: c.hero_image_side === "left" ? "left" : "right",
         section_density: c.section_density === "compact" ? "compact" : "comfortable",
+        alternate_section_backgrounds: !!c.alternate_section_backgrounds,
+        section_order: normalizeSectionOrder(c.section_order),
         hero_image_url: c.hero_image_url || "",
         coach_photo_url: c.coach_photo_url || "",
         logo_initials: c.logo_initials || "",
@@ -356,6 +379,8 @@ function CoachEditorPage() {
         secondary_color: form.secondary_color || null,
         hero_image_side: form.hero_image_side || "right",
         section_density: form.section_density || "comfortable",
+        alternate_section_backgrounds: !!form.alternate_section_backgrounds,
+        section_order: form.section_order || [...DEFAULT_SECTION_ORDER],
         hero_image_url: form.hero_image_url,
         coach_photo_url: form.coach_photo_url || null,
         logo_initials: form.logo_initials,
@@ -729,6 +754,37 @@ function CoachEditorPage() {
                     </SelectContent>
                   </Select>
                 </Field>
+                <div className="flex items-center justify-between rounded-md border p-3 sm:col-span-2">
+                  <div>
+                    <div className="text-sm font-medium">Alternate section backgrounds</div>
+                    <p className="text-xs text-muted-foreground">
+                      Every other section gets a subtle grey tint (light grey on the Light theme, darker grey on
+                      Dark) to separate sections visually without adding borders.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={!!form.alternate_section_backgrounds}
+                    onCheckedChange={(v) => setForm({ ...form, alternate_section_backgrounds: v })}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Section order</CardTitle>
+                <CardDescription>
+                  Drag to change the order sections appear in on your page. Home always comes first; this only
+                  reorders what comes after it. The dot shows whether a section is currently switched on — toggle it
+                  from its own card in the Profile/Content/Athletes tabs, not from here.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <SectionOrderList
+                  order={form.section_order || [...DEFAULT_SECTION_ORDER]}
+                  isOn={(key) => (key === "contact" ? true : sectionOn(key))}
+                  onReorder={reorderSections}
+                />
               </CardContent>
             </Card>
           </TabsContent>
@@ -1200,6 +1256,94 @@ function Dot({ done }: { done: boolean }) {
       className={cn("h-1.5 w-1.5 shrink-0 rounded-full", done ? "bg-emerald-500" : "bg-muted-foreground/40")}
       aria-hidden
     />
+  );
+}
+
+// Generic drag-to-reorder list for page sections — takes a plain array of
+// keys plus an isOn/onReorder pair, no coach-specific logic inside it.
+// Written this way on purpose: the plan is to reuse this same component
+// (and the sectionOrder/normalizeSectionOrder pattern it pairs with) for
+// the athlete page editor later, so it shouldn't know anything about
+// "coach" or "athlete" — just "a list of section keys with labels".
+function SectionOrderList({
+  order,
+  isOn,
+  onReorder,
+}: {
+  order: string[];
+  isOn: (key: string) => boolean;
+  onReorder: (next: string[]) => void;
+}) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  function handleDragEnd(ev: DragEndEvent) {
+    const { active, over } = ev;
+    if (!over || active.id === over.id) return;
+    const from = order.indexOf(String(active.id));
+    const to = order.indexOf(String(over.id));
+    if (from === -1 || to === -1) return;
+    onReorder(arrayMove(order, from, to));
+  }
+
+  return (
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <SortableContext items={order} strategy={verticalListSortingStrategy}>
+        <div className="space-y-1.5">
+          {order.map((key, i) => (
+            <SortableSectionRow
+              key={key}
+              id={key}
+              position={i + 1}
+              label={SECTION_ORDER_LABELS[key as keyof typeof SECTION_ORDER_LABELS] ?? key}
+              on={isOn(key)}
+            />
+          ))}
+        </div>
+      </SortableContext>
+    </DndContext>
+  );
+}
+
+function SortableSectionRow({
+  id,
+  position,
+  label,
+  on,
+}: {
+  id: string;
+  position: number;
+  label: string;
+  on: boolean;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="flex items-center gap-3 rounded-md border bg-background px-3 py-2 text-sm"
+    >
+      <button
+        type="button"
+        className="cursor-grab text-muted-foreground hover:text-foreground active:cursor-grabbing"
+        {...attributes}
+        {...listeners}
+        aria-label="Drag to reorder"
+      >
+        <GripVertical className="h-4 w-4" />
+      </button>
+      <span className="w-5 text-xs text-muted-foreground">{position}.</span>
+      <Dot done={on} />
+      <span className="flex-1">{label}</span>
+      {!on && <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Hidden</span>}
+    </div>
   );
 }
 
