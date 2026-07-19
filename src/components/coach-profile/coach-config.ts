@@ -15,10 +15,22 @@ export interface CoachConfig {
   // Which side the hero image sits on for the "modern" style. Has no
   // effect on "traditional" (image is always stacked above, centered).
   heroImageSide: "left" | "right";
-  // Section vertical padding preset — independent of theme/style, so a
-  // coach can tighten up a page that feels too spaced-out without
-  // changing anything else about the look.
+  // Section spacing preset — independent of theme/style, so a coach can
+  // tighten up a page that feels too spaced-out without changing anything
+  // else about the look.
   density: "comfortable" | "compact";
+  // When true, every other content section gets a subtly different
+  // background (--bg-alt: light grey on the light theme, darker grey on
+  // dark) to visually separate sections without borders. Purely cosmetic
+  // — off by default so existing pages render unchanged.
+  alternateSectionBackgrounds: boolean;
+  // Display order for the reorderable content sections (everything except
+  // Hero, which is always first, and the footer, which is always last).
+  // Always contains exactly the keys in DEFAULT_SECTION_ORDER — see
+  // normalizeSectionOrder() for how a saved order is reconciled against
+  // that list (handles both older rows saved before a section existed,
+  // and any unrecognized/stale key).
+  sectionOrder: string[];
   name: string;
   teamName?: string;
   slug: string;
@@ -91,6 +103,53 @@ export const DEFAULT_SECTIONS_ENABLED: CoachConfig["sections"] = {
   sponsors: true,
 };
 
+// Every reorderable content section (i.e. everything except Hero, which
+// is always first, and the footer, which is always last). This exact key
+// list is the single source of truth for what can be reordered — both
+// CoachProfilePage.tsx (rendering) and the editor's drag-to-reorder list
+// key off it, so they can't drift apart.
+export const DEFAULT_SECTION_ORDER = [
+  "stats",
+  "about",
+  "sessions",
+  "athletes",
+  "gallery",
+  "blog",
+  "plans",
+  "testimonials",
+  "contact",
+  "sponsors",
+] as const;
+
+// Human-readable labels for each orderable section — shared between the
+// editor's reorder list and (for "contact", which has no dedicated
+// content card) anywhere else a label is needed.
+export const SECTION_ORDER_LABELS: Record<(typeof DEFAULT_SECTION_ORDER)[number], string> = {
+  stats: "Stats",
+  about: "About",
+  sessions: "Sample sessions",
+  athletes: "Athletes coached",
+  gallery: "Gallery",
+  blog: "Blog",
+  plans: "Coaching plans",
+  testimonials: "Testimonials",
+  contact: "Location & contact",
+  sponsors: "Sponsors",
+};
+
+// Reconciles a saved order against the current canonical key list:
+// - drops any key that's no longer recognized (stale/renamed section)
+// - appends any canonical key missing from the saved order (e.g. a row
+//   saved before "sponsors" existed) at the end, so a newly-added section
+//   type doesn't silently vanish just because it predates this feature
+// Always returns every canonical key exactly once.
+export function normalizeSectionOrder(saved: unknown): string[] {
+  const canonical: string[] = [...DEFAULT_SECTION_ORDER];
+  const savedArr = Array.isArray(saved) ? (saved as string[]).filter((k) => canonical.includes(k)) : [];
+  const missing = canonical.filter((k) => !savedArr.includes(k));
+  return [...savedArr, ...missing];
+}
+
 // ---------------------------------------------------------------------------
 // Default / sample content — matches the brief's example persona.
 // Used for local dev preview and as a fallback while a real row loads.
@@ -104,6 +163,8 @@ export const defaultCoachConfig: CoachConfig = {
   secondaryColor: "#2E5266",
   heroImageSide: "right",
   density: "comfortable",
+  alternateSectionBackgrounds: false,
+  sectionOrder: [...DEFAULT_SECTION_ORDER],
   name: "Marcus Webb",
   slug: "marcus-webb",
   tagline: "Track and interval-based coaching for runners chasing their next PR",
@@ -202,6 +263,8 @@ export function coachRowToConfig(
     secondaryColor: row.secondary_color || undefined,
     heroImageSide: row.hero_image_side === "left" ? "left" : "right",
     density: row.section_density === "compact" ? "compact" : "comfortable",
+    alternateSectionBackgrounds: !!row.alternate_section_backgrounds,
+    sectionOrder: normalizeSectionOrder(row.section_order),
     name: row.name || d.name,
     teamName: row.team_name || undefined,
     slug: row.slug || d.slug,
