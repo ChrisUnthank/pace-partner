@@ -22,6 +22,8 @@ import {
 } from "@/components/athlete-profile/athlete-config";
 import { Dot, SectionOrderList } from "@/components/profile-shared/section-order-list";
 import { HeroImagePositionPicker } from "@/components/profile-shared/hero-image-position-picker";
+import { galleryAspectClass } from "@/components/profile-shared/section-shell";
+import { GalleryLayoutFields } from "@/components/profile-shared/gallery-layout-fields";
 
 export const Route = createFileRoute("/_authenticated/app/athlete/$slug")({
   component: AthleteEditorPage,
@@ -193,6 +195,12 @@ function AthleteEditorPage() {
         hero_image_url: p.hero_image_url || "",
         hero_image_position_x: typeof p.hero_image_position_x === "number" ? p.hero_image_position_x : 50,
         hero_image_position_y: typeof p.hero_image_position_y === "number" ? p.hero_image_position_y : 50,
+        gallery_columns: [2, 3, 4].includes(p.gallery_columns) ? p.gallery_columns : 3,
+        gallery_aspect: ["square", "portrait", "landscape", "auto"].includes(p.gallery_aspect)
+          ? p.gallery_aspect
+          : "square",
+        gallery_image_positions:
+          p.gallery_image_positions && typeof p.gallery_image_positions === "object" ? p.gallery_image_positions : {},
         gallery_images: (p.gallery_images || []).join("\n"),
         stats: Array.isArray(p.stats) && p.stats.length ? p.stats : [],
         sponsors: Array.isArray(p.sponsors) ? p.sponsors : [],
@@ -244,6 +252,13 @@ function AthleteEditorPage() {
   }
   function removeSponsor(i: number) {
     setForm({ ...form, sponsors: form.sponsors.filter((_: any, idx: number) => idx !== i) });
+  }
+
+  function setGalleryImagePosition(url: string, x: number, y: number) {
+    setForm({
+      ...form,
+      gallery_image_positions: { ...(form.gallery_image_positions || {}), [url]: { x, y } },
+    });
   }
 
   function updateManualPartner(i: number, patch: Partial<{ name: string; photoUrl: string; event: string }>) {
@@ -374,6 +389,9 @@ function AthleteEditorPage() {
         hero_image_url: form.hero_image_url,
         hero_image_position_x: form.hero_image_position_x ?? 50,
         hero_image_position_y: form.hero_image_position_y ?? 50,
+        gallery_columns: form.gallery_columns ?? 3,
+        gallery_aspect: form.gallery_aspect ?? "square",
+        gallery_image_positions: form.gallery_image_positions ?? {},
         gallery_images: form.gallery_images
           .split("\n")
           .map((s: string) => s.trim())
@@ -712,7 +730,7 @@ function AthleteEditorPage() {
                 </div>
                 <SectionToggle checked={sectionOn("gallery")} onCheckedChange={(v) => setSectionOn("gallery", v)} />
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-4">
                 {user && (
                   <MultiImageUpload
                     userId={user.id}
@@ -720,6 +738,38 @@ function AthleteEditorPage() {
                     onChange={(urls) => setForm({ ...form, gallery_images: urls.join("\n") })}
                   />
                 )}
+                <GalleryLayoutFields
+                  columns={form.gallery_columns ?? 3}
+                  aspect={form.gallery_aspect ?? "square"}
+                  onColumnsChange={(v) => setForm({ ...form, gallery_columns: v })}
+                  onAspectChange={(v) => setForm({ ...form, gallery_aspect: v })}
+                />
+                {form.gallery_aspect !== "auto" &&
+                  (form.gallery_images ? form.gallery_images.split("\n").filter(Boolean) : []).length > 0 && (
+                    <div className="space-y-3">
+                      <p className="text-xs font-medium text-muted-foreground">
+                        Reposition individual photos (only matters for Square/Portrait/Landscape — skipped for "no
+                        crop")
+                      </p>
+                      {(form.gallery_images ? form.gallery_images.split("\n").filter(Boolean) : []).map(
+                        (url: string, i: number) => {
+                          const pos = (form.gallery_image_positions || {})[url] ?? { x: 50, y: 50 };
+                          return (
+                            <div key={url + i} className="rounded-md border p-3">
+                              <p className="mb-2 text-xs text-muted-foreground">Photo {i + 1}</p>
+                              <HeroImagePositionPicker
+                                imageUrl={url}
+                                x={pos.x}
+                                y={pos.y}
+                                onChange={(x, y) => setGalleryImagePosition(url, x, y)}
+                                aspectClassName={galleryAspectClass(form.gallery_aspect ?? "square")}
+                              />
+                            </div>
+                          );
+                        },
+                      )}
+                    </div>
+                  )}
               </CardContent>
             </Card>
 
