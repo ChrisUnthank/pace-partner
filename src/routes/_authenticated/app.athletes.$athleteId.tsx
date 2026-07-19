@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useMyRoles } from "@/lib/use-auth";
+import { useMyRoles, useMyAthlete } from "@/lib/use-auth";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -103,6 +103,21 @@ function AthleteDetail() {
   const qc = useQueryClient();
   const { data: roles = [] } = useMyRoles();
   const isCoach = roles.includes("coach");
+  const { data: myAthlete } = useMyAthlete();
+  const canEdit = isCoach || myAthlete?.id === athleteId;
+
+  // Navigating here from the roster's summary panel ("Full view") is a
+  // client-side route change, not a full page load — the browser has no
+  // reason to reset scroll position on its own, so if the previous page
+  // was scrolled down (a long roster, a sticky panel reached by
+  // scrolling), this page would silently open already scrolled to that
+  // same pixel offset instead of the top. Re-fires on athleteId change
+  // too, so jumping from one athlete's page straight to another's via a
+  // link also lands at the top rather than wherever the previous athlete's
+  // page happened to be scrolled to.
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [athleteId]);
 
   const { data: athlete } = useQuery({
     queryKey: ["athlete", athleteId],
@@ -334,7 +349,7 @@ function AthleteDetail() {
           </div>
         </div>
 
-        <AthleteIdentityCard athlete={athlete} athleteId={athleteId} isCoach={isCoach} />
+        <AthleteIdentityCard athlete={athlete} athleteId={athleteId} canEdit={canEdit} />
 
         <GoalsCard athleteId={athleteId} />
 
