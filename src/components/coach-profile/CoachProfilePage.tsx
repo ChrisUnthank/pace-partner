@@ -420,19 +420,13 @@ function Hero({ config }: { config: CoachConfig }) {
       }}
     >
       <div className="mx-auto max-w-6xl px-4 md:px-8 xl:max-w-7xl 2xl:max-w-[100rem]">
-        <div
-          className={
-            modern
-              ? `grid items-center gap-10 ${heroGridCols}`
-              : "mx-auto max-w-3xl lg:max-w-4xl xl:max-w-5xl"
-          }
-        >
+        <div className={modern ? `grid items-center gap-10 ${heroGridCols}` : ""}>
           {!modern && (
             <div className="relative mb-10">
               <img
                 src={config.heroImageUrl}
                 alt={config.name}
-                className="coach-hero-image h-48 w-full object-cover sm:h-64 md:h-80"
+                className="coach-hero-image h-56 w-full object-cover sm:h-72 md:h-96"
               />
               {config.coachPhotoUrl && (
                 <img
@@ -445,7 +439,9 @@ function Hero({ config }: { config: CoachConfig }) {
             </div>
           )}
           <div
-            className={modern ? (imageLeft ? "md:order-2" : "") : "mx-auto max-w-2xl px-4 pt-6 text-center sm:px-0"}
+            className={
+              modern ? (imageLeft ? "md:order-2" : "") : "mx-auto max-w-3xl lg:max-w-4xl px-4 pt-6 text-center sm:px-0"
+            }
           >
             {config.teamName && (
               <div className="coach-heading mb-1 text-sm uppercase tracking-wide" style={{ color: "var(--brand)" }}>
