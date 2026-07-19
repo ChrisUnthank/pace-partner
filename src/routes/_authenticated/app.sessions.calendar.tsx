@@ -398,73 +398,68 @@ function CalendarPage() {
     setVitalsDate(null);
   }
 
-  // Creates a bare session row for the given date, then attaches the
-  // uploaded file to it via the same uploadAndParseSessionFile flow the
-  // session detail page uses. day_type/intent/structure defaults are
-  // required by the DB's validate_session_classification trigger for any
-  // 'training' row; title starts as a placeholder matching the
-  // auto-generated pattern so rebuildSessionFromAllFiles corrects it to the
-  // real time-of-day title once the file's actually parsed.
+  // Matches BulkFitUpload's own mechanism exactly (src/components/bulk-fit-upload.tsx,
+  // used on the sessions list) rather than forcing everything onto the day
+  // clicked: no session is pre-created, and no sessionId is passed to
+  // uploadAndParseSessionFile — each file is handed over on its own, and the
+  // server decides whether to merge it into an existing nearby session or
+  // start a new one, purely from that file's own recorded start time (files
+  // close together merge into one session; more than 90 minutes apart — an
+  // AM and a PM run, say — become separate sessions). The specific day
+  // clicked here is just where the dialog happened to open from, not a
+  // guarantee of where the resulting session(s) land — if a file's own
+  // clock disagrees with the day clicked, the file's clock wins, same as
+  // it would from the sessions-list uploader. Files are uploaded one at a
+  // time, not in parallel, so two uploads landing in the same session never
+  // race each other's rebuild.
   async function handleCalendarUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file || !uploadDate || !selectedAthleteId || !user) return;
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    if (files.length === 0 || !selectedAthleteId) return;
 
     setUploading(true);
+    let successCount = 0;
+    let firstErrorMessage: string | null = null;
     try {
-      const { data: newSession, error: createErr } = await supabase
-        .from("sessions")
-        .insert({
-          athlete_id: selectedAthleteId,
-          session_date: uploadDate,
-          day_type: "training",
-          intent: "easy",
-          structure: "continuous",
-          is_planned: false,
-          // This is a completed FIT/GPX upload, not a placeholder for a
-          // future session — completed_at is what the UI (SessionPill,
-          // day-sheet) actually checks to show "Completed" vs "Planned",
-          // not is_planned. Without this the session sat labeled "Planned"
-          // forever, since uploadAndParseSessionFile only stamps
-          // completed_at when it creates the session itself (no sessionId
-          // passed in) — here we already created the row, so that branch
-          // never runs.
-          completed_at: new Date().toISOString(),
-          source: "fit_import",
-          title: "Morning session",
-          created_by: user.id,
-        } as any)
-        .select("id, athlete_id")
-        .single();
+      for (const file of files) {
+        try {
+          const reader = new FileReader();
+          const base64: string = await new Promise((resolve, reject) => {
+            reader.onload = () => resolve(String(reader.result || "").split(",")[1]);
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(file);
+          });
 
-      if (createErr || !newSession) throw createErr ?? new Error("Could not create session");
+          const res: any = await uploadFile({
+            data: {
+              athleteId: selectedAthleteId,
+              filename: file.name,
+              kind: file.name.toLowerCase().endsWith(".gpx") ? "gpx" : "fit",
+              fileBase64: base64,
+            },
+          });
 
-      const reader = new FileReader();
-      const base64: string = await new Promise((resolve, reject) => {
-        reader.onload = () => resolve(String(reader.result || "").split(",")[1]);
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(file);
-      });
+          if (res?.error) throw new Error(res.error);
+          successCount++;
+        } catch (fileErr: any) {
+          console.error(`Calendar upload error (${file.name}):`, fileErr);
+          if (!firstErrorMessage) firstErrorMessage = `${file.name}: ${fileErr.message ?? "Upload failed"}`;
+        }
+      }
 
-      // NOTE: this mirrors the exact call site used on the session detail
-      // page (app.sessions.$sessionId.index.tsx, handleFileUpload) — same
-      // shape, just with the session we just created above. Worth a quick
-      // sanity check against that page if this doesn't behave as expected.
-      const res: any = await uploadFile({
-        data: {
-          athleteId: newSession.athlete_id,
-          sessionId: newSession.id,
-          filename: file.name,
-          kind: file.name.toLowerCase().endsWith(".gpx") ? "gpx" : "fit",
-          fileBase64: base64,
-        },
-      });
+      if (successCount === 0) throw new Error(firstErrorMessage ?? "Upload failed");
 
-      if (res?.error) throw new Error(res.error);
-
-      toast.success("File uploaded and session created");
+      toast.success(
+        successCount === 1 ? "File uploaded" : `${successCount} of ${files.length} files uploaded`,
+      );
+      if (firstErrorMessage && successCount < files.length) {
+        toast.error(`Some files didn't upload: ${firstErrorMessage}`);
+      }
+      // No forced navigation to a single session — multiple files can now
+      // land in more than one session (that's the whole point), so there's
+      // no single "the" session to jump to. Closing the dialog and
+      // refreshing the grid lets whatever landed show up in place.
       qc.invalidateQueries({ queryKey: ["calendar"] });
       setUploadDate(null);
-      navigate({ to: "/app/sessions/$sessionId", params: { sessionId: newSession.id } });
     } catch (err: any) {
       console.error("Calendar upload error:", err);
       toast.error(err.message ?? "Upload failed");
@@ -767,7 +762,7 @@ function CalendarPage() {
                 setUploadDate(d);
               }}
             >
-              <Upload className="h-4 w-4 mr-2" /> Upload file
+              <Upload className="h-4 w-4 mr-2" /> Upload file(s)
             </Button>
             <Button
               variant="outline"
@@ -833,17 +828,20 @@ function CalendarPage() {
       <Dialog open={!!uploadDate} onOpenChange={(o) => !o && !uploading && setUploadDate(null)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Upload file</DialogTitle>
+            <DialogTitle>Upload files</DialogTitle>
             <DialogDescription>
+              Opened from{" "}
               {uploadDate
                 ? parseISO(uploadDate).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })
-                : ""}
-              {" · "}FIT or GPX
+                : "this day"}
+              {" — "}FIT or GPX. Files recorded close together merge into one session; files more than 90 minutes
+              apart (e.g. an AM and a PM run) become separate sessions, dated from each file itself.
             </DialogDescription>
           </DialogHeader>
           <input
             type="file"
             accept=".fit,.gpx"
+            multiple
             disabled={uploading}
             onChange={handleCalendarUpload}
             className="text-sm file:mr-3 file:rounded-md file:border file:bg-background file:px-3 file:py-1.5 file:text-sm"
