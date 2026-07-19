@@ -33,7 +33,7 @@ function useAthleteProfile(slug: string) {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("athlete_profiles")
-        .select("*, athletes ( id, name, primary_event, profile_image_url, user_id )")
+        .select("*, athletes ( id, name, primary_event, profile_image_url, user_id, club )")
         .eq("slug", slug)
         .maybeSingle();
       if (error) throw error;
@@ -110,6 +110,31 @@ function useAthleteGoal(athleteId: string | undefined) {
   });
 }
 
+// Read-only, shown in the About card so it's clear where the "Coached by"
+// line on the public page comes from — not editable here, same reasoning
+// as name/primary event/photo just above it.
+function useCoaches(athleteId: string | undefined) {
+  return useQuery({
+    queryKey: ["athlete-profile-editor-coaches", athleteId],
+    enabled: !!athleteId,
+    queryFn: async () => {
+      const { data: links, error: e1 } = await (supabase as any)
+        .from("coach_athletes")
+        .select("coach_user_id")
+        .eq("athlete_id", athleteId);
+      if (e1) throw e1;
+      const coachIds = [...new Set((links ?? []).map((l: any) => l.coach_user_id))];
+      if (!coachIds.length) return [];
+      const { data: profiles, error: e2 } = await (supabase as any)
+        .from("coach_profiles")
+        .select("name, team_name")
+        .in("coach_user_id", coachIds);
+      if (e2) throw e2;
+      return (profiles ?? []).map((c: any) => ({ name: c.name, teamName: c.team_name ?? undefined }));
+    },
+  });
+}
+
 function useAthleteBlogPosts(athleteId: string | undefined) {
   return useQuery({
     queryKey: ["athlete-blog-posts", athleteId],
@@ -136,6 +161,7 @@ function AthleteEditorPage() {
   const { data: results, refetch: refetchResults } = useRaceResults(athlete?.id);
   const { data: squadMates } = useSquadMates(athlete?.id);
   const { data: goal } = useAthleteGoal(athlete?.id);
+  const { data: coaches } = useCoaches(athlete?.id);
   const { data: blogRows, refetch: refetchBlogPosts } = useAthleteBlogPosts(athlete?.id);
 
   const [form, setForm] = useState<any>({});
@@ -445,13 +471,33 @@ function AthleteEditorPage() {
                 <div>
                   <CardTitle className="text-base">About</CardTitle>
                   <CardDescription>
-                    Name, primary event, and photo come from your Strider profile and can't be edited here — update
-                    those on the Profile page.
+                    Name, primary event, photo, club, and coach/squad come from your Strider profile and roster link
+                    — can't be edited here. Update name/event/photo/club on the Profile page; coach/squad follows
+                    whichever coach you're linked to automatically.
                   </CardDescription>
                 </div>
                 <SectionToggle checked={sectionOn("about")} onCheckedChange={(v) => setSectionOn("about", v)} />
               </CardHeader>
               <CardContent className="space-y-4">
+                {(athlete.club || (coaches && coaches.length > 0)) && (
+                  <p className="rounded-md border p-3 text-xs text-muted-foreground">
+                    Currently showing on your page:{" "}
+                    {athlete.club && <span className="font-medium text-foreground">{athlete.club}</span>}
+                    {athlete.club && coaches && coaches.length > 0 && " · "}
+                    {coaches && coaches.length > 0 && (
+                      <span className="font-medium text-foreground">
+                        Coached by{" "}
+                        {coaches.map((c: any, i: number) => (
+                          <span key={c.name + i}>
+                            {i > 0 && ", "}
+                            {c.name}
+                            {c.teamName && ` (${c.teamName})`}
+                          </span>
+                        ))}
+                      </span>
+                    )}
+                  </p>
+                )}
                 <Field label="Tagline" hint="Shown directly under your name in the hero — keep it to one line.">
                   <Input value={form.tagline} onChange={(e) => setForm({ ...form, tagline: e.target.value })} />
                 </Field>
