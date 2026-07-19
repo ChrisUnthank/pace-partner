@@ -97,3 +97,40 @@ export function SectionShell({
 export function SectionHeading({ children, centered }: { children: React.ReactNode; centered?: boolean }) {
   return <h2 className={`coach-heading mb-8 text-2xl md:text-3xl ${centered ? "text-center" : ""}`}>{children}</h2>;
 }
+
+// Shared gallery layout helpers — used by both Coach and Athlete pages'
+// Gallery section so the columns/aspect/reposition mechanism can't drift
+// between the two.
+export function galleryGridClass(columns: 2 | 3 | 4): string {
+  // Always 2-up on the smallest screens regardless of the chosen column
+  // count — 3 or 4 columns on a phone would make each tile too small to
+  // be worth showing.
+  switch (columns) {
+    case 2:
+      return "grid grid-cols-2 gap-3";
+    case 4:
+      return "grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4";
+    default:
+      return "grid grid-cols-2 gap-3 md:grid-cols-3";
+  }
+}
+
+export function galleryAspectClass(aspect: "square" | "portrait" | "landscape" | "auto"): string {
+  switch (aspect) {
+    case "portrait":
+      return "aspect-[3/4]";
+    case "landscape":
+      return "aspect-[4/3]";
+    case "auto":
+      return ""; // natural aspect ratio, no crop — image sizes itself
+    default:
+      return "aspect-square";
+  }
+}
+
+export function galleryImagePosition(
+  positions: Record<string, { x: number; y: number }>,
+  url: string,
+): { x: number; y: number } {
+  return positions[url] ?? { x: 50, y: 50 };
+}
