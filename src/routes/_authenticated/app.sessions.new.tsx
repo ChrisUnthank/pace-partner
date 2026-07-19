@@ -40,6 +40,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { stepKindBarClass, stepKindTextClass } from "@/lib/step-kind-colors";
 
 // This route previously had no search-param handling at all — the
 // Calendar page's "+" menu has been passing date/mode/dayType here for a
@@ -1038,22 +1039,25 @@ function stepTitle(s: StepDraft): string {
 
 function StepCard({ step, position, onUpdate, onRemove, anchored, structure }: StepEditorProps) {
   return (
-    <div className="border rounded-md p-3 space-y-2 bg-background">
-      <div className="flex justify-between items-center">
-        <span className="text-sm font-semibold flex items-center gap-2">
-          {anchored && <Lock className="h-3 w-3 text-muted-foreground" />}
-          {position}. {stepTitle(step)}
-          {anchored && (
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-normal">
-              anchored {anchored}
-            </span>
-          )}
-        </span>
-        <Button size="sm" variant="ghost" onClick={onRemove}>
-          <Trash2 className="h-4 w-4" />
-        </Button>
+    <div className="flex items-stretch gap-2 border rounded-md bg-background overflow-hidden">
+      <div className={`w-1.5 shrink-0 ${stepKindBarClass(step.kind)}`} />
+      <div className="flex-1 min-w-0 p-3 space-y-2">
+        <div className="flex justify-between items-center">
+          <span className={`text-sm font-semibold flex items-center gap-2 ${stepKindTextClass(step.kind)}`}>
+            {anchored && <Lock className="h-3 w-3 text-muted-foreground" />}
+            {position}. {stepTitle(step)}
+            {anchored && (
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-normal">
+                anchored {anchored}
+              </span>
+            )}
+          </span>
+          <Button size="sm" variant="ghost" onClick={onRemove}>
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+        <StepFields step={step} onUpdate={onUpdate} structure={structure} />
       </div>
-      <StepFields step={step} onUpdate={onUpdate} structure={structure} />
     </div>
   );
 }
@@ -1066,39 +1070,42 @@ function SortableStep(props: StepEditorProps & { id: string }) {
     opacity: isDragging ? 0.5 : 1,
   };
   return (
-    <div ref={setNodeRef} style={style} className="border rounded-md p-3 space-y-2 bg-background">
-      <div className="flex justify-between items-center">
-        <span className="text-sm font-semibold flex items-center gap-2">
-          <button
-            type="button"
-            className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground"
-            {...attributes}
-            {...listeners}
-            aria-label="Drag to reorder"
-          >
-            <GripVertical className="h-4 w-4" />
-          </button>
-          {props.position}. {stepTitle(props.step)}
-        </span>
-        <div className="flex items-center gap-1">
-          <Button size="sm" variant="ghost" onClick={props.onMoveUp} disabled={!props.onMoveUp} aria-label="Move up">
-            <ArrowUp className="h-4 w-4" />
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={props.onMoveDown}
-            disabled={!props.onMoveDown}
-            aria-label="Move down"
-          >
-            <ArrowDown className="h-4 w-4" />
-          </Button>
-          <Button size="sm" variant="ghost" onClick={props.onRemove}>
-            <Trash2 className="h-4 w-4" />
-          </Button>
+    <div ref={setNodeRef} style={style} className="flex items-stretch gap-2 border rounded-md bg-background overflow-hidden">
+      <div className={`w-1.5 shrink-0 ${stepKindBarClass(props.step.kind)}`} />
+      <div className="flex-1 min-w-0 p-3 space-y-2">
+        <div className="flex justify-between items-center">
+          <span className={`text-sm font-semibold flex items-center gap-2 ${stepKindTextClass(props.step.kind)}`}>
+            <button
+              type="button"
+              className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground"
+              {...attributes}
+              {...listeners}
+              aria-label="Drag to reorder"
+            >
+              <GripVertical className="h-4 w-4" />
+            </button>
+            {props.position}. {stepTitle(props.step)}
+          </span>
+          <div className="flex items-center gap-1">
+            <Button size="sm" variant="ghost" onClick={props.onMoveUp} disabled={!props.onMoveUp} aria-label="Move up">
+              <ArrowUp className="h-4 w-4" />
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={props.onMoveDown}
+              disabled={!props.onMoveDown}
+              aria-label="Move down"
+            >
+              <ArrowDown className="h-4 w-4" />
+            </Button>
+            <Button size="sm" variant="ghost" onClick={props.onRemove}>
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
+        <StepFields step={props.step} onUpdate={props.onUpdate} structure={props.structure} />
       </div>
-      <StepFields step={props.step} onUpdate={props.onUpdate} structure={props.structure} />
     </div>
   );
 }
@@ -1154,6 +1161,34 @@ function StepsCard({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
+        <div className="flex flex-wrap gap-2 pb-1 border-b">
+          <Button variant="outline" size="sm" onClick={() => addStep("warmup")}>
+            <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("warmup")}`} />
+            <Plus className="h-3 w-3 mr-1" />
+            Warmup
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => addStep("strides")}>
+            <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("strides")}`} />
+            <Plus className="h-3 w-3 mr-1" />
+            Strides / Run-throughs
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => addStep("work")}>
+            <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("work")}`} />
+            <Plus className="h-3 w-3 mr-1" />
+            Work block
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => addStep("recovery")}>
+            <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("recovery")}`} />
+            <Plus className="h-3 w-3 mr-1" />
+            Recovery between blocks
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => addStep("cooldown")}>
+            <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("cooldown")}`} />
+            <Plus className="h-3 w-3 mr-1" />
+            Cooldown
+          </Button>
+        </div>
+
         {warmIdx.map((i, pos) => (
           <StepCard
             key={steps[i]._uid}
@@ -1198,29 +1233,6 @@ function StepsCard({
             structure={structure}
           />
         ))}
-
-        <div className="flex flex-wrap gap-2 pt-1">
-          <Button variant="outline" size="sm" onClick={() => addStep("warmup")}>
-            <Plus className="h-3 w-3 mr-1" />
-            Warmup
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => addStep("strides")}>
-            <Plus className="h-3 w-3 mr-1" />
-            Strides / Run-throughs
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => addStep("work")}>
-            <Plus className="h-3 w-3 mr-1" />
-            Work block
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => addStep("recovery")}>
-            <Plus className="h-3 w-3 mr-1" />
-            Recovery between blocks
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => addStep("cooldown")}>
-            <Plus className="h-3 w-3 mr-1" />
-            Cooldown
-          </Button>
-        </div>
       </CardContent>
     </Card>
   );
