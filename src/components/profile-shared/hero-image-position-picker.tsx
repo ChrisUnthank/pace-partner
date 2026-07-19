@@ -11,11 +11,16 @@ export function HeroImagePositionPicker({
   x,
   y,
   onChange,
+  aspectClassName = "aspect-[21/9]",
 }: {
   imageUrl: string;
   x: number;
   y: number;
   onChange: (x: number, y: number) => void;
+  /** Defaults to the hero's wide banner shape — pass a different aspect
+   * (e.g. "aspect-square") when reusing this for something else, like a
+   * gallery photo, so the preview actually matches what gets cropped. */
+  aspectClassName?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -43,7 +48,7 @@ export function HeroImagePositionPicker({
         }}
         onMouseUp={() => setDragging(false)}
         onMouseLeave={() => setDragging(false)}
-        className="relative aspect-[21/9] w-full cursor-crosshair overflow-hidden rounded-md border select-none"
+        className={`relative w-full cursor-crosshair overflow-hidden rounded-md border select-none ${aspectClassName}`}
         role="button"
         tabIndex={0}
         aria-label="Click or drag to set the hero image's focal point"
