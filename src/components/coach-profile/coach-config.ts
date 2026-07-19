@@ -8,6 +8,17 @@ export interface CoachConfig {
   style: "modern" | "traditional";
   nav: "top" | "sidebar";
   brandColor: string; // hex
+  // Optional second brand color for a two-tone identity — used for
+  // secondary CTAs and to alternate the Stats strip's number color.
+  // Falls back to brandColor everywhere it's used when not set.
+  secondaryColor?: string;
+  // Which side the hero image sits on for the "modern" style. Has no
+  // effect on "traditional" (image is always stacked above, centered).
+  heroImageSide: "left" | "right";
+  // Section vertical padding preset — independent of theme/style, so a
+  // coach can tighten up a page that feels too spaced-out without
+  // changing anything else about the look.
+  density: "comfortable" | "compact";
   name: string;
   teamName?: string;
   slug: string;
@@ -90,6 +101,9 @@ export const defaultCoachConfig: CoachConfig = {
   style: "modern",
   nav: "top",
   brandColor: "#BD4130",
+  secondaryColor: "#2E5266",
+  heroImageSide: "right",
+  density: "comfortable",
   name: "Marcus Webb",
   slug: "marcus-webb",
   tagline: "Track and interval-based coaching for runners chasing their next PR",
@@ -185,6 +199,9 @@ export function coachRowToConfig(
     style: row.style === "traditional" ? "traditional" : "modern",
     nav: row.nav === "sidebar" ? "sidebar" : "top",
     brandColor: row.brand_color || d.brandColor,
+    secondaryColor: row.secondary_color || undefined,
+    heroImageSide: row.hero_image_side === "left" ? "left" : "right",
+    density: row.section_density === "compact" ? "compact" : "comfortable",
     name: row.name || d.name,
     teamName: row.team_name || undefined,
     slug: row.slug || d.slug,
