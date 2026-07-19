@@ -21,6 +21,7 @@ import {
   normalizeSectionOrder,
 } from "@/components/athlete-profile/athlete-config";
 import { Dot, SectionOrderList } from "@/components/profile-shared/section-order-list";
+import { HeroImagePositionPicker } from "@/components/profile-shared/hero-image-position-picker";
 
 export const Route = createFileRoute("/_authenticated/app/athlete/$slug")({
   component: AthleteEditorPage,
@@ -164,6 +165,8 @@ function AthleteEditorPage() {
         section_density: p.section_density === "compact" ? "compact" : "comfortable",
         alternate_section_backgrounds: !!p.alternate_section_backgrounds,
         hero_image_url: p.hero_image_url || "",
+        hero_image_position_x: typeof p.hero_image_position_x === "number" ? p.hero_image_position_x : 50,
+        hero_image_position_y: typeof p.hero_image_position_y === "number" ? p.hero_image_position_y : 50,
         gallery_images: (p.gallery_images || []).join("\n"),
         stats: Array.isArray(p.stats) && p.stats.length ? p.stats : [],
         sponsors: Array.isArray(p.sponsors) ? p.sponsors : [],
@@ -343,6 +346,8 @@ function AthleteEditorPage() {
         section_density: form.section_density || "comfortable",
         alternate_section_backgrounds: !!form.alternate_section_backgrounds,
         hero_image_url: form.hero_image_url,
+        hero_image_position_x: form.hero_image_position_x ?? 50,
+        hero_image_position_y: form.hero_image_position_y ?? 50,
         gallery_images: form.gallery_images
           .split("\n")
           .map((s: string) => s.trim())
@@ -584,6 +589,16 @@ function AthleteEditorPage() {
                       value={form.hero_image_url}
                       onChange={(url) => setForm({ ...form, hero_image_url: url })}
                       label="hero image"
+                    />
+                  </Field>
+                )}
+                {user && form.hero_image_url && (
+                  <Field label="Hero image position" hint="Controls what stays visible when the image gets cropped at different screen sizes.">
+                    <HeroImagePositionPicker
+                      imageUrl={form.hero_image_url}
+                      x={form.hero_image_position_x ?? 50}
+                      y={form.hero_image_position_y ?? 50}
+                      onChange={(x, y) => setForm({ ...form, hero_image_position_x: x, hero_image_position_y: y })}
                     />
                   </Field>
                 )}
