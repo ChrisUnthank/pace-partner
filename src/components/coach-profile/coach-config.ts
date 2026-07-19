@@ -35,7 +35,50 @@ export interface CoachConfig {
   athletes: { name: string; event?: string; photoUrl?: string }[];
   location: { city: string; venue?: string; remoteAvailable: boolean };
   contact: { email: string; phone?: string; instagram?: string; strava?: string };
+  // Whether the public page is live. false = only the coach (via the
+  // editor's Preview link) can see it; visitors get a "not published yet"
+  // placeholder instead of the full page.
+  isPublished: boolean;
+  // Per-section show/hide toggles. Hero and Location & contact are always
+  // shown (core structural sections) — everything else can be switched
+  // off by the coach even if it has content.
+  sections: {
+    stats: boolean;
+    about: boolean;
+    sessions: boolean;
+    athletes: boolean;
+    gallery: boolean;
+    blog: boolean;
+    plans: boolean;
+    testimonials: boolean;
+    sponsors: boolean;
+  };
+  sponsors: { name: string; logoUrl?: string; websiteUrl?: string }[];
+  blogPosts: {
+    id: string;
+    title: string;
+    excerpt: string;
+    content: string;
+    coverImageUrl?: string;
+    publishedAt?: string;
+  }[];
 }
+
+// Every section defaults to visible — this is an opt-out model, not
+// opt-in, so existing coach pages (and any DB row missing the column, or
+// missing individual keys within it) keep showing everything they already
+// showed before this feature existed.
+export const DEFAULT_SECTIONS_ENABLED: CoachConfig["sections"] = {
+  stats: true,
+  about: true,
+  sessions: true,
+  athletes: true,
+  gallery: true,
+  blog: true,
+  plans: true,
+  testimonials: true,
+  sponsors: true,
+};
 
 // ---------------------------------------------------------------------------
 // Default / sample content — matches the brief's example persona.
@@ -102,6 +145,21 @@ export const defaultCoachConfig: CoachConfig = {
   ],
   location: { city: "Melbourne, AU", venue: "Fawkner Park Track", remoteAvailable: true },
   contact: { email: "marcus@example.com", instagram: "@marcuswebbcoaching" },
+  isPublished: true,
+  sections: DEFAULT_SECTIONS_ENABLED,
+  sponsors: [
+    { name: "Fawkner Running Co.", logoUrl: "", websiteUrl: "https://example.com" },
+  ],
+  blogPosts: [
+    {
+      id: "sample-1",
+      title: "Why I program 3 interval sessions a week, not 5",
+      excerpt: "More isn't always better — how I decide how much structured work an athlete can actually absorb.",
+      content:
+        "More isn't always better. The biggest mistake I see athletes make when they start structuring their own training is loading up on quality work because it feels productive — but recovery is where the adaptation actually happens.\n\nI cap most marathon and half-marathon athletes at 3 interval-quality sessions a week, with everything else easy or moderate. That's usually enough stimulus to drive fitness gains without digging a hole you can't climb out of before the next hard session.",
+      publishedAt: "2026-06-01",
+    },
+  ],
 };
 
 // ---------------------------------------------------------------------------
@@ -119,6 +177,7 @@ function asArray<T = any>(v: unknown): T[] {
 export function coachRowToConfig(
   row: Record<string, any>,
   athletes: { name: string; event?: string; photoUrl?: string }[] = [],
+  blogPosts: CoachConfig["blogPosts"] = [],
 ): CoachConfig {
   const d = defaultCoachConfig;
   return {
@@ -172,6 +231,18 @@ export function coachRowToConfig(
       instagram: row.contact?.instagram,
       strava: row.contact?.strava,
     },
+    isPublished: !!row.is_published,
+    // Merge over the defaults key-by-key rather than replacing wholesale —
+    // a row saved before a new section (e.g. "blog") existed won't have
+    // that key in its jsonb yet, and it should still default to visible
+    // rather than silently disappearing.
+    sections: { ...DEFAULT_SECTIONS_ENABLED, ...(row.sections_enabled || {}) },
+    sponsors: asArray(row.sponsors).map((s: any) => ({
+      name: s.name ?? "",
+      logoUrl: s.logo_url ?? s.logoUrl ?? undefined,
+      websiteUrl: s.website_url ?? s.websiteUrl ?? undefined,
+    })),
+    blogPosts,
   };
 }
 
