@@ -57,9 +57,10 @@ function addDays(d: Date, n: number) {
 }
 function startOfWeek(d: Date) {
   const x = new Date(d);
-  const dow = x.getDay();
-  return addDays(x, -dow);
-} // Sunday start
+  const dow = x.getDay(); // 0=Sun..6=Sat
+  const diff = dow === 0 ? -6 : 1 - dow; // Monday of this week
+  return addDays(x, diff);
+} // Monday start
 function startOfMonth(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), 1);
 }
@@ -268,7 +269,7 @@ function CalendarPage() {
     return map;
   }, [bundle, gridDays]);
 
-  // gridDays always starts on a Sunday and is a whole number of weeks (both
+  // gridDays always starts on a Monday and is a whole number of weeks (both
   // the month grid's padding and the single-week view guarantee this), so a
   // straight chunk-into-7s is safe here without any remainder handling.
   const weeks = useMemo(() => {
@@ -569,7 +570,7 @@ function CalendarPage() {
             {showWeekTotals ? (
               <>
                 <div className="grid grid-cols-8 gap-0.5 mb-1 text-[10px] text-muted-foreground">
-                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+                  {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
                     <div key={d} className="text-center uppercase tracking-wide">
                       {d}
                     </div>
@@ -604,7 +605,7 @@ function CalendarPage() {
             ) : (
               <>
                 <div className="grid grid-cols-7 gap-0.5 mb-1 text-[10px] text-muted-foreground">
-                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+                  {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
                     <div key={d} className="text-center uppercase tracking-wide">
                       {d}
                     </div>
