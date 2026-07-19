@@ -7,16 +7,47 @@ import { supabase } from "@/integrations/supabase/client";
 import type { CoachConfig } from "./coach-config";
 import "./coach-profile-tokens.css";
 
-const SECTIONS = [
-  { id: "home", label: "Home" },
-  { id: "about", label: "About" },
-  { id: "sessions", label: "Sample sessions" },
-  { id: "athletes", label: "Athletes" },
-  { id: "gallery", label: "Gallery" },
-  { id: "plans", label: "Plans" },
-  { id: "testimonials", label: "Testimonials" },
-  { id: "contact", label: "Location & contact" },
+// Nav/anchor entries. `key` maps to config.sections (null = always shown —
+// Home and Contact are core structural sections, not toggleable). A section
+// is only listed once it's both switched on AND actually has content, same
+// rule each section component already uses to decide whether to render
+// itself at all — this just keeps the nav in sync with that.
+const ALL_SECTIONS = [
+  { id: "home", label: "Home", key: null as const },
+  { id: "about", label: "About", key: "about" as const },
+  { id: "sessions", label: "Sample sessions", key: "sessions" as const },
+  { id: "athletes", label: "Athletes", key: "athletes" as const },
+  { id: "gallery", label: "Gallery", key: "gallery" as const },
+  { id: "blog", label: "Blog", key: "blog" as const },
+  { id: "plans", label: "Plans", key: "plans" as const },
+  { id: "testimonials", label: "Testimonials", key: "testimonials" as const },
+  { id: "contact", label: "Location & contact", key: null as const },
 ];
+
+function visibleSections(config: CoachConfig) {
+  return ALL_SECTIONS.filter((s) => {
+    if (s.key === null) return true;
+    if (!config.sections[s.key]) return false;
+    switch (s.key) {
+      case "about":
+        return !!(config.bio || config.coachingPhilosophy || config.achievements.length);
+      case "sessions":
+        return config.sampleSessions.length > 0;
+      case "athletes":
+        return config.athletes.length > 0;
+      case "gallery":
+        return config.galleryImages.length > 0;
+      case "blog":
+        return config.blogPosts.length > 0;
+      case "plans":
+        return config.plans.length > 0;
+      case "testimonials":
+        return config.testimonials.length > 0;
+      default:
+        return true;
+    }
+  });
+}
 
 // Simple luminance check so `--on-brand` stays readable against any brand color.
 function onColorFor(hex: string): string {
@@ -46,9 +77,18 @@ export interface CoachProfilePageProps {
   /** Show the live theme/style/nav preview toggles. Dev-only, strip before shipping a fixed-config page. */
   showDevControls?: boolean;
   onConfigChange?: (next: CoachConfig) => void;
+  /**
+   * True when the viewer is confirmed to be this page's owner — e.g. the
+   * coach clicking "Preview" from the editor while logged in as that
+   * coach. Lets an unpublished page still render for its own coach
+   * instead of the "not published yet" placeholder a normal visitor
+   * would see. Deciding *who* the viewer is happens in the route that
+   * renders this component (session/slug match), not in here.
+   */
+  isOwnerPreview?: boolean;
 }
 
-export function CoachProfilePage({ config, showDevControls, onConfigChange }: CoachProfilePageProps) {
+export function CoachProfilePage({ config, showDevControls, onConfigChange, isOwnerPreview }: CoachProfilePageProps) {
   const rootVars = useMemo(
     () =>
       ({
@@ -69,7 +109,25 @@ export function CoachProfilePage({ config, showDevControls, onConfigChange }: Co
     >
       {showDevControls && <DevControls config={config} onChange={onConfigChange} />}
 
-      {config.nav === "sidebar" ? <SidebarLayout config={config} /> : <TopNavLayout config={config} />}
+      {!config.isPublished && !isOwnerPreview ? (
+        <UnpublishedPlaceholder config={config} />
+      ) : config.nav === "sidebar" ? (
+        <SidebarLayout config={config} />
+      ) : (
+        <TopNavLayout config={config} />
+      )}
+    </div>
+  );
+}
+
+function UnpublishedPlaceholder({ config }: { config: CoachConfig }) {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center px-4 text-center">
+      <Logo config={config} />
+      <div className="coach-heading mt-6 text-xl">{config.name}'s page isn't published yet</div>
+      <p className="mt-2 text-sm" style={{ color: "var(--text-secondary)" }}>
+        Check back soon.
+      </p>
     </div>
   );
 }
@@ -89,7 +147,7 @@ function TopNavLayout({ config }: { config: CoachConfig }) {
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 md:px-8 xl:max-w-7xl 2xl:max-w-[100rem]">
           <Logo config={config} />
           <nav className="hidden items-center gap-6 md:flex">
-            {SECTIONS.map((s) => (
+            {visibleSections(config).map((s) => (
               <button
                 key={s.id}
                 onClick={() => scrollToSection(s.id)}
@@ -133,7 +191,7 @@ function SidebarLayout({ config }: { config: CoachConfig }) {
         <div>
           <Logo config={config} showName />
           <nav className="mt-10 flex flex-col gap-4">
-            {SECTIONS.map((s) => (
+            {visibleSections(config).map((s) => (
               <button
                 key={s.id}
                 onClick={() => scrollToSection(s.id)}
@@ -202,7 +260,7 @@ function MobileNavSheet({ config }: { config: CoachConfig }) {
       </SheetTrigger>
       <SheetContent style={{ background: "var(--bg)", color: "var(--text-primary)" }}>
         <nav className="mt-10 flex flex-col gap-5">
-          {SECTIONS.map((s) => (
+          {visibleSections(config).map((s) => (
             <button
               key={s.id}
               onClick={() => {
@@ -229,14 +287,16 @@ function PageSections({ config }: { config: CoachConfig }) {
   return (
     <>
       <Hero config={config} />
-      <Stats config={config} />
-      <About config={config} />
-      <SampleSessions config={config} />
-      <AthletesCoached config={config} />
-      <Gallery config={config} />
-      <Plans config={config} />
-      <Testimonials config={config} />
+      {config.sections.stats && <Stats config={config} />}
+      {config.sections.about && <About config={config} />}
+      {config.sections.sessions && <SampleSessions config={config} />}
+      {config.sections.athletes && <AthletesCoached config={config} />}
+      {config.sections.gallery && <Gallery config={config} />}
+      {config.sections.blog && <Blog config={config} />}
+      {config.sections.plans && <Plans config={config} />}
+      {config.sections.testimonials && <Testimonials config={config} />}
       <LocationContact config={config} />
+      {config.sections.sponsors && <Sponsors config={config} />}
     </>
   );
 }
@@ -571,6 +631,100 @@ function Gallery({ config }: { config: CoachConfig }) {
   );
 }
 
+function Blog({ config }: { config: CoachConfig }) {
+  const [openPost, setOpenPost] = useState<CoachConfig["blogPosts"][number] | null>(null);
+  if (!config.blogPosts.length) return null;
+  return (
+    <section
+      id="blog"
+      style={{
+        paddingTop: "var(--section-py)",
+        paddingBottom: "var(--section-py)",
+        borderBottom: "1px solid var(--border)",
+      }}
+    >
+      <SectionHeading centered={config.style === "traditional"}>Blog</SectionHeading>
+      <div className="grid gap-6 md:grid-cols-3">
+        {config.blogPosts.map((p) => (
+          <button
+            key={p.id}
+            onClick={() => setOpenPost(p)}
+            className="coach-card overflow-hidden text-left transition hover:opacity-90"
+          >
+            {p.coverImageUrl && (
+              <div className="aspect-video w-full overflow-hidden">
+                <img src={p.coverImageUrl} alt={p.title} className="h-full w-full object-cover" />
+              </div>
+            )}
+            <div className="p-5">
+              {p.publishedAt && (
+                <div className="coach-mono text-xs" style={{ color: "var(--text-secondary)" }}>
+                  {new Date(p.publishedAt).toLocaleDateString(undefined, {
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </div>
+              )}
+              <div className="coach-heading mt-1 text-base">{p.title}</div>
+              <p className="mt-2 line-clamp-3 text-sm" style={{ color: "var(--text-secondary)" }}>
+                {p.excerpt}
+              </p>
+              <span className="mt-3 inline-block text-xs font-semibold" style={{ color: "var(--brand)" }}>
+                Read more →
+              </span>
+            </div>
+          </button>
+        ))}
+      </div>
+      {openPost && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 sm:p-8"
+          onClick={() => setOpenPost(null)}
+        >
+          <div
+            className="max-h-full w-full max-w-2xl overflow-y-auto rounded-md p-6 sm:p-8"
+            style={{ background: "var(--bg-elevated)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              className="float-right"
+              onClick={() => setOpenPost(null)}
+              aria-label="Close"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              <X className="h-5 w-5" />
+            </button>
+            {openPost.coverImageUrl && (
+              <img
+                src={openPost.coverImageUrl}
+                alt={openPost.title}
+                className="mb-4 aspect-video w-full rounded-md object-cover"
+              />
+            )}
+            <h3 className="coach-heading text-2xl">{openPost.title}</h3>
+            {openPost.publishedAt && (
+              <div className="coach-mono mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                {new Date(openPost.publishedAt).toLocaleDateString(undefined, {
+                  year: "numeric",
+                  month: "short",
+                  day: "numeric",
+                })}
+              </div>
+            )}
+            <div
+              className="mt-4 whitespace-pre-line text-sm leading-relaxed"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              {openPost.content}
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function Plans({ config }: { config: CoachConfig }) {
   if (!config.plans.length) return null;
   return (
@@ -842,6 +996,49 @@ function InquiryForm({ config }: { config: CoachConfig }) {
         {status === "sending" ? "Sending…" : "Send inquiry"}
       </Button>
     </form>
+  );
+}
+
+function Sponsors({ config }: { config: CoachConfig }) {
+  if (!config.sponsors.length) return null;
+  return (
+    <section id="sponsors" className="border-t coach-divider py-10">
+      <div
+        className="text-center text-xs font-semibold uppercase tracking-wide"
+        style={{ color: "var(--text-secondary)" }}
+      >
+        Proudly supported by
+      </div>
+      <div className="mt-6 flex flex-wrap items-center justify-center gap-8">
+        {config.sponsors.map((s, i) => {
+          const content = s.logoUrl ? (
+            <img
+              src={s.logoUrl}
+              alt={s.name}
+              className="h-10 w-auto object-contain grayscale transition hover:grayscale-0"
+            />
+          ) : (
+            <span className="coach-heading text-sm">{s.name}</span>
+          );
+          return s.websiteUrl ? (
+            <a
+              key={s.name + i}
+              href={s.websiteUrl}
+              target="_blank"
+              rel="noreferrer"
+              title={s.name}
+              className="opacity-80 transition hover:opacity-100"
+            >
+              {content}
+            </a>
+          ) : (
+            <span key={s.name + i} title={s.name} className="opacity-80">
+              {content}
+            </span>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
