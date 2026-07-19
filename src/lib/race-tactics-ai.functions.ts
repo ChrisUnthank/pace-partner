@@ -154,14 +154,14 @@ export const generateRaceStrategySuggestion = createServerFn({ method: "POST" })
         .select("observation, source_type")
         .eq("athlete_id", athleteId)
         .order("created_at", { ascending: false })
-        .limit(15),
+        .limit(8),
       sb.from("athlete_zone_profiles").select("pace_threshold_sec_per_km, hr_threshold, vdot").eq("athlete_id", athleteId).maybeSingle(),
       sb
         .from("performances")
         .select("distance_m, time_seconds, performance_date, event_name")
         .eq("athlete_id", athleteId)
         .order("time_seconds", { ascending: true })
-        .limit(30),
+        .limit(12),
       sb.from("race_tactics_decision_points").select("distance_m, trigger_text, action_text").eq("plan_id", data.planId),
     ]);
 
@@ -285,7 +285,7 @@ async function generateSuggestion({
   try {
     const result = await withTimeout(
       generateObject({ model, system: RACE_STRATEGY_SYSTEM_PROMPT, schema: SuggestionSchema, prompt }),
-      45_000,
+      90_000,
       "Generating the suggestion",
     );
     return result.object;
