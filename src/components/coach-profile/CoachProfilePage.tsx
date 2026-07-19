@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Menu, Mail, Phone, AtSign as Instagram, MapPin, Timer, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { SECTION_ORDER_LABELS, type CoachConfig } from "./coach-config";
+import { SectionShell, SectionHeading, onColorFor, scrollToSection, computeRootVars } from "@/components/profile-shared/section-shell";
 import "./coach-profile-tokens.css";
 
 // Sections that exist in config.sectionOrder but never get a nav/anchor
@@ -50,21 +51,6 @@ function visibleSections(config: CoachConfig) {
   return [{ id: "home", label: "Home" }, ...items];
 }
 
-// Simple luminance check so `--on-brand` stays readable against any brand color.
-function onColorFor(hex: string): string {
-  const c = hex.replace("#", "");
-  if (c.length !== 6) return "#FFFFFF";
-  const r = parseInt(c.slice(0, 2), 16);
-  const g = parseInt(c.slice(2, 4), 16);
-  const b = parseInt(c.slice(4, 6), 16);
-  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  return luminance > 0.6 ? "#17181A" : "#FFFFFF";
-}
-
-function scrollToSection(id: string) {
-  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
 // Google Maps supports a basic embeddable iframe via a plain search query URL —
 // no API key or billing setup required, unlike the full Maps Embed API.
 function mapEmbedUrl(location: CoachConfig["location"]): string | null {
@@ -90,23 +76,11 @@ export interface CoachProfilePageProps {
 }
 
 export function CoachProfilePage({ config, showDevControls, onConfigChange, isOwnerPreview }: CoachProfilePageProps) {
+  // computeRootVars is shared with AthleteProfilePage.tsx (section-shell.tsx)
+  // — the fallback-to-primary and compact-density-override behavior lives
+  // there once now instead of being duplicated per page.
   const rootVars = useMemo(
-    () =>
-      ({
-        "--brand": config.brandColor,
-        "--on-brand": onColorFor(config.brandColor),
-        // Falls back to the primary brand color when no secondary is set,
-        // so every existing coach page (pre-dating this field) renders
-        // exactly as it did before — nothing suddenly looks two-tone
-        // unless a secondary color is actually chosen.
-        "--brand-secondary": config.secondaryColor || config.brandColor,
-        "--on-brand-secondary": onColorFor(config.secondaryColor || config.brandColor),
-        // Inline styles win over the stylesheet's per-style --section-py,
-        // so this overrides coach-profile-tokens.css's modern/traditional
-        // default only when "compact" is explicitly chosen — no CSS file
-        // changes needed.
-        ...(config.density === "compact" ? { "--section-py": "2.5rem" } : {}),
-      }) as React.CSSProperties,
+    () => computeRootVars(config),
     [config.brandColor, config.secondaryColor, config.density],
   );
 
@@ -349,58 +323,6 @@ function StripedSections({ config }: { config: CoachConfig }) {
   );
 }
 
-// Every content section renders through this: a full-width <section> (so
-// its background — normal or --bg-alt — spans edge to edge) with a
-// constrained inner wrapper (so the actual content still lines up under
-// the header/nav, same max-width as the header's own inner div).
-// "strip" is for the two thin, borderless-by-default strips (Stats,
-// Sponsors) that use border-top + fixed padding instead of the standard
-// section rhythm; "section" is everything else.
-function SectionShell({
-  id,
-  altBg,
-  variant = "section",
-  noBorderBottom,
-  children,
-}: {
-  id?: string;
-  altBg?: boolean;
-  variant?: "section" | "strip";
-  noBorderBottom?: boolean;
-  children: React.ReactNode;
-}) {
-  const inner = (
-    <div className="mx-auto max-w-6xl px-4 md:px-8 xl:max-w-7xl 2xl:max-w-[100rem]">{children}</div>
-  );
-  if (variant === "strip") {
-    return (
-      <section
-        id={id}
-        className="border-t coach-divider py-10"
-        style={altBg ? { background: "var(--bg-alt)" } : undefined}
-      >
-        {inner}
-      </section>
-    );
-  }
-  return (
-    <section
-      id={id}
-      style={{
-        paddingTop: "var(--section-py)",
-        paddingBottom: "var(--section-py)",
-        borderBottom: noBorderBottom ? undefined : "1px solid var(--border)",
-        ...(altBg ? { background: "var(--bg-alt)" } : {}),
-      }}
-    >
-      {inner}
-    </section>
-  );
-}
-
-function SectionHeading({ children, centered }: { children: React.ReactNode; centered?: boolean }) {
-  return <h2 className={`coach-heading mb-8 text-2xl md:text-3xl ${centered ? "text-center" : ""}`}>{children}</h2>;
-}
 
 function Hero({ config }: { config: CoachConfig }) {
   const modern = config.style === "modern";
