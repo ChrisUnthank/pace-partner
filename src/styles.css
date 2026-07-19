@@ -144,3 +144,15 @@
   width: 100%;
   height: 100%;
 }
+/* Strider brand-red calendar icon for native <input type="date"> pickers.
+   The browser draws this glyph itself — it isn't text or an SVG we can
+   target with `color`, so it can't be recolored directly. This repaints
+   it via a CSS filter chain calibrated to turn the browser's default
+   black icon into the exact --accent-red (#FF004C) used everywhere else
+   in the app, so it's finally visible against the dark input background. */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  filter: invert(35%) sepia(100%) saturate(958%) hue-rotate(309deg) brightness(80%) contrast(189%);
+  cursor: pointer;
+  opacity: 1;
+}
