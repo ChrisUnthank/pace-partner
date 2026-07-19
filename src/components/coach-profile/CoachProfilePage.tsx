@@ -4,49 +4,50 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Menu, Mail, Phone, AtSign as Instagram, MapPin, Timer, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import type { CoachConfig } from "./coach-config";
+import { SECTION_ORDER_LABELS, type CoachConfig } from "./coach-config";
 import "./coach-profile-tokens.css";
 
-// Nav/anchor entries. `key` maps to config.sections (null = always shown —
-// Home and Contact are core structural sections, not toggleable). A section
-// is only listed once it's both switched on AND actually has content, same
-// rule each section component already uses to decide whether to render
-// itself at all — this just keeps the nav in sync with that.
-const ALL_SECTIONS = [
-  { id: "home", label: "Home", key: null as const },
-  { id: "about", label: "About", key: "about" as const },
-  { id: "sessions", label: "Sample sessions", key: "sessions" as const },
-  { id: "athletes", label: "Athletes", key: "athletes" as const },
-  { id: "gallery", label: "Gallery", key: "gallery" as const },
-  { id: "blog", label: "Blog", key: "blog" as const },
-  { id: "plans", label: "Plans", key: "plans" as const },
-  { id: "testimonials", label: "Testimonials", key: "testimonials" as const },
-  { id: "contact", label: "Location & contact", key: null as const },
-];
+// Sections that exist in config.sectionOrder but never get a nav/anchor
+// link — Stats is a strip under the hero, not a destination someone
+// navigates to; Sponsors is a small credibility strip near the footer.
+// Everything else in sectionOrder gets a nav entry, in whatever order the
+// coach has chosen, provided it's switched on AND actually has content.
+const NAV_EXCLUDED = new Set(["stats", "sponsors"]);
+
+// "contact" has no config.sections.contact toggle — Location & contact is
+// always shown, same as Hero — but it's still part of config.sectionOrder
+// so its *position* can be changed. These two helpers are the single
+// place that knows that special case, so nothing else needs to.
+function isSectionOn(config: CoachConfig, key: string): boolean {
+  if (key === "contact") return true;
+  return !!(config.sections as Record<string, boolean>)[key];
+}
+
+// Shared "does this section actually have anything to show" checks — used
+// both to decide nav visibility and to compute which sections participate
+// in the alternating-background stripe, so the two can't drift apart.
+const SECTION_HAS_CONTENT: Record<string, (config: CoachConfig) => boolean> = {
+  stats: (c) => c.stats.length > 0,
+  about: (c) => !!(c.bio || c.coachingPhilosophy || c.achievements.length),
+  sessions: (c) => c.sampleSessions.length > 0,
+  athletes: (c) => c.athletes.length > 0,
+  gallery: (c) => c.galleryImages.length > 0,
+  blog: (c) => c.blogPosts.length > 0,
+  plans: (c) => c.plans.length > 0,
+  testimonials: (c) => c.testimonials.length > 0,
+  contact: () => true,
+  sponsors: (c) => c.sponsors.length > 0,
+};
+function sectionHasContent(config: CoachConfig, key: string): boolean {
+  return SECTION_HAS_CONTENT[key]?.(config) ?? true;
+}
 
 function visibleSections(config: CoachConfig) {
-  return ALL_SECTIONS.filter((s) => {
-    if (s.key === null) return true;
-    if (!config.sections[s.key]) return false;
-    switch (s.key) {
-      case "about":
-        return !!(config.bio || config.coachingPhilosophy || config.achievements.length);
-      case "sessions":
-        return config.sampleSessions.length > 0;
-      case "athletes":
-        return config.athletes.length > 0;
-      case "gallery":
-        return config.galleryImages.length > 0;
-      case "blog":
-        return config.blogPosts.length > 0;
-      case "plans":
-        return config.plans.length > 0;
-      case "testimonials":
-        return config.testimonials.length > 0;
-      default:
-        return true;
-    }
-  });
+  const items = config.sectionOrder
+    .filter((key) => !NAV_EXCLUDED.has(key))
+    .filter((key) => isSectionOn(config, key) && sectionHasContent(config, key))
+    .map((key) => ({ id: key, label: SECTION_ORDER_LABELS[key as keyof typeof SECTION_ORDER_LABELS] ?? key }));
+  return [{ id: "home", label: "Home" }, ...items];
 }
 
 // Simple luminance check so `--on-brand` stays readable against any brand color.
@@ -145,7 +146,11 @@ function UnpublishedPlaceholder({ config }: { config: CoachConfig }) {
 
 // ---------------------------------------------------------------------------
 // Nav shells — the only thing that forks per `nav` value. Section content
-// (<PageSections>) is identical either way.
+// (<PageSections>) is identical either way. Neither shell puts a max-width
+// on <main> anymore — every individual section now manages its own full-
+// bleed background + constrained inner content via <SectionShell>, so an
+// alternating background (or, later, a per-section custom background) can
+// span edge-to-edge instead of stopping at a shared content column.
 // ---------------------------------------------------------------------------
 
 function TopNavLayout({ config }: { config: CoachConfig }) {
@@ -175,7 +180,7 @@ function TopNavLayout({ config }: { config: CoachConfig }) {
           <MobileNavSheet config={config} />
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-4 md:px-8 xl:max-w-7xl 2xl:max-w-[100rem]">
+      <main>
         <PageSections config={config} />
       </main>
       <Footer config={config} />
@@ -217,7 +222,7 @@ function SidebarLayout({ config }: { config: CoachConfig }) {
         <InquiryCTA fullWidth />
       </aside>
 
-      <main className="mx-auto min-w-0 max-w-4xl flex-1 px-4 md:px-10 xl:max-w-5xl 2xl:max-w-6xl">
+      <main className="min-w-0 flex-1">
         <PageSections config={config} />
         <Footer config={config} />
       </main>
@@ -298,17 +303,98 @@ function PageSections({ config }: { config: CoachConfig }) {
   return (
     <>
       <Hero config={config} />
-      {config.sections.stats && <Stats config={config} />}
-      {config.sections.about && <About config={config} />}
-      {config.sections.sessions && <SampleSessions config={config} />}
-      {config.sections.athletes && <AthletesCoached config={config} />}
-      {config.sections.gallery && <Gallery config={config} />}
-      {config.sections.blog && <Blog config={config} />}
-      {config.sections.plans && <Plans config={config} />}
-      {config.sections.testimonials && <Testimonials config={config} />}
-      <LocationContact config={config} />
-      {config.sections.sponsors && <Sponsors config={config} />}
+      <StripedSections config={config} />
     </>
+  );
+}
+
+// Renders each visible content section from config.sectionOrder — the
+// coach's chosen order, reconciled against the canonical key list back in
+// coachRowToConfig() so this never has to guard against a missing/unknown
+// key itself. Alternates --bg-alt across only the sections that actually
+// render (a hidden or empty one doesn't consume a stripe slot), and tells
+// the last visible "full section" (not Stats/Sponsors, which are their
+// own thin strips) to skip its bottom border so it doesn't double up
+// against whatever follows.
+const SECTION_NODE_REGISTRY: Record<
+  string,
+  (config: CoachConfig, altBg: boolean, isLast: boolean) => React.ReactNode
+> = {
+  stats: (config, altBg) => <Stats config={config} altBg={altBg} />,
+  about: (config, altBg, isLast) => <About config={config} altBg={altBg} isLast={isLast} />,
+  sessions: (config, altBg, isLast) => <SampleSessions config={config} altBg={altBg} isLast={isLast} />,
+  athletes: (config, altBg, isLast) => <AthletesCoached config={config} altBg={altBg} isLast={isLast} />,
+  gallery: (config, altBg, isLast) => <Gallery config={config} altBg={altBg} isLast={isLast} />,
+  blog: (config, altBg, isLast) => <Blog config={config} altBg={altBg} isLast={isLast} />,
+  plans: (config, altBg, isLast) => <Plans config={config} altBg={altBg} isLast={isLast} />,
+  testimonials: (config, altBg, isLast) => <Testimonials config={config} altBg={altBg} isLast={isLast} />,
+  contact: (config, altBg, isLast) => <LocationContact config={config} altBg={altBg} isLast={isLast} />,
+  sponsors: (config, altBg) => <Sponsors config={config} altBg={altBg} />,
+};
+
+function StripedSections({ config }: { config: CoachConfig }) {
+  const visibleKeys = config.sectionOrder.filter(
+    (key) => isSectionOn(config, key) && sectionHasContent(config, key),
+  );
+  return (
+    <>
+      {visibleKeys.map((key, i) => {
+        const render = SECTION_NODE_REGISTRY[key];
+        if (!render) return null;
+        const altBg = config.alternateSectionBackgrounds && i % 2 === 1;
+        const isLast = i === visibleKeys.length - 1;
+        return <div key={key}>{render(config, altBg, isLast)}</div>;
+      })}
+    </>
+  );
+}
+
+// Every content section renders through this: a full-width <section> (so
+// its background — normal or --bg-alt — spans edge to edge) with a
+// constrained inner wrapper (so the actual content still lines up under
+// the header/nav, same max-width as the header's own inner div).
+// "strip" is for the two thin, borderless-by-default strips (Stats,
+// Sponsors) that use border-top + fixed padding instead of the standard
+// section rhythm; "section" is everything else.
+function SectionShell({
+  id,
+  altBg,
+  variant = "section",
+  noBorderBottom,
+  children,
+}: {
+  id?: string;
+  altBg?: boolean;
+  variant?: "section" | "strip";
+  noBorderBottom?: boolean;
+  children: React.ReactNode;
+}) {
+  const inner = (
+    <div className="mx-auto max-w-6xl px-4 md:px-8 xl:max-w-7xl 2xl:max-w-[100rem]">{children}</div>
+  );
+  if (variant === "strip") {
+    return (
+      <section
+        id={id}
+        className="border-t coach-divider py-10"
+        style={altBg ? { background: "var(--bg-alt)" } : undefined}
+      >
+        {inner}
+      </section>
+    );
+  }
+  return (
+    <section
+      id={id}
+      style={{
+        paddingTop: "var(--section-py)",
+        paddingBottom: "var(--section-py)",
+        borderBottom: noBorderBottom ? undefined : "1px solid var(--border)",
+        ...(altBg ? { background: "var(--bg-alt)" } : {}),
+      }}
+    >
+      {inner}
+    </section>
   );
 }
 
@@ -333,93 +419,97 @@ function Hero({ config }: { config: CoachConfig }) {
         borderBottom: "1px solid var(--border)",
       }}
     >
-      <div
-        className={
-          modern
-            ? `grid items-center gap-10 ${heroGridCols}`
-            : "mx-auto max-w-3xl lg:max-w-4xl xl:max-w-5xl"
-        }
-      >
-        {!modern && (
-          <div className="relative mb-10">
-            <img
-              src={config.heroImageUrl}
-              alt={config.name}
-              className="coach-hero-image h-48 w-full object-cover sm:h-64 md:h-80"
-            />
-            {config.coachPhotoUrl && (
+      <div className="mx-auto max-w-6xl px-4 md:px-8 xl:max-w-7xl 2xl:max-w-[100rem]">
+        <div
+          className={
+            modern
+              ? `grid items-center gap-10 ${heroGridCols}`
+              : "mx-auto max-w-3xl lg:max-w-4xl xl:max-w-5xl"
+          }
+        >
+          {!modern && (
+            <div className="relative mb-10">
               <img
-                src={config.coachPhotoUrl}
+                src={config.heroImageUrl}
                 alt={config.name}
-                className="absolute -bottom-6 left-1/2 h-16 w-16 -translate-x-1/2 border-4 object-cover sm:-bottom-8 sm:h-20 sm:w-20"
-                style={{ borderRadius: "999px", borderColor: "var(--bg)" }}
+                className="coach-hero-image h-48 w-full object-cover sm:h-64 md:h-80"
               />
-            )}
-          </div>
-        )}
-        <div className={modern ? (imageLeft ? "md:order-2" : "") : "mx-auto max-w-2xl px-4 pt-6 text-center sm:px-0"}>
-          {config.teamName && (
-            <div className="coach-heading mb-1 text-sm uppercase tracking-wide" style={{ color: "var(--brand)" }}>
-              {config.teamName}
+              {config.coachPhotoUrl && (
+                <img
+                  src={config.coachPhotoUrl}
+                  alt={config.name}
+                  className="absolute -bottom-6 left-1/2 h-16 w-16 -translate-x-1/2 border-4 object-cover sm:-bottom-8 sm:h-20 sm:w-20"
+                  style={{ borderRadius: "999px", borderColor: "var(--bg)" }}
+                />
+              )}
             </div>
           )}
-          <h1 className="coach-heading text-3xl sm:text-4xl md:text-5xl">{config.name}</h1>
-          <p className="mt-4 text-lg" style={{ color: "var(--text-secondary)" }}>
-            {config.tagline}
-          </p>
-          <div className={`mt-5 flex flex-wrap gap-2 ${modern ? "" : "justify-center"}`}>
-            {config.disciplines.map((d) => (
-              <span key={d} className="coach-tag px-3 py-1 text-xs font-medium">
-                {d}
-              </span>
-            ))}
-          </div>
-          <div className={`mt-8 flex flex-wrap gap-3 ${modern ? "" : "justify-center"}`}>
-            <InquiryCTA />
-            <Button
-              variant="outline"
-              onClick={() => scrollToSection("plans")}
-              className="!border-[var(--brand-secondary)] !bg-[var(--bg-elevated)] !text-[var(--brand-secondary)] hover:!bg-[var(--brand-secondary)] hover:!text-[var(--on-brand-secondary)]"
-              style={{
-                background: "var(--bg-elevated) !important" as any,
-                color: "var(--brand-secondary) !important" as any,
-                borderColor: "var(--brand-secondary) !important" as any,
-                borderRadius: "var(--radius-sm)",
-              }}
-            >
-              View plans
-            </Button>
-          </div>
-        </div>
-        {modern && (
-          <div className={`relative ${imageLeft ? "md:order-1" : ""}`}>
-            <img
-              src={config.heroImageUrl}
-              alt={config.name}
-              className="coach-hero-image h-72 w-full object-cover md:h-[26rem]"
-            />
-            {config.coachPhotoUrl && (
-              <img
-                src={config.coachPhotoUrl}
-                alt={config.name}
-                className="absolute -bottom-6 -left-6 h-20 w-20 border-4 object-cover"
-                style={{ borderRadius: "var(--radius)", borderColor: "var(--bg)" }}
-              />
+          <div
+            className={modern ? (imageLeft ? "md:order-2" : "") : "mx-auto max-w-2xl px-4 pt-6 text-center sm:px-0"}
+          >
+            {config.teamName && (
+              <div className="coach-heading mb-1 text-sm uppercase tracking-wide" style={{ color: "var(--brand)" }}>
+                {config.teamName}
+              </div>
             )}
+            <h1 className="coach-heading text-3xl sm:text-4xl md:text-5xl">{config.name}</h1>
+            <p className="mt-4 text-lg" style={{ color: "var(--text-secondary)" }}>
+              {config.tagline}
+            </p>
+            <div className={`mt-5 flex flex-wrap gap-2 ${modern ? "" : "justify-center"}`}>
+              {config.disciplines.map((d) => (
+                <span key={d} className="coach-tag px-3 py-1 text-xs font-medium">
+                  {d}
+                </span>
+              ))}
+            </div>
+            <div className={`mt-8 flex flex-wrap gap-3 ${modern ? "" : "justify-center"}`}>
+              <InquiryCTA />
+              <Button
+                variant="outline"
+                onClick={() => scrollToSection("plans")}
+                className="!border-[var(--brand-secondary)] !bg-[var(--bg-elevated)] !text-[var(--brand-secondary)] hover:!bg-[var(--brand-secondary)] hover:!text-[var(--on-brand-secondary)]"
+                style={{
+                  background: "var(--bg-elevated) !important" as any,
+                  color: "var(--brand-secondary) !important" as any,
+                  borderColor: "var(--brand-secondary) !important" as any,
+                  borderRadius: "var(--radius-sm)",
+                }}
+              >
+                View plans
+              </Button>
+            </div>
           </div>
-        )}
+          {modern && (
+            <div className={`relative ${imageLeft ? "md:order-1" : ""}`}>
+              <img
+                src={config.heroImageUrl}
+                alt={config.name}
+                className="coach-hero-image h-72 w-full object-cover md:h-[26rem]"
+              />
+              {config.coachPhotoUrl && (
+                <img
+                  src={config.coachPhotoUrl}
+                  alt={config.name}
+                  className={`absolute -bottom-6 h-20 w-20 border-4 object-cover ${imageLeft ? "-right-6" : "-left-6"}`}
+                  style={{ borderRadius: "var(--radius)", borderColor: "var(--bg)" }}
+                />
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </section>
   );
 }
 
-function Stats({ config }: { config: CoachConfig }) {
+function Stats({ config, altBg }: { config: CoachConfig; altBg?: boolean }) {
   if (!config.stats.length) return null;
   return (
-    <section className="border-t coach-divider py-10">
-      <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
+    <SectionShell variant="strip" altBg={altBg}>
+      <div className="flex flex-wrap justify-center gap-x-10 gap-y-6">
         {config.stats.map((s, i) => (
-          <div key={s.label + i} className="text-center">
+          <div key={s.label + i} className="min-w-20 max-w-32 text-center">
             <div
               className="coach-mono coach-heading text-3xl"
               style={{ color: i % 2 === 0 ? "var(--brand)" : "var(--brand-secondary)" }}
@@ -432,11 +522,11 @@ function Stats({ config }: { config: CoachConfig }) {
           </div>
         ))}
       </div>
-    </section>
+    </SectionShell>
   );
 }
 
-function About({ config }: { config: CoachConfig }) {
+function About({ config, altBg, isLast }: { config: CoachConfig; altBg?: boolean; isLast?: boolean }) {
   if (!config.bio && !config.coachingPhilosophy && !config.achievements.length) return null;
   const traditional = config.style === "traditional";
 
@@ -493,14 +583,7 @@ function About({ config }: { config: CoachConfig }) {
 
   if (traditional) {
     return (
-      <section
-        id="about"
-        style={{
-          paddingTop: "var(--section-py)",
-          paddingBottom: "var(--section-py)",
-          borderBottom: "1px solid var(--border)",
-        }}
-      >
+      <SectionShell id="about" altBg={altBg} noBorderBottom={isLast}>
         <div className="mx-auto max-w-3xl lg:max-w-4xl xl:max-w-5xl text-center">
           <SectionHeading>About</SectionHeading>
           {bioBlock}
@@ -508,19 +591,12 @@ function About({ config }: { config: CoachConfig }) {
           {achievementsBlock && <div className="mt-6">{achievementsBlock}</div>}
           {certsBlock}
         </div>
-      </section>
+      </SectionShell>
     );
   }
 
   return (
-    <section
-      id="about"
-      style={{
-        paddingTop: "var(--section-py)",
-        paddingBottom: "var(--section-py)",
-        borderBottom: "1px solid var(--border)",
-      }}
-    >
+    <SectionShell id="about" altBg={altBg} noBorderBottom={isLast}>
       <SectionHeading>About</SectionHeading>
       <div className="grid gap-10 md:grid-cols-2">
         <div>
@@ -534,21 +610,14 @@ function About({ config }: { config: CoachConfig }) {
           </div>
         )}
       </div>
-    </section>
+    </SectionShell>
   );
 }
 
-function SampleSessions({ config }: { config: CoachConfig }) {
+function SampleSessions({ config, altBg, isLast }: { config: CoachConfig; altBg?: boolean; isLast?: boolean }) {
   if (!config.sampleSessions.length) return null;
   return (
-    <section
-      id="sessions"
-      style={{
-        paddingTop: "var(--section-py)",
-        paddingBottom: "var(--section-py)",
-        borderBottom: "1px solid var(--border)",
-      }}
-    >
+    <SectionShell id="sessions" altBg={altBg} noBorderBottom={isLast}>
       <SectionHeading centered={config.style === "traditional"}>Sample sessions</SectionHeading>
       <div className="grid gap-4 md:grid-cols-3">
         {config.sampleSessions.map((s) => (
@@ -566,21 +635,14 @@ function SampleSessions({ config }: { config: CoachConfig }) {
           </div>
         ))}
       </div>
-    </section>
+    </SectionShell>
   );
 }
 
-function AthletesCoached({ config }: { config: CoachConfig }) {
+function AthletesCoached({ config, altBg, isLast }: { config: CoachConfig; altBg?: boolean; isLast?: boolean }) {
   if (!config.athletes.length) return null;
   return (
-    <section
-      id="athletes"
-      style={{
-        paddingTop: "var(--section-py)",
-        paddingBottom: "var(--section-py)",
-        borderBottom: "1px solid var(--border)",
-      }}
-    >
+    <SectionShell id="athletes" altBg={altBg} noBorderBottom={isLast}>
       <SectionHeading centered={config.style === "traditional"}>Athletes coached</SectionHeading>
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
         {config.athletes.map((a, i) => (
@@ -609,22 +671,15 @@ function AthletesCoached({ config }: { config: CoachConfig }) {
           </div>
         ))}
       </div>
-    </section>
+    </SectionShell>
   );
 }
 
-function Gallery({ config }: { config: CoachConfig }) {
+function Gallery({ config, altBg, isLast }: { config: CoachConfig; altBg?: boolean; isLast?: boolean }) {
   const [open, setOpen] = useState<string | null>(null);
   if (!config.galleryImages.length) return null;
   return (
-    <section
-      id="gallery"
-      style={{
-        paddingTop: "var(--section-py)",
-        paddingBottom: "var(--section-py)",
-        borderBottom: "1px solid var(--border)",
-      }}
-    >
+    <SectionShell id="gallery" altBg={altBg} noBorderBottom={isLast}>
       <SectionHeading centered={config.style === "traditional"}>Gallery</SectionHeading>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
         {config.galleryImages.map((src, i) => (
@@ -649,22 +704,15 @@ function Gallery({ config }: { config: CoachConfig }) {
           <img src={open} alt="" className="max-h-full max-w-full object-contain" />
         </div>
       )}
-    </section>
+    </SectionShell>
   );
 }
 
-function Blog({ config }: { config: CoachConfig }) {
+function Blog({ config, altBg, isLast }: { config: CoachConfig; altBg?: boolean; isLast?: boolean }) {
   const [openPost, setOpenPost] = useState<CoachConfig["blogPosts"][number] | null>(null);
   if (!config.blogPosts.length) return null;
   return (
-    <section
-      id="blog"
-      style={{
-        paddingTop: "var(--section-py)",
-        paddingBottom: "var(--section-py)",
-        borderBottom: "1px solid var(--border)",
-      }}
-    >
+    <SectionShell id="blog" altBg={altBg} noBorderBottom={isLast}>
       <SectionHeading centered={config.style === "traditional"}>Blog</SectionHeading>
       <div className="grid gap-6 md:grid-cols-3">
         {config.blogPosts.map((p) => (
@@ -743,21 +791,14 @@ function Blog({ config }: { config: CoachConfig }) {
           </div>
         </div>
       )}
-    </section>
+    </SectionShell>
   );
 }
 
-function Plans({ config }: { config: CoachConfig }) {
+function Plans({ config, altBg, isLast }: { config: CoachConfig; altBg?: boolean; isLast?: boolean }) {
   if (!config.plans.length) return null;
   return (
-    <section
-      id="plans"
-      style={{
-        paddingTop: "var(--section-py)",
-        paddingBottom: "var(--section-py)",
-        borderBottom: "1px solid var(--border)",
-      }}
-    >
+    <SectionShell id="plans" altBg={altBg} noBorderBottom={isLast}>
       <SectionHeading centered={config.style === "traditional"}>Coaching plans</SectionHeading>
       <div className="grid gap-4 md:grid-cols-3">
         {config.plans.map((p) => (
@@ -799,21 +840,14 @@ function Plans({ config }: { config: CoachConfig }) {
           </div>
         ))}
       </div>
-    </section>
+    </SectionShell>
   );
 }
 
-function Testimonials({ config }: { config: CoachConfig }) {
+function Testimonials({ config, altBg, isLast }: { config: CoachConfig; altBg?: boolean; isLast?: boolean }) {
   if (!config.testimonials.length) return null;
   return (
-    <section
-      id="testimonials"
-      style={{
-        paddingTop: "var(--section-py)",
-        paddingBottom: "var(--section-py)",
-        borderBottom: "1px solid var(--border)",
-      }}
-    >
+    <SectionShell id="testimonials" altBg={altBg} noBorderBottom={isLast}>
       <SectionHeading centered={config.style === "traditional"}>Testimonials</SectionHeading>
       <div className="grid gap-4 md:grid-cols-2">
         {config.testimonials.map((t) => (
@@ -828,14 +862,14 @@ function Testimonials({ config }: { config: CoachConfig }) {
           </div>
         ))}
       </div>
-    </section>
+    </SectionShell>
   );
 }
 
-function LocationContact({ config }: { config: CoachConfig }) {
+function LocationContact({ config, altBg, isLast }: { config: CoachConfig; altBg?: boolean; isLast?: boolean }) {
   const mapSrc = mapEmbedUrl(config.location);
   return (
-    <section id="contact" style={{ paddingTop: "var(--section-py)", paddingBottom: "var(--section-py)" }}>
+    <SectionShell id="contact" altBg={altBg} noBorderBottom={isLast}>
       <SectionHeading centered={config.style === "traditional"}>Location & contact</SectionHeading>
       <div className="grid gap-8 md:grid-cols-2">
         <div>
@@ -897,7 +931,7 @@ function LocationContact({ config }: { config: CoachConfig }) {
           <InquiryForm config={config} />
         </div>
       </div>
-    </section>
+    </SectionShell>
   );
 }
 
@@ -1021,10 +1055,10 @@ function InquiryForm({ config }: { config: CoachConfig }) {
   );
 }
 
-function Sponsors({ config }: { config: CoachConfig }) {
+function Sponsors({ config, altBg }: { config: CoachConfig; altBg?: boolean }) {
   if (!config.sponsors.length) return null;
   return (
-    <section id="sponsors" className="border-t coach-divider py-10">
+    <SectionShell id="sponsors" variant="strip" altBg={altBg}>
       <div
         className="text-center text-xs font-semibold uppercase tracking-wide"
         style={{ color: "var(--text-secondary)" }}
@@ -1060,7 +1094,7 @@ function Sponsors({ config }: { config: CoachConfig }) {
           );
         })}
       </div>
-    </section>
+    </SectionShell>
   );
 }
 
@@ -1071,7 +1105,12 @@ function Footer({ config }: { config: CoachConfig }) {
         <Logo config={config} />
       </div>
       <div className="mt-3">{config.name}</div>
-      <div className="mt-1">Powered by TrackCoach</div>
+      <div className="mt-1">
+        Powered by{" "}
+        <a href="/" className="underline hover:opacity-70">
+          Strider
+        </a>
+      </div>
       <div className="mt-1">app.co/c/{config.slug}</div>
     </footer>
   );
