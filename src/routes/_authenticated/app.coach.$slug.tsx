@@ -10,30 +10,14 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ExternalLink, GripVertical, Plus, Trash2 } from "lucide-react";
+import { ExternalLink, Plus, Trash2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { SingleImageUpload, MultiImageUpload } from "@/components/coach-profile/image-upload";
 import { useAuthUser } from "@/lib/use-auth";
-import { cn } from "@/lib/utils";
 import { DEFAULT_SECTION_ORDER, SECTION_ORDER_LABELS, normalizeSectionOrder } from "@/components/coach-profile/coach-config";
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  SortableContext,
-  arrayMove,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { Dot, SectionOrderList } from "@/components/profile-shared/section-order-list";
+import { HeroImagePositionPicker } from "@/components/profile-shared/hero-image-position-picker";
 
 export const Route = createFileRoute("/_authenticated/app/coach/$slug")({
   component: CoachEditorPage,
@@ -312,6 +296,8 @@ function CoachEditorPage() {
         alternate_section_backgrounds: !!c.alternate_section_backgrounds,
         section_order: normalizeSectionOrder(c.section_order),
         hero_image_url: c.hero_image_url || "",
+        hero_image_position_x: typeof c.hero_image_position_x === "number" ? c.hero_image_position_x : 50,
+        hero_image_position_y: typeof c.hero_image_position_y === "number" ? c.hero_image_position_y : 50,
         coach_photo_url: c.coach_photo_url || "",
         logo_initials: c.logo_initials || "",
         logo_url: c.logo_url || "",
@@ -382,6 +368,8 @@ function CoachEditorPage() {
         alternate_section_backgrounds: !!form.alternate_section_backgrounds,
         section_order: form.section_order || [...DEFAULT_SECTION_ORDER],
         hero_image_url: form.hero_image_url,
+        hero_image_position_x: form.hero_image_position_x ?? 50,
+        hero_image_position_y: form.hero_image_position_y ?? 50,
         coach_photo_url: form.coach_photo_url || null,
         logo_initials: form.logo_initials,
         logo_url: form.logo_url || null,
@@ -712,6 +700,16 @@ function CoachEditorPage() {
                     />
                   </Field>
                 )}
+                {user && form.hero_image_url && (
+                  <Field label="Hero image position" hint="Controls what stays visible when the image gets cropped at different screen sizes.">
+                    <HeroImagePositionPicker
+                      imageUrl={form.hero_image_url}
+                      x={form.hero_image_position_x ?? 50}
+                      y={form.hero_image_position_y ?? 50}
+                      onChange={(x, y) => setForm({ ...form, hero_image_position_x: x, hero_image_position_y: y })}
+                    />
+                  </Field>
+                )}
               </CardContent>
             </Card>
 
@@ -782,6 +780,7 @@ function CoachEditorPage() {
               <CardContent>
                 <SectionOrderList
                   order={form.section_order || [...DEFAULT_SECTION_ORDER]}
+                  labels={SECTION_ORDER_LABELS}
                   isOn={(key) => (key === "contact" ? true : sectionOn(key))}
                   onReorder={reorderSections}
                 />
@@ -1247,103 +1246,6 @@ function CoachEditorPage() {
         </Tabs>
       </div>
     </AppShell>
-  );
-}
-
-function Dot({ done }: { done: boolean }) {
-  return (
-    <span
-      className={cn("h-1.5 w-1.5 shrink-0 rounded-full", done ? "bg-emerald-500" : "bg-muted-foreground/40")}
-      aria-hidden
-    />
-  );
-}
-
-// Generic drag-to-reorder list for page sections — takes a plain array of
-// keys plus an isOn/onReorder pair, no coach-specific logic inside it.
-// Written this way on purpose: the plan is to reuse this same component
-// (and the sectionOrder/normalizeSectionOrder pattern it pairs with) for
-// the athlete page editor later, so it shouldn't know anything about
-// "coach" or "athlete" — just "a list of section keys with labels".
-function SectionOrderList({
-  order,
-  isOn,
-  onReorder,
-}: {
-  order: string[];
-  isOn: (key: string) => boolean;
-  onReorder: (next: string[]) => void;
-}) {
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
-
-  function handleDragEnd(ev: DragEndEvent) {
-    const { active, over } = ev;
-    if (!over || active.id === over.id) return;
-    const from = order.indexOf(String(active.id));
-    const to = order.indexOf(String(over.id));
-    if (from === -1 || to === -1) return;
-    onReorder(arrayMove(order, from, to));
-  }
-
-  return (
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-      <SortableContext items={order} strategy={verticalListSortingStrategy}>
-        <div className="space-y-1.5">
-          {order.map((key, i) => (
-            <SortableSectionRow
-              key={key}
-              id={key}
-              position={i + 1}
-              label={SECTION_ORDER_LABELS[key as keyof typeof SECTION_ORDER_LABELS] ?? key}
-              on={isOn(key)}
-            />
-          ))}
-        </div>
-      </SortableContext>
-    </DndContext>
-  );
-}
-
-function SortableSectionRow({
-  id,
-  position,
-  label,
-  on,
-}: {
-  id: string;
-  position: number;
-  label: string;
-  on: boolean;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  };
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className="flex items-center gap-3 rounded-md border bg-background px-3 py-2 text-sm"
-    >
-      <button
-        type="button"
-        className="cursor-grab text-muted-foreground hover:text-foreground active:cursor-grabbing"
-        {...attributes}
-        {...listeners}
-        aria-label="Drag to reorder"
-      >
-        <GripVertical className="h-4 w-4" />
-      </button>
-      <span className="w-5 text-xs text-muted-foreground">{position}.</span>
-      <Dot done={on} />
-      <span className="flex-1">{label}</span>
-      {!on && <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Hidden</span>}
-    </div>
   );
 }
 
