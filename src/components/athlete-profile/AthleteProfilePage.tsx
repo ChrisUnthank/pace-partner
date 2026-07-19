@@ -344,6 +344,7 @@ function Hero({ config }: { config: AthleteConfig }) {
                 src={config.heroImageUrl}
                 alt={config.name}
                 className="coach-hero-image h-56 w-full object-cover sm:h-72 md:h-96"
+                style={{ objectPosition: `${config.heroImagePosition.x}% ${config.heroImagePosition.y}%` }}
               />
               {config.photoUrl && (
                 <img
@@ -404,6 +405,7 @@ function Hero({ config }: { config: AthleteConfig }) {
                 src={config.heroImageUrl}
                 alt={config.name}
                 className="coach-hero-image h-72 w-full object-cover md:h-[26rem]"
+                style={{ objectPosition: `${config.heroImagePosition.x}% ${config.heroImagePosition.y}%` }}
               />
               {config.photoUrl && (
                 <img
