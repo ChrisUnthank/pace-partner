@@ -28,6 +28,9 @@ import { EventTacticsCard } from "@/components/event-tactics-card";
 import { TacticalDecisionPointsCard } from "@/components/tactical-decision-points-card";
 import { AthleteContextCard } from "@/components/athlete-context-card";
 import { AiStrategySuggestionCard } from "@/components/ai-strategy-suggestion-card";
+import { CollaborationCard } from "@/components/collaboration-card";
+import { PrivateNotesCard } from "@/components/race-plan-private-notes-card";
+import { PostRaceAnalysisCard } from "@/components/post-race-analysis-card";
 import { clockToSec, secToClock, paceFmt } from "@/lib/format";
 import {
   type SplitRow,
@@ -257,6 +260,11 @@ function RaceTacticsDetail() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <Button asChild size="sm" variant="outline">
+              <Link to="/app/race-tactics/$planId/race-day" params={{ planId }}>
+                Race Day
+              </Link>
+            </Button>
             {canEdit ? (
               <Select value={plan.status} onValueChange={updateStatus}>
                 <SelectTrigger className="h-8 w-[150px] text-xs">
@@ -420,6 +428,18 @@ function RaceTacticsDetail() {
         />
 
         <TacticalDecisionPointsCard planId={planId} raceDistanceM={plan.race_distance_m} canEdit={!!canEdit} />
+
+        <PostRaceAnalysisCard planId={planId} athleteId={plan.athlete_id} plan={plan} plannedSplits={splits} />
+
+        <CollaborationCard
+          planId={planId}
+          athleteId={plan.athlete_id}
+          publishedAt={plan.published_at}
+          athleteIntentions={plan.athlete_intentions}
+          canEdit={!!canEdit}
+        />
+
+        <PrivateNotesCard planId={planId} />
       </div>
     </AppShell>
   );
