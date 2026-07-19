@@ -463,15 +463,31 @@ function AthleteAnalytics({
     },
   });
 
+  // Independent of the page-level range picker above, same reasoning as
+  // stepVolumeSessions just below — always fetches from the start of the
+  // current year so every "Training trends grouped by" option
+  // (week/month/year) always has enough data to work with, regardless of
+  // what the outer range picker happens to be set to (e.g. its default
+  // "4 weeks", which would silently starve a "month" or "year" grouping
+  // of data if this query were still bound to it). Previously this used
+  // the outer `since` AND was never filtered by granularity at all —
+  // Sessions by Type and Time by Training Intent always just showed the
+  // outer range's full total regardless of which week/month/year button
+  // was selected.
+  const intentPeriodStart = useMemo(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10);
+  }, []);
+
   const { data: intentRollup } = useQuery({
-    queryKey: ["analytics-intent-time", athleteId, since],
+    queryKey: ["analytics-intent-time", athleteId, intentPeriodStart],
     queryFn: async () => {
       const { data } = await supabase
         .from("sessions")
-        .select("intent, total_time_seconds, day_type, activity_type")
+        .select("intent, total_time_seconds, day_type, activity_type, session_date")
         .eq("athlete_id", athleteId)
         .not("completed_at", "is", null)
-        .gte("session_date", since);
+        .gte("session_date", intentPeriodStart);
       return data ?? [];
     },
   });
@@ -598,8 +614,10 @@ function AthleteAnalytics({
   }, [zoneTime]);
 
   const intentData = useMemo(() => {
+    const periodStartISO = periodStartForGranularity(granularity);
     const buckets = new Map<string, number>();
     for (const r of (intentRollup as any[]) ?? []) {
+      if (!r.session_date || r.session_date < periodStartISO) continue;
       // Non-training days (race, recovery, cross_training, rest) have no
       // `intent` value at all — they were being silently dropped entirely,
       // which is why Race never showed up here despite race sessions
@@ -643,7 +661,7 @@ function AthleteAnalytics({
         intent: LABELS[key] ?? key,
         minutes: Math.round((buckets.get(key) ?? 0) / 60),
       }));
-  }, [intentRollup]);
+  }, [intentRollup, granularity]);
 
   const intentTotalMinutes = useMemo(() => intentData.reduce((a, d) => a + d.minutes, 0), [intentData]);
 
@@ -652,10 +670,15 @@ function AthleteAnalytics({
   // This one steps back to the top-level day_type only: how many sessions
   // (and how many hours) were Training vs Race vs Recovery vs
   // Cross-training vs Rest, in one glance. Reuses the same intentRollup
-  // query rather than firing a second query for the same date range.
+  // query rather than firing a second query for the same date range —
+  // and, like intentData above, filters by the selected granularity
+  // rather than showing the query's full fetched range regardless of
+  // which week/month/year button is selected.
   const dayTypeData = useMemo(() => {
+    const periodStartISO = periodStartForGranularity(granularity);
     const buckets = new Map<string, { count: number; minutes: number }>();
     for (const r of (intentRollup as any[]) ?? []) {
+      if (!r.session_date || r.session_date < periodStartISO) continue;
       const key = r.day_type ?? "training";
       const cur = buckets.get(key) ?? { count: 0, minutes: 0 };
       cur.count += 1;
@@ -671,7 +694,7 @@ function AthleteAnalytics({
         hours: Math.round((b.minutes / 60) * 10) / 10,
       };
     });
-  }, [intentRollup]);
+  }, [intentRollup, granularity]);
 
   const dayTypeTotalSessions = useMemo(() => dayTypeData.reduce((a, d) => a + d.sessions, 0), [dayTypeData]);
 
@@ -1045,11 +1068,14 @@ function AthleteAnalytics({
         <Card>
           <CardHeader>
             <CardTitle>Time by Training Intent</CardTitle>
-            <CardDescription>Session-level total time grouped by intent — race days included, colors match the calendar.</CardDescription>
+            <CardDescription>
+              Session-level total time grouped by intent, {volumePeriodLabel(granularity)} — race days included,
+              colors match the calendar.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {intentData.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No completed training sessions in this range.</p>
+              <p className="text-sm text-muted-foreground">No completed training sessions {volumePeriodLabel(granularity)}.</p>
             ) : (
               <div className="h-[220px] w-full">
                 <ResponsiveContainer>
@@ -1095,11 +1121,14 @@ function AthleteAnalytics({
         <Card>
           <CardHeader>
             <CardTitle>Sessions by Type</CardTitle>
-            <CardDescription>How many sessions — and how many hours — were Training vs Race vs Recovery vs Cross-training vs Rest.</CardDescription>
+            <CardDescription>
+              How many sessions — and how many hours — were Training vs Race vs Recovery vs Cross-training vs Rest,{" "}
+              {volumePeriodLabel(granularity)}.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {dayTypeData.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No completed sessions in this range.</p>
+              <p className="text-sm text-muted-foreground">No completed sessions {volumePeriodLabel(granularity)}.</p>
             ) : (
               <div className="h-[220px] w-full">
                 <ResponsiveContainer>
