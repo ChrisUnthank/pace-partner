@@ -3,16 +3,19 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/app-shell";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ExternalLink, Plus, Trash2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { SingleImageUpload, MultiImageUpload } from "@/components/coach-profile/image-upload";
 import { useAuthUser } from "@/lib/use-auth";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/app/coach/$slug")({
   component: CoachEditorPage,
@@ -66,18 +69,24 @@ function useCoachBlogPosts(coachUserId: string | undefined) {
   });
 }
 
-const SECTION_TOGGLES: { key: string; label: string }[] = [
-  { key: "stats", label: "Stats" },
-  { key: "about", label: "About" },
-  { key: "sessions", label: "Sample sessions" },
-  { key: "athletes", label: "Athletes coached" },
-  { key: "gallery", label: "Gallery" },
-  { key: "blog", label: "Blog" },
-  { key: "plans", label: "Coaching plans" },
-  { key: "testimonials", label: "Testimonials" },
-  { key: "sponsors", label: "Sponsors" },
-];
-const DEFAULT_SECTIONS: Record<string, boolean> = Object.fromEntries(SECTION_TOGGLES.map((s) => [s.key, true]));
+// key -> label used both for the inline per-card toggle and as a fallback
+// when merging with whatever's already saved. Stats has no key here since
+// it has no editor card yet (flagged in the trailing note further down) —
+// its toggle lives inline next to that note instead.
+const SECTION_LABELS: Record<string, string> = {
+  about: "About",
+  sessions: "Sample sessions",
+  athletes: "Athletes coached",
+  gallery: "Gallery",
+  blog: "Blog",
+  plans: "Coaching plans",
+  testimonials: "Testimonials",
+  sponsors: "Sponsors",
+};
+const DEFAULT_SECTIONS: Record<string, boolean> = {
+  stats: true,
+  ...Object.fromEntries(Object.keys(SECTION_LABELS).map((k) => [k, true])),
+};
 
 // Comma-separated helpers for simple array fields
 function toCsv(v: unknown) {
@@ -106,6 +115,13 @@ function CoachEditorPage() {
   useEffect(() => {
     setBlogPosts(blogRows ?? []);
   }, [blogRows]);
+
+  function sectionOn(key: string): boolean {
+    return form.sections ? !!form.sections[key] : true;
+  }
+  function setSectionOn(key: string, v: boolean) {
+    setForm({ ...form, sections: { ...(form.sections || DEFAULT_SECTIONS), [key]: v } });
+  }
 
   async function toggleAthleteVisibility(coachAthleteId: string, next: boolean) {
     setTogglingId(coachAthleteId);
@@ -352,6 +368,21 @@ function CoachEditorPage() {
     if (error) alert(error.message);
   }
 
+  // Lightweight "have I filled this in" signal per tab — not a strict
+  // validator, just enough to give a coach a sense of what's left before
+  // publishing, shown as a dot next to each tab label.
+  const profileDone = !!(form.name && form.tagline && form.bio);
+  const contentDone = !!(
+    (form.sample_sessions || []).some((s: any) => s.name) ||
+    (form.plans || []).some((p: any) => p.name) ||
+    (form.testimonials || []).some((t: any) => t.quote) ||
+    blogPosts.some((p: any) => p.title) ||
+    (form.sponsors || []).some((s: any) => s.name) ||
+    (form.gallery_images || "").trim()
+  );
+  const athletesDone = (roster || []).some((r: any) => r.visible_on_coach_page);
+  const contactDone = !!(form.location_city && form.contact_email);
+
   return (
     <AppShell>
       <div className="mx-auto max-w-3xl space-y-6 pb-16">
@@ -359,7 +390,7 @@ function CoachEditorPage() {
           <h1 className="text-2xl font-bold">Coach Page</h1>
           <div className="flex items-center gap-3">
             <label className="flex items-center gap-2 text-sm">
-              <Checkbox
+              <Switch
                 checked={!!form.is_published}
                 onCheckedChange={(v) => setForm({ ...form, is_published: !!v })}
               />
@@ -375,580 +406,703 @@ function CoachEditorPage() {
             </Button>
           </div>
         </div>
-        <p className="-mt-4 text-xs text-muted-foreground">
+        <p className="-mt-4 text-sm text-muted-foreground">
+          Build the public page athletes and prospects see at{" "}
+          <span className="font-mono text-xs">app.co/c/{coach.slug}</span>. Work through the tabs below, use each
+          section's "Show on page" switch to decide what appears, then check Published and save when you're ready to
+          go live.
+        </p>
+        <p className="text-xs text-muted-foreground">
           {form.is_published
             ? "Your page is live at the link above."
-            : "Your page is unpublished — visitors see a placeholder instead of your content. Check \"Published\" and save to go live."}
+            : "Your page is unpublished — visitors see a placeholder instead of your content."}
         </p>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Sections shown on your page</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="mb-3 text-xs text-muted-foreground">
-              Home and Location & contact are always shown. Turn any of these off to hide them, even if you've filled
-              them in.
+        <Tabs defaultValue="profile" className="w-full">
+          <TabsList className="flex h-auto flex-wrap gap-1">
+            <TabsTrigger value="profile" className="gap-2">
+              <Dot done={profileDone} />
+              Profile
+            </TabsTrigger>
+            <TabsTrigger value="content" className="gap-2">
+              <Dot done={contentDone} />
+              Content
+            </TabsTrigger>
+            <TabsTrigger value="athletes" className="gap-2">
+              <Dot done={athletesDone} />
+              Athletes
+            </TabsTrigger>
+            <TabsTrigger value="contact" className="gap-2">
+              <Dot done={contactDone} />
+              Location &amp; contact
+            </TabsTrigger>
+          </TabsList>
+
+          {/* ---------------- Profile: identity + look and feel ---------------- */}
+          <TabsContent value="profile" className="mt-4 space-y-6">
+            <p className="text-sm text-muted-foreground">
+              Start here — this is your page's identity: who you are, what you coach, and how it looks. Everything on
+              this tab feeds the Hero and About sections at the top of your page.
             </p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {SECTION_TOGGLES.map(({ key, label }) => (
-                <label key={key} className="flex items-center gap-2 text-sm">
-                  <Checkbox
-                    checked={form.sections ? !!form.sections[key] : true}
-                    onCheckedChange={(v) =>
-                      setForm({ ...form, sections: { ...(form.sections || DEFAULT_SECTIONS), [key]: !!v } })
-                    }
-                  />
-                  {label}
-                </label>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Basics</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Field label="Name">
-              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-            </Field>
-            <Field label="Team / squad name (optional)">
-              <Input
-                value={form.team_name}
-                onChange={(e) => setForm({ ...form, team_name: e.target.value })}
-                placeholder="redLINE Running"
-              />
-            </Field>
-            <Field label="Tagline">
-              <Input value={form.tagline} onChange={(e) => setForm({ ...form, tagline: e.target.value })} />
-            </Field>
-            <Field label="Bio">
-              <Textarea rows={5} value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} />
-            </Field>
-            <Field label="Coaching philosophy (optional, shown as its own block)">
-              <Textarea
-                rows={4}
-                value={form.coaching_philosophy}
-                onChange={(e) => setForm({ ...form, coaching_philosophy: e.target.value })}
-                placeholder="How you approach training..."
-              />
-            </Field>
-            <Field label="Achievements (one per line)">
-              <Textarea
-                rows={3}
-                value={form.achievements}
-                onChange={(e) => setForm({ ...form, achievements: e.target.value })}
-                placeholder={"2x Olympian, 3000m Steeplechase\n14 Boston Marathon qualifiers coached"}
-              />
-            </Field>
-            <Field label="Disciplines (comma separated)">
-              <Input
-                value={form.disciplines}
-                onChange={(e) => setForm({ ...form, disciplines: e.target.value })}
-                placeholder="Track & Interval, Marathon, 5K/10K"
-              />
-            </Field>
-            <Field label="Certifications (comma separated)">
-              <Input
-                value={form.certifications}
-                onChange={(e) => setForm({ ...form, certifications: e.target.value })}
-                placeholder="USATF Level 2, USOPC SafeSport"
-              />
-            </Field>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Appearance</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-3">
-            <Field label="Theme">
-              <Select value={form.theme} onValueChange={(v) => setForm({ ...form, theme: v })}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="light">Light</SelectItem>
-                  <SelectItem value="dark">Dark</SelectItem>
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label="Style">
-              <Select value={form.style} onValueChange={(v) => setForm({ ...form, style: v })}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="modern">Modern</SelectItem>
-                  <SelectItem value="traditional">Traditional</SelectItem>
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label="Nav">
-              <Select value={form.nav} onValueChange={(v) => setForm({ ...form, nav: v })}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="top">Top bar</SelectItem>
-                  <SelectItem value="sidebar">Sidebar</SelectItem>
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label="Brand color">
-              <Input
-                type="color"
-                value={form.brand_color}
-                onChange={(e) => setForm({ ...form, brand_color: e.target.value })}
-                className="h-10 w-20 p-1"
-              />
-            </Field>
-            <Field label="Logo initials (used if no team logo is uploaded)">
-              <Input
-                value={form.logo_initials}
-                onChange={(e) => setForm({ ...form, logo_initials: e.target.value })}
-                maxLength={3}
-              />
-            </Field>
-            {user && (
-              <Field label="Team / squad logo (optional)">
-                <SingleImageUpload
-                  userId={user.id}
-                  value={form.logo_url}
-                  onChange={(url) => setForm({ ...form, logo_url: url })}
-                  label="team logo"
-                  aspect="aspect-square"
-                />
-              </Field>
-            )}
-            {user && (
-              <Field label="Coach profile picture">
-                <SingleImageUpload
-                  userId={user.id}
-                  value={form.coach_photo_url}
-                  onChange={(url) => setForm({ ...form, coach_photo_url: url })}
-                  label="profile picture"
-                  aspect="aspect-square"
-                />
-              </Field>
-            )}
-            {user && (
-              <Field label="Hero image">
-                <SingleImageUpload
-                  userId={user.id}
-                  value={form.hero_image_url}
-                  onChange={(url) => setForm({ ...form, hero_image_url: url })}
-                  label="hero image"
-                />
-              </Field>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Gallery</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {user && (
-              <MultiImageUpload
-                userId={user.id}
-                values={form.gallery_images ? form.gallery_images.split("\n").filter(Boolean) : []}
-                onChange={(urls) => setForm({ ...form, gallery_images: urls.join("\n") })}
-              />
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Sample sessions</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {(form.sample_sessions || []).map((s: any, i: number) => (
-              <div key={i} className="space-y-2 rounded-md border p-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">Session {i + 1}</span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => removeSession(i)}
-                    className="h-7 px-2 text-destructive"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+            <Card>
+              <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+                <div>
+                  <CardTitle className="text-base">Basics</CardTitle>
+                  <CardDescription>
+                    Your name, story, and credentials. Bio and achievements power the About section further down the
+                    page.
+                  </CardDescription>
                 </div>
+                <SectionToggle checked={sectionOn("about")} onCheckedChange={(v) => setSectionOn("about", v)} />
+              </CardHeader>
+              <CardContent className="space-y-4">
                 <Field label="Name">
+                  <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+                </Field>
+                <Field label="Team / squad name (optional)">
                   <Input
-                    value={s.name}
-                    onChange={(e) => updateSession(i, { name: e.target.value })}
-                    placeholder="8 × 400m"
+                    value={form.team_name}
+                    onChange={(e) => setForm({ ...form, team_name: e.target.value })}
+                    placeholder="redLINE Running"
                   />
                 </Field>
-                <Field label="Target / pace">
-                  <Input
-                    value={s.target}
-                    onChange={(e) => updateSession(i, { target: e.target.value })}
-                    placeholder="5K pace, 90s jog recovery"
+                <Field label="Tagline" hint="Shown directly under your name in the hero — keep it to one line.">
+                  <Input value={form.tagline} onChange={(e) => setForm({ ...form, tagline: e.target.value })} />
+                </Field>
+                <Field label="Bio" hint="Your main introduction — a few sentences on your background and approach.">
+                  <Textarea rows={5} value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} />
+                </Field>
+                <Field
+                  label="Coaching philosophy (optional, shown as its own block)"
+                  hint="Goes deeper than the bio — how you actually structure training week to week."
+                >
+                  <Textarea
+                    rows={4}
+                    value={form.coaching_philosophy}
+                    onChange={(e) => setForm({ ...form, coaching_philosophy: e.target.value })}
+                    placeholder="How you approach training..."
                   />
                 </Field>
-                <Field label="Purpose">
-                  <Input
-                    value={s.purpose}
-                    onChange={(e) => updateSession(i, { purpose: e.target.value })}
-                    placeholder="Speed and turnover"
-                  />
-                </Field>
-              </div>
-            ))}
-            <Button type="button" variant="outline" size="sm" onClick={addSession}>
-              <Plus className="mr-2 h-3.5 w-3.5" /> Add session
-            </Button>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Coaching plans</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {(form.plans || []).map((p: any, i: number) => (
-              <div key={i} className="space-y-2 rounded-md border p-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">Plan {i + 1}</span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => removePlan(i)}
-                    className="h-7 px-2 text-destructive"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-                <Field label="Name">
-                  <Input
-                    value={p.name}
-                    onChange={(e) => updatePlan(i, { name: e.target.value })}
-                    placeholder="Guided"
-                  />
-                </Field>
-                <div className="grid grid-cols-2 gap-2">
-                  <Field label="Price">
-                    <Input
-                      value={p.price}
-                      onChange={(e) => updatePlan(i, { price: e.target.value })}
-                      placeholder="179"
-                    />
-                  </Field>
-                  <Field label="Period">
-                    <Input
-                      value={p.period}
-                      onChange={(e) => updatePlan(i, { period: e.target.value })}
-                      placeholder="mo"
-                    />
-                  </Field>
-                </div>
-                <Field label="Description">
-                  <Input
-                    value={p.description}
-                    onChange={(e) => updatePlan(i, { description: e.target.value })}
-                    placeholder="Weekly adjustments + race tactics"
-                  />
-                </Field>
-                <label className="flex items-center gap-2 text-sm">
-                  <Checkbox checked={!!p.featured} onCheckedChange={(v) => updatePlan(i, { featured: !!v })} />
-                  Highlight this plan (most popular)
-                </label>
-              </div>
-            ))}
-            <Button type="button" variant="outline" size="sm" onClick={addPlan}>
-              <Plus className="mr-2 h-3.5 w-3.5" /> Add plan
-            </Button>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Testimonials</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {(form.testimonials || []).map((t: any, i: number) => (
-              <div key={i} className="space-y-2 rounded-md border p-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">Testimonial {i + 1}</span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => removeTestimonial(i)}
-                    className="h-7 px-2 text-destructive"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-                <Field label="Quote">
+                <Field label="Achievements (one per line)">
                   <Textarea
                     rows={3}
-                    value={t.quote}
-                    onChange={(e) => updateTestimonial(i, { quote: e.target.value })}
-                    placeholder="The interval sessions actually match what I run on race day now."
+                    value={form.achievements}
+                    onChange={(e) => setForm({ ...form, achievements: e.target.value })}
+                    placeholder={"2x Olympian, 3000m Steeplechase\n14 Boston Marathon qualifiers coached"}
                   />
                 </Field>
-                <Field label="Author">
+                <Field label="Disciplines (comma separated)" hint="Shown as tags under your tagline in the hero.">
                   <Input
-                    value={t.author}
-                    onChange={(e) => updateTestimonial(i, { author: e.target.value })}
-                    placeholder="Sarah K. — 2:58 marathon debut"
+                    value={form.disciplines}
+                    onChange={(e) => setForm({ ...form, disciplines: e.target.value })}
+                    placeholder="Track & Interval, Marathon, 5K/10K"
                   />
                 </Field>
-              </div>
-            ))}
-            <Button type="button" variant="outline" size="sm" onClick={addTestimonial}>
-              <Plus className="mr-2 h-3.5 w-3.5" /> Add testimonial
-            </Button>
-          </CardContent>
-        </Card>
+                <Field label="Certifications (comma separated)">
+                  <Input
+                    value={form.certifications}
+                    onChange={(e) => setForm({ ...form, certifications: e.target.value })}
+                    placeholder="USATF Level 2, USOPC SafeSport"
+                  />
+                </Field>
+                <div className="flex items-center justify-between rounded-md border p-3">
+                  <div>
+                    <div className="text-sm font-medium">Stats</div>
+                    <p className="text-xs text-muted-foreground">
+                      The 4-number strip (years coaching, athletes coached, etc). Not editable here yet — happy to add
+                      a structured editor for those next if useful.
+                    </p>
+                  </div>
+                  <SectionToggle checked={sectionOn("stats")} onCheckedChange={(v) => setSectionOn("stats", v)} />
+                </div>
+              </CardContent>
+            </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Blog</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {blogPosts.map((p: any, i: number) => {
-              const key = p.id ?? p._localId;
-              return (
-                <div key={key} className="space-y-2 rounded-md border p-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">{p.id ? "Post" : "New post (unsaved)"}</span>
-                    <div className="flex items-center gap-3">
-                      <label className="flex items-center gap-1.5 text-xs">
-                        <Checkbox
-                          checked={!!p.is_published}
-                          onCheckedChange={(v) => updateBlogPost(i, { is_published: !!v })}
-                        />
-                        Published
-                      </label>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Appearance</CardTitle>
+                <CardDescription>
+                  Pick a look and feel. Theme and style apply to every section at once — try a couple of combinations
+                  in Preview before settling.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-4 sm:grid-cols-3">
+                <Field label="Theme">
+                  <Select value={form.theme} onValueChange={(v) => setForm({ ...form, theme: v })}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="light">Light</SelectItem>
+                      <SelectItem value="dark">Dark</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field label="Style">
+                  <Select value={form.style} onValueChange={(v) => setForm({ ...form, style: v })}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="modern">Modern</SelectItem>
+                      <SelectItem value="traditional">Traditional</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field label="Nav">
+                  <Select value={form.nav} onValueChange={(v) => setForm({ ...form, nav: v })}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="top">Top bar</SelectItem>
+                      <SelectItem value="sidebar">Sidebar</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field label="Brand color">
+                  <Input
+                    type="color"
+                    value={form.brand_color}
+                    onChange={(e) => setForm({ ...form, brand_color: e.target.value })}
+                    className="h-10 w-20 p-1"
+                  />
+                </Field>
+                <Field label="Logo initials (used if no team logo is uploaded)">
+                  <Input
+                    value={form.logo_initials}
+                    onChange={(e) => setForm({ ...form, logo_initials: e.target.value })}
+                    maxLength={3}
+                  />
+                </Field>
+                {user && (
+                  <Field label="Team / squad logo (optional)">
+                    <SingleImageUpload
+                      userId={user.id}
+                      value={form.logo_url}
+                      onChange={(url) => setForm({ ...form, logo_url: url })}
+                      label="team logo"
+                      aspect="aspect-square"
+                    />
+                  </Field>
+                )}
+                {user && (
+                  <Field label="Coach profile picture">
+                    <SingleImageUpload
+                      userId={user.id}
+                      value={form.coach_photo_url}
+                      onChange={(url) => setForm({ ...form, coach_photo_url: url })}
+                      label="profile picture"
+                      aspect="aspect-square"
+                    />
+                  </Field>
+                )}
+                {user && (
+                  <Field label="Hero image" hint="The large banner image behind your name at the top of the page.">
+                    <SingleImageUpload
+                      userId={user.id}
+                      value={form.hero_image_url}
+                      onChange={(url) => setForm({ ...form, hero_image_url: url })}
+                      label="hero image"
+                    />
+                  </Field>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ---------------- Content: everything that fills out the page body ---------------- */}
+          <TabsContent value="content" className="mt-4 space-y-6">
+            <p className="text-sm text-muted-foreground">
+              Show visitors what working with you looks like. None of these are required — add whichever apply to
+              your coaching, and use "Show on page" to hide anything you'd rather keep off for now without losing
+              what you've written.
+            </p>
+
+            <Card>
+              <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+                <div>
+                  <CardTitle className="text-base">Sample sessions</CardTitle>
+                  <CardDescription>
+                    A few example workouts that give visitors a feel for your coaching style.
+                  </CardDescription>
+                </div>
+                <SectionToggle checked={sectionOn("sessions")} onCheckedChange={(v) => setSectionOn("sessions", v)} />
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {(form.sample_sessions || []).map((s: any, i: number) => (
+                  <div key={i} className="space-y-2 rounded-md border p-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">Session {i + 1}</span>
                       <Button
                         type="button"
                         variant="ghost"
                         size="sm"
-                        onClick={() => deleteBlogPost(i)}
+                        onClick={() => removeSession(i)}
                         className="h-7 px-2 text-destructive"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
-                  </div>
-                  <Field label="Title">
-                    <Input
-                      value={p.title}
-                      onChange={(e) => updateBlogPost(i, { title: e.target.value })}
-                      placeholder="How I build a marathon block"
-                    />
-                  </Field>
-                  <Field label="Excerpt (short teaser shown on the card)">
-                    <Textarea
-                      rows={2}
-                      value={p.excerpt}
-                      onChange={(e) => updateBlogPost(i, { excerpt: e.target.value })}
-                    />
-                  </Field>
-                  <Field label="Full content">
-                    <Textarea
-                      rows={6}
-                      value={p.content}
-                      onChange={(e) => updateBlogPost(i, { content: e.target.value })}
-                    />
-                  </Field>
-                  {user && (
-                    <Field label="Cover image (optional)">
-                      <SingleImageUpload
-                        userId={user.id}
-                        value={p.cover_image_url}
-                        onChange={(url) => updateBlogPost(i, { cover_image_url: url })}
-                        label="cover image"
+                    <Field label="Name">
+                      <Input
+                        value={s.name}
+                        onChange={(e) => updateSession(i, { name: e.target.value })}
+                        placeholder="8 × 400m"
                       />
                     </Field>
-                  )}
-                  <Button type="button" size="sm" onClick={() => saveBlogPost(i)} disabled={savingBlogKey === key}>
-                    {savingBlogKey === key ? "Saving…" : p.id ? "Save post" : "Publish post"}
-                  </Button>
-                </div>
-              );
-            })}
-            <Button type="button" variant="outline" size="sm" onClick={addBlogPost}>
-              <Plus className="mr-2 h-3.5 w-3.5" /> Add blog post
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              Blog posts save on their own — each post has its own Save/Publish button above, separate from the "Save
-              changes" button at the top of the page.
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Sponsors</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-xs text-muted-foreground">
-              Shown as a "Proudly supported by" strip near the bottom of your page.
-            </p>
-            {(form.sponsors || []).map((s: any, i: number) => (
-              <div key={i} className="space-y-2 rounded-md border p-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">Sponsor {i + 1}</span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => removeSponsor(i)}
-                    className="h-7 px-2 text-destructive"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-                <Field label="Name">
-                  <Input
-                    value={s.name}
-                    onChange={(e) => updateSponsor(i, { name: e.target.value })}
-                    placeholder="Acme Running Co."
-                  />
-                </Field>
-                <Field label="Website URL">
-                  <Input
-                    value={s.website_url}
-                    onChange={(e) => updateSponsor(i, { website_url: e.target.value })}
-                    placeholder="https://acmerunning.com"
-                  />
-                </Field>
-                {user && (
-                  <Field label="Logo">
-                    <SingleImageUpload
-                      userId={user.id}
-                      value={s.logo_url}
-                      onChange={(url) => updateSponsor(i, { logo_url: url })}
-                      label="sponsor logo"
-                      aspect="aspect-square"
-                    />
-                  </Field>
-                )}
-              </div>
-            ))}
-            <Button type="button" variant="outline" size="sm" onClick={addSponsor}>
-              <Plus className="mr-2 h-3.5 w-3.5" /> Add sponsor
-            </Button>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Location</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2">
-            <Field label="City">
-              <Input value={form.location_city} onChange={(e) => setForm({ ...form, location_city: e.target.value })} />
-            </Field>
-            <Field label="Venue (optional)">
-              <Input
-                value={form.location_venue}
-                onChange={(e) => setForm({ ...form, location_venue: e.target.value })}
-              />
-            </Field>
-            <label className="flex items-center gap-2 text-sm sm:col-span-2">
-              <Checkbox
-                checked={form.location_remote}
-                onCheckedChange={(v) => setForm({ ...form, location_remote: !!v })}
-              />
-              Remote/online coaching available
-            </label>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Athletes shown on this page</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {!roster || roster.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No athletes linked to your roster yet.</p>
-            ) : (
-              <div className="space-y-2">
-                {roster.map((row: any) => {
-                  const athlete = row.athletes;
-                  if (!athlete) return null;
-                  return (
-                    <label key={row.id} className="flex items-center gap-3 rounded-md border p-3 text-sm">
-                      <Checkbox
-                        checked={row.visible_on_coach_page}
-                        disabled={togglingId === row.id}
-                        onCheckedChange={(v) => toggleAthleteVisibility(row.id, !!v)}
+                    <Field label="Target / pace">
+                      <Input
+                        value={s.target}
+                        onChange={(e) => updateSession(i, { target: e.target.value })}
+                        placeholder="5K pace, 90s jog recovery"
                       />
-                      {athlete.profile_image_url ? (
-                        <img
-                          src={athlete.profile_image_url}
-                          alt={athlete.name}
-                          className="h-8 w-8 rounded-full object-cover"
+                    </Field>
+                    <Field label="Purpose">
+                      <Input
+                        value={s.purpose}
+                        onChange={(e) => updateSession(i, { purpose: e.target.value })}
+                        placeholder="Speed and turnover"
+                      />
+                    </Field>
+                  </div>
+                ))}
+                <Button type="button" variant="outline" size="sm" onClick={addSession}>
+                  <Plus className="mr-2 h-3.5 w-3.5" /> Add session
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+                <div>
+                  <CardTitle className="text-base">Coaching plans</CardTitle>
+                  <CardDescription>Your pricing tiers. Mark one "featured" to highlight it as most popular.</CardDescription>
+                </div>
+                <SectionToggle checked={sectionOn("plans")} onCheckedChange={(v) => setSectionOn("plans", v)} />
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {(form.plans || []).map((p: any, i: number) => (
+                  <div key={i} className="space-y-2 rounded-md border p-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">Plan {i + 1}</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removePlan(i)}
+                        className="h-7 px-2 text-destructive"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                    <Field label="Name">
+                      <Input
+                        value={p.name}
+                        onChange={(e) => updatePlan(i, { name: e.target.value })}
+                        placeholder="Guided"
+                      />
+                    </Field>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Field label="Price">
+                        <Input
+                          value={p.price}
+                          onChange={(e) => updatePlan(i, { price: e.target.value })}
+                          placeholder="179"
                         />
-                      ) : (
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs">
-                          {athlete.name?.[0]?.toUpperCase() ?? "?"}
-                        </div>
-                      )}
-                      <span className="flex-1">{athlete.name}</span>
-                      {athlete.primary_event && (
-                        <span className="text-xs text-muted-foreground">{athlete.primary_event}</span>
-                      )}
+                      </Field>
+                      <Field label="Period">
+                        <Input
+                          value={p.period}
+                          onChange={(e) => updatePlan(i, { period: e.target.value })}
+                          placeholder="mo"
+                        />
+                      </Field>
+                    </div>
+                    <Field label="Description">
+                      <Input
+                        value={p.description}
+                        onChange={(e) => updatePlan(i, { description: e.target.value })}
+                        placeholder="Weekly adjustments + race tactics"
+                      />
+                    </Field>
+                    <label className="flex items-center gap-2 text-sm">
+                      <Checkbox checked={!!p.featured} onCheckedChange={(v) => updatePlan(i, { featured: !!v })} />
+                      Highlight this plan (most popular)
                     </label>
+                  </div>
+                ))}
+                <Button type="button" variant="outline" size="sm" onClick={addPlan}>
+                  <Plus className="mr-2 h-3.5 w-3.5" /> Add plan
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+                <div>
+                  <CardTitle className="text-base">Testimonials</CardTitle>
+                  <CardDescription>
+                    Social proof from athletes you've coached — often what actually turns a browser into an inquiry.
+                  </CardDescription>
+                </div>
+                <SectionToggle
+                  checked={sectionOn("testimonials")}
+                  onCheckedChange={(v) => setSectionOn("testimonials", v)}
+                />
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {(form.testimonials || []).map((t: any, i: number) => (
+                  <div key={i} className="space-y-2 rounded-md border p-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">Testimonial {i + 1}</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeTestimonial(i)}
+                        className="h-7 px-2 text-destructive"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                    <Field label="Quote">
+                      <Textarea
+                        rows={3}
+                        value={t.quote}
+                        onChange={(e) => updateTestimonial(i, { quote: e.target.value })}
+                        placeholder="The interval sessions actually match what I run on race day now."
+                      />
+                    </Field>
+                    <Field label="Author">
+                      <Input
+                        value={t.author}
+                        onChange={(e) => updateTestimonial(i, { author: e.target.value })}
+                        placeholder="Sarah K. — 2:58 marathon debut"
+                      />
+                    </Field>
+                  </div>
+                ))}
+                <Button type="button" variant="outline" size="sm" onClick={addTestimonial}>
+                  <Plus className="mr-2 h-3.5 w-3.5" /> Add testimonial
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+                <div>
+                  <CardTitle className="text-base">Blog</CardTitle>
+                  <CardDescription>
+                    Training philosophy, race reports, or FAQs. Each post opens in a reader view when a visitor clicks
+                    it — no separate page to manage.
+                  </CardDescription>
+                </div>
+                <SectionToggle checked={sectionOn("blog")} onCheckedChange={(v) => setSectionOn("blog", v)} />
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {blogPosts.map((p: any, i: number) => {
+                  const key = p.id ?? p._localId;
+                  return (
+                    <div key={key} className="space-y-2 rounded-md border p-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">{p.id ? "Post" : "New post (unsaved)"}</span>
+                        <div className="flex items-center gap-3">
+                          <label className="flex items-center gap-1.5 text-xs">
+                            <Checkbox
+                              checked={!!p.is_published}
+                              onCheckedChange={(v) => updateBlogPost(i, { is_published: !!v })}
+                            />
+                            Published
+                          </label>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => deleteBlogPost(i)}
+                            className="h-7 px-2 text-destructive"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                      <Field label="Title">
+                        <Input
+                          value={p.title}
+                          onChange={(e) => updateBlogPost(i, { title: e.target.value })}
+                          placeholder="How I build a marathon block"
+                        />
+                      </Field>
+                      <Field label="Excerpt (short teaser shown on the card)">
+                        <Textarea
+                          rows={2}
+                          value={p.excerpt}
+                          onChange={(e) => updateBlogPost(i, { excerpt: e.target.value })}
+                        />
+                      </Field>
+                      <Field label="Full content">
+                        <Textarea
+                          rows={6}
+                          value={p.content}
+                          onChange={(e) => updateBlogPost(i, { content: e.target.value })}
+                        />
+                      </Field>
+                      {user && (
+                        <Field label="Cover image (optional)">
+                          <SingleImageUpload
+                            userId={user.id}
+                            value={p.cover_image_url}
+                            onChange={(url) => updateBlogPost(i, { cover_image_url: url })}
+                            label="cover image"
+                          />
+                        </Field>
+                      )}
+                      <Button type="button" size="sm" onClick={() => saveBlogPost(i)} disabled={savingBlogKey === key}>
+                        {savingBlogKey === key ? "Saving…" : p.id ? "Save post" : "Publish post"}
+                      </Button>
+                    </div>
                   );
                 })}
-              </div>
-            )}
-            <p className="mt-3 text-xs text-muted-foreground">
-              Check the athletes you'd like visible on your public coach page. Toggling saves immediately.
+                <Button type="button" variant="outline" size="sm" onClick={addBlogPost}>
+                  <Plus className="mr-2 h-3.5 w-3.5" /> Add blog post
+                </Button>
+                <p className="text-xs text-muted-foreground">
+                  Blog posts save on their own — each post has its own Save/Publish button above, separate from the
+                  "Save changes" button at the top of the page.
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+                <div>
+                  <CardTitle className="text-base">Sponsors</CardTitle>
+                  <CardDescription>
+                    Shown as a "Proudly supported by" strip near the bottom of your page.
+                  </CardDescription>
+                </div>
+                <SectionToggle checked={sectionOn("sponsors")} onCheckedChange={(v) => setSectionOn("sponsors", v)} />
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {(form.sponsors || []).map((s: any, i: number) => (
+                  <div key={i} className="space-y-2 rounded-md border p-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">Sponsor {i + 1}</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeSponsor(i)}
+                        className="h-7 px-2 text-destructive"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                    <Field label="Name">
+                      <Input
+                        value={s.name}
+                        onChange={(e) => updateSponsor(i, { name: e.target.value })}
+                        placeholder="Acme Running Co."
+                      />
+                    </Field>
+                    <Field label="Website URL">
+                      <Input
+                        value={s.website_url}
+                        onChange={(e) => updateSponsor(i, { website_url: e.target.value })}
+                        placeholder="https://acmerunning.com"
+                      />
+                    </Field>
+                    {user && (
+                      <Field label="Logo">
+                        <SingleImageUpload
+                          userId={user.id}
+                          value={s.logo_url}
+                          onChange={(url) => updateSponsor(i, { logo_url: url })}
+                          label="sponsor logo"
+                          aspect="aspect-square"
+                        />
+                      </Field>
+                    )}
+                  </div>
+                ))}
+                <Button type="button" variant="outline" size="sm" onClick={addSponsor}>
+                  <Plus className="mr-2 h-3.5 w-3.5" /> Add sponsor
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+                <div>
+                  <CardTitle className="text-base">Gallery</CardTitle>
+                  <CardDescription>Photos of training, races, or your squad, shown in a clickable grid.</CardDescription>
+                </div>
+                <SectionToggle checked={sectionOn("gallery")} onCheckedChange={(v) => setSectionOn("gallery", v)} />
+              </CardHeader>
+              <CardContent>
+                {user && (
+                  <MultiImageUpload
+                    userId={user.id}
+                    values={form.gallery_images ? form.gallery_images.split("\n").filter(Boolean) : []}
+                    onChange={(urls) => setForm({ ...form, gallery_images: urls.join("\n") })}
+                  />
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ---------------- Athletes ---------------- */}
+          <TabsContent value="athletes" className="mt-4 space-y-6">
+            <p className="text-sm text-muted-foreground">
+              Showcase athletes you coach. Nothing is shown by default — check the box next to anyone you'd like
+              visible on your public page.
             </p>
-          </CardContent>
-        </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+                <div>
+                  <CardTitle className="text-base">Athletes shown on this page</CardTitle>
+                  <CardDescription>Toggling an athlete below saves immediately — no need to hit Save changes.</CardDescription>
+                </div>
+                <SectionToggle checked={sectionOn("athletes")} onCheckedChange={(v) => setSectionOn("athletes", v)} />
+              </CardHeader>
+              <CardContent>
+                {!roster || roster.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No athletes linked to your roster yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {roster.map((row: any) => {
+                      const athlete = row.athletes;
+                      if (!athlete) return null;
+                      return (
+                        <label key={row.id} className="flex items-center gap-3 rounded-md border p-3 text-sm">
+                          <Checkbox
+                            checked={row.visible_on_coach_page}
+                            disabled={togglingId === row.id}
+                            onCheckedChange={(v) => toggleAthleteVisibility(row.id, !!v)}
+                          />
+                          {athlete.profile_image_url ? (
+                            <img
+                              src={athlete.profile_image_url}
+                              alt={athlete.name}
+                              className="h-8 w-8 rounded-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs">
+                              {athlete.name?.[0]?.toUpperCase() ?? "?"}
+                            </div>
+                          )}
+                          <span className="flex-1">{athlete.name}</span>
+                          {athlete.primary_event && (
+                            <span className="text-xs text-muted-foreground">{athlete.primary_event}</span>
+                          )}
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Contact</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2">
-            <Field label="Email">
-              <Input value={form.contact_email} onChange={(e) => setForm({ ...form, contact_email: e.target.value })} />
-            </Field>
-            <Field label="Phone (optional)">
-              <Input value={form.contact_phone} onChange={(e) => setForm({ ...form, contact_phone: e.target.value })} />
-            </Field>
-            <Field label="Instagram handle">
-              <Input
-                value={form.contact_instagram}
-                onChange={(e) => setForm({ ...form, contact_instagram: e.target.value })}
-                placeholder="@yourcoachname"
-              />
-            </Field>
-          </CardContent>
-        </Card>
+          {/* ---------------- Location & contact ---------------- */}
+          <TabsContent value="contact" className="mt-4 space-y-6">
+            <p className="text-sm text-muted-foreground">
+              Where and how people reach you. This section is always shown on your page, so it's worth double-checking
+              before you publish.
+            </p>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Location</CardTitle>
+                <CardDescription>Powers the map and the "in-person vs remote" badge on your page.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-4 sm:grid-cols-2">
+                <Field label="City">
+                  <Input
+                    value={form.location_city}
+                    onChange={(e) => setForm({ ...form, location_city: e.target.value })}
+                  />
+                </Field>
+                <Field label="Venue (optional)">
+                  <Input
+                    value={form.location_venue}
+                    onChange={(e) => setForm({ ...form, location_venue: e.target.value })}
+                  />
+                </Field>
+                <label className="flex items-center gap-2 text-sm sm:col-span-2">
+                  <Checkbox
+                    checked={form.location_remote}
+                    onCheckedChange={(v) => setForm({ ...form, location_remote: !!v })}
+                  />
+                  Remote/online coaching available
+                </label>
+              </CardContent>
+            </Card>
 
-        <p className="text-xs text-muted-foreground">
-          Stats aren't editable here yet — happy to add a structured editor for those next if useful.
-        </p>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Contact</CardTitle>
+                <CardDescription>Feeds the inquiry form and the footer links visitors use to reach you.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-4 sm:grid-cols-2">
+                <Field label="Email">
+                  <Input
+                    value={form.contact_email}
+                    onChange={(e) => setForm({ ...form, contact_email: e.target.value })}
+                  />
+                </Field>
+                <Field label="Phone (optional)">
+                  <Input
+                    value={form.contact_phone}
+                    onChange={(e) => setForm({ ...form, contact_phone: e.target.value })}
+                  />
+                </Field>
+                <Field label="Instagram handle">
+                  <Input
+                    value={form.contact_instagram}
+                    onChange={(e) => setForm({ ...form, contact_instagram: e.target.value })}
+                    placeholder="@yourcoachname"
+                  />
+                </Field>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
     </AppShell>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Dot({ done }: { done: boolean }) {
+  return (
+    <span
+      className={cn("h-1.5 w-1.5 shrink-0 rounded-full", done ? "bg-emerald-500" : "bg-muted-foreground/40")}
+      aria-hidden
+    />
+  );
+}
+
+function SectionToggle({
+  checked,
+  onCheckedChange,
+}: {
+  checked: boolean;
+  onCheckedChange: (v: boolean) => void;
+}) {
+  return (
+    <label className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+      <Switch checked={checked} onCheckedChange={onCheckedChange} />
+      Show on page
+    </label>
+  );
+}
+
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
       <Label className="text-xs text-muted-foreground">{label}</Label>
       {children}
+      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
     </div>
   );
 }
