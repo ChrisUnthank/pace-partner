@@ -71,6 +71,9 @@ export interface AthleteConfig {
   stats: { label: string; value: string }[];
 
   galleryImages: string[];
+  galleryColumns: 2 | 3 | 4;
+  galleryAspect: "square" | "portrait" | "landscape" | "auto";
+  galleryImagePositions: Record<string, { x: number; y: number }>;
   sponsors: { name: string; logoUrl?: string; websiteUrl?: string }[];
   donate?: { label?: string; url: string };
 
@@ -207,6 +210,9 @@ export const defaultAthleteConfig: AthleteConfig = {
     { label: "Races this year", value: "9" },
   ],
   galleryImages: [],
+  galleryColumns: 3,
+  galleryAspect: "square",
+  galleryImagePositions: {},
   sponsors: [],
   donate: undefined,
   personalBests: [
@@ -287,6 +293,14 @@ export function athleteRowToConfig(
       value: String(s.value ?? ""),
     })),
     galleryImages: asArray<string>(profileRow.gallery_images),
+    galleryColumns: [2, 3, 4].includes(profileRow.gallery_columns) ? profileRow.gallery_columns : 3,
+    galleryAspect: ["square", "portrait", "landscape", "auto"].includes(profileRow.gallery_aspect)
+      ? profileRow.gallery_aspect
+      : "square",
+    galleryImagePositions:
+      profileRow.gallery_image_positions && typeof profileRow.gallery_image_positions === "object"
+        ? profileRow.gallery_image_positions
+        : {},
     sponsors: asArray(profileRow.sponsors).map((s: any) => ({
       name: s.name ?? "",
       logoUrl: s.logo_url ?? s.logoUrl ?? undefined,
