@@ -194,6 +194,18 @@ function CoachEditorPage() {
     setForm({ ...form, sponsors: form.sponsors.filter((_: any, idx: number) => idx !== i) });
   }
 
+  function updateStat(i: number, patch: Partial<{ label: string; value: string }>) {
+    const next = [...(form.stats || [])];
+    next[i] = { ...next[i], ...patch };
+    setForm({ ...form, stats: next });
+  }
+  function addStat() {
+    setForm({ ...form, stats: [...(form.stats || []), { label: "", value: "" }] });
+  }
+  function removeStat(i: number) {
+    setForm({ ...form, stats: form.stats.filter((_: any, idx: number) => idx !== i) });
+  }
+
   // Blog posts save independently of the "Save changes" button above (each
   // post has its own Save/Publish button) — they live in their own table,
   // not in the coach_profiles row the rest of this form writes to.
@@ -273,6 +285,9 @@ function CoachEditorPage() {
         style: c.style || "modern",
         nav: c.nav || "top",
         brand_color: c.brand_color || "#BD4130",
+        secondary_color: c.secondary_color || "",
+        hero_image_side: c.hero_image_side === "left" ? "left" : "right",
+        section_density: c.section_density === "compact" ? "compact" : "comfortable",
         hero_image_url: c.hero_image_url || "",
         coach_photo_url: c.coach_photo_url || "",
         logo_initials: c.logo_initials || "",
@@ -296,6 +311,7 @@ function CoachEditorPage() {
         testimonials:
           Array.isArray(c.testimonials) && c.testimonials.length ? c.testimonials : [{ quote: "", author: "" }],
         sponsors: Array.isArray(c.sponsors) ? c.sponsors : [],
+        stats: Array.isArray(c.stats) ? c.stats : [],
         is_published: !!c.is_published,
         sections: { ...DEFAULT_SECTIONS, ...(c.sections_enabled || {}) },
       });
@@ -337,6 +353,9 @@ function CoachEditorPage() {
         style: form.style,
         nav: form.nav,
         brand_color: form.brand_color,
+        secondary_color: form.secondary_color || null,
+        hero_image_side: form.hero_image_side || "right",
+        section_density: form.section_density || "comfortable",
         hero_image_url: form.hero_image_url,
         coach_photo_url: form.coach_photo_url || null,
         logo_initials: form.logo_initials,
@@ -360,6 +379,7 @@ function CoachEditorPage() {
         plans: (form.plans || []).filter((p: any) => p.name || p.price || p.description),
         testimonials: (form.testimonials || []).filter((t: any) => t.quote || t.author),
         sponsors: (form.sponsors || []).filter((s: any) => s.name || s.logo_url || s.website_url),
+        stats: (form.stats || []).filter((s: any) => s.label || s.value),
         is_published: !!form.is_published,
         sections_enabled: form.sections || DEFAULT_SECTIONS,
       })
@@ -424,6 +444,7 @@ function CoachEditorPage() {
               <Dot done={profileDone} />
               Profile
             </TabsTrigger>
+            <TabsTrigger value="appearance">Appearance</TabsTrigger>
             <TabsTrigger value="content" className="gap-2">
               <Dot done={contentDone} />
               Content
@@ -438,11 +459,11 @@ function CoachEditorPage() {
             </TabsTrigger>
           </TabsList>
 
-          {/* ---------------- Profile: identity + look and feel ---------------- */}
+          {/* ---------------- Profile: identity + credentials ---------------- */}
           <TabsContent value="profile" className="mt-4 space-y-6">
             <p className="text-sm text-muted-foreground">
-              Start here — this is your page's identity: who you are, what you coach, and how it looks. Everything on
-              this tab feeds the Hero and About sections at the top of your page.
+              Start here — this is your page's identity: who you are, what you coach, and the numbers that back it
+              up. Everything on this tab feeds the Hero, Stats, and About sections at the top of your page.
             </p>
 
             <Card>
@@ -506,25 +527,68 @@ function CoachEditorPage() {
                     placeholder="USATF Level 2, USOPC SafeSport"
                   />
                 </Field>
-                <div className="flex items-center justify-between rounded-md border p-3">
-                  <div>
-                    <div className="text-sm font-medium">Stats</div>
-                    <p className="text-xs text-muted-foreground">
-                      The 4-number strip (years coaching, athletes coached, etc). Not editable here yet — happy to add
-                      a structured editor for those next if useful.
-                    </p>
-                  </div>
-                  <SectionToggle checked={sectionOn("stats")} onCheckedChange={(v) => setSectionOn("stats", v)} />
-                </div>
               </CardContent>
             </Card>
 
             <Card>
+              <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+                <div>
+                  <CardTitle className="text-base">Stats</CardTitle>
+                  <CardDescription>
+                    The number strip under your hero (years coaching, athletes coached, PBs, whatever's most
+                    credible). Usually 3–4 entries reads best.
+                  </CardDescription>
+                </div>
+                <SectionToggle checked={sectionOn("stats")} onCheckedChange={(v) => setSectionOn("stats", v)} />
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {(form.stats || []).map((s: any, i: number) => (
+                  <div key={i} className="flex items-end gap-2 rounded-md border p-3">
+                    <Field label="Value" hint={i === 0 ? "e.g. 11, 38, 2:19:04" : undefined} >
+                      <Input
+                        value={s.value}
+                        onChange={(e) => updateStat(i, { value: e.target.value })}
+                        placeholder="11"
+                      />
+                    </Field>
+                    <Field label="Label" hint={i === 0 ? "e.g. Years coaching" : undefined}>
+                      <Input
+                        value={s.label}
+                        onChange={(e) => updateStat(i, { label: e.target.value })}
+                        placeholder="Years coaching"
+                      />
+                    </Field>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => removeStat(i)}
+                      className="h-9 px-2 text-destructive"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ))}
+                <Button type="button" variant="outline" size="sm" onClick={addStat}>
+                  <Plus className="mr-2 h-3.5 w-3.5" /> Add stat
+                </Button>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ---------------- Appearance: look, feel, and layout ---------------- */}
+          <TabsContent value="appearance" className="mt-4 space-y-6">
+            <p className="text-sm text-muted-foreground">
+              Pick a look and feel. Theme and style apply to every section at once — try a couple of combinations in
+              Preview before settling.
+            </p>
+
+            <Card>
               <CardHeader>
-                <CardTitle className="text-base">Appearance</CardTitle>
+                <CardTitle className="text-base">Theme &amp; branding</CardTitle>
                 <CardDescription>
-                  Pick a look and feel. Theme and style apply to every section at once — try a couple of combinations
-                  in Preview before settling.
+                  Secondary color is optional — when set, it's used for the "View plans" button and to alternate the
+                  Stats numbers, giving the page a two-tone identity instead of a single flat color everywhere.
                 </CardDescription>
               </CardHeader>
               <CardContent className="grid gap-4 sm:grid-cols-3">
@@ -569,6 +633,21 @@ function CoachEditorPage() {
                     className="h-10 w-20 p-1"
                   />
                 </Field>
+                <Field label="Secondary color (optional)" hint="Leave blank to keep everything single-color.">
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="color"
+                      value={form.secondary_color || "#2E5266"}
+                      onChange={(e) => setForm({ ...form, secondary_color: e.target.value })}
+                      className="h-10 w-20 p-1"
+                    />
+                    {form.secondary_color && (
+                      <Button type="button" variant="ghost" size="sm" onClick={() => setForm({ ...form, secondary_color: "" })}>
+                        Clear
+                      </Button>
+                    )}
+                  </div>
+                </Field>
                 <Field label="Logo initials (used if no team logo is uploaded)">
                   <Input
                     value={form.logo_initials}
@@ -608,6 +687,48 @@ function CoachEditorPage() {
                     />
                   </Field>
                 )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Layout</CardTitle>
+                <CardDescription>
+                  Two independent knobs for fine-tuning the page without touching theme or style.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-4 sm:grid-cols-2">
+                <Field
+                  label="Hero image side"
+                  hint="Only affects the Modern style — Traditional always stacks the image above, centered."
+                >
+                  <Select
+                    value={form.hero_image_side || "right"}
+                    onValueChange={(v) => setForm({ ...form, hero_image_side: v })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="right">Image on the right</SelectItem>
+                      <SelectItem value="left">Image on the left</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field label="Section spacing" hint="Compact suits a page with lots of sections turned on.">
+                  <Select
+                    value={form.section_density || "comfortable"}
+                    onValueChange={(v) => setForm({ ...form, section_density: v })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="comfortable">Comfortable</SelectItem>
+                      <SelectItem value="compact">Compact</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
               </CardContent>
             </Card>
           </TabsContent>
