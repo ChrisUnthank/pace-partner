@@ -196,14 +196,40 @@ export const generateRaceStrategySuggestion = createServerFn({ method: "POST" })
     return row;
   });
 
+// No call in this function had a timeout before — a slow or stuck
+// response from the model provider would just hang indefinitely, which
+// is very likely what was actually happening (a genuine schema mismatch
+// fails in a few seconds; hanging for minutes is a different problem).
+// Every model call below is now capped at 45s and fails with a clear
+// message instead.
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${label} took too long (over ${Math.round(ms / 1000)}s) — the AI provider may be slow right now. Try again in a moment.`)),
+      ms,
+    );
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer!)) as Promise<T>;
+}
+
+// True only for a genuine "the model's output didn't match the schema"
+// failure — the AI SDK's own error class/name for that case. Anything
+// else (network error, timeout, auth failure, rate limit) is rethrown
+// immediately instead of falling back, since a second slow call is very
+// unlikely to succeed where the network/provider itself is the problem,
+// and would just double the wait before the user sees anything.
+function isSchemaValidationError(err: unknown): boolean {
+  const name = (err as any)?.name;
+  return name === "AI_NoObjectGeneratedError" || name === "NoObjectGeneratedError" || name === "AI_TypeValidationError";
+}
+
 // Tries structured generateObject first (best case: clean, schema-checked
-// output in one call). If the model's output doesn't validate — the
-// exact "did not match schema" failure this function exists to survive —
-// falls back to a plain generateText call asking for raw JSON, strips
-// any markdown code-fence the model might wrap it in, and validates that
-// with the same schema instead. Only throws a user-facing error if both
-// paths fail, and that error says so plainly rather than surfacing the
-// SDK's internal validation message.
+// output in one call). Only if that fails with a genuine schema
+// validation error does it fall back to a plain generateText call asking
+// for raw JSON, stripping any markdown code-fence the model might wrap it
+// in and validating that with the same schema. Any other kind of failure
+// (network, timeout, auth) is surfaced immediately rather than retried.
 async function generateSuggestion({
   generateObject,
   generateText,
@@ -216,21 +242,26 @@ async function generateSuggestion({
   prompt: string;
 }): Promise<Suggestion> {
   try {
-    const result = await generateObject({
-      model,
-      system: RACE_STRATEGY_SYSTEM_PROMPT,
-      schema: SuggestionSchema,
-      prompt,
-    });
+    const result = await withTimeout(
+      generateObject({ model, system: RACE_STRATEGY_SYSTEM_PROMPT, schema: SuggestionSchema, prompt }),
+      45_000,
+      "Generating the suggestion",
+    );
     return result.object;
   } catch (structuredError) {
-    const textResult = await generateText({
-      model,
-      system:
-        RACE_STRATEGY_SYSTEM_PROMPT +
-        `\n\nRespond with ONLY a single JSON object (no markdown code fences, no commentary before or after) with exactly these keys: primaryStrategy, primaryStrategyLabel, reasoning, risks, alternativeStrategy, alternativeStrategyLabel, alternativeReasoning, suggestedSplits (array of {cumulativeDistanceM, segmentTimeSeconds}), tacticalDecisionPoints (array of {distanceM, trigger, action}).`,
-      prompt,
-    });
+    if (!isSchemaValidationError(structuredError)) throw structuredError;
+
+    const textResult = await withTimeout(
+      generateText({
+        model,
+        system:
+          RACE_STRATEGY_SYSTEM_PROMPT +
+          `\n\nRespond with ONLY a single JSON object (no markdown code fences, no commentary before or after) with exactly these keys: primaryStrategy, primaryStrategyLabel, reasoning, risks, alternativeStrategy, alternativeStrategyLabel, alternativeReasoning, suggestedSplits (array of {cumulativeDistanceM, segmentTimeSeconds}), tacticalDecisionPoints (array of {distanceM, trigger, action}).`,
+        prompt,
+      }),
+      45_000,
+      "Generating the fallback suggestion",
+    );
 
     const cleaned = textResult.text
       .trim()
