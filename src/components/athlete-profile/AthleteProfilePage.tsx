@@ -9,6 +9,9 @@ import {
   SectionHeading,
   scrollToSection,
   computeRootVars,
+  galleryGridClass,
+  galleryAspectClass,
+  galleryImagePosition,
 } from "@/components/profile-shared/section-shell";
 // Reuses the coach page's CSS tokens as-is — same [data-coach-root] theme
 // system (light/dark × modern/traditional), just applied to a
@@ -662,20 +665,34 @@ function TrainingPartners({ config, altBg, isLast }: { config: AthleteConfig; al
 function Gallery({ config, altBg, isLast }: { config: AthleteConfig; altBg?: boolean; isLast?: boolean }) {
   const [open, setOpen] = useState<string | null>(null);
   if (!config.galleryImages.length) return null;
+  const aspectClass = galleryAspectClass(config.galleryAspect);
   return (
     <SectionShell id="gallery" altBg={altBg} noBorderBottom={isLast}>
       <SectionHeading centered={config.style === "traditional"}>Gallery</SectionHeading>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-        {config.galleryImages.map((src, i) => (
-          <button
-            key={src + i}
-            onClick={() => setOpen(src)}
-            className="aspect-square overflow-hidden"
-            style={{ borderRadius: "var(--radius-sm)" }}
-          >
-            <img src={src} loading="lazy" alt="" className="h-full w-full object-cover transition hover:scale-105" />
-          </button>
-        ))}
+      <div className={galleryGridClass(config.galleryColumns)}>
+        {config.galleryImages.map((src, i) => {
+          const pos = galleryImagePosition(config.galleryImagePositions, src);
+          return (
+            <button
+              key={src + i}
+              onClick={() => setOpen(src)}
+              className={`overflow-hidden ${aspectClass}`}
+              style={{ borderRadius: "var(--radius-sm)" }}
+            >
+              <img
+                src={src}
+                loading="lazy"
+                alt=""
+                className={
+                  config.galleryAspect === "auto"
+                    ? "h-auto w-full transition hover:scale-105"
+                    : "h-full w-full object-cover transition hover:scale-105"
+                }
+                style={config.galleryAspect === "auto" ? undefined : { objectPosition: `${pos.x}% ${pos.y}%` }}
+              />
+            </button>
+          );
+        })}
       </div>
       {open && (
         <div
