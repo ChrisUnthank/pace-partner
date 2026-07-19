@@ -1161,7 +1161,7 @@ function StepsCard({
         </CardDescription>
       </CardHeader>
       <CardContent className="grid lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 grid grid-cols-2 gap-3 auto-rows-fr">
+        <div className="lg:col-span-2 space-y-3">
           {warmIdx.map((i, pos) => (
             <StepCard
               key={steps[i]._uid}
@@ -1209,7 +1209,7 @@ function StepsCard({
         </div>
 
         <div className="lg:col-span-1">
-          <div className="grid grid-cols-2 gap-2 lg:sticky lg:top-4">
+          <div className="grid grid-cols-1 gap-2 lg:sticky lg:top-4">
             <Button variant="outline" className="h-auto py-3 justify-start" onClick={() => addStep("warmup")}>
               <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("warmup")}`} />
               <Plus className="h-3 w-3 mr-1" />
@@ -1232,7 +1232,7 @@ function StepsCard({
             </Button>
             <Button
               variant="outline"
-              className="h-auto py-3 justify-start col-span-2"
+              className="h-auto py-3 justify-start"
               onClick={() => addStep("strides")}
             >
               <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("strides")}`} />
