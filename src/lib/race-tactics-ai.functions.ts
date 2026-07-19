@@ -227,29 +227,21 @@ export const generateRaceStrategySuggestion = createServerFn({ method: "POST" })
     return row;
   });
 
-// The one model call below is capped at 60s and fails with a clear
-// message instead of hanging indefinitely if the provider is slow or stuck.
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout>;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`${label} took too long (over ${Math.round(ms / 1000)}s) — the AI provider may be slow right now. Try again in a moment.`)),
-      ms,
-    );
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer!)) as Promise<T>;
-}
-
-// Always uses generateText, never generateObject. Two 90s timeouts in a
-// row (even after raising the budget) pointed to generateObject's
-// structured/tool-calling mode itself not being reliably supported by
-// the Lovable AI Gateway — not just needing more time. Every other AI
-// feature in this app (chat, reviews, notes) already uses plain
-// generateText successfully through that same gateway, so this drops the
-// untested path entirely rather than continuing to tune timeouts around
-// it. The schema/normalization/coercion work already built stays exactly
-// as useful here — it's just always doing the parsing, not just as a
-// fallback.
+// Always uses generateText, never generateObject — structured/tool-calling
+// mode wasn't reliably supported through the Lovable AI Gateway (repeated
+// timeouts even at generous budgets). This asks explicitly for JSON, then
+// parses/normalizes/validates that text with the deliberately lenient
+// schema above.
+//
+// The AI SDK retries a slow/failed call automatically by default (2 extra
+// attempts on top of the first). If a single attempt is already
+// borderline slow, 2-3 stacked attempts easily exceed any timeout — and
+// worse, the Promise.race-based timeout this function used before never
+// actually cancelled anything; it just gave up *waiting*, while the real
+// request (and its retries) kept running in the background regardless of
+// what ceiling was set. Two fixes here: maxRetries: 0 on the call itself,
+// and a genuine AbortController tied to the timeout so a timed-out
+// request is actually stopped, not just ignored.
 async function generateSuggestion({
   generateText,
   model,
@@ -259,17 +251,29 @@ async function generateSuggestion({
   model: any;
   prompt: string;
 }): Promise<Suggestion> {
-  const textResult = await withTimeout(
-    generateText({
+  const TIMEOUT_MS = 75_000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+  let textResult;
+  try {
+    textResult = await generateText({
       model,
       system:
         RACE_STRATEGY_SYSTEM_PROMPT +
         `\n\nRespond with ONLY a single JSON object (no markdown code fences, no commentary before or after) with exactly these keys: primaryStrategy, primaryStrategyLabel, reasoning, risks, alternativeStrategy, alternativeStrategyLabel, alternativeReasoning, suggestedSplits (array of {cumulativeDistanceM, segmentTimeSeconds}), tacticalDecisionPoints (array of {distanceM, trigger, action}).`,
       prompt,
-    }),
-    120_000,
-    "Generating the suggestion",
-  );
+      maxRetries: 0,
+      abortSignal: controller.signal,
+    });
+  } catch (err) {
+    if (controller.signal.aborted) {
+      throw new Error(`Generating the suggestion took too long (over ${Math.round(TIMEOUT_MS / 1000)}s) — the AI provider may be slow right now. Try again in a moment.`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 
   const cleaned = textResult.text
     .trim()
