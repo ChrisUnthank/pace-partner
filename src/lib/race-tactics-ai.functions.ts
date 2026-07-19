@@ -1,6 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { buildAthletePayload } from "./ai.functions";
 import { z } from "zod";
 
 // Phase 12 — AI-Assisted Race Strategy.
@@ -157,27 +156,16 @@ export const generateRaceStrategySuggestion = createServerFn({ method: "POST" })
         .select("observation, source_type")
         .eq("athlete_id", athleteId)
         .order("created_at", { ascending: false })
-        .limit(8),
+        .limit(6),
       sb.from("athlete_zone_profiles").select("pace_threshold_sec_per_km, hr_threshold, vdot").eq("athlete_id", athleteId).maybeSingle(),
       sb
         .from("performances")
         .select("distance_m, time_seconds, performance_date, event_name")
         .eq("athlete_id", athleteId)
         .order("time_seconds", { ascending: true })
-        .limit(12),
+        .limit(8),
       sb.from("race_tactics_decision_points").select("distance_m, trigger_text, action_text").eq("plan_id", data.planId),
     ]);
-
-    // Existing per-athlete training-load/vitals payload already used by
-    // reviews/chat/notes — reused rather than rebuilt. Wrapped in try/catch
-    // so a hiccup building the general payload doesn't block the
-    // race-tactics-specific context, which matters more here.
-    let trainingContext: any = null;
-    try {
-      trainingContext = await buildAthletePayload({ data: { athleteId } });
-    } catch {
-      trainingContext = null;
-    }
 
     const physio = physioRes.data as any;
     const contextPayload = {
@@ -208,7 +196,6 @@ export const generateRaceStrategySuggestion = createServerFn({ method: "POST" })
       raceProfileObservations: raceObsRes.data ?? [],
       recentPerformances: perfRes.data ?? [],
       existingDecisionPointsOnThisPlan: decisionRes.data ?? [],
-      generalTrainingContext: trainingContext,
     };
 
     const { generateText } = await import("ai");
@@ -280,7 +267,7 @@ async function generateSuggestion({
         `\n\nRespond with ONLY a single JSON object (no markdown code fences, no commentary before or after) with exactly these keys: primaryStrategy, primaryStrategyLabel, reasoning, risks, alternativeStrategy, alternativeStrategyLabel, alternativeReasoning, suggestedSplits (array of {cumulativeDistanceM, segmentTimeSeconds}), tacticalDecisionPoints (array of {distanceM, trigger, action}).`,
       prompt,
     }),
-    60_000,
+    120_000,
     "Generating the suggestion",
   );
 
