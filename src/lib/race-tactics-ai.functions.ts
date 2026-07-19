@@ -47,25 +47,47 @@ async function requireAi(sb: any, userId: string) {
 }
 
 const STRATEGY_ENUM = ["even_pace", "negative_split", "positive_split", "fast_start", "controlled_start"] as const;
+type StrategyValue = (typeof STRATEGY_ENUM)[number];
 
+// Coerces whatever the model actually returned (which — especially via
+// the Gemini/gateway path coaches use by default — can drift from an
+// exact literal like "negative_split" to "Negative Split" or similar)
+// into a real strategy value, falling back to even_pace rather than
+// failing the whole suggestion over one field.
+function coerceStrategy(v: unknown): StrategyValue {
+  const norm = String(v ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return (STRATEGY_ENUM as readonly string[]).includes(norm) ? (norm as StrategyValue) : "even_pace";
+}
+
+// Deliberately z.string() rather than z.enum() for the two strategy
+// fields — an enum makes the ENTIRE generation fail validation if the
+// model's wording is even slightly off, which is exactly the failure
+// mode being fixed here. coerceStrategy() above does the real
+// enforcement, after generation, where a mismatch can be corrected
+// instead of aborting everything.
 const SuggestionSchema = z.object({
-  primaryStrategy: z.enum(STRATEGY_ENUM),
+  primaryStrategy: z.string().describe("Exactly one of: even_pace, negative_split, positive_split, fast_start, controlled_start"),
   primaryStrategyLabel: z.string().describe("Short human-readable name, e.g. 'Controlled Opening'"),
   reasoning: z.string().describe("Why this strategy fits this specific athlete and race, referencing the actual data given"),
   risks: z.string().describe("Concrete risks of this strategy for this athlete"),
-  alternativeStrategy: z.enum(STRATEGY_ENUM),
+  alternativeStrategy: z.string().describe("Exactly one of: even_pace, negative_split, positive_split, fast_start, controlled_start"),
   alternativeStrategyLabel: z.string(),
   alternativeReasoning: z.string(),
   suggestedSplits: z
     .array(z.object({ cumulativeDistanceM: z.number(), segmentTimeSeconds: z.number() }))
+    .default([])
     .describe("A rough split shape illustrating the strategy — for illustration, not necessarily matching the plan's own split increment"),
   tacticalDecisionPoints: z
     .array(z.object({ distanceM: z.number(), trigger: z.string(), action: z.string() }))
     .max(6)
+    .default([])
     .describe("2-6 concrete if/then tactical triggers appropriate to this exact race distance and athlete"),
 });
+type Suggestion = z.infer<typeof SuggestionSchema>;
 
-const RACE_STRATEGY_SYSTEM_PROMPT = `You are an experienced middle-distance and distance running coach, specializing in race tactics and pacing strategy. You are given a specific race a coach is planning for one of their athletes, along with that athlete's performance history, strengths, and race-tactical tendencies. Recommend one primary pacing strategy and one alternative, each with reasoning tied specifically to the data given — never generic advice that could apply to any athlete. Flag concrete risks of the primary strategy. Suggest 2-6 tactical decision points (distance, trigger, action) appropriate to this exact race distance and this athlete's known tendencies. If the data given is sparse for a signal, say so plainly in your reasoning rather than inventing a pattern that isn't there.`;
+const RACE_STRATEGY_SYSTEM_PROMPT = `You are an experienced middle-distance and distance running coach, specializing in race tactics and pacing strategy. You are given a specific race a coach is planning for one of their athletes, along with that athlete's performance history, strengths, and race-tactical tendencies. Recommend one primary pacing strategy and one alternative, each with reasoning tied specifically to the data given — never generic advice that could apply to any athlete. Flag concrete risks of the primary strategy. Suggest 2-6 tactical decision points (distance, trigger, action) appropriate to this exact race distance and this athlete's known tendencies. If the data given is sparse for a signal, say so plainly in your reasoning rather than inventing a pattern that isn't there.
+
+For primaryStrategy and alternativeStrategy, output EXACTLY one of these five literal lowercase strings, with underscores, nothing else: even_pace, negative_split, positive_split, fast_start, controlled_start. Put the friendly name (e.g. "Controlled Opening") only in primaryStrategyLabel/alternativeStrategyLabel, never in the strategy fields themselves.`;
 
 export const generateRaceStrategySuggestion = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -145,26 +167,22 @@ export const generateRaceStrategySuggestion = createServerFn({ method: "POST" })
       generalTrainingContext: trainingContext,
     };
 
-    const { generateObject } = await import("ai");
+    const { generateObject, generateText } = await import("ai");
     const { resolveChatModel } = await import("./ai-gateway.server");
+    const model = resolveChatModel(access.anthropicKey);
+    const prompt = `Suggest a race strategy for this athlete. Data:\n${JSON.stringify(contextPayload)}`;
 
-    const result = await generateObject({
-      model: resolveChatModel(access.anthropicKey),
-      system: RACE_STRATEGY_SYSTEM_PROMPT,
-      schema: SuggestionSchema,
-      prompt: `Suggest a race strategy for this athlete. Data:\n${JSON.stringify(contextPayload)}`,
-    });
+    const s = await generateSuggestion({ generateObject, generateText, model, prompt });
 
-    const s = result.object;
     const { data: row, error } = await sb
       .from("race_tactics_ai_suggestions")
       .insert({
         plan_id: data.planId,
-        primary_strategy: s.primaryStrategy,
+        primary_strategy: coerceStrategy(s.primaryStrategy),
         primary_strategy_label: s.primaryStrategyLabel,
         reasoning: s.reasoning,
         risks: s.risks,
-        alternative_strategy: s.alternativeStrategy,
+        alternative_strategy: coerceStrategy(s.alternativeStrategy),
         alternative_strategy_label: s.alternativeStrategyLabel,
         alternative_reasoning: s.alternativeReasoning,
         suggested_splits: s.suggestedSplits,
@@ -177,6 +195,62 @@ export const generateRaceStrategySuggestion = createServerFn({ method: "POST" })
     if (error) throw error;
     return row;
   });
+
+// Tries structured generateObject first (best case: clean, schema-checked
+// output in one call). If the model's output doesn't validate — the
+// exact "did not match schema" failure this function exists to survive —
+// falls back to a plain generateText call asking for raw JSON, strips
+// any markdown code-fence the model might wrap it in, and validates that
+// with the same schema instead. Only throws a user-facing error if both
+// paths fail, and that error says so plainly rather than surfacing the
+// SDK's internal validation message.
+async function generateSuggestion({
+  generateObject,
+  generateText,
+  model,
+  prompt,
+}: {
+  generateObject: typeof import("ai").generateObject;
+  generateText: typeof import("ai").generateText;
+  model: any;
+  prompt: string;
+}): Promise<Suggestion> {
+  try {
+    const result = await generateObject({
+      model,
+      system: RACE_STRATEGY_SYSTEM_PROMPT,
+      schema: SuggestionSchema,
+      prompt,
+    });
+    return result.object;
+  } catch (structuredError) {
+    const textResult = await generateText({
+      model,
+      system:
+        RACE_STRATEGY_SYSTEM_PROMPT +
+        `\n\nRespond with ONLY a single JSON object (no markdown code fences, no commentary before or after) with exactly these keys: primaryStrategy, primaryStrategyLabel, reasoning, risks, alternativeStrategy, alternativeStrategyLabel, alternativeReasoning, suggestedSplits (array of {cumulativeDistanceM, segmentTimeSeconds}), tacticalDecisionPoints (array of {distanceM, trigger, action}).`,
+      prompt,
+    });
+
+    const cleaned = textResult.text
+      .trim()
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/```\s*$/i, "");
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch {
+      throw new Error("The AI's response wasn't valid JSON. Try generating again.");
+    }
+
+    const validated = SuggestionSchema.safeParse(parsed);
+    if (!validated.success) {
+      throw new Error("The AI's response didn't include everything needed for a suggestion. Try generating again.");
+    }
+    return validated.data;
+  }
+}
 
 export const listRaceStrategySuggestions = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
