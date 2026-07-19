@@ -56,6 +56,7 @@ export interface AthleteConfig {
   tagline: string;
   disciplines: string[];
   heroImageUrl: string;
+  heroImagePosition: { x: number; y: number };
   bio: string;
   achievements: string[];
   stats: { label: string; value: string }[];
@@ -186,6 +187,7 @@ export const defaultAthleteConfig: AthleteConfig = {
   tagline: "Chasing a sub-4:10 1500m and a spot on the state team",
   disciplines: ["Track", "1500m", "5000m"],
   heroImageUrl: "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=1200&q=80",
+  heroImagePosition: { x: 50, y: 50 },
   bio: "Middle-distance runner training under redLINE Running. Full-time student, training twice a day when the block calls for it.",
   achievements: ["State championships finalist, 1500m", "Personal best: 4:19.8 (1500m)"],
   stats: [
@@ -260,6 +262,10 @@ export function athleteRowToConfig(
     tagline: profileRow.tagline || "",
     disciplines: asArray<string>(profileRow.disciplines),
     heroImageUrl: profileRow.hero_image_url || d.heroImageUrl,
+    heroImagePosition: {
+      x: typeof profileRow.hero_image_position_x === "number" ? profileRow.hero_image_position_x : 50,
+      y: typeof profileRow.hero_image_position_y === "number" ? profileRow.hero_image_position_y : 50,
+    },
     bio: profileRow.bio || "",
     achievements: asArray<string>(profileRow.achievements),
     stats: asArray(profileRow.stats).map((s: any) => ({
