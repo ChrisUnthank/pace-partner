@@ -159,6 +159,11 @@ export function RaceProfileCard({ athleteId }: { athleteId: string }) {
             </CardDescription>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            <Button asChild size="sm" variant="ghost">
+              <Link to="/app/athletes/$athleteId/race-history" params={{ athleteId }}>
+                Race History
+              </Link>
+            </Button>
             {canAdd && (
               <Button asChild size="sm" variant="outline">
                 <Link to="/app/race-tactics/new" search={{ athleteId }}>
