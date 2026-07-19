@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { secToClock, clockToSec, metersFmt, roundDistanceForDisplay, roundRecoverySeconds } from "@/lib/format";
 import { sessionClassificationLabel } from "@/lib/session-categories";
+import { stepKindBarClass, stepKindTextClass } from "@/lib/step-kind-colors";
 import { saveSessionAsTemplate } from "@/lib/templates";
 import { useAuthUser, useMyRoles } from "@/lib/use-auth";
 import {
@@ -1792,6 +1793,17 @@ function WorkoutStructureOrderEditor({ session, steps, qc }: { session: any; ste
         Drag any block — warmup, work, recovery, or cooldown — to reorder the session. Use the dropdown to change a
         block's type, or the buttons below to add or remove a block. Changes save immediately.
       </p>
+
+      <div className="flex flex-wrap gap-2 pb-1 border-b">
+        {(["warmup", "strides", "work", "recovery", "cooldown"] as const).map((kind) => (
+          <Button key={kind} variant="outline" size="sm" disabled={saving} onClick={() => addBlock(kind)}>
+            <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass(kind)}`} />
+            <Plus className="h-3 w-3 mr-1" />
+            {BLOCK_KIND_LABEL[kind]}
+          </Button>
+        ))}
+      </div>
+
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={localSteps.map((s) => s.id)} strategy={verticalListSortingStrategy}>
           {localSteps.map((step, i) => (
@@ -1807,15 +1819,6 @@ function WorkoutStructureOrderEditor({ session, steps, qc }: { session: any; ste
           ))}
         </SortableContext>
       </DndContext>
-
-      <div className="flex flex-wrap gap-2 pt-1">
-        {(["warmup", "strides", "work", "recovery", "cooldown"] as const).map((kind) => (
-          <Button key={kind} variant="outline" size="sm" disabled={saving} onClick={() => addBlock(kind)}>
-            <Plus className="h-3 w-3 mr-1" />
-            {BLOCK_KIND_LABEL[kind]}
-          </Button>
-        ))}
-      </div>
 
       <Dialog open={!!blockToDelete} onOpenChange={(open) => !open && setBlockToDelete(null)}>
         <DialogContent>
@@ -1862,36 +1865,39 @@ function SortableStructureRow({
     opacity: isDragging ? 0.5 : 1,
   };
   return (
-    <div ref={setNodeRef} style={style} className="border rounded-md px-3 py-2.5 flex items-center gap-3 bg-background">
-      <button
-        type="button"
-        className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-        disabled={disabled}
-        {...attributes}
-        {...listeners}
-        aria-label="Drag to reorder"
-      >
-        <GripVertical className="h-4 w-4" />
-      </button>
-      <span className="text-sm text-muted-foreground w-5 shrink-0 tabular-nums">{position}.</span>
-      <span className="text-sm font-medium flex-1">{stepStructureSummary(step)}</span>
+    <div ref={setNodeRef} style={style} className="flex items-stretch gap-3 border rounded-md bg-background overflow-hidden">
+      <div className={`w-1.5 shrink-0 ${stepKindBarClass(step.kind)}`} />
+      <div className="flex-1 min-w-0 px-3 py-2.5 flex items-center gap-3">
+        <button
+          type="button"
+          className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+          disabled={disabled}
+          {...attributes}
+          {...listeners}
+          aria-label="Drag to reorder"
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+        <span className="text-sm text-muted-foreground w-5 shrink-0 tabular-nums">{position}.</span>
+        <span className={`text-sm font-medium flex-1 ${stepKindTextClass(step.kind)}`}>{stepStructureSummary(step)}</span>
 
-      <Select value={step.kind} onValueChange={onReassignKind}>
-        <SelectTrigger className="h-7 w-[110px] text-xs shrink-0" disabled={disabled}>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="warmup">Warmup</SelectItem>
-          <SelectItem value="work">Work</SelectItem>
-          <SelectItem value="recovery">Recovery</SelectItem>
-          <SelectItem value="cooldown">Cooldown</SelectItem>
-          <SelectItem value="strides">Strides</SelectItem>
-        </SelectContent>
-      </Select>
+        <Select value={step.kind} onValueChange={onReassignKind}>
+          <SelectTrigger className="h-7 w-[110px] text-xs shrink-0" disabled={disabled}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="warmup">Warmup</SelectItem>
+            <SelectItem value="work">Work</SelectItem>
+            <SelectItem value="recovery">Recovery</SelectItem>
+            <SelectItem value="cooldown">Cooldown</SelectItem>
+            <SelectItem value="strides">Strides</SelectItem>
+          </SelectContent>
+        </Select>
 
-      <Button size="sm" variant="ghost" className="shrink-0" disabled={disabled} onClick={onRequestDelete}>
-        <Trash2 className="h-4 w-4" />
-      </Button>
+        <Button size="sm" variant="ghost" className="shrink-0" disabled={disabled} onClick={onRequestDelete}>
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
     </div>
   );
 }
