@@ -65,25 +65,66 @@ function coerceStrategy(v: unknown): StrategyValue {
 // mode being fixed here. coerceStrategy() above does the real
 // enforcement, after generation, where a mismatch can be corrected
 // instead of aborting everything.
+//
+// z.coerce.number() rather than z.number() on every numeric field below —
+// models frequently return numbers as quoted strings ("300" instead of
+// 300) in JSON output, which z.number() rejects outright and z.coerce
+// silently fixes. Every field except primaryStrategyLabel/reasoning is
+// optional with a default, since those two are the only ones actually
+// essential to showing a suggestion at all — a missing "risks" or empty
+// decision-points array shouldn't fail the whole thing.
 const SuggestionSchema = z.object({
-  primaryStrategy: z.string().describe("Exactly one of: even_pace, negative_split, positive_split, fast_start, controlled_start"),
-  primaryStrategyLabel: z.string().describe("Short human-readable name, e.g. 'Controlled Opening'"),
-  reasoning: z.string().describe("Why this strategy fits this specific athlete and race, referencing the actual data given"),
-  risks: z.string().describe("Concrete risks of this strategy for this athlete"),
-  alternativeStrategy: z.string().describe("Exactly one of: even_pace, negative_split, positive_split, fast_start, controlled_start"),
-  alternativeStrategyLabel: z.string(),
-  alternativeReasoning: z.string(),
+  primaryStrategy: z.string().default("even_pace").describe("Exactly one of: even_pace, negative_split, positive_split, fast_start, controlled_start"),
+  primaryStrategyLabel: z.string().min(1).describe("Short human-readable name, e.g. 'Controlled Opening'"),
+  reasoning: z.string().min(1).describe("Why this strategy fits this specific athlete and race, referencing the actual data given"),
+  risks: z.string().default("").describe("Concrete risks of this strategy for this athlete"),
+  alternativeStrategy: z.string().default("even_pace").describe("Exactly one of: even_pace, negative_split, positive_split, fast_start, controlled_start"),
+  alternativeStrategyLabel: z.string().default(""),
+  alternativeReasoning: z.string().default(""),
   suggestedSplits: z
-    .array(z.object({ cumulativeDistanceM: z.number(), segmentTimeSeconds: z.number() }))
+    .array(z.object({ cumulativeDistanceM: z.coerce.number(), segmentTimeSeconds: z.coerce.number() }))
     .default([])
     .describe("A rough split shape illustrating the strategy — for illustration, not necessarily matching the plan's own split increment"),
   tacticalDecisionPoints: z
-    .array(z.object({ distanceM: z.number(), trigger: z.string(), action: z.string() }))
+    .array(z.object({ distanceM: z.coerce.number(), trigger: z.string().default(""), action: z.string().default("") }))
     .max(6)
     .default([])
     .describe("2-6 concrete if/then tactical triggers appropriate to this exact race distance and athlete"),
 });
 type Suggestion = z.infer<typeof SuggestionSchema>;
+
+// Some models nest the payload (e.g. {"suggestion": {...}}) or use
+// snake_case despite instructions. Unwraps a single nesting level and
+// remaps common snake_case variants to the camelCase keys the schema
+// expects, before validation — cheap to try, and turns an otherwise
+// total failure into a working suggestion.
+function normalizeForSchema(input: unknown): unknown {
+  if (input == null || typeof input !== "object") return input;
+  let obj = input as Record<string, unknown>;
+  const wrapperKeys = ["suggestion", "result", "data", "output"];
+  for (const k of wrapperKeys) {
+    if (obj[k] && typeof obj[k] === "object" && !Array.isArray(obj[k])) {
+      obj = obj[k] as Record<string, unknown>;
+      break;
+    }
+  }
+  const keyMap: Record<string, string> = {
+    primary_strategy: "primaryStrategy",
+    primary_strategy_label: "primaryStrategyLabel",
+    alternative_strategy: "alternativeStrategy",
+    alternative_strategy_label: "alternativeStrategyLabel",
+    alternative_reasoning: "alternativeReasoning",
+    suggested_splits: "suggestedSplits",
+    tactical_decision_points: "tacticalDecisionPoints",
+  };
+  const remapped: Record<string, unknown> = { ...obj };
+  for (const [snake, camel] of Object.entries(keyMap)) {
+    if (remapped[snake] !== undefined && remapped[camel] === undefined) {
+      remapped[camel] = remapped[snake];
+    }
+  }
+  return remapped;
+}
 
 const RACE_STRATEGY_SYSTEM_PROMPT = `You are an experienced middle-distance and distance running coach, specializing in race tactics and pacing strategy. You are given a specific race a coach is planning for one of their athletes, along with that athlete's performance history, strengths, and race-tactical tendencies. Recommend one primary pacing strategy and one alternative, each with reasoning tied specifically to the data given — never generic advice that could apply to any athlete. Flag concrete risks of the primary strategy. Suggest 2-6 tactical decision points (distance, trigger, action) appropriate to this exact race distance and this athlete's known tendencies. If the data given is sparse for a signal, say so plainly in your reasoning rather than inventing a pattern that isn't there.
 
@@ -272,12 +313,13 @@ async function generateSuggestion({
     try {
       parsed = JSON.parse(cleaned);
     } catch {
-      throw new Error("The AI's response wasn't valid JSON. Try generating again.");
+      throw new Error(`The AI's response wasn't valid JSON. Raw response (truncated): ${cleaned.slice(0, 300)}`);
     }
 
-    const validated = SuggestionSchema.safeParse(parsed);
+    const validated = SuggestionSchema.safeParse(normalizeForSchema(parsed));
     if (!validated.success) {
-      throw new Error("The AI's response didn't include everything needed for a suggestion. Try generating again.");
+      const issues = validated.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ");
+      throw new Error(`The AI's response was missing required fields (${issues}). Raw response (truncated): ${cleaned.slice(0, 300)}`);
     }
     return validated.data;
   }
