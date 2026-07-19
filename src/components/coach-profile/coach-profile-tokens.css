@@ -23,6 +23,7 @@
 [data-coach-root][data-theme="light"] {
   --bg: #fafaf7;
   --bg-elevated: #ffffff;
+  --bg-alt: #eae6dc;
   --text-primary: #17181a;
   --text-secondary: #6b6560;
   --border: #e4e0d6;
@@ -31,6 +32,7 @@
 [data-coach-root][data-theme="dark"] {
   --bg: #111312;
   --bg-elevated: #191c1b;
+  --bg-alt: #222524;
   --text-primary: #f2f0ea;
   --text-secondary: #9c9890;
   --border: #2b2e2c;
