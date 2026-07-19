@@ -44,6 +44,41 @@ function useCoachedAthletes(coachUserId: string | undefined) {
   });
 }
 
+// Blog posts live in their own table (coach_blog_posts) rather than as a
+// jsonb array on coach_profiles — unlike sample sessions/plans/testimonials,
+// a post's `content` can grow arbitrarily long, and giving each post its own
+// row/id keeps future features (a dedicated post URL, view counts, etc.)
+// possible without a schema change later.
+function useCoachBlogPosts(coachUserId: string | undefined) {
+  return useQuery({
+    queryKey: ["coach-blog-posts", coachUserId],
+    enabled: !!coachUserId,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("coach_blog_posts")
+        .select("*")
+        .eq("coach_user_id", coachUserId)
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+}
+
+const SECTION_TOGGLES: { key: string; label: string }[] = [
+  { key: "stats", label: "Stats" },
+  { key: "about", label: "About" },
+  { key: "sessions", label: "Sample sessions" },
+  { key: "athletes", label: "Athletes coached" },
+  { key: "gallery", label: "Gallery" },
+  { key: "blog", label: "Blog" },
+  { key: "plans", label: "Coaching plans" },
+  { key: "testimonials", label: "Testimonials" },
+  { key: "sponsors", label: "Sponsors" },
+];
+const DEFAULT_SECTIONS: Record<string, boolean> = Object.fromEntries(SECTION_TOGGLES.map((s) => [s.key, true]));
+
 // Comma-separated helpers for simple array fields
 function toCsv(v: unknown) {
   return Array.isArray(v) ? v.join(", ") : "";
@@ -60,10 +95,17 @@ function CoachEditorPage() {
   const { data: coach, isLoading, error } = useCoachProfile(slug);
   const { user } = useAuthUser();
   const { data: roster, refetch: refetchRoster } = useCoachedAthletes(user?.id);
+  const { data: blogRows, refetch: refetchBlogPosts } = useCoachBlogPosts(user?.id);
 
   const [form, setForm] = useState<any>({});
   const [saving, setSaving] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [blogPosts, setBlogPosts] = useState<any[]>([]);
+  const [savingBlogKey, setSavingBlogKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    setBlogPosts(blogRows ?? []);
+  }, [blogRows]);
 
   async function toggleAthleteVisibility(coachAthleteId: string, next: boolean) {
     setTogglingId(coachAthleteId);
@@ -112,6 +154,94 @@ function CoachEditorPage() {
     setForm({ ...form, plans: form.plans.filter((_: any, idx: number) => idx !== i) });
   }
 
+  function updateTestimonial(i: number, patch: Partial<{ quote: string; author: string }>) {
+    const next = [...(form.testimonials || [])];
+    next[i] = { ...next[i], ...patch };
+    setForm({ ...form, testimonials: next });
+  }
+  function addTestimonial() {
+    setForm({ ...form, testimonials: [...(form.testimonials || []), { quote: "", author: "" }] });
+  }
+  function removeTestimonial(i: number) {
+    setForm({ ...form, testimonials: form.testimonials.filter((_: any, idx: number) => idx !== i) });
+  }
+
+  function updateSponsor(i: number, patch: Partial<{ name: string; logo_url: string; website_url: string }>) {
+    const next = [...(form.sponsors || [])];
+    next[i] = { ...next[i], ...patch };
+    setForm({ ...form, sponsors: next });
+  }
+  function addSponsor() {
+    setForm({ ...form, sponsors: [...(form.sponsors || []), { name: "", logo_url: "", website_url: "" }] });
+  }
+  function removeSponsor(i: number) {
+    setForm({ ...form, sponsors: form.sponsors.filter((_: any, idx: number) => idx !== i) });
+  }
+
+  // Blog posts save independently of the "Save changes" button above (each
+  // post has its own Save/Publish button) — they live in their own table,
+  // not in the coach_profiles row the rest of this form writes to.
+  function updateBlogPost(i: number, patch: Partial<any>) {
+    setBlogPosts((prev) => prev.map((p, idx) => (idx === i ? { ...p, ...patch } : p)));
+  }
+  function addBlogPost() {
+    setBlogPosts((prev) => [
+      {
+        _localId: `new_${Date.now()}`,
+        title: "",
+        excerpt: "",
+        content: "",
+        cover_image_url: "",
+        is_published: true,
+      },
+      ...prev,
+    ]);
+  }
+  async function saveBlogPost(i: number) {
+    const post = blogPosts[i];
+    if (!user) return;
+    const key = post.id ?? post._localId;
+    setSavingBlogKey(key);
+    const payload = {
+      coach_user_id: user.id,
+      title: post.title,
+      excerpt: post.excerpt,
+      content: post.content,
+      cover_image_url: post.cover_image_url || null,
+      is_published: post.is_published,
+    };
+    if (post.id) {
+      const { error } = await (supabase as any).from("coach_blog_posts").update(payload).eq("id", post.id);
+      if (error) {
+        alert(error.message);
+        setSavingBlogKey(null);
+        return;
+      }
+    } else {
+      const { data, error } = await (supabase as any).from("coach_blog_posts").insert(payload).select().single();
+      if (error) {
+        alert(error.message);
+        setSavingBlogKey(null);
+        return;
+      }
+      updateBlogPost(i, { id: data.id });
+    }
+    setSavingBlogKey(null);
+    refetchBlogPosts();
+  }
+  async function deleteBlogPost(i: number) {
+    const post = blogPosts[i];
+    if (post.id) {
+      const { error } = await (supabase as any).from("coach_blog_posts").delete().eq("id", post.id);
+      if (error) {
+        alert(error.message);
+        return;
+      }
+    }
+    setBlogPosts((prev) => prev.filter((_, idx) => idx !== i));
+    refetchBlogPosts();
+  }
+
   useEffect(() => {
     if (coach) {
       const c: any = coach;
@@ -147,6 +277,11 @@ function CoachEditorPage() {
           Array.isArray(c.plans) && c.plans.length
             ? c.plans
             : [{ name: "", price: "", period: "mo", description: "", featured: false }],
+        testimonials:
+          Array.isArray(c.testimonials) && c.testimonials.length ? c.testimonials : [{ quote: "", author: "" }],
+        sponsors: Array.isArray(c.sponsors) ? c.sponsors : [],
+        is_published: !!c.is_published,
+        sections: { ...DEFAULT_SECTIONS, ...(c.sections_enabled || {}) },
       });
     }
   }, [coach]);
@@ -207,6 +342,10 @@ function CoachEditorPage() {
         },
         sample_sessions: (form.sample_sessions || []).filter((s: any) => s.name || s.target || s.purpose),
         plans: (form.plans || []).filter((p: any) => p.name || p.price || p.description),
+        testimonials: (form.testimonials || []).filter((t: any) => t.quote || t.author),
+        sponsors: (form.sponsors || []).filter((s: any) => s.name || s.logo_url || s.website_url),
+        is_published: !!form.is_published,
+        sections_enabled: form.sections || DEFAULT_SECTIONS,
       })
       .eq("id", coach.id);
     setSaving(false);
@@ -218,7 +357,14 @@ function CoachEditorPage() {
       <div className="mx-auto max-w-3xl space-y-6 pb-16">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Coach Page</h1>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={!!form.is_published}
+                onCheckedChange={(v) => setForm({ ...form, is_published: !!v })}
+              />
+              Published
+            </label>
             <Button variant="outline" asChild>
               <a href={`/c/${coach.slug}`} target="_blank" rel="noreferrer">
                 Preview <ExternalLink className="ml-2 h-4 w-4" />
@@ -229,6 +375,36 @@ function CoachEditorPage() {
             </Button>
           </div>
         </div>
+        <p className="-mt-4 text-xs text-muted-foreground">
+          {form.is_published
+            ? "Your page is live at the link above."
+            : "Your page is unpublished — visitors see a placeholder instead of your content. Check \"Published\" and save to go live."}
+        </p>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Sections shown on your page</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Home and Location & contact are always shown. Turn any of these off to hide them, even if you've filled
+              them in.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {SECTION_TOGGLES.map(({ key, label }) => (
+                <label key={key} className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={form.sections ? !!form.sections[key] : true}
+                    onCheckedChange={(v) =>
+                      setForm({ ...form, sections: { ...(form.sections || DEFAULT_SECTIONS), [key]: !!v } })
+                    }
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>
@@ -498,6 +674,180 @@ function CoachEditorPage() {
 
         <Card>
           <CardHeader>
+            <CardTitle className="text-base">Testimonials</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {(form.testimonials || []).map((t: any, i: number) => (
+              <div key={i} className="space-y-2 rounded-md border p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Testimonial {i + 1}</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => removeTestimonial(i)}
+                    className="h-7 px-2 text-destructive"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+                <Field label="Quote">
+                  <Textarea
+                    rows={3}
+                    value={t.quote}
+                    onChange={(e) => updateTestimonial(i, { quote: e.target.value })}
+                    placeholder="The interval sessions actually match what I run on race day now."
+                  />
+                </Field>
+                <Field label="Author">
+                  <Input
+                    value={t.author}
+                    onChange={(e) => updateTestimonial(i, { author: e.target.value })}
+                    placeholder="Sarah K. — 2:58 marathon debut"
+                  />
+                </Field>
+              </div>
+            ))}
+            <Button type="button" variant="outline" size="sm" onClick={addTestimonial}>
+              <Plus className="mr-2 h-3.5 w-3.5" /> Add testimonial
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Blog</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {blogPosts.map((p: any, i: number) => {
+              const key = p.id ?? p._localId;
+              return (
+                <div key={key} className="space-y-2 rounded-md border p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">{p.id ? "Post" : "New post (unsaved)"}</span>
+                    <div className="flex items-center gap-3">
+                      <label className="flex items-center gap-1.5 text-xs">
+                        <Checkbox
+                          checked={!!p.is_published}
+                          onCheckedChange={(v) => updateBlogPost(i, { is_published: !!v })}
+                        />
+                        Published
+                      </label>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => deleteBlogPost(i)}
+                        className="h-7 px-2 text-destructive"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                  <Field label="Title">
+                    <Input
+                      value={p.title}
+                      onChange={(e) => updateBlogPost(i, { title: e.target.value })}
+                      placeholder="How I build a marathon block"
+                    />
+                  </Field>
+                  <Field label="Excerpt (short teaser shown on the card)">
+                    <Textarea
+                      rows={2}
+                      value={p.excerpt}
+                      onChange={(e) => updateBlogPost(i, { excerpt: e.target.value })}
+                    />
+                  </Field>
+                  <Field label="Full content">
+                    <Textarea
+                      rows={6}
+                      value={p.content}
+                      onChange={(e) => updateBlogPost(i, { content: e.target.value })}
+                    />
+                  </Field>
+                  {user && (
+                    <Field label="Cover image (optional)">
+                      <SingleImageUpload
+                        userId={user.id}
+                        value={p.cover_image_url}
+                        onChange={(url) => updateBlogPost(i, { cover_image_url: url })}
+                        label="cover image"
+                      />
+                    </Field>
+                  )}
+                  <Button type="button" size="sm" onClick={() => saveBlogPost(i)} disabled={savingBlogKey === key}>
+                    {savingBlogKey === key ? "Saving…" : p.id ? "Save post" : "Publish post"}
+                  </Button>
+                </div>
+              );
+            })}
+            <Button type="button" variant="outline" size="sm" onClick={addBlogPost}>
+              <Plus className="mr-2 h-3.5 w-3.5" /> Add blog post
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Blog posts save on their own — each post has its own Save/Publish button above, separate from the "Save
+              changes" button at the top of the page.
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Sponsors</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-xs text-muted-foreground">
+              Shown as a "Proudly supported by" strip near the bottom of your page.
+            </p>
+            {(form.sponsors || []).map((s: any, i: number) => (
+              <div key={i} className="space-y-2 rounded-md border p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Sponsor {i + 1}</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => removeSponsor(i)}
+                    className="h-7 px-2 text-destructive"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+                <Field label="Name">
+                  <Input
+                    value={s.name}
+                    onChange={(e) => updateSponsor(i, { name: e.target.value })}
+                    placeholder="Acme Running Co."
+                  />
+                </Field>
+                <Field label="Website URL">
+                  <Input
+                    value={s.website_url}
+                    onChange={(e) => updateSponsor(i, { website_url: e.target.value })}
+                    placeholder="https://acmerunning.com"
+                  />
+                </Field>
+                {user && (
+                  <Field label="Logo">
+                    <SingleImageUpload
+                      userId={user.id}
+                      value={s.logo_url}
+                      onChange={(url) => updateSponsor(i, { logo_url: url })}
+                      label="sponsor logo"
+                      aspect="aspect-square"
+                    />
+                  </Field>
+                )}
+              </div>
+            ))}
+            <Button type="button" variant="outline" size="sm" onClick={addSponsor}>
+              <Plus className="mr-2 h-3.5 w-3.5" /> Add sponsor
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle className="text-base">Location</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
@@ -587,7 +937,7 @@ function CoachEditorPage() {
         </Card>
 
         <p className="text-xs text-muted-foreground">
-          Stats and testimonials aren't editable here yet — happy to add structured editors for those next if useful.
+          Stats aren't editable here yet — happy to add a structured editor for those next if useful.
         </p>
       </div>
     </AppShell>
