@@ -12,12 +12,15 @@ import { z } from "zod";
 // (Anthropic direct if the user has their own key, otherwise the Lovable
 // AI Gateway).
 //
-// One deliberate departure from the rest of the AI features: this uses
-// generateObject (structured, schema-validated output) instead of
-// generateText. Chat replies and reviews are just markdown for a human to
-// read; a race strategy suggestion needs to drive real Accept actions
-// (set the plan's strategy, insert real decision-point rows), so it needs
-// reliably parseable fields, not prose to scrape.
+// Structured output (generateObject) was tried first, since a race
+// strategy suggestion needs to drive real Accept actions (set the plan's
+// strategy, insert real decision-point rows) and so needs reliably
+// parseable fields, not prose to scrape — but that mode wasn't reliably
+// supported through the Lovable AI Gateway (repeated timeouts even at a
+// generous budget). This now uses generateText — the same call every
+// other AI feature in this app (chat, reviews, notes) already uses
+// successfully — asking explicitly for JSON, then parsing/normalizing/
+// validating that text with a deliberately lenient zod schema below.
 //
 // resolveAiAccess/consumeQuotaOrThrow/requireAi in ai.functions.ts aren't
 // exported, so the same logic is duplicated here rather than guess-editing
@@ -208,12 +211,12 @@ export const generateRaceStrategySuggestion = createServerFn({ method: "POST" })
       generalTrainingContext: trainingContext,
     };
 
-    const { generateObject, generateText } = await import("ai");
+    const { generateText } = await import("ai");
     const { resolveChatModel } = await import("./ai-gateway.server");
     const model = resolveChatModel(access.anthropicKey);
     const prompt = `Suggest a race strategy for this athlete. Data:\n${JSON.stringify(contextPayload)}`;
 
-    const s = await generateSuggestion({ generateObject, generateText, model, prompt });
+    const s = await generateSuggestion({ generateText, model, prompt });
 
     const { data: row, error } = await sb
       .from("race_tactics_ai_suggestions")
@@ -237,12 +240,8 @@ export const generateRaceStrategySuggestion = createServerFn({ method: "POST" })
     return row;
   });
 
-// No call in this function had a timeout before — a slow or stuck
-// response from the model provider would just hang indefinitely, which
-// is very likely what was actually happening (a genuine schema mismatch
-// fails in a few seconds; hanging for minutes is a different problem).
-// Every model call below is now capped at 45s and fails with a clear
-// message instead.
+// The one model call below is capped at 60s and fails with a clear
+// message instead of hanging indefinitely if the provider is slow or stuck.
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
   const timeout = new Promise<never>((_, reject) => {
@@ -254,75 +253,55 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer!)) as Promise<T>;
 }
 
-// True only for a genuine "the model's output didn't match the schema"
-// failure — the AI SDK's own error class/name for that case. Anything
-// else (network error, timeout, auth failure, rate limit) is rethrown
-// immediately instead of falling back, since a second slow call is very
-// unlikely to succeed where the network/provider itself is the problem,
-// and would just double the wait before the user sees anything.
-function isSchemaValidationError(err: unknown): boolean {
-  const name = (err as any)?.name;
-  return name === "AI_NoObjectGeneratedError" || name === "NoObjectGeneratedError" || name === "AI_TypeValidationError";
-}
-
-// Tries structured generateObject first (best case: clean, schema-checked
-// output in one call). Only if that fails with a genuine schema
-// validation error does it fall back to a plain generateText call asking
-// for raw JSON, stripping any markdown code-fence the model might wrap it
-// in and validating that with the same schema. Any other kind of failure
-// (network, timeout, auth) is surfaced immediately rather than retried.
+// Always uses generateText, never generateObject. Two 90s timeouts in a
+// row (even after raising the budget) pointed to generateObject's
+// structured/tool-calling mode itself not being reliably supported by
+// the Lovable AI Gateway — not just needing more time. Every other AI
+// feature in this app (chat, reviews, notes) already uses plain
+// generateText successfully through that same gateway, so this drops the
+// untested path entirely rather than continuing to tune timeouts around
+// it. The schema/normalization/coercion work already built stays exactly
+// as useful here — it's just always doing the parsing, not just as a
+// fallback.
 async function generateSuggestion({
-  generateObject,
   generateText,
   model,
   prompt,
 }: {
-  generateObject: typeof import("ai").generateObject;
   generateText: typeof import("ai").generateText;
   model: any;
   prompt: string;
 }): Promise<Suggestion> {
+  const textResult = await withTimeout(
+    generateText({
+      model,
+      system:
+        RACE_STRATEGY_SYSTEM_PROMPT +
+        `\n\nRespond with ONLY a single JSON object (no markdown code fences, no commentary before or after) with exactly these keys: primaryStrategy, primaryStrategyLabel, reasoning, risks, alternativeStrategy, alternativeStrategyLabel, alternativeReasoning, suggestedSplits (array of {cumulativeDistanceM, segmentTimeSeconds}), tacticalDecisionPoints (array of {distanceM, trigger, action}).`,
+      prompt,
+    }),
+    60_000,
+    "Generating the suggestion",
+  );
+
+  const cleaned = textResult.text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/```\s*$/i, "");
+
+  let parsed: unknown;
   try {
-    const result = await withTimeout(
-      generateObject({ model, system: RACE_STRATEGY_SYSTEM_PROMPT, schema: SuggestionSchema, prompt }),
-      90_000,
-      "Generating the suggestion",
-    );
-    return result.object;
-  } catch (structuredError) {
-    if (!isSchemaValidationError(structuredError)) throw structuredError;
-
-    const textResult = await withTimeout(
-      generateText({
-        model,
-        system:
-          RACE_STRATEGY_SYSTEM_PROMPT +
-          `\n\nRespond with ONLY a single JSON object (no markdown code fences, no commentary before or after) with exactly these keys: primaryStrategy, primaryStrategyLabel, reasoning, risks, alternativeStrategy, alternativeStrategyLabel, alternativeReasoning, suggestedSplits (array of {cumulativeDistanceM, segmentTimeSeconds}), tacticalDecisionPoints (array of {distanceM, trigger, action}).`,
-        prompt,
-      }),
-      45_000,
-      "Generating the fallback suggestion",
-    );
-
-    const cleaned = textResult.text
-      .trim()
-      .replace(/^```(?:json)?\s*/i, "")
-      .replace(/```\s*$/i, "");
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(cleaned);
-    } catch {
-      throw new Error(`The AI's response wasn't valid JSON. Raw response (truncated): ${cleaned.slice(0, 300)}`);
-    }
-
-    const validated = SuggestionSchema.safeParse(normalizeForSchema(parsed));
-    if (!validated.success) {
-      const issues = validated.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ");
-      throw new Error(`The AI's response was missing required fields (${issues}). Raw response (truncated): ${cleaned.slice(0, 300)}`);
-    }
-    return validated.data;
+    parsed = JSON.parse(cleaned);
+  } catch {
+    throw new Error(`The AI's response wasn't valid JSON. Raw response (truncated): ${cleaned.slice(0, 300)}`);
   }
+
+  const validated = SuggestionSchema.safeParse(normalizeForSchema(parsed));
+  if (!validated.success) {
+    const issues = validated.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ");
+    throw new Error(`The AI's response was missing required fields (${issues}). Raw response (truncated): ${cleaned.slice(0, 300)}`);
+  }
+  return validated.data;
 }
 
 export const listRaceStrategySuggestions = createServerFn({ method: "GET" })
