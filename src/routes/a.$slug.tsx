@@ -30,7 +30,7 @@ function useAthleteProfile(slug: string) {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("athlete_profiles")
-        .select("*, athletes ( id, name, primary_event, profile_image_url, user_id )")
+        .select("*, athletes ( id, name, primary_event, profile_image_url, user_id, club )")
         .eq("slug", slug)
         .maybeSingle();
       if (error) throw error;
@@ -114,6 +114,39 @@ function usePublicGoal(athleteId: string | undefined) {
         distanceM: data.distance_m ?? undefined,
         targetTimeSeconds: data.target_time_seconds ?? undefined,
       };
+    },
+  });
+}
+
+// Who coaches this athlete, for the "Coached by" line in the hero.
+// coach_profiles has no RLS (an intentional open table — see the coach
+// page's own migration notes), so this reads fine via the anon key
+// without any extra grants. Only links to a coach's page when they've
+// actually published one — otherwise their name shows as plain text
+// rather than linking to a page a visitor can't see.
+function useCoaches(athleteId: string | undefined) {
+  return useQuery({
+    queryKey: ["athlete-profile-public-coaches", athleteId],
+    enabled: !!athleteId,
+    queryFn: async () => {
+      const { data: links, error: e1 } = await (supabase as any)
+        .from("coach_athletes")
+        .select("coach_user_id")
+        .eq("athlete_id", athleteId);
+      if (e1) throw e1;
+      const coachIds = [...new Set((links ?? []).map((l: any) => l.coach_user_id))];
+      if (!coachIds.length) return [];
+      const { data: profiles, error: e2 } = await (supabase as any)
+        .from("coach_profiles")
+        .select("name, team_name, slug, is_published")
+        .in("coach_user_id", coachIds);
+      if (e2) throw e2;
+      return (profiles ?? []).map((c: any) => ({
+        name: c.name,
+        teamName: c.team_name ?? undefined,
+        slug: c.slug ?? undefined,
+        isPublished: !!c.is_published,
+      }));
     },
   });
 }
@@ -223,6 +256,7 @@ function PublicAthleteProfileRoute() {
   const athlete = row?.athletes;
   const { data: results } = usePublicRaceResults(athlete?.id);
   const { data: goal } = usePublicGoal(athlete?.id);
+  const { data: coaches } = useCoaches(athlete?.id);
   const manualAdded = row?.training_partners_added ?? [];
   const hiddenIds = row?.training_partners_hidden_ids ?? [];
   const { data: trainingPartners } = useTrainingPartners(athlete?.id, manualAdded, hiddenIds);
@@ -246,6 +280,7 @@ function PublicAthleteProfileRoute() {
     goal: goal ?? null,
     trainingPartners: trainingPartners ?? [],
     blogPosts: blogPosts ?? [],
+    coaches: coaches ?? [],
   }) ?? defaultAthleteConfig;
 
   const isOwnerPreview = !!user && (user.id === athlete.user_id || !!isCoachViewer);
