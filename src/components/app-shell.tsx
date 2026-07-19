@@ -27,6 +27,7 @@ import {
   ListChecks,
   FileText,
   Flag,
+  Globe,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NotificationBell } from "@/components/notification-bell";
@@ -86,6 +87,13 @@ export function AppShell({ children }: { children: ReactNode }) {
       label: "Coach Profile",
       icon: IdCard,
       show: isCoach,
+    },
+
+    {
+      to: "/app/athlete",
+      label: "Athlete Page",
+      icon: Globe,
+      show: isAthlete || isCoach,
     },
 
     { to: "/app/profile", label: "Profile", icon: User2, show: true },
