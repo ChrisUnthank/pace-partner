@@ -625,29 +625,25 @@ function NewSession() {
         </Card>
 
         {dayType !== "cross_training" && (
-          <div className="flex justify-end">
-            <div className="w-full lg:w-[38%] lg:min-w-[420px]">
-              <StepsCard
-                steps={steps}
-                structure={structure}
-                updateStep={updateStep}
-                removeStep={removeStep}
-                addStep={addStep}
-                moveStep={moveStep}
-                reorder={(uids) =>
-                  setSteps((prev) => {
-                    // uids = new order of middle uids; warmups stay leading, cooldowns trailing
-                    const warm = prev.filter((s) => s.kind === "warmup");
-                    const cool = prev.filter((s) => s.kind === "cooldown");
-                    const middle = prev.filter((s) => s.kind !== "warmup" && s.kind !== "cooldown");
-                    const byUid = new Map(middle.map((s) => [s._uid!, s]));
-                    const newMiddle = uids.map((u) => byUid.get(u)!).filter(Boolean);
-                    return [...warm, ...newMiddle, ...cool];
-                  })
-                }
-              />
-            </div>
-          </div>
+          <StepsCard
+            steps={steps}
+            structure={structure}
+            updateStep={updateStep}
+            removeStep={removeStep}
+            addStep={addStep}
+            moveStep={moveStep}
+            reorder={(uids) =>
+              setSteps((prev) => {
+                // uids = new order of middle uids; warmups stay leading, cooldowns trailing
+                const warm = prev.filter((s) => s.kind === "warmup");
+                const cool = prev.filter((s) => s.kind === "cooldown");
+                const middle = prev.filter((s) => s.kind !== "warmup" && s.kind !== "cooldown");
+                const byUid = new Map(middle.map((s) => [s._uid!, s]));
+                const newMiddle = uids.map((u) => byUid.get(u)!).filter(Boolean);
+                return [...warm, ...newMiddle, ...cool];
+              })
+            }
+          />
         )}
 
         <div className="flex justify-end gap-2">
@@ -1164,40 +1160,8 @@ function StepsCard({
           Strides) to reorder.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="grid grid-cols-2 gap-2 pb-3 border-b">
-          <Button variant="outline" className="h-auto py-3 justify-start" onClick={() => addStep("warmup")}>
-            <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("warmup")}`} />
-            <Plus className="h-3 w-3 mr-1" />
-            Warmup
-          </Button>
-          <Button variant="outline" className="h-auto py-3 justify-start" onClick={() => addStep("work")}>
-            <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("work")}`} />
-            <Plus className="h-3 w-3 mr-1" />
-            Work block
-          </Button>
-          <Button variant="outline" className="h-auto py-3 justify-start" onClick={() => addStep("recovery")}>
-            <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("recovery")}`} />
-            <Plus className="h-3 w-3 mr-1" />
-            Recovery between blocks
-          </Button>
-          <Button variant="outline" className="h-auto py-3 justify-start" onClick={() => addStep("cooldown")}>
-            <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("cooldown")}`} />
-            <Plus className="h-3 w-3 mr-1" />
-            Cooldown
-          </Button>
-          <Button
-            variant="outline"
-            className="h-auto py-3 justify-start col-span-2"
-            onClick={() => addStep("strides")}
-          >
-            <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("strides")}`} />
-            <Plus className="h-3 w-3 mr-1" />
-            Strides / Run-throughs
-          </Button>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3 auto-rows-fr">
+      <CardContent className="grid lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2 grid grid-cols-2 gap-3 auto-rows-fr">
           {warmIdx.map((i, pos) => (
             <StepCard
               key={steps[i]._uid}
@@ -1242,6 +1206,40 @@ function StepsCard({
               structure={structure}
             />
           ))}
+        </div>
+
+        <div className="lg:col-span-1">
+          <div className="grid grid-cols-2 gap-2 lg:sticky lg:top-4">
+            <Button variant="outline" className="h-auto py-3 justify-start" onClick={() => addStep("warmup")}>
+              <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("warmup")}`} />
+              <Plus className="h-3 w-3 mr-1" />
+              Warmup
+            </Button>
+            <Button variant="outline" className="h-auto py-3 justify-start" onClick={() => addStep("work")}>
+              <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("work")}`} />
+              <Plus className="h-3 w-3 mr-1" />
+              Work block
+            </Button>
+            <Button variant="outline" className="h-auto py-3 justify-start" onClick={() => addStep("recovery")}>
+              <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("recovery")}`} />
+              <Plus className="h-3 w-3 mr-1" />
+              Recovery between blocks
+            </Button>
+            <Button variant="outline" className="h-auto py-3 justify-start" onClick={() => addStep("cooldown")}>
+              <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("cooldown")}`} />
+              <Plus className="h-3 w-3 mr-1" />
+              Cooldown
+            </Button>
+            <Button
+              variant="outline"
+              className="h-auto py-3 justify-start col-span-2"
+              onClick={() => addStep("strides")}
+            >
+              <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("strides")}`} />
+              <Plus className="h-3 w-3 mr-1" />
+              Strides / Run-throughs
+            </Button>
+          </div>
         </div>
       </CardContent>
     </Card>
