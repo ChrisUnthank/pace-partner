@@ -37,7 +37,7 @@ import {
   SortableContext,
   sortableKeyboardCoordinates,
   useSortable,
-  verticalListSortingStrategy,
+  rectSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { stepKindBarClass, stepKindTextClass } from "@/lib/step-kind-colors";
@@ -408,7 +408,7 @@ function NewSession() {
 
   return (
     <AppShell>
-      <div className="max-w-3xl space-y-6">
+      <div className="max-w-7xl space-y-6">
         <h1 className="text-2xl font-bold">New session</h1>
 
         {isCoach && (templates ?? []).length > 0 && (
@@ -438,7 +438,7 @@ function NewSession() {
           <CardHeader>
             <CardTitle>Basics</CardTitle>
           </CardHeader>
-          <CardContent className="grid sm:grid-cols-2 gap-3">
+          <CardContent className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
             <div>
               <Label>Athlete</Label>
               {isCoach ? (
@@ -468,15 +468,6 @@ function NewSession() {
                 className="mt-1"
               />
             </div>
-            <div className="sm:col-span-2">
-              <Label>Title</Label>
-              <Input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="e.g. 6x800m @ 3k pace, 200m jog"
-                className="mt-1"
-              />
-            </div>
             <div>
               <Label>Day type</Label>
               <Select value={dayType} onValueChange={setDayType}>
@@ -491,6 +482,15 @@ function NewSession() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="sm:col-span-2 lg:col-span-3">
+              <Label>Title</Label>
+              <Input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="e.g. 6x800m @ 3k pace, 200m jog"
+                className="mt-1"
+              />
             </div>
             {dayType === "training" && (
               <>
@@ -524,7 +524,7 @@ function NewSession() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="sm:col-span-2 flex items-center gap-2">
+                <div className="flex items-center gap-2">
                   <Checkbox id="is-long-run" checked={isLongRun} onCheckedChange={(v) => setIsLongRun(!!v)} />
                   <Label htmlFor="is-long-run" className="text-sm font-normal">
                     Long run — tracked separately for weekly long-run accountability
@@ -617,7 +617,7 @@ function NewSession() {
                 )}
               </>
             )}
-            <div className="sm:col-span-2">
+            <div className="sm:col-span-2 lg:col-span-3">
               <Label>Notes</Label>
               <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
             </div>
@@ -625,25 +625,29 @@ function NewSession() {
         </Card>
 
         {dayType !== "cross_training" && (
-          <StepsCard
-            steps={steps}
-            structure={structure}
-            updateStep={updateStep}
-            removeStep={removeStep}
-            addStep={addStep}
-            moveStep={moveStep}
-            reorder={(uids) =>
-              setSteps((prev) => {
-                // uids = new order of middle uids; warmups stay leading, cooldowns trailing
-                const warm = prev.filter((s) => s.kind === "warmup");
-                const cool = prev.filter((s) => s.kind === "cooldown");
-                const middle = prev.filter((s) => s.kind !== "warmup" && s.kind !== "cooldown");
-                const byUid = new Map(middle.map((s) => [s._uid!, s]));
-                const newMiddle = uids.map((u) => byUid.get(u)!).filter(Boolean);
-                return [...warm, ...newMiddle, ...cool];
-              })
-            }
-          />
+          <div className="flex justify-end">
+            <div className="w-full lg:w-[38%] lg:min-w-[420px]">
+              <StepsCard
+                steps={steps}
+                structure={structure}
+                updateStep={updateStep}
+                removeStep={removeStep}
+                addStep={addStep}
+                moveStep={moveStep}
+                reorder={(uids) =>
+                  setSteps((prev) => {
+                    // uids = new order of middle uids; warmups stay leading, cooldowns trailing
+                    const warm = prev.filter((s) => s.kind === "warmup");
+                    const cool = prev.filter((s) => s.kind === "cooldown");
+                    const middle = prev.filter((s) => s.kind !== "warmup" && s.kind !== "cooldown");
+                    const byUid = new Map(middle.map((s) => [s._uid!, s]));
+                    const newMiddle = uids.map((u) => byUid.get(u)!).filter(Boolean);
+                    return [...warm, ...newMiddle, ...cool];
+                  })
+                }
+              />
+            </div>
+          </div>
         )}
 
         <div className="flex justify-end gap-2">
@@ -1039,8 +1043,8 @@ function stepTitle(s: StepDraft): string {
 
 function StepCard({ step, position, onUpdate, onRemove, anchored, structure }: StepEditorProps) {
   return (
-    <div className="flex items-stretch gap-2 border rounded-md bg-background overflow-hidden">
-      <div className={`w-1.5 shrink-0 ${stepKindBarClass(step.kind)}`} />
+    <div className="flex flex-col h-full border rounded-md bg-background overflow-hidden">
+      <div className={`h-1.5 w-full shrink-0 ${stepKindBarClass(step.kind)}`} />
       <div className="flex-1 min-w-0 p-3 space-y-2">
         <div className="flex justify-between items-center">
           <span className={`text-sm font-semibold flex items-center gap-2 ${stepKindTextClass(step.kind)}`}>
@@ -1070,8 +1074,8 @@ function SortableStep(props: StepEditorProps & { id: string }) {
     opacity: isDragging ? 0.5 : 1,
   };
   return (
-    <div ref={setNodeRef} style={style} className="flex items-stretch gap-2 border rounded-md bg-background overflow-hidden">
-      <div className={`w-1.5 shrink-0 ${stepKindBarClass(props.step.kind)}`} />
+    <div ref={setNodeRef} style={style} className="flex flex-col h-full border rounded-md bg-background overflow-hidden">
+      <div className={`h-1.5 w-full shrink-0 ${stepKindBarClass(props.step.kind)}`} />
       <div className="flex-1 min-w-0 p-3 space-y-2">
         <div className="flex justify-between items-center">
           <span className={`text-sm font-semibold flex items-center gap-2 ${stepKindTextClass(props.step.kind)}`}>
@@ -1161,78 +1165,84 @@ function StepsCard({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="flex flex-wrap gap-2 pb-1 border-b">
-          <Button variant="outline" size="sm" onClick={() => addStep("warmup")}>
+        <div className="grid grid-cols-2 gap-2 pb-3 border-b">
+          <Button variant="outline" className="h-auto py-3 justify-start" onClick={() => addStep("warmup")}>
             <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("warmup")}`} />
             <Plus className="h-3 w-3 mr-1" />
             Warmup
           </Button>
-          <Button variant="outline" size="sm" onClick={() => addStep("strides")}>
-            <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("strides")}`} />
-            <Plus className="h-3 w-3 mr-1" />
-            Strides / Run-throughs
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => addStep("work")}>
+          <Button variant="outline" className="h-auto py-3 justify-start" onClick={() => addStep("work")}>
             <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("work")}`} />
             <Plus className="h-3 w-3 mr-1" />
             Work block
           </Button>
-          <Button variant="outline" size="sm" onClick={() => addStep("recovery")}>
+          <Button variant="outline" className="h-auto py-3 justify-start" onClick={() => addStep("recovery")}>
             <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("recovery")}`} />
             <Plus className="h-3 w-3 mr-1" />
             Recovery between blocks
           </Button>
-          <Button variant="outline" size="sm" onClick={() => addStep("cooldown")}>
+          <Button variant="outline" className="h-auto py-3 justify-start" onClick={() => addStep("cooldown")}>
             <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("cooldown")}`} />
             <Plus className="h-3 w-3 mr-1" />
             Cooldown
           </Button>
+          <Button
+            variant="outline"
+            className="h-auto py-3 justify-start col-span-2"
+            onClick={() => addStep("strides")}
+          >
+            <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("strides")}`} />
+            <Plus className="h-3 w-3 mr-1" />
+            Strides / Run-throughs
+          </Button>
         </div>
 
-        {warmIdx.map((i, pos) => (
-          <StepCard
-            key={steps[i]._uid}
-            step={steps[i]}
-            index={i}
-            position={pos + 1}
-            anchored="top"
-            onUpdate={(p) => updateStep(i, p)}
-            onRemove={() => removeStep(i)}
-            structure={structure}
-          />
-        ))}
+        <div className="grid grid-cols-2 gap-3 auto-rows-fr">
+          {warmIdx.map((i, pos) => (
+            <StepCard
+              key={steps[i]._uid}
+              step={steps[i]}
+              index={i}
+              position={pos + 1}
+              anchored="top"
+              onUpdate={(p) => updateStep(i, p)}
+              onRemove={() => removeStep(i)}
+              structure={structure}
+            />
+          ))}
 
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext items={midUids} strategy={verticalListSortingStrategy}>
-            {midIdx.map((i, pos) => (
-              <SortableStep
-                key={steps[i]._uid}
-                id={steps[i]._uid!}
-                step={steps[i]}
-                index={i}
-                position={warmIdx.length + pos + 1}
-                onUpdate={(p) => updateStep(i, p)}
-                onRemove={() => removeStep(i)}
-                onMoveUp={pos > 0 ? () => moveStep(i, midIdx[pos - 1]) : undefined}
-                onMoveDown={pos < midIdx.length - 1 ? () => moveStep(i, midIdx[pos + 1]) : undefined}
-                structure={structure}
-              />
-            ))}
-          </SortableContext>
-        </DndContext>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={midUids} strategy={rectSortingStrategy}>
+              {midIdx.map((i, pos) => (
+                <SortableStep
+                  key={steps[i]._uid}
+                  id={steps[i]._uid!}
+                  step={steps[i]}
+                  index={i}
+                  position={warmIdx.length + pos + 1}
+                  onUpdate={(p) => updateStep(i, p)}
+                  onRemove={() => removeStep(i)}
+                  onMoveUp={pos > 0 ? () => moveStep(i, midIdx[pos - 1]) : undefined}
+                  onMoveDown={pos < midIdx.length - 1 ? () => moveStep(i, midIdx[pos + 1]) : undefined}
+                  structure={structure}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
 
-        {coolIdx.map((i, pos) => (
-          <StepCard
-            key={steps[i]._uid}
-            step={steps[i]}
-            index={i}
-            position={warmIdx.length + midIdx.length + pos + 1}
-            anchored="bottom"
-            onUpdate={(p) => updateStep(i, p)}
-            onRemove={() => removeStep(i)}
-            structure={structure}
-          />
-        ))}
+          {coolIdx.map((i, pos) => (
+            <StepCard
+              key={steps[i]._uid}
+              step={steps[i]}
+              index={i}
+              position={warmIdx.length + midIdx.length + pos + 1}
+              anchored="bottom"
+              onUpdate={(p) => updateStep(i, p)}
+              onRemove={() => removeStep(i)}
+              structure={structure}
+            />
+          ))}
+        </div>
       </CardContent>
     </Card>
   );
