@@ -27,6 +27,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { ReadinessBadge } from "@/components/readiness-badge";
+import { BucketTabStrip, TRAINING_TABS } from "@/components/bucket-tab-strip";
 
 const searchSchema = z.object({
   athleteId: z.string().optional(),
@@ -67,6 +68,7 @@ function SessionsList() {
   const search = Route.useSearch();
   const { user } = useAuthUser();
   const { data: roles = [], isLoading: rolesLoading } = useMyRoles();
+  const isAthlete = roles.includes("athlete");
   const { data: rawRoles = [], isLoading: rawRolesLoading } = useMyRawRoles();
   const { data: athlete, isLoading: athleteLoading } = useMyAthlete();
   const isCoach = roles.includes("coach");
@@ -283,6 +285,14 @@ function SessionsList() {
           <AthleteSubnav athleteId={filterAthlete} active="sessions" />
           <div className="mt-4" />
         </>
+      )}
+      {!(isCoach && filterAthlete !== "all") && (
+        <div className="mb-4">
+          <BucketTabStrip
+            items={TRAINING_TABS.filter((t) => t.to !== "/app/daily-log" || isAthlete)}
+            active="/app/sessions"
+          />
+        </div>
       )}
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-2xl font-bold">Sessions</h1>
