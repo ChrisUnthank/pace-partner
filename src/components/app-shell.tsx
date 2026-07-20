@@ -66,17 +66,22 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const navItems: { to: string; label: string; icon: any; show: boolean }[] = [
     { to: "/app", label: "Home", icon: Home, show: true },
+    // Athletes sits right under Home for coaches — it's the page a coach
+    // actually wants first. Races, Race Tactics, and Athlete Page have
+    // moved out of the coach sidebar entirely: a coach now reaches those
+    // for a given athlete from that athlete's full view instead, so the
+    // sidebar only shows them here for the athlete's own role.
+    { to: "/app/athletes", label: "Athletes", icon: Users, show: isCoach },
     { to: "/app/daily-log", label: "Daily Log", icon: ClipboardList, show: isAthlete },
     { to: "/app/zones", label: "Zones", icon: Gauge, show: isAthlete || isCoach },
     { to: "/app/sessions", label: "Sessions", icon: CalendarDays, show: true },
     { to: "/app/sessions/calendar", label: "Calendar", icon: CalendarRange, show: true },
     { to: "/app/analytics", label: "Analytics", icon: LineChart, show: true },
-    { to: "/app/races", label: "Races", icon: Trophy, show: true },
-    { to: "/app/race-tactics", label: "Race Tactics", icon: Flag, show: isAthlete || isCoach },
+    { to: "/app/races", label: "Races", icon: Trophy, show: isAthlete },
+    { to: "/app/race-tactics", label: "Race Tactics", icon: Flag, show: isAthlete },
     { to: "/app/calculators", label: "Calculators", icon: Calculator, show: true },
     { to: "/app/compare", label: "Compare", icon: GitCompare, show: true },
     { to: "/app/reports", label: "Reports", icon: FileText, show: true },
-    { to: "/app/athletes", label: "Athletes", icon: Users, show: isCoach },
     { to: "/app/templates", label: "Templates", icon: BookmarkCheck, show: isCoach },
     { to: "/app/plans", label: "Plans", icon: ListChecks, show: isCoach },
     { to: "/app/noticeboard", label: "Noticeboard", icon: Megaphone, show: true },
@@ -93,7 +98,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       to: "/app/athlete",
       label: "Athlete Page",
       icon: Globe,
-      show: isAthlete || isCoach,
+      show: isAthlete,
     },
 
     { to: "/app/profile", label: "Profile", icon: User2, show: true },
