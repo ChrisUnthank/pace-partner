@@ -37,6 +37,19 @@ import { useQuery } from "@tanstack/react-query";
 type NavLeaf = { to: string; label: string; icon: any; show: boolean };
 type NavBucket = { id: string; label: string; icon: any; children: NavLeaf[] };
 
+// Plain path.startsWith(to) treats routes as string prefixes, not path
+// segments — "/app/coaching-hub" starts with the literal characters
+// "/app/coach", so the Coach Profile link (and its Community bucket) was
+// lighting up on every Coaching Hub visit. Same class of bug hits
+// "/app/athletes" vs "/app/athlete". Requiring either an exact match or a
+// real "/" boundary after `to` fixes both without touching route paths.
+// "/app" itself is a special case — literally every route is nested under
+// it, so it only ever counts as active on an exact match.
+function isPathActive(current: string, to: string): boolean {
+  if (to === "/app") return current === "/app";
+  return current === to || current.startsWith(to + "/");
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -166,7 +179,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     .filter((b) => b.children.length > 0);
 
   function isBucketActive(bucket: NavBucket) {
-    return bucket.children.some((c) => path.startsWith(c.to));
+    return bucket.children.some((c) => isPathActive(path, c.to));
   }
 
   function isBucketOpen(bucket: NavBucket) {
@@ -191,7 +204,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     [visibleTopLevel, visibleAccountItems, visibleBuckets],
   );
   const crumb = (() => {
-    const matches = allLeaves.filter((n) => (n.to === "/app" ? path === "/app" : path.startsWith(n.to)));
+    const matches = allLeaves.filter((n) => isPathActive(path, n.to));
     if (matches.length === 0) return "Strider";
     return matches.reduce((best, n) => (n.to.length > best.to.length ? n : best)).label;
   })();
@@ -234,7 +247,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <nav className="flex-1 px-2 py-4 space-y-0.5">
           {/* Standalone items (Home, Athletes) */}
           {visibleTopLevel.map((n) => {
-            const active = n.to === "/app" ? path === "/app" : path.startsWith(n.to);
+            const active = isPathActive(path, n.to);
             return (
               <Link
                 key={n.to}
@@ -310,7 +323,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 {open && (
                   <div className="ml-3.5 pl-3 border-l border-border space-y-0.5 py-0.5">
                     {bucket.children.map((n) => {
-                      const childActive = path.startsWith(n.to);
+                      const childActive = isPathActive(path, n.to);
                       return (
                         <Link
                           key={n.to}
@@ -337,7 +350,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               Home/Athletes, deliberately rendered after the buckets since
               it's a settings destination, not a frequent one. */}
           {visibleAccountItems.map((n) => {
-            const active = path.startsWith(n.to);
+            const active = isPathActive(path, n.to);
             return (
               <Link
                 key={n.to}
@@ -414,7 +427,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             is what lets someone switch to a sibling from there. */}
         <nav className="md:hidden order-last sticky bottom-0 z-10 border-t border-border bg-background/95 backdrop-blur-md flex overflow-x-auto print:hidden">
           {mobileItems.map((n) => {
-            const active = n.bucketActive ?? (n.to === "/app" ? path === "/app" : path.startsWith(n.to));
+            const active = n.bucketActive ?? isPathActive(path, n.to);
             return (
               <Link
                 key={n.to}
