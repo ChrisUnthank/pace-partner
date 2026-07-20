@@ -3,7 +3,7 @@ import { useMemo, useState, useRef, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuthUser, useMyAthlete, useMyRoles, useMyRawRoles } from "@/lib/use-auth";
+import { useAuthUser, useMyAthlete, useMyRoles, useMyRawRoles, useMyLinkedAthletes } from "@/lib/use-auth";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -80,6 +80,12 @@ function CalendarPage() {
   const { data: myAthlete } = useMyAthlete();
   const isCoach = roles.includes("coach");
   const isManager = rawRoles.includes("manager");
+  const isParent = rawRoles.includes("parent");
+  // Parents only ever view — no uploads, no manual entries, no vitals
+  // logging, no "add to this day" affordance. Everything below that
+  // creates or edits data checks this instead of isCoach/isAthlete
+  // individually, so a bare-parent account can never trigger a write.
+  const canEdit = isCoach || roles.includes("athlete");
 
   const view = search.view ?? "month";
   const anchor = search.date ? parseISO(search.date) : new Date();
@@ -105,9 +111,23 @@ function CalendarPage() {
     },
   });
 
-  const selectedAthleteId = search.athleteId ?? myAthlete?.id ?? roster?.[0]?.id ?? "";
+  // Parent's linked children, reshaped to match the coach roster's
+  // { id, name, profile_image_url } accessor shape so the athlete switcher
+  // below can treat both the same way.
+  const { data: linkedAthletesRaw } = useMyLinkedAthletes();
+  const parentRoster = useMemo(
+    () =>
+      (linkedAthletesRaw ?? [])
+        .map((r: any) => r.athletes)
+        .filter(Boolean)
+        .map((a: any) => ({ id: a.id, name: a.name, profile_image_url: a.profile_image_url ?? null })),
+    [linkedAthletesRaw],
+  );
+
+  const selectedAthleteId = search.athleteId ?? myAthlete?.id ?? roster?.[0]?.id ?? parentRoster?.[0]?.id ?? "";
   const selectedAthleteName =
     roster?.find((a) => a.id === selectedAthleteId)?.name ??
+    parentRoster?.find((a) => a.id === selectedAthleteId)?.name ??
     (myAthlete && myAthlete.id === selectedAthleteId ? myAthlete.name : undefined);
 
   // Home location for forecasting, auto-detected from the athlete's most
@@ -502,14 +522,16 @@ function CalendarPage() {
             <p className="text-xs text-muted-foreground">Sessions by date · color = intent / day type</p>
           </div>
           <div className="flex items-center gap-2">
-            <Button asChild variant="outline" size="sm">
-              <Link
-                to="/app/sessions"
-                search={selectedAthleteId ? ({ athleteId: selectedAthleteId } as any) : undefined}
-              >
-                <ListIcon className="h-4 w-4 mr-1" /> List view
-              </Link>
-            </Button>
+            {canEdit && (
+              <Button asChild variant="outline" size="sm">
+                <Link
+                  to="/app/sessions"
+                  search={selectedAthleteId ? ({ athleteId: selectedAthleteId } as any) : undefined}
+                >
+                  <ListIcon className="h-4 w-4 mr-1" /> List view
+                </Link>
+              </Button>
+            )}
           </div>
         </div>
 
@@ -564,6 +586,38 @@ function CalendarPage() {
                   </div>
                 );
               })()}
+            {/* Parent child-switcher — same pattern as the coach roster
+                selector above, sourced from parent_athlete_links instead.
+                Only a real choice once a parent has more than one child
+                linked; with just one, their name still shows via the
+                avatar+label for clarity without a pointless single-item
+                dropdown. */}
+            {isParent && !isCoach && parentRoster.length > 0 && (
+              <div className="flex items-center gap-2">
+                {parentRoster.length > 1 ? (
+                  <Select
+                    value={selectedAthleteId}
+                    onValueChange={(v) => navigate({ search: (p: any) => ({ ...p, athleteId: v }) })}
+                  >
+                    <SelectTrigger className="h-9 w-[180px]">
+                      <SelectValue placeholder="Select child" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {parentRoster.map((a) => (
+                        <SelectItem key={a.id} value={a.id}>
+                          {a.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <UserAvatar name={parentRoster[0].name} imageUrl={parentRoster[0].profile_image_url} size="sm" />
+                    <span className="text-sm font-medium">{parentRoster[0].name}</span>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="inline-flex rounded-md border overflow-hidden">
               <button
                 onClick={() => setView("month")}
@@ -609,7 +663,7 @@ function CalendarPage() {
                             compact={false}
                             weather={forecast?.get(iso) ?? null}
                             onMultiClick={(dd) => setSheetDay(dd)}
-                            onAdd={(date) => setAddMenuDate(date)}
+                            onAdd={canEdit ? (date) => setAddMenuDate(date) : undefined}
                           />
                         );
                       })}
@@ -640,7 +694,7 @@ function CalendarPage() {
                         isToday={iso === todayISO}
                         compact={true}
                         onMultiClick={(dd) => setSheetDay(dd)}
-                        onAdd={(date) => setAddMenuDate(date)}
+                        onAdd={canEdit ? (date) => setAddMenuDate(date) : undefined}
                       />
                     );
                   })}
@@ -698,17 +752,19 @@ function CalendarPage() {
                   Resting HR: <span className="font-medium">{sheetDay.restingHr} bpm</span>
                 </div>
               )}
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  const d = sheetDay.date;
-                  setSheetDay(null);
-                  setVitalsDate(d);
-                }}
-              >
-                <HeartPulse className="h-3.5 w-3.5 mr-1.5" /> {sheetDay.restingHr != null ? "Edit vitals" : "Log vitals"}
-              </Button>
+              {canEdit && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    const d = sheetDay.date;
+                    setSheetDay(null);
+                    setVitalsDate(d);
+                  }}
+                >
+                  <HeartPulse className="h-3.5 w-3.5 mr-1.5" /> {sheetDay.restingHr != null ? "Edit vitals" : "Log vitals"}
+                </Button>
+              )}
               {sheetDay.sessions.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No sessions on this day.</p>
               ) : (
