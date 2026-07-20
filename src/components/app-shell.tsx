@@ -19,6 +19,7 @@ import {
   ClipboardList,
   Megaphone,
   MessageSquare,
+  MessageCircle,
   Trophy,
   Gauge,
   Calculator,
@@ -40,6 +41,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { data: roles = [] } = useMyRoles();
   const isCoach = roles.includes("coach");
   const isAthlete = roles.includes("athlete");
+  // Parent Portal: deliberately narrow. Most existing "show: true" items
+  // below were written back when only coach/athlete existed, so "true"
+  // effectively meant "either of the two roles that existed" — now that
+  // parent is a real role too, those need to explicitly exclude it rather
+  // than silently start showing pages that assume a coach's roster or an
+  // athlete's own data exists for the signed-in user.
+  const isParent = roles.includes("parent");
+  const isCoachOrAthlete = isCoach || isAthlete;
   const path = useRouterState({ select: (s) => s.location.pathname });
   const [collapsed, setCollapsed] = useState(false);
 
@@ -74,18 +83,26 @@ export function AppShell({ children }: { children: ReactNode }) {
     { to: "/app/athletes", label: "Athletes", icon: Users, show: isCoach },
     { to: "/app/daily-log", label: "Daily Log", icon: ClipboardList, show: isAthlete },
     { to: "/app/zones", label: "Zones", icon: Gauge, show: isAthlete || isCoach },
-    { to: "/app/sessions", label: "Sessions", icon: CalendarDays, show: true },
-    { to: "/app/sessions/calendar", label: "Calendar", icon: CalendarRange, show: true },
-    { to: "/app/analytics", label: "Analytics", icon: LineChart, show: true },
+    { to: "/app/sessions", label: "Sessions", icon: CalendarDays, show: isCoachOrAthlete },
+    // Calendar isn't yet parent-aware — it resolves "whose calendar" via
+    // the coach roster or the signed-in user's own athlete row, neither of
+    // which exists for a parent. Needs a linked-athlete/child-switcher
+    // query added to that route before it's safe to expose here.
+    { to: "/app/sessions/calendar", label: "Calendar", icon: CalendarRange, show: isCoachOrAthlete },
+    { to: "/app/analytics", label: "Analytics", icon: LineChart, show: isCoachOrAthlete },
     { to: "/app/races", label: "Races", icon: Trophy, show: isAthlete },
     { to: "/app/race-tactics", label: "Race Tactics", icon: Flag, show: isAthlete },
-    { to: "/app/calculators", label: "Calculators", icon: Calculator, show: true },
-    { to: "/app/compare", label: "Compare", icon: GitCompare, show: true },
-    { to: "/app/reports", label: "Reports", icon: FileText, show: true },
+    { to: "/app/calculators", label: "Calculators", icon: Calculator, show: isCoachOrAthlete },
+    { to: "/app/compare", label: "Compare", icon: GitCompare, show: isCoachOrAthlete },
+    { to: "/app/reports", label: "Reports", icon: FileText, show: isCoachOrAthlete },
     { to: "/app/templates", label: "Templates", icon: BookmarkCheck, show: isCoach },
     { to: "/app/plans", label: "Plans", icon: ListChecks, show: isCoach },
     { to: "/app/noticeboard", label: "Noticeboard", icon: Megaphone, show: true },
-    { to: "/app/messages", label: "Messages", icon: MessageSquare, show: true },
+    { to: "/app/group-chat", label: "Group Chat", icon: MessageCircle, show: true },
+    // Messages stays 1:1 coach<->athlete for now — no parent "observer"
+    // concept exists on direct_messages yet, so kept out of the parent
+    // portal's scope rather than exposing a broken/empty inbox.
+    { to: "/app/messages", label: "Messages", icon: MessageSquare, show: isCoachOrAthlete },
 
     {
       to: "/app/coach",
@@ -190,6 +207,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
           <div className="flex items-center gap-3">
             <NotificationBell />
+            {isParent && (
+              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground border border-border rounded px-1.5 py-0.5">
+                Parent view
+              </span>
+            )}
             <span className="text-xs text-muted-foreground hidden sm:inline truncate max-w-[180px]">{user?.email}</span>
             <Button variant="ghost" size="sm" onClick={signOut} title="Sign out">
               <LogOut className="h-4 w-4" />
