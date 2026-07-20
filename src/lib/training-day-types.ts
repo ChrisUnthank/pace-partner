@@ -1,4 +1,4 @@
-import { Users, User, Bed, CircleDashed, Route, Dumbbell, Activity, Trophy } from "lucide-react";
+import { Users, User, Bed, CircleDashed, Route, Dumbbell, Activity, Trophy, PlayCircle } from "lucide-react";
 
 export type TrainingDayType =
   | "group_session"
@@ -8,7 +8,11 @@ export type TrainingDayType =
   | "long_run"
   | "cross_training"
   | "sport_specific_training"
-  | "sport_specific_game_event";
+  | "sport_specific_game_event"
+  // Added directly in the database as an exact-case value ("Session"),
+  // not snake_case like the others — kept as-is here since the string
+  // has to match the enum exactly, not restyled to fit the pattern.
+  | "Session";
 
 export const DAY_TYPE_META: Record<TrainingDayType, { label: string; short: string; icon: any; colorCls: string; dotCls: string }> = {
   group_session: {
@@ -66,6 +70,13 @@ export const DAY_TYPE_META: Record<TrainingDayType, { label: string; short: stri
     icon: Trophy,
     colorCls: "bg-rose-500/15 text-rose-400 border-rose-500/30",
     dotCls: "bg-rose-500",
+  },
+  Session: {
+    label: "Session",
+    short: "Session",
+    icon: PlayCircle,
+    colorCls: "bg-lime-500/15 text-lime-400 border-lime-500/30",
+    dotCls: "bg-lime-500",
   },
 };
 
