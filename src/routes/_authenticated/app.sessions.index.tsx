@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { AthleteSubnav } from "@/components/athlete-subnav";
 import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
@@ -269,15 +270,19 @@ function SessionsList() {
   return (
     <AppShell>
       {isCoach && filterAthlete !== "all" && (
-        <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground mb-2">
-          <Link to="/app/athletes" className="hover:text-foreground">
-            Athletes
-          </Link>
-          <span className="text-border">/</span>
-          <Link to="/app/athletes/$athleteId" params={{ athleteId: filterAthlete }} className="hover:text-foreground">
-            {athleteOptions.find(([id]) => id === filterAthlete)?.[1] ?? "Athlete"}
-          </Link>
-        </div>
+        <>
+          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground mb-2">
+            <Link to="/app/athletes" className="hover:text-foreground">
+              Athletes
+            </Link>
+            <span className="text-border">/</span>
+            <Link to="/app/athletes/$athleteId" params={{ athleteId: filterAthlete }} className="hover:text-foreground">
+              {athleteOptions.find(([id]) => id === filterAthlete)?.[1] ?? "Athlete"}
+            </Link>
+          </div>
+          <AthleteSubnav athleteId={filterAthlete} active="sessions" />
+          <div className="mt-4" />
+        </>
       )}
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-2xl font-bold">Sessions</h1>
