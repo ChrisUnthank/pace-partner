@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { metersFmt, secToClock, clockToSec, todayISO } from "@/lib/format";
 import { toast } from "sonner";
-import { Trash2, Trophy, CalendarClock, Medal, TrendingUp } from "lucide-react";
+import { Trash2, Trophy, Flag, CalendarClock, Medal, TrendingUp } from "lucide-react";
 import { AthleteSubnav } from "@/components/athlete-subnav";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
@@ -165,9 +165,18 @@ function RacesPage() {
             )}
           </div>
         )}
-        <div className="flex items-center gap-2">
-          <Trophy className="h-5 w-5 text-[var(--accent-red)]" />
-          <h1 className="text-2xl font-bold">Race results</h1>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Trophy className="h-5 w-5 text-[var(--accent-red)]" />
+            <h1 className="text-2xl font-bold">Race results</h1>
+          </div>
+          {activeAthleteId && (
+            <Button asChild variant="outline" size="sm">
+              <Link to="/app/race-tactics" search={{ athleteId: activeAthleteId } as any}>
+                <Flag className="h-4 w-4 mr-1" /> Race Tactics
+              </Link>
+            </Button>
+          )}
         </div>
 
         {isCoach && activeAthleteId && <AthleteSubnav athleteId={activeAthleteId} active="races" />}
