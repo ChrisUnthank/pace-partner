@@ -28,7 +28,7 @@ import {
   ReferenceLine,
   ReferenceArea,
 } from "recharts";
-import { ArrowUpRight, ArrowDownRight, ArrowRight, ChevronLeft, AlertTriangle } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, ArrowRight, AlertTriangle } from "lucide-react";
 
 const RANGES = {
   "4w": { days: 28, label: "4 weeks" },
@@ -703,13 +703,15 @@ function AthleteAnalytics({
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           {showBack && (
-            <Link
-              to="/app/analytics"
-              search={{ range }}
-              className="text-sm text-muted-foreground inline-flex items-center gap-1 hover:underline"
-            >
-              <ChevronLeft className="h-3.5 w-3.5" /> Back to roster
-            </Link>
+            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+              <Link to="/app/athletes" className="hover:text-foreground">
+                Athletes
+              </Link>
+              <span className="text-border">/</span>
+              <Link to="/app/athletes/$athleteId" params={{ athleteId }} className="hover:text-foreground">
+                {athlete?.name ?? "Athlete"}
+              </Link>
+            </div>
           )}
           <h1 className="text-2xl font-bold mt-1">{athlete?.name ?? "Analytics"}</h1>
           <div className="mt-1">
