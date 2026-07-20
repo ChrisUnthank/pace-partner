@@ -1,4 +1,4 @@
-import { createFileRoute, useParams } from "@tanstack/react-router";
+import { createFileRoute, Link, useParams } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -14,7 +14,8 @@ import { ExternalLink, Plus, Trash2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { SingleImageUpload, MultiImageUpload } from "@/components/coach-profile/image-upload";
-import { useAuthUser } from "@/lib/use-auth";
+import { useAuthUser, useMyRoles } from "@/lib/use-auth";
+import { AthleteSubnav } from "@/components/athlete-subnav";
 import {
   DEFAULT_SECTION_ORDER,
   SECTION_ORDER_LABELS,
@@ -158,6 +159,8 @@ function AthleteEditorPage() {
   const { slug } = useParams({ from: "/_authenticated/app/athlete/$slug" });
   const { data: profile, isLoading, error, refetch: refetchProfile } = useAthleteProfile(slug);
   const { user } = useAuthUser();
+  const { data: roles = [] } = useMyRoles();
+  const isCoach = roles.includes("coach") || roles.includes("manager");
   const athlete = profile?.athletes;
 
   const { data: results, refetch: refetchResults } = useRaceResults(athlete?.id);
@@ -430,6 +433,20 @@ function AthleteEditorPage() {
   return (
     <AppShell>
       <div className="mx-auto max-w-3xl space-y-6 pb-16">
+        {isCoach && (
+          <>
+            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+              <Link to="/app/athletes" className="hover:text-foreground">
+                Athletes
+              </Link>
+              <span className="text-border">/</span>
+              <Link to="/app/athletes/$athleteId" params={{ athleteId: athlete.id }} className="hover:text-foreground">
+                {athlete.name}
+              </Link>
+            </div>
+            <AthleteSubnav athleteId={athlete.id} active="athlete-page" />
+          </>
+        )}
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Athlete Page</h1>
           <div className="flex items-center gap-3">
