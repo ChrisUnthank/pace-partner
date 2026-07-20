@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
+import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyAthlete, useMyRoles, useMyRawRoles, useAuthUser } from "@/lib/use-auth";
 import { AppShell } from "@/components/app-shell";
@@ -10,9 +11,17 @@ import { metersFmt, secToClock } from "@/lib/format";
 import { sessionClassificationLabel, SESSION_INTENTS, INTENT_LABEL, DAY_TYPE_LABEL } from "@/lib/session-categories";
 import { Plus, CalendarDays, Upload, Users } from "lucide-react";
 import { ActivityIcon } from "@/lib/activity-icon";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { BulkFitUpload } from "@/components/bulk-fit-upload";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { sessionColorClass } from "@/components/calendar-day-cell";
 import { cn } from "@/lib/utils";
@@ -26,7 +35,12 @@ import {
 } from "@/components/ui/dialog";
 import { ReadinessBadge } from "@/components/readiness-badge";
 
+const searchSchema = z.object({
+  athleteId: z.string().optional(),
+});
+
 export const Route = createFileRoute("/_authenticated/app/sessions/")({
+  validateSearch: searchSchema,
   component: SessionsList,
 });
 
@@ -57,6 +71,7 @@ function formatLocalTime(iso: string, timezone?: string | null): string {
 }
 
 function SessionsList() {
+  const search = Route.useSearch();
   const { user } = useAuthUser();
   const { data: roles = [], isLoading: rolesLoading } = useMyRoles();
   const { data: rawRoles = [], isLoading: rawRolesLoading } = useMyRawRoles();
@@ -64,7 +79,13 @@ function SessionsList() {
   const isCoach = roles.includes("coach");
   const isManager = rawRoles.includes("manager");
   const identityReady = !!user && !rolesLoading && !rawRolesLoading && !athleteLoading;
-  const [filterAthlete, setFilterAthlete] = useState<string>("all");
+  const [filterAthlete, setFilterAthlete] = useState<string>(search.athleteId ?? "all");
+  // Re-syncs whenever the URL's athleteId changes underneath this page —
+  // e.g. arriving here via the Calendar page's "List view" link for a
+  // specific athlete — rather than only reading it once on mount.
+  useEffect(() => {
+    if (search.athleteId) setFilterAthlete(search.athleteId);
+  }, [search.athleteId]);
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterIntent, setFilterIntent] = useState<string>("all");
 
@@ -255,6 +276,17 @@ function SessionsList() {
 
   return (
     <AppShell>
+      {isCoach && filterAthlete !== "all" && (
+        <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground mb-2">
+          <Link to="/app/athletes" className="hover:text-foreground">
+            Athletes
+          </Link>
+          <span className="text-border">/</span>
+          <Link to="/app/athletes/$athleteId" params={{ athleteId: filterAthlete }} className="hover:text-foreground">
+            {athleteOptions.find(([id]) => id === filterAthlete)?.[1] ?? "Athlete"}
+          </Link>
+        </div>
+      )}
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-2xl font-bold">Sessions</h1>
       </div>
@@ -265,7 +297,10 @@ function SessionsList() {
         <div className="order-1 lg:order-2 lg:col-span-1">
           <div className="flex flex-row lg:flex-col gap-2 lg:sticky lg:top-4">
             <Button asChild variant="outline" className="flex-1 lg:flex-none lg:w-full lg:justify-start">
-              <Link to="/app/sessions/calendar">
+              <Link
+                to="/app/sessions/calendar"
+                search={filterAthlete !== "all" ? ({ athleteId: filterAthlete } as any) : undefined}
+              >
                 <CalendarDays className="h-4 w-4 mr-1.5" /> Calendar
               </Link>
             </Button>
