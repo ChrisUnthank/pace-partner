@@ -1,5 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
+import { CalendarDays, CalendarRange, ClipboardList, BookmarkCheck, LayoutGrid } from "lucide-react";
 
 export type BucketTabItem = {
   to: string;
@@ -9,6 +10,22 @@ export type BucketTabItem = {
   // need to carry e.g. ?athleteId= through the link.
   search?: Record<string, string>;
 };
+
+// Shared tab-set definitions — single source of truth so Training's pages
+// and Coaching Hub's pages import the same array rather than each
+// redeclaring it, which would risk drifting apart (e.g. one page's strip
+// missing a tab the others have).
+export const TRAINING_TABS: BucketTabItem[] = [
+  { to: "/app/sessions", label: "Sessions", icon: CalendarDays },
+  { to: "/app/sessions/calendar", label: "Calendar", icon: CalendarRange },
+  { to: "/app/daily-log", label: "Daily Log", icon: ClipboardList },
+];
+
+export const COACHING_HUB_TABS: BucketTabItem[] = [
+  { to: "/app/coaching-hub", label: "Overview", icon: LayoutGrid },
+  { to: "/app/templates", label: "Session Templates", icon: BookmarkCheck },
+  { to: "/app/plans", label: "Plans", icon: CalendarRange },
+];
 
 // Generic sibling-switcher for pages grouped under one of the sidebar's
 // accordion buckets (Training / Metrics / Performances / Community).
