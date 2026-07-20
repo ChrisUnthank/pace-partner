@@ -16,6 +16,7 @@ import { applyTemplateToSession } from "@/lib/templates";
 import { todayISO } from "@/lib/format";
 import { toast } from "sonner";
 import { Trash2, Play } from "lucide-react";
+import { BucketTabStrip, COACHING_HUB_TABS } from "@/components/bucket-tab-strip";
 
 export const Route = createFileRoute("/_authenticated/app/templates")({
   component: TemplatesPage,
@@ -69,6 +70,7 @@ function TemplatesPage() {
   return (
     <AppShell>
       <div className="max-w-3xl space-y-4">
+        <BucketTabStrip items={COACHING_HUB_TABS} active="/app/templates" />
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold">Templates</h1>
