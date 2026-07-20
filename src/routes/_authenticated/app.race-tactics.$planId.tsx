@@ -242,12 +242,32 @@ function RaceTacticsDetail() {
   return (
     <AppShell>
       <div className="space-y-4 max-w-3xl">
-        <Button asChild variant="ghost" size="sm">
-          <Link to="/app/race-tactics">
-            <ChevronLeft className="h-4 w-4 mr-1" />
-            Race Tactics
-          </Link>
-        </Button>
+        {isCoach ? (
+          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+            <Link to="/app/athletes" className="hover:text-foreground">
+              Athletes
+            </Link>
+            <span className="text-border">/</span>
+            <Link
+              to="/app/athletes/$athleteId"
+              params={{ athleteId: plan.athlete_id }}
+              className="hover:text-foreground"
+            >
+              {plan.athletes?.name ?? "Athlete"}
+            </Link>
+            <span className="text-border">/</span>
+            <Link to="/app/race-tactics" search={{ athleteId: plan.athlete_id } as any} className="hover:text-foreground">
+              Race Tactics
+            </Link>
+          </div>
+        ) : (
+          <Button asChild variant="ghost" size="sm">
+            <Link to="/app/race-tactics">
+              <ChevronLeft className="h-4 w-4 mr-1" />
+              Race Tactics
+            </Link>
+          </Button>
+        )}
 
         <div className="flex items-start justify-between flex-wrap gap-2">
           <div>
