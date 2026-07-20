@@ -201,12 +201,28 @@ function NewRaceTacticsPlan() {
   return (
     <AppShell>
       <div className="space-y-4 max-w-2xl">
-        <Button asChild variant="ghost" size="sm">
-          <Link to="/app/race-tactics">
-            <ChevronLeft className="h-4 w-4 mr-1" />
-            Race Tactics
-          </Link>
-        </Button>
+        {isCoach && athleteId ? (
+          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+            <Link to="/app/athletes" className="hover:text-foreground">
+              Athletes
+            </Link>
+            <span className="text-border">/</span>
+            <Link to="/app/athletes/$athleteId" params={{ athleteId }} className="hover:text-foreground">
+              {(roster ?? []).find((a: any) => a.id === athleteId)?.name ?? "Athlete"}
+            </Link>
+            <span className="text-border">/</span>
+            <Link to="/app/race-tactics" search={{ athleteId } as any} className="hover:text-foreground">
+              Race Tactics
+            </Link>
+          </div>
+        ) : (
+          <Button asChild variant="ghost" size="sm">
+            <Link to="/app/race-tactics">
+              <ChevronLeft className="h-4 w-4 mr-1" />
+              Race Tactics
+            </Link>
+          </Button>
+        )}
 
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <Flag className="h-5 w-5 text-[var(--accent-red)]" />
