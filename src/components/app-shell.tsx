@@ -1,6 +1,6 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { ReactNode, useState } from "react";
+import { ReactNode, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyRoles, useAuthUser } from "@/lib/use-auth";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import {
   LineChart,
   ChevronsLeft,
   ChevronsRight,
+  ChevronDown,
   Zap,
   ClipboardList,
   Megaphone,
@@ -34,6 +35,9 @@ import { cn } from "@/lib/utils";
 import { NotificationBell } from "@/components/notification-bell";
 import { useQuery } from "@tanstack/react-query";
 
+type NavLeaf = { to: string; label: string; icon: any; show: boolean };
+type NavBucket = { id: string; label: string; icon: any; children: NavLeaf[] };
+
 export function AppShell({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -51,6 +55,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   const isCoachOrAthlete = isCoach || isAthlete;
   const path = useRouterState({ select: (s) => s.location.pathname });
   const [collapsed, setCollapsed] = useState(false);
+  // Manual open/close overrides per bucket — a bucket is open if the user
+  // explicitly opened it OR the current route falls inside it (see
+  // isBucketActive below), UNLESS the user explicitly closed it, in which
+  // case that closure wins even while active. Undefined = no override yet,
+  // defer entirely to "is this bucket active".
+  const [bucketOverrides, setBucketOverrides] = useState<Map<string, boolean>>(new Map());
 
   const { data: coachProfile } = useQuery({
     queryKey: ["my-coach-profile-slug", user?.id],
@@ -73,58 +83,121 @@ export function AppShell({ children }: { children: ReactNode }) {
     navigate({ to: "/auth", replace: true });
   }
 
-  const navItems: { to: string; label: string; icon: any; show: boolean }[] = [
+  // Standalone top-level items — these deliberately stay outside any
+  // bucket. Athletes already has its own Overview + AthleteSubnav pattern
+  // once you're inside a specific athlete, so it doesn't need a second
+  // layer of grouping here. Profile is account settings only.
+  const topLevelItems: NavLeaf[] = [
     { to: "/app", label: "Home", icon: Home, show: true },
-    // Athletes sits right under Home for coaches — it's the page a coach
-    // actually wants first. Races, Race Tactics, and Athlete Page have
-    // moved out of the coach sidebar entirely: a coach now reaches those
-    // for a given athlete from that athlete's full view instead, so the
-    // sidebar only shows them here for the athlete's own role.
     { to: "/app/athletes", label: "Athletes", icon: Users, show: isCoach },
-    { to: "/app/daily-log", label: "Daily Log", icon: ClipboardList, show: isAthlete },
-    { to: "/app/zones", label: "Zones", icon: Gauge, show: isAthlete || isCoach },
-    { to: "/app/sessions", label: "Sessions", icon: CalendarDays, show: isCoachOrAthlete },
-    // Calendar isn't yet parent-aware — it resolves "whose calendar" via
-    // the coach roster or the signed-in user's own athlete row, neither of
-    // which exists for a parent. Needs a linked-athlete/child-switcher
-    // query added to that route before it's safe to expose here.
-    { to: "/app/sessions/calendar", label: "Calendar", icon: CalendarRange, show: isCoachOrAthlete },
-    { to: "/app/analytics", label: "Analytics", icon: LineChart, show: isCoachOrAthlete },
-    { to: "/app/races", label: "Races", icon: Trophy, show: isAthlete },
-    { to: "/app/race-tactics", label: "Race Tactics", icon: Flag, show: isAthlete },
-    { to: "/app/calculators", label: "Calculators", icon: Calculator, show: isCoachOrAthlete },
-    { to: "/app/compare", label: "Compare", icon: GitCompare, show: isCoachOrAthlete },
-    { to: "/app/reports", label: "Reports", icon: FileText, show: isCoachOrAthlete },
-    { to: "/app/templates", label: "Templates", icon: BookmarkCheck, show: isCoach },
-    { to: "/app/plans", label: "Plans", icon: ListChecks, show: isCoach },
-    { to: "/app/noticeboard", label: "Noticeboard", icon: Megaphone, show: true },
-    { to: "/app/group-chat", label: "Group Chat", icon: MessageCircle, show: true },
-    // Messages stays 1:1 coach<->athlete for now — no parent "observer"
-    // concept exists on direct_messages yet, so kept out of the parent
-    // portal's scope rather than exposing a broken/empty inbox.
-    { to: "/app/messages", label: "Messages", icon: MessageSquare, show: isCoachOrAthlete },
+  ];
 
+  // Bucketed groups — Phase 1 of the sidebar restructure. Routes are
+  // unchanged; this only changes how they're grouped/navigated to. Each
+  // bucket's first visible child doubles as the mobile bottom-nav target
+  // and the "no page picked yet" fallback, since mobile can't show an
+  // expanded accordion the way the desktop sidebar can.
+  const bucketDefs: NavBucket[] = [
     {
-      to: "/app/coach",
-      label: "Coach Profile",
-      icon: IdCard,
-      show: isCoach,
+      id: "training",
+      label: "Training",
+      icon: CalendarDays,
+      children: [
+        { to: "/app/sessions", label: "Sessions", icon: CalendarDays, show: isCoachOrAthlete },
+        { to: "/app/sessions/calendar", label: "Calendar", icon: CalendarRange, show: isCoachOrAthlete },
+        { to: "/app/daily-log", label: "Daily Log", icon: ClipboardList, show: isAthlete },
+        { to: "/app/templates", label: "Templates", icon: BookmarkCheck, show: isCoach },
+        { to: "/app/plans", label: "Plans", icon: ListChecks, show: isCoach },
+      ],
     },
-
     {
-      to: "/app/athlete",
-      label: "Athlete Page",
-      icon: Globe,
-      show: isAthlete,
+      id: "metrics",
+      label: "Metrics",
+      icon: LineChart,
+      children: [
+        { to: "/app/analytics", label: "Analytics", icon: LineChart, show: isCoachOrAthlete },
+        { to: "/app/zones", label: "Zones", icon: Gauge, show: isAthlete || isCoach },
+        { to: "/app/compare", label: "Compare", icon: GitCompare, show: isCoachOrAthlete },
+        { to: "/app/reports", label: "Reports", icon: FileText, show: isCoachOrAthlete },
+      ],
     },
+    {
+      id: "performances",
+      label: "Performances",
+      icon: Trophy,
+      children: [
+        { to: "/app/races", label: "Races", icon: Trophy, show: isAthlete },
+        { to: "/app/race-tactics", label: "Race Tactics", icon: Flag, show: isAthlete },
+      ],
+    },
+    {
+      id: "comms",
+      label: "Comms Hub",
+      icon: MessageSquare,
+      children: [
+        { to: "/app/noticeboard", label: "Noticeboard", icon: Megaphone, show: true },
+        { to: "/app/group-chat", label: "Group Chat", icon: MessageCircle, show: true },
+        // Messages stays 1:1 coach<->athlete for now — no parent
+        // "observer" concept exists on direct_messages yet, so kept out
+        // of the parent portal's scope rather than exposing a broken/
+        // empty inbox.
+        { to: "/app/messages", label: "Messages", icon: MessageSquare, show: isCoachOrAthlete },
+        { to: "/app/coach", label: "Coach Profile", icon: IdCard, show: isCoach },
+        { to: "/app/athlete", label: "Athlete Page", icon: Globe, show: isAthlete },
+      ],
+    },
+  ];
 
-    { to: "/app/profile", label: "Profile", icon: User2, show: true },
-  ].filter((n) => n.show);
+  const visibleTopLevel = topLevelItems.filter((n) => n.show);
+  const visibleBuckets = bucketDefs
+    .map((b) => ({ ...b, children: b.children.filter((c) => c.show) }))
+    .filter((b) => b.children.length > 0);
 
+  function isBucketActive(bucket: NavBucket) {
+    return bucket.children.some((c) => path.startsWith(c.to));
+  }
+
+  function isBucketOpen(bucket: NavBucket) {
+    const override = bucketOverrides.get(bucket.id);
+    if (override !== undefined) return override;
+    return isBucketActive(bucket);
+  }
+
+  function toggleBucket(bucket: NavBucket) {
+    setBucketOverrides((prev) => {
+      const next = new Map(prev);
+      next.set(bucket.id, !isBucketOpen(bucket));
+      return next;
+    });
+  }
+
+  // Breadcrumb label — longest-matching `to` wins (rather than relying on
+  // array order) so e.g. "/app/sessions/calendar" resolves to "Calendar"
+  // and not the shorter "/app/sessions" → "Sessions" match.
+  const allLeaves = useMemo(
+    () => [...visibleTopLevel, ...visibleBuckets.flatMap((b) => b.children)],
+    [visibleTopLevel, visibleBuckets],
+  );
   const crumb = (() => {
-    const active = [...navItems].reverse().find((n) => (n.to === "/app" ? path === "/app" : path.startsWith(n.to)));
-    return active?.label ?? "Strider";
+    const matches = allLeaves.filter((n) => (n.to === "/app" ? path === "/app" : path.startsWith(n.to)));
+    if (matches.length === 0) return "Strider";
+    return matches.reduce((best, n) => (n.to.length > best.to.length ? n : best)).label;
   })();
+
+  // Mobile bottom nav: buckets collapse to a single tap target — their
+  // first visible child — since a bottom bar can't show an expanded
+  // accordion. Tapping it lands on that page, whose own top tab-strip
+  // (added in phase 2) lets you switch to a sibling from there.
+  const mobileItems: (NavLeaf & { bucketActive?: boolean })[] = [
+    ...visibleTopLevel,
+    ...visibleBuckets.map((b) => ({
+      to: b.children[0].to,
+      label: b.label,
+      icon: b.icon,
+      show: true,
+      bucketActive: isBucketActive(b),
+    })),
+  ];
 
   return (
     <div className="min-h-screen flex bg-background text-foreground">
@@ -146,7 +219,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Link>
         </div>
         <nav className="flex-1 px-2 py-4 space-y-0.5">
-          {navItems.map((n) => {
+          {/* Standalone items (Home, Athletes) */}
+          {visibleTopLevel.map((n) => {
             const active = n.to === "/app" ? path === "/app" : path.startsWith(n.to);
             return (
               <Link
@@ -167,6 +241,82 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <n.icon className={cn("h-4 w-4", active && "text-[var(--accent-red)]")} />
                 {!collapsed && <span>{n.label}</span>}
               </Link>
+            );
+          })}
+
+          {/* Bucketed groups — accordion. When the sidebar itself is
+              collapsed to icon-only width, buckets fall back to acting
+              like a flat icon list of their first child (an accordion
+              can't really work at 64px wide) rather than being unusable. */}
+          {visibleBuckets.map((bucket) => {
+            const active = isBucketActive(bucket);
+            const open = collapsed ? false : isBucketOpen(bucket);
+
+            if (collapsed) {
+              const first = bucket.children[0];
+              return (
+                <Link
+                  key={bucket.id}
+                  to={first.to}
+                  title={bucket.label}
+                  className={cn(
+                    "relative flex items-center justify-center h-10 rounded-md text-sm font-medium transition-colors",
+                    active
+                      ? "bg-sidebar-accent text-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/60",
+                  )}
+                >
+                  {active && (
+                    <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-[var(--accent-red)]" />
+                  )}
+                  <bucket.icon className={cn("h-4 w-4", active && "text-[var(--accent-red)]")} />
+                </Link>
+              );
+            }
+
+            return (
+              <div key={bucket.id}>
+                <button
+                  type="button"
+                  onClick={() => toggleBucket(bucket)}
+                  className={cn(
+                    "relative w-full flex items-center gap-3 px-3 h-10 rounded-md text-sm font-medium transition-colors",
+                    active
+                      ? "text-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/60",
+                  )}
+                  aria-expanded={open}
+                >
+                  {active && (
+                    <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-[var(--accent-red)]" />
+                  )}
+                  <bucket.icon className={cn("h-4 w-4", active && "text-[var(--accent-red)]")} />
+                  <span className="flex-1 text-left">{bucket.label}</span>
+                  <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")} />
+                </button>
+                {open && (
+                  <div className="ml-3.5 pl-3 border-l border-border space-y-0.5 py-0.5">
+                    {bucket.children.map((n) => {
+                      const childActive = path.startsWith(n.to);
+                      return (
+                        <Link
+                          key={n.to}
+                          to={n.to}
+                          className={cn(
+                            "flex items-center gap-2.5 px-2.5 h-8 rounded-md text-[13px] font-medium transition-colors",
+                            childActive
+                              ? "bg-sidebar-accent text-foreground"
+                              : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/60",
+                          )}
+                        >
+                          <n.icon className={cn("h-3.5 w-3.5", childActive && "text-[var(--accent-red)]")} />
+                          <span>{n.label}</span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             );
           })}
         </nav>
@@ -219,10 +369,12 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        {/* Mobile bottom nav */}
+        {/* Mobile bottom nav — buckets collapse to their first visible
+            child (see mobileItems above); the in-page tab-strip (phase 2)
+            is what lets someone switch to a sibling from there. */}
         <nav className="md:hidden order-last sticky bottom-0 z-10 border-t border-border bg-background/95 backdrop-blur-md flex overflow-x-auto print:hidden">
-          {navItems.map((n) => {
-            const active = n.to === "/app" ? path === "/app" : path.startsWith(n.to);
+          {mobileItems.map((n) => {
+            const active = n.bucketActive ?? (n.to === "/app" ? path === "/app" : path.startsWith(n.to));
             return (
               <Link
                 key={n.to}
