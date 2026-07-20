@@ -1,6 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
-import { CalendarDays, CalendarRange, ClipboardList, BookmarkCheck, LayoutGrid, Clock } from "lucide-react";
+import { CalendarDays, CalendarRange, ClipboardList, BookmarkCheck, LayoutGrid, Clock, CalendarHeart } from "lucide-react";
 
 export type BucketTabItem = {
   to: string;
@@ -22,6 +22,9 @@ export const TRAINING_TABS: BucketTabItem[] = [
   // Open to everyone (coach, athlete, and parent) — unlike the other
   // Training tabs, this one isn't filtered by role at the call sites.
   { to: "/app/training-schedule", label: "Training Schedule", icon: Clock },
+  // Athlete/parent only — a coach has no personal calendar to view here.
+  // Filtered at each call site the same way Daily Log already is.
+  { to: "/app/my-schedule", label: "My Schedule", icon: CalendarHeart },
 ];
 
 export const COACHING_HUB_TABS: BucketTabItem[] = [
