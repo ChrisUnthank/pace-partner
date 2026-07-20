@@ -26,7 +26,7 @@ export function useAuthUser() {
   return { user, loading };
 }
 
-export type AppRole = "coach" | "athlete" | "manager" | "admin";
+export type AppRole = "coach" | "athlete" | "manager" | "admin" | "parent";
 
 // Raw roles as stored in the database (used by the Profile role-management UI).
 export function useMyRawRoles() {
@@ -99,6 +99,30 @@ export function useMyAthlete() {
         .maybeSingle();
       if (error) throw error;
       return data;
+    },
+  });
+}
+
+// Athletes a parent/guardian is actively linked to, via parent_athlete_links.
+// Powers the Parent Portal's child-switcher — a parent with more than one
+// child on the roster needs to pick which one they're viewing.
+// Returns rows shaped like { athlete_id, athletes: {...} } to match the
+// existing useCoachRoster() accessor shape so shared UI can consume either.
+export function useMyLinkedAthletes() {
+  const { user } = useAuthUser();
+  const { data: rawRoles = [] } = useMyRawRoles();
+  const isParent = rawRoles.includes("parent");
+  return useQuery({
+    queryKey: ["my-linked-athletes", user?.id],
+    enabled: !!user && isParent,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("parent_athlete_links")
+        .select("athlete_id, athletes(*)")
+        .eq("parent_user_id", user!.id)
+        .eq("status", "active");
+      if (error) throw error;
+      return data ?? [];
     },
   });
 }
