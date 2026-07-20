@@ -13,15 +13,7 @@ import { Plus, CalendarDays, Upload, Users } from "lucide-react";
 import { ActivityIcon } from "@/lib/activity-icon";
 import { useState, useMemo, useEffect } from "react";
 import { BulkFitUpload } from "@/components/bulk-fit-upload";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { sessionColorClass } from "@/components/calendar-day-cell";
 import { cn } from "@/lib/utils";
