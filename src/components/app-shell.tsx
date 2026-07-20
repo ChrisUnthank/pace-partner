@@ -26,7 +26,6 @@ import {
   Calculator,
   GitCompare,
   IdCard,
-  ListChecks,
   FileText,
   Flag,
   Globe,
@@ -91,6 +90,13 @@ export function AppShell({ children }: { children: ReactNode }) {
   const topLevelItems: NavLeaf[] = [
     { to: "/app", label: "Home", icon: Home, show: true },
     { to: "/app/athletes", label: "Athletes", icon: Users, show: isCoach },
+    // Coaching Hub: session templates, plan templates, active plans — and
+    // room to grow into a session library / phase builder later. Gets its
+    // own Overview + tab-strip (BucketTabStrip, same component the
+    // sidebar buckets use) rather than living inside the Training
+    // accordion, since — like Athletes — it has a real landing dashboard
+    // to earn that treatment, not just a handful of unrelated tools.
+    { to: "/app/coaching-hub", label: "Coaching Hub", icon: BookmarkCheck, show: isCoach },
   ];
 
   // Profile stays standalone too, but renders after the buckets (its
@@ -113,8 +119,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         { to: "/app/sessions", label: "Sessions", icon: CalendarDays, show: isCoachOrAthlete },
         { to: "/app/sessions/calendar", label: "Calendar", icon: CalendarRange, show: isCoachOrAthlete },
         { to: "/app/daily-log", label: "Daily Log", icon: ClipboardList, show: isAthlete },
-        { to: "/app/templates", label: "Templates", icon: BookmarkCheck, show: isCoach },
-        { to: "/app/plans", label: "Plans", icon: ListChecks, show: isCoach },
       ],
     },
     {
