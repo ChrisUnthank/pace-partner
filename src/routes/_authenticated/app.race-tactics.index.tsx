@@ -136,7 +136,7 @@ function RaceTacticsList() {
           </Button>
         </div>
 
-        {isCoach && filterAthleteId && <AthleteSubnav athleteId={filterAthleteId} active="race-tactics" />}
+        {isCoach && filterAthleteId && <AthleteSubnav athleteId={filterAthleteId} active="races" />}
 
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
