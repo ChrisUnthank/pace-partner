@@ -28,7 +28,7 @@ import { CSS } from "@dnd-kit/utilities";
 export function Dot({ done }: { done: boolean }) {
   return (
     <span
-      className={cn("h-1.5 w-1.5 shrink-0 rounded-full", done ? "bg-emerald-500" : "bg-muted-foreground/40")}
+      className={cn("h-1.5 w-1.5 shrink-0 rounded-full", done ? "bg-[var(--accent-red)]" : "bg-muted-foreground/40")}
       aria-hidden
     />
   );
