@@ -16,7 +16,7 @@ import { TrainingResponseCard } from "@/components/training-response-card";
 import { StrengthsDevelopmentCard } from "@/components/strengths-development-card";
 import { RaceProfileCard } from "@/components/race-profile-card";
 
-export const Route = createFileRoute("/_authenticated/app/athletes/$athleteId/performance-profile")({
+export const Route = createFileRoute("/_authenticated/app/athletes/$athleteId_/performance-profile")({
   component: PerformanceProfilePage,
 });
 

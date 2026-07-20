@@ -26,6 +26,7 @@ import { Route as AuthenticatedAppProfileRouteImport } from './routes/_authentic
 import { Route as AuthenticatedAppPlansRouteImport } from './routes/_authenticated/app.plans'
 import { Route as AuthenticatedAppNoticeboardRouteImport } from './routes/_authenticated/app.noticeboard'
 import { Route as AuthenticatedAppMessagesRouteImport } from './routes/_authenticated/app.messages'
+import { Route as AuthenticatedAppGroupChatRouteImport } from './routes/_authenticated/app.group-chat'
 import { Route as AuthenticatedAppDailyLogRouteImport } from './routes/_authenticated/app.daily-log'
 import { Route as AuthenticatedAppCompareRouteImport } from './routes/_authenticated/app.compare'
 import { Route as AuthenticatedAppCheckoutRouteImport } from './routes/_authenticated/app.checkout'
@@ -149,6 +150,12 @@ const AuthenticatedAppMessagesRoute =
   AuthenticatedAppMessagesRouteImport.update({
     id: '/app/messages',
     path: '/app/messages',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppGroupChatRoute =
+  AuthenticatedAppGroupChatRouteImport.update({
+    id: '/app/group-chat',
+    path: '/app/group-chat',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedAppDailyLogRoute =
@@ -379,6 +386,7 @@ export interface FileRoutesByFullPath {
   '/app/checkout': typeof AuthenticatedAppCheckoutRoute
   '/app/compare': typeof AuthenticatedAppCompareRoute
   '/app/daily-log': typeof AuthenticatedAppDailyLogRoute
+  '/app/group-chat': typeof AuthenticatedAppGroupChatRoute
   '/app/messages': typeof AuthenticatedAppMessagesRoute
   '/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
   '/app/plans': typeof AuthenticatedAppPlansRoute
@@ -431,6 +439,7 @@ export interface FileRoutesByTo {
   '/app/checkout': typeof AuthenticatedAppCheckoutRoute
   '/app/compare': typeof AuthenticatedAppCompareRoute
   '/app/daily-log': typeof AuthenticatedAppDailyLogRoute
+  '/app/group-chat': typeof AuthenticatedAppGroupChatRoute
   '/app/messages': typeof AuthenticatedAppMessagesRoute
   '/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
   '/app/plans': typeof AuthenticatedAppPlansRoute
@@ -483,6 +492,7 @@ export interface FileRoutesById {
   '/_authenticated/app/checkout': typeof AuthenticatedAppCheckoutRoute
   '/_authenticated/app/compare': typeof AuthenticatedAppCompareRoute
   '/_authenticated/app/daily-log': typeof AuthenticatedAppDailyLogRoute
+  '/_authenticated/app/group-chat': typeof AuthenticatedAppGroupChatRoute
   '/_authenticated/app/messages': typeof AuthenticatedAppMessagesRoute
   '/_authenticated/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
   '/_authenticated/app/plans': typeof AuthenticatedAppPlansRoute
@@ -539,6 +549,7 @@ export interface FileRouteTypes {
     | '/app/checkout'
     | '/app/compare'
     | '/app/daily-log'
+    | '/app/group-chat'
     | '/app/messages'
     | '/app/noticeboard'
     | '/app/plans'
@@ -591,6 +602,7 @@ export interface FileRouteTypes {
     | '/app/checkout'
     | '/app/compare'
     | '/app/daily-log'
+    | '/app/group-chat'
     | '/app/messages'
     | '/app/noticeboard'
     | '/app/plans'
@@ -642,6 +654,7 @@ export interface FileRouteTypes {
     | '/_authenticated/app/checkout'
     | '/_authenticated/app/compare'
     | '/_authenticated/app/daily-log'
+    | '/_authenticated/app/group-chat'
     | '/_authenticated/app/messages'
     | '/_authenticated/app/noticeboard'
     | '/_authenticated/app/plans'
@@ -815,6 +828,13 @@ declare module '@tanstack/react-router' {
       path: '/app/messages'
       fullPath: '/app/messages'
       preLoaderRoute: typeof AuthenticatedAppMessagesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/group-chat': {
+      id: '/_authenticated/app/group-chat'
+      path: '/app/group-chat'
+      fullPath: '/app/group-chat'
+      preLoaderRoute: typeof AuthenticatedAppGroupChatRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/app/daily-log': {
@@ -1197,6 +1217,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAppCheckoutRoute: typeof AuthenticatedAppCheckoutRoute
   AuthenticatedAppCompareRoute: typeof AuthenticatedAppCompareRoute
   AuthenticatedAppDailyLogRoute: typeof AuthenticatedAppDailyLogRoute
+  AuthenticatedAppGroupChatRoute: typeof AuthenticatedAppGroupChatRoute
   AuthenticatedAppMessagesRoute: typeof AuthenticatedAppMessagesRoute
   AuthenticatedAppNoticeboardRoute: typeof AuthenticatedAppNoticeboardRoute
   AuthenticatedAppPlansRoute: typeof AuthenticatedAppPlansRoute
@@ -1229,6 +1250,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAppCheckoutRoute: AuthenticatedAppCheckoutRoute,
   AuthenticatedAppCompareRoute: AuthenticatedAppCompareRoute,
   AuthenticatedAppDailyLogRoute: AuthenticatedAppDailyLogRoute,
+  AuthenticatedAppGroupChatRoute: AuthenticatedAppGroupChatRoute,
   AuthenticatedAppMessagesRoute: AuthenticatedAppMessagesRoute,
   AuthenticatedAppNoticeboardRoute: AuthenticatedAppNoticeboardRoute,
   AuthenticatedAppPlansRoute: AuthenticatedAppPlansRoute,
