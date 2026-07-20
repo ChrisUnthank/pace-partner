@@ -289,7 +289,7 @@ function SessionsList() {
       {!(isCoach && filterAthlete !== "all") && (
         <div className="mb-4">
           <BucketTabStrip
-            items={TRAINING_TABS.filter((t) => t.to !== "/app/daily-log" || isAthlete)}
+            items={TRAINING_TABS.filter((t) => (t.to === "/app/daily-log" || t.to === "/app/my-schedule" ? isAthlete : true))}
             active="/app/sessions"
           />
         </div>
