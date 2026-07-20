@@ -12,12 +12,12 @@ import { ReadinessBadge } from "@/components/readiness-badge";
 import { VitalsPanel } from "@/components/vitals-panel";
 import { CoachChat } from "@/components/coach-chat";
 import { toast } from "sonner";
-import { RefreshCw, CalendarDays, IdCard, LineChart as AnalyticsIcon, Trophy, Flag } from "lucide-react";
+import { RefreshCw } from "lucide-react";
+import { AthleteSubnav } from "@/components/athlete-subnav";
 import { UserAvatar } from "@/components/user-avatar";
 import { GenerateReviewCard } from "@/components/generate-review-card";
 import { AthleteReminderSettings } from "@/components/reminder-settings";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ZoneBoundariesCard } from "@/components/zone-boundaries-card";
 import { GoalsCard } from "@/components/goals-card";
 import { AthleteIdentityCard } from "@/components/athlete-identity-card";
 import { Badge } from "@/components/ui/badge";
@@ -299,14 +299,6 @@ function AthleteDetail() {
     return map;
   }, [progressionPerformances]);
 
-  const { data: zoneProfile } = useQuery({
-    queryKey: ["zone-profile", athleteId],
-    queryFn: async () => {
-      const { data } = await supabase.from("athlete_zone_profiles").select("*").eq("athlete_id", athleteId).maybeSingle();
-      return data;
-    },
-  });
-
   if (!athlete) return <AppShell><p className="text-sm text-muted-foreground">Loading…</p></AppShell>;
   const today = load?.[0];
 
@@ -329,38 +321,15 @@ function AthleteDetail() {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2 flex-wrap justify-end">
-              <Button asChild variant="outline" size="sm">
-                <Link to="/app/athletes/$athleteId/performance-profile" params={{ athleteId }}>
-                  <IdCard className="h-4 w-4 mr-1" /> Performance Profile
-                </Link>
-              </Button>
-              <Button asChild variant="outline" size="sm">
-                <Link to="/app/sessions/calendar" search={{ athleteId } as any}>
-                  <CalendarDays className="h-4 w-4 mr-1" /> Calendar
-                </Link>
-              </Button>
-              <Button asChild variant="outline" size="sm">
-                <Link to="/app/analytics" search={{ athleteId } as any}>
-                  <AnalyticsIcon className="h-4 w-4 mr-1" /> Analytics
-                </Link>
-              </Button>
-              <Button asChild variant="outline" size="sm">
-                <Link to="/app/races" search={{ athleteId } as any}>
-                  <Trophy className="h-4 w-4 mr-1" /> Races
-                </Link>
-              </Button>
-              <Button asChild variant="outline" size="sm">
-                <Link to="/app/race-tactics" search={{ athleteId } as any}>
-                  <Flag className="h-4 w-4 mr-1" /> Race Tactics
-                </Link>
-              </Button>
-              <ReadinessBadge
-                status={today?.readiness_status as any}
-                score={today?.readiness_score as any}
-                confidence={today?.confidence as any}
-              />
-            </div>
+            <ReadinessBadge
+              status={today?.readiness_status as any}
+              score={today?.readiness_score as any}
+              confidence={today?.confidence as any}
+            />
+          </div>
+
+          <div className="mt-4">
+            <AthleteSubnav athleteId={athleteId} active="overview" />
           </div>
         </div>
 
@@ -369,8 +338,6 @@ function AthleteDetail() {
         <GoalsCard athleteId={athleteId} />
 
         <ActivePlanBanner athleteId={athleteId} />
-
-        <ZoneBoundariesCard athleteId={athleteId} profile={zoneProfile} />
 
         <PhysiologyCard athleteId={athleteId} />
 
