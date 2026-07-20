@@ -2,23 +2,25 @@ import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
-import { LayoutGrid, IdCard, Gauge, CalendarDays, LineChart, Trophy, Flag, Globe } from "lucide-react";
+import { LayoutGrid, IdCard, Gauge, CalendarRange, CalendarDays, LineChart, Trophy, Globe } from "lucide-react";
 
 export type AthleteSubnavTab =
   | "overview"
+  | "calendar"
+  | "sessions"
+  | "analytics"
   | "performance-profile"
   | "zones"
-  | "calendar"
-  | "analytics"
   | "races"
-  | "race-tactics"
   | "athlete-page";
 
 // Shared tab strip for every page reached from an athlete's full view —
-// Overview, Performance Profile, Calendar, Analytics, Races, Race Tactics,
-// and the athlete's public Athlete Page. Lets a coach jump directly from
-// any one of these to any other, rather than only being able to navigate
-// back to Overview and out again.
+// Overview, Calendar, Sessions, Analytics, Performance Profile, Zones,
+// Races, and the athlete's public Athlete Page. Lets a coach jump directly
+// from any one of these to any other, rather than only being able to
+// navigate back to Overview and out again. Race Tactics deliberately isn't
+// a tab here — it's reached via a prominent link on the Races page instead,
+// since it's conceptually a sub-area of race results, not a peer of it.
 export function AthleteSubnav({ athleteId, active }: { athleteId: string; active: AthleteSubnavTab }) {
   // The Athlete Page tab needs to know whether this athlete already has a
   // public page (link straight to it) or not (fall back to the
@@ -44,6 +46,9 @@ export function AthleteSubnav({ athleteId, active }: { athleteId: string; active
     search?: Record<string, string>;
   }[] = [
     { key: "overview", label: "Overview", icon: LayoutGrid, to: "/app/athletes/$athleteId", params: { athleteId } },
+    { key: "calendar", label: "Calendar", icon: CalendarRange, to: "/app/sessions/calendar", search: { athleteId } },
+    { key: "sessions", label: "Sessions", icon: CalendarDays, to: "/app/sessions", search: { athleteId } },
+    { key: "analytics", label: "Analytics", icon: LineChart, to: "/app/analytics", search: { athleteId } },
     {
       key: "performance-profile",
       label: "Performance Profile",
@@ -52,10 +57,7 @@ export function AthleteSubnav({ athleteId, active }: { athleteId: string; active
       params: { athleteId },
     },
     { key: "zones", label: "Zones", icon: Gauge, to: "/app/zones", search: { athleteId } },
-    { key: "calendar", label: "Calendar", icon: CalendarDays, to: "/app/sessions/calendar", search: { athleteId } },
-    { key: "analytics", label: "Analytics", icon: LineChart, to: "/app/analytics", search: { athleteId } },
     { key: "races", label: "Races", icon: Trophy, to: "/app/races", search: { athleteId } },
-    { key: "race-tactics", label: "Race Tactics", icon: Flag, to: "/app/race-tactics", search: { athleteId } },
     athletePage?.slug
       ? { key: "athlete-page", label: "Athlete Page", icon: Globe, to: "/app/athlete/$slug", params: { slug: athletePage.slug } }
       : { key: "athlete-page", label: "Athlete Page", icon: Globe, to: "/app/athlete", search: { athleteId } },
