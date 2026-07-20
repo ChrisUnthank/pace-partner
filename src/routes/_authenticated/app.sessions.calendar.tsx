@@ -30,6 +30,7 @@ import { UserAvatar } from "@/components/user-avatar";
 import { useServerFn } from "@tanstack/react-start";
 import { uploadAndParseSessionFile } from "@/lib/session-files.functions";
 import { toast } from "sonner";
+import { AthleteSubnav } from "@/components/athlete-subnav";
 
 const searchSchema = z.object({
   athleteId: z.string().optional(),
@@ -482,15 +483,18 @@ function CalendarPage() {
     <AppShell>
       <div className="space-y-4">
         {isCoach && selectedAthleteId && (
-          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
-            <Link to="/app/athletes" className="hover:text-foreground">
-              Athletes
-            </Link>
-            <span className="text-border">/</span>
-            <Link to="/app/athletes/$athleteId" params={{ athleteId: selectedAthleteId }} className="hover:text-foreground">
-              {selectedAthleteName ?? "Athlete"}
-            </Link>
-          </div>
+          <>
+            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+              <Link to="/app/athletes" className="hover:text-foreground">
+                Athletes
+              </Link>
+              <span className="text-border">/</span>
+              <Link to="/app/athletes/$athleteId" params={{ athleteId: selectedAthleteId }} className="hover:text-foreground">
+                {selectedAthleteName ?? "Athlete"}
+              </Link>
+            </div>
+            <AthleteSubnav athleteId={selectedAthleteId} active="calendar" />
+          </>
         )}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
