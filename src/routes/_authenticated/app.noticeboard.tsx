@@ -214,6 +214,12 @@ function Noticeboard() {
 
         {/* ✅ RIGHT PANEL */}
         <div className="space-y-4">
+          {/* Squad Training Schedule moved to its own page under the
+              Training bucket (/app/training-schedule) — that's where it's
+              actually managed now. Noticeboard's job is just to show
+              announcement posts, including the optional one a coach can
+              choose to post when they update the schedule (see
+              TrainingSlotForm's "Announce" checkbox on that page). */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Instagram</CardTitle>
