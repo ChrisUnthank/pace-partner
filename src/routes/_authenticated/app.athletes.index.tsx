@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuthUser, useMyRawRoles } from "@/lib/use-auth";
@@ -57,6 +57,14 @@ function AthletesPage() {
   // page the roster used to link to directly. The panel itself
   // (AthleteSummaryPanel) is shared with the Home dashboard.
   const [selectedAthleteId, setSelectedAthleteId] = useState<string | null>(null);
+
+  // Arriving here via a breadcrumb ("Athletes" link) from a page that was
+  // scrolled a long way down is a client-side route change, so the browser
+  // won't reset scroll on its own — without this, the roster could open
+  // already scrolled partway down instead of at the top.
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
 
   const { data: roster } = useQuery({
     queryKey: ["roster", user?.id, isManager],
