@@ -15,6 +15,7 @@ import { CalendarRange, ChevronDown, ChevronUp } from "lucide-react";
 import { metersFmt } from "@/lib/format";
 import { assignPlanToAthlete, cancelAthletePlan } from "@/lib/plan.functions";
 import { useAuthUser } from "@/lib/use-auth";
+import { BucketTabStrip, COACHING_HUB_TABS } from "@/components/bucket-tab-strip";
 
 export const Route = createFileRoute("/_authenticated/app/plans")({
   component: PlansPage,
@@ -194,6 +195,7 @@ function PlansPage() {
     return (
       <AppShell>
         <div className="space-y-6 max-w-5xl">
+          <BucketTabStrip items={COACHING_HUB_TABS} active="/app/plans" />
           <PlanBuilder
             templateId={builderTemplateId}
             onBack={() => {
@@ -209,6 +211,7 @@ function PlansPage() {
   return (
     <AppShell>
       <div className="space-y-6 max-w-5xl">
+        <BucketTabStrip items={COACHING_HUB_TABS} active="/app/plans" />
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">
