@@ -226,7 +226,11 @@ function TrainingSchedulePage() {
                             )}
                           >
                             <div className="font-semibold">{meta.short}</div>
-                            {s.start_time && <div className="tabular-nums opacity-80">{s.start_time.slice(0, 5)}</div>}
+                            {s.start_time ? (
+                              <div className="tabular-nums opacity-80">{s.start_time.slice(0, 5)}</div>
+                            ) : s.time_of_day ? (
+                              <div className="opacity-80 uppercase text-[10px] font-bold tracking-wide">{s.time_of_day}</div>
+                            ) : null}
                           </button>
                         );
                       })}
@@ -272,7 +276,7 @@ function TrainingSchedulePage() {
                     <div className="min-w-0">
                       <div className="text-sm font-medium">
                         {format(new Date(s.specific_date + "T00:00:00"), "EEE d MMM")}
-                        {s.start_time ? ` · ${s.start_time.slice(0, 5)}` : ""}
+                        {s.start_time ? ` · ${s.start_time.slice(0, 5)}` : s.time_of_day ? ` · ${s.time_of_day.toUpperCase()}` : ""}
                       </div>
                       <div className="text-xs text-muted-foreground truncate">
                         {meta.label}
@@ -496,10 +500,11 @@ function SlotDetailDialog({
     (slot.day_of_week != null ? toISO(nextDateForWeekday(slot.day_of_week, slot.start_time)) : null);
 
   function exportOccurrence(dateOverride?: string, timeOverride?: string | null, locOverride?: string | null, notesOverride?: string | null) {
+    const fallbackTime = slot.time_of_day === "pm" ? "15:00" : slot.time_of_day === "am" ? "07:00" : null;
     const occ = {
       title: `${meta.label}${slot.squad_label ? ` — ${slot.squad_label}` : ""}`,
       date: dateOverride ?? nextDate!,
-      startTime: timeOverride !== undefined ? timeOverride : slot.start_time?.slice(0, 5) ?? null,
+      startTime: timeOverride !== undefined ? timeOverride : slot.start_time?.slice(0, 5) ?? fallbackTime,
       location: locOverride !== undefined ? locOverride : locationName,
       notes: notesOverride !== undefined ? notesOverride : slot.notes,
     };
@@ -548,7 +553,11 @@ function SlotDetailDialog({
             {slot.specific_date
               ? format(new Date(slot.specific_date + "T00:00:00"), "EEEE d MMMM")
               : `Every ${WEEKDAY_NAMES[slot.day_of_week]}`}
-            {slot.start_time ? ` · ${slot.start_time.slice(0, 5)}` : " · No fixed time"}
+            {slot.start_time
+              ? ` · ${slot.start_time.slice(0, 5)}`
+              : slot.time_of_day
+              ? ` · ${slot.time_of_day.toUpperCase()}`
+              : " · No fixed time"}
           </DialogDescription>
         </DialogHeader>
 
@@ -802,6 +811,7 @@ function SlotFormDialog({
   const [specificDate, setSpecificDate] = useState(initial?.specific_date ?? "");
   const [hasTime, setHasTime] = useState(!!initial?.start_time || !isEdit);
   const [startTime, setStartTime] = useState(initial?.start_time?.slice(0, 5) ?? "06:00");
+  const [timeOfDay, setTimeOfDay] = useState<"" | "am" | "pm">(initial?.time_of_day ?? "");
   const [locationMode, setLocationMode] = useState<"saved" | "custom" | "none">(
     initial?.location_id ? "saved" : initial?.location_text ? "custom" : "none",
   );
@@ -819,6 +829,7 @@ function SlotFormDialog({
         day_of_week: mode === "recurring" ? Number(dayOfWeek) : null,
         specific_date: mode === "one-off" ? specificDate : null,
         start_time: hasTime ? startTime : null,
+        time_of_day: timeOfDay || null,
         location_id: locationMode === "saved" ? locationId || null : null,
         location_text: locationMode === "custom" ? locationText || null : null,
         notes: notes || null,
@@ -837,7 +848,11 @@ function SlotFormDialog({
           mode === "one-off"
             ? new Date(specificDate + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })
             : `${WEEKDAY_NAMES[Number(dayOfWeek)]}s`;
-        const timeLabel = hasTime ? new Date(`2000-01-01T${startTime}`).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : "";
+        const timeLabel = hasTime
+          ? new Date(`2000-01-01T${startTime}`).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+          : timeOfDay
+          ? timeOfDay.toUpperCase()
+          : "";
         const locLabel = locationMode === "saved" ? savedLocations?.find((l: any) => l.id === locationId)?.name : locationMode === "custom" ? locationText : "";
         await createPostFn({
           data: {
@@ -910,6 +925,21 @@ function SlotFormDialog({
             Has a fixed time
           </label>
           {hasTime && <Input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />}
+
+          <div>
+            <Label className="text-xs">
+              Time of day {hasTime && <span className="text-muted-foreground font-normal">(optional, in addition to the exact time above)</span>}
+            </Label>
+            <div className="flex gap-2 mt-1">
+              <Button size="sm" variant={timeOfDay === "am" ? "default" : "outline"} onClick={() => setTimeOfDay(timeOfDay === "am" ? "" : "am")}>AM</Button>
+              <Button size="sm" variant={timeOfDay === "pm" ? "default" : "outline"} onClick={() => setTimeOfDay(timeOfDay === "pm" ? "" : "pm")}>PM</Button>
+            </div>
+            {!hasTime && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Useful for days without one fixed time — e.g. an Individual Program day, or telling apart a morning/afternoon double day.
+              </p>
+            )}
+          </div>
 
           <div>
             <Label className="text-xs">Location</Label>
