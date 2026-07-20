@@ -88,6 +88,25 @@ function RaceTacticsList() {
   return (
     <AppShell>
       <div className="space-y-4 max-w-4xl">
+        {isCoach && (
+          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+            <Link to="/app/athletes" className="hover:text-foreground">
+              Athletes
+            </Link>
+            {filterAthleteId && (
+              <>
+                <span className="text-border">/</span>
+                <Link
+                  to="/app/athletes/$athleteId"
+                  params={{ athleteId: filterAthleteId }}
+                  className="hover:text-foreground"
+                >
+                  {filterAthlete?.name ?? "Athlete"}
+                </Link>
+              </>
+            )}
+          </div>
+        )}
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">
