@@ -224,7 +224,7 @@ function AthleteZonesView() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-display text-3xl font-extrabold tracking-tight">Zones</h1>
+        <h1 className="text-2xl font-bold">Zones</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Your training zones, how your time breaks down across them, and how your boundaries have shifted over time.
         </p>
@@ -463,7 +463,7 @@ function CoachAthleteZonesView({ athleteId }: { athleteId: string }) {
       <AthleteSubnav athleteId={athleteId} active="zones" />
 
       <div>
-        <h1 className="font-display text-3xl font-extrabold tracking-tight">{athlete?.name ?? "Zones"}</h1>
+        <h1 className="text-2xl font-bold">{athlete?.name ?? "Zones"}</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Training zones, time-in-zone breakdown, and how boundaries have shifted over time.
         </p>
@@ -699,7 +699,7 @@ function CoachZonesRoster() {
     <div className="space-y-6">
       <div className="flex items-end justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="font-display text-3xl font-extrabold tracking-tight">Zones</h1>
+          <h1 className="text-2xl font-bold">Zones</h1>
           <p className="text-sm text-muted-foreground mt-1">Threshold values and recent time-in-zone across your roster.</p>
         </div>
         <div className="relative w-full sm:w-64">
