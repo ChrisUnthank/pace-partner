@@ -22,7 +22,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { CalendarDays, UserMinus } from "lucide-react";
+import { CalendarDays, Maximize2, UserMinus } from "lucide-react";
 import { AthleteSummaryPanel } from "@/components/athlete-summary-panel";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TIMEZONE_OPTIONS, guessLocalTimezone } from "@/lib/timezones";
@@ -203,6 +203,11 @@ function AthletesPage() {
                           <div className="text-xs text-muted-foreground truncate">{r.athletes?.primary_event ?? "—"}</div>
                         </button>
                         <div className="flex items-center gap-2 shrink-0">
+                          <Button asChild size="icon" variant="ghost" title="Full view">
+                            <Link to="/app/athletes/$athleteId" params={{ athleteId: r.athlete_id }}>
+                              <Maximize2 className="h-4 w-4" />
+                            </Link>
+                          </Button>
                           <Button asChild size="icon" variant="ghost" title="View calendar">
                             <Link to="/app/sessions/calendar" search={{ athleteId: r.athlete_id } as any}>
                               <CalendarDays className="h-4 w-4" />
