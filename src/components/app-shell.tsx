@@ -18,6 +18,7 @@ import {
   ChevronDown,
   Zap,
   ClipboardList,
+  Clock,
   Megaphone,
   MessageSquare,
   MessageCircle,
@@ -132,6 +133,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         { to: "/app/sessions", label: "Sessions", icon: CalendarDays, show: isCoachOrAthlete },
         { to: "/app/sessions/calendar", label: "Calendar", icon: CalendarRange, show: isCoachOrAthlete },
         { to: "/app/daily-log", label: "Daily Log", icon: ClipboardList, show: isAthlete },
+        // Open to everyone — coach, athlete, and parent alike. This is
+        // also what surfaces the Training bucket in a parent's sidebar
+        // for the first time, since Sessions/Calendar/Daily Log all stay
+        // hidden from them.
+        { to: "/app/training-schedule", label: "Training Schedule", icon: Clock, show: true },
       ],
     },
     {
