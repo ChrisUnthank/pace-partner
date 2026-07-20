@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { metersFmt, secToClock, clockToSec, todayISO } from "@/lib/format";
 import { toast } from "sonner";
 import { Trash2, Trophy, CalendarClock, Medal, TrendingUp } from "lucide-react";
+import { AthleteSubnav } from "@/components/athlete-subnav";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 const searchSchema = z.object({
@@ -168,6 +169,8 @@ function RacesPage() {
           <Trophy className="h-5 w-5 text-[var(--accent-red)]" />
           <h1 className="text-2xl font-bold">Race results</h1>
         </div>
+
+        {isCoach && activeAthleteId && <AthleteSubnav athleteId={activeAthleteId} active="races" />}
 
         {isCoach && (
           <Card>
