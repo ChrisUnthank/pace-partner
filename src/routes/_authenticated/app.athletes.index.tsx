@@ -9,14 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -83,20 +76,14 @@ function AthletesPage() {
           .from("athletes")
           .select("*, athlete_invites(token, accepted_at, email)")
           .order("name");
-        if (error) {
-          toast.error(error.message);
-          return [];
-        }
+        if (error) { toast.error(error.message); return []; }
         return (data ?? []).map((a: any) => ({ athlete_id: a.id, athletes: a, athlete_invites: a.athlete_invites }));
       }
       const { data, error } = await supabase
         .from("coach_athletes")
         .select("athlete_id, athletes(*, athlete_invites(token, accepted_at, email))")
         .eq("coach_user_id", user!.id);
-      if (error) {
-        toast.error(error.message);
-        return [];
-      }
+      if (error) { toast.error(error.message); return []; }
       return (data ?? []).map((r: any) => ({
         athlete_id: r.athlete_id,
         athletes: r.athletes,
@@ -118,12 +105,8 @@ function AthletesPage() {
         supabase.from("parent_athlete_links").select("athlete_id").in("athlete_id", athleteIds).eq("status", "active"),
         supabase.from("parent_invites").select("athlete_id, token, accepted_at, email").in("athlete_id", athleteIds),
       ]);
-      if (linksErr) {
-        toast.error(linksErr.message);
-      }
-      if (invitesErr) {
-        toast.error(invitesErr.message);
-      }
+      if (linksErr) { toast.error(linksErr.message); }
+      if (invitesErr) { toast.error(invitesErr.message); }
       const countByAthlete = new Map<string, number>();
       for (const l of links ?? []) countByAthlete.set(l.athlete_id, (countByAthlete.get(l.athlete_id) ?? 0) + 1);
       const pendingByAthlete = new Map<string, { token: string; email: string }>();
@@ -137,43 +120,22 @@ function AthletesPage() {
   const selectedAthlete = roster?.find((r: any) => r.athlete_id === selectedAthleteId)?.athletes ?? null;
 
   async function addAthlete() {
-    if (!name) {
-      toast.error("Name required");
-      return;
-    }
-    const { data: ath, error } = await supabase
-      .from("athletes")
-      .insert({
-        name,
-        primary_event: event || null,
-        created_by: user!.id,
-        timezone,
-      })
-      .select()
-      .single();
-    if (error || !ath) {
-      toast.error(error?.message ?? "Failed");
-      return;
-    }
+    if (!name) { toast.error("Name required"); return; }
+    const { data: ath, error } = await supabase.from("athletes").insert({
+      name, primary_event: event || null, created_by: user!.id, timezone,
+    }).select().single();
+    if (error || !ath) { toast.error(error?.message ?? "Failed"); return; }
     await supabase.from("coach_athletes").insert({ coach_user_id: user!.id, athlete_id: ath.id });
     if (email) {
-      const { data: inv } = await supabase
-        .from("athlete_invites")
-        .insert({
-          coach_user_id: user!.id,
-          athlete_id: ath.id,
-          email,
-        })
-        .select("token")
-        .single();
+      const { data: inv } = await supabase.from("athlete_invites").insert({
+        coach_user_id: user!.id, athlete_id: ath.id, email,
+      }).select("token").single();
       if (inv?.token) {
         setInviteLinkLabel("Invite link ready");
         setInviteLink(`${window.location.origin}/claim/${inv.token}`);
       }
     }
-    setName("");
-    setEvent("");
-    setEmail("");
+    setName(""); setEvent(""); setEmail("");
     toast.success("Athlete added");
     qc.invalidateQueries({ queryKey: ["roster"] });
   }
@@ -183,19 +145,10 @@ function AthletesPage() {
     if (!token) {
       const inviteEmail = window.prompt("Email to send the invite to:");
       if (!inviteEmail) return;
-      const { data, error } = await supabase
-        .from("athlete_invites")
-        .insert({
-          coach_user_id: user!.id,
-          athlete_id: athleteId,
-          email: inviteEmail,
-        })
-        .select("token")
-        .single();
-      if (error || !data) {
-        toast.error(error?.message ?? "Failed");
-        return;
-      }
+      const { data, error } = await supabase.from("athlete_invites").insert({
+        coach_user_id: user!.id, athlete_id: athleteId, email: inviteEmail,
+      }).select("token").single();
+      if (error || !data) { toast.error(error?.message ?? "Failed"); return; }
       token = data.token;
       qc.invalidateQueries({ queryKey: ["roster"] });
     }
@@ -217,19 +170,10 @@ function AthletesPage() {
     if (!token) {
       const inviteEmail = window.prompt("Parent/guardian email to invite:");
       if (!inviteEmail) return;
-      const { data, error } = await supabase
-        .from("parent_invites")
-        .insert({
-          coach_user_id: user!.id,
-          athlete_id: athleteId,
-          email: inviteEmail,
-        })
-        .select("token")
-        .single();
-      if (error || !data) {
-        toast.error(error?.message ?? "Failed");
-        return;
-      }
+      const { data, error } = await supabase.from("parent_invites").insert({
+        coach_user_id: user!.id, athlete_id: athleteId, email: inviteEmail,
+      }).select("token").single();
+      if (error || !data) { toast.error(error?.message ?? "Failed"); return; }
       token = data.token;
       qc.invalidateQueries({ queryKey: ["roster-parent-info"] });
     }
@@ -245,12 +189,8 @@ function AthletesPage() {
 
   async function copyLink() {
     if (!inviteLink) return;
-    try {
-      await navigator.clipboard.writeText(inviteLink);
-      toast.success("Copied");
-    } catch {
-      toast.error("Copy failed — select the link manually");
-    }
+    try { await navigator.clipboard.writeText(inviteLink); toast.success("Copied"); }
+    catch { toast.error("Copy failed — select the link manually"); }
   }
 
   // Unlinks this athlete from the current coach's own roster
@@ -266,42 +206,30 @@ function AthletesPage() {
       .delete()
       .eq("coach_user_id", user!.id)
       .eq("athlete_id", athleteId);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
+    if (error) { toast.error(error.message); return; }
     if (selectedAthleteId === athleteId) setSelectedAthleteId(null);
     toast.success("Removed from your roster");
     qc.invalidateQueries({ queryKey: ["roster"] });
   }
 
   async function sendJoinRequest() {
-    if (!joinEmail) {
-      toast.error("Email required");
-      return;
-    }
+    if (!joinEmail) { toast.error("Email required"); return; }
     const { data, error } = await (supabase.rpc as any)("request_athlete_join_by_email", {
       _email: joinEmail,
       _athlete_name: joinName || null,
       _message: joinMessage || null,
     });
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
+    if (error) { toast.error(error.message); return; }
     const result = data as any;
     if (!result?.ok) {
-      if (result?.error === "no_account")
-        toast.error("No account uses that email yet — use the invite-link flow above instead.");
+      if (result?.error === "no_account") toast.error("No account uses that email yet — use the invite-link flow above instead.");
       else if (result?.error === "not_coach") toast.error("You need a coach role to send join requests.");
       else toast.error(result?.error ?? "Failed");
       return;
     }
     if (result.already_linked) toast.success("Athlete is already on your roster");
     else toast.success("Join request sent");
-    setJoinEmail("");
-    setJoinName("");
-    setJoinMessage("");
+    setJoinEmail(""); setJoinName(""); setJoinMessage("");
     qc.invalidateQueries({ queryKey: ["roster"] });
   }
 
@@ -316,9 +244,7 @@ function AthletesPage() {
         <div className="grid gap-6 lg:grid-cols-[1fr_380px] items-start">
           <div className="space-y-6 min-w-0">
             <Card>
-              <CardHeader>
-                <CardTitle>Roster</CardTitle>
-              </CardHeader>
+              <CardHeader><CardTitle>Roster</CardTitle></CardHeader>
               <CardContent className="p-0">
                 {!roster || roster.length === 0 ? (
                   <p className="p-4 text-sm text-muted-foreground">No athletes yet — add one below.</p>
@@ -328,112 +254,99 @@ function AthletesPage() {
                       const parentCount = parentInfo?.countByAthlete.get(r.athlete_id) ?? 0;
                       const pendingParentInvite = parentInfo?.pendingByAthlete.get(r.athlete_id);
                       return (
-                        <div
-                          key={r.athlete_id}
-                          className={`flex justify-between items-center px-4 py-3 hover:bg-accent/40 gap-3 ${
-                            selectedAthleteId === r.athlete_id ? "bg-accent/60" : ""
-                          }`}
+                      <div
+                        key={r.athlete_id}
+                        className={`flex justify-between items-center px-4 py-3 hover:bg-accent/40 gap-3 ${
+                          selectedAthleteId === r.athlete_id ? "bg-accent/60" : ""
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setSelectedAthleteId(r.athlete_id)}
+                          title="Quick view"
+                          className="flex-1 min-w-0 text-left group"
                         >
-                          <button
-                            type="button"
-                            onClick={() => setSelectedAthleteId(r.athlete_id)}
-                            title="Quick view"
-                            className="flex-1 min-w-0 text-left group"
-                          >
-                            <div className="font-medium truncate flex items-center gap-1.5">
-                              <span className="truncate">{r.athletes?.name}</span>
-                              <Eye className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />
-                            </div>
-                            <div className="text-xs text-muted-foreground truncate">
-                              {r.athletes?.primary_event ?? "—"}
-                            </div>
-                          </button>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <Button asChild size="icon" variant="ghost" title="Full view">
-                              <Link to="/app/athletes/$athleteId" params={{ athleteId: r.athlete_id }}>
-                                <Maximize2 className="h-4 w-4" />
-                              </Link>
-                            </Button>
-                            <Button asChild size="icon" variant="ghost" title="View calendar">
-                              <Link to="/app/sessions/calendar" search={{ athleteId: r.athlete_id } as any}>
-                                <CalendarDays className="h-4 w-4" />
-                              </Link>
-                            </Button>
-                            {r.athletes?.user_id ? (
-                              <Badge variant="secondary">Linked</Badge>
-                            ) : (
-                              <>
-                                <Badge variant="outline">Invite pending</Badge>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => copyExistingInvite(r.athlete_id, r.athlete_invites)}
-                                >
-                                  {r.athlete_invites?.length ? "Copy invite link" : "Generate invite link"}
-                                </Button>
-                              </>
-                            )}
-                            {/* Parent invite — coach-granted, mirrors the
+                          <div className="font-medium truncate flex items-center gap-1.5">
+                            <span className="truncate">{r.athletes?.name}</span>
+                            <Eye className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />
+                          </div>
+                          <div className="text-xs text-muted-foreground truncate">{r.athletes?.primary_event ?? "—"}</div>
+                        </button>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Button asChild size="icon" variant="ghost" title="Full view">
+                            <Link to="/app/athletes/$athleteId" params={{ athleteId: r.athlete_id }}>
+                              <Maximize2 className="h-4 w-4" />
+                            </Link>
+                          </Button>
+                          <Button asChild size="icon" variant="ghost" title="View calendar">
+                            <Link to="/app/sessions/calendar" search={{ athleteId: r.athlete_id } as any}>
+                              <CalendarDays className="h-4 w-4" />
+                            </Link>
+                          </Button>
+                          {r.athletes?.user_id ? (
+                            <Badge variant="secondary">Linked</Badge>
+                          ) : (
+                            <>
+                              <Badge variant="outline">Invite pending</Badge>
+                              <Button size="sm" variant="ghost" onClick={() => copyExistingInvite(r.athlete_id, r.athlete_invites)}>
+                                {r.athlete_invites?.length ? "Copy invite link" : "Generate invite link"}
+                              </Button>
+                            </>
+                          )}
+                          {/* Parent invite — coach-granted, mirrors the
                               athlete invite affordance. Shows a count badge
                               once at least one parent is linked so it's
                               obvious at a glance who already has access. */}
-                            {parentCount > 0 ? (
-                              <Badge
-                                variant="outline"
-                                title="Parents/guardians linked"
-                                className="cursor-pointer"
-                                onClick={() => inviteParent(r.athlete_id, undefined)}
-                              >
-                                <UserPlus className="h-3 w-3 mr-1" />
-                                {parentCount} parent{parentCount > 1 ? "s" : ""}
-                              </Badge>
-                            ) : (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                title="Invite a parent or guardian"
-                                onClick={() => inviteParent(r.athlete_id, pendingParentInvite)}
-                              >
-                                <UserPlus className="h-3.5 w-3.5 mr-1" />
-                                {pendingParentInvite ? "Copy parent link" : "Invite parent"}
-                              </Button>
-                            )}
-                            {/* Manager view lists every athlete in the org
+                          {parentCount > 0 ? (
+                            <Badge
+                              variant="outline"
+                              title="Parents/guardians linked"
+                              className="cursor-pointer"
+                              onClick={() => inviteParent(r.athlete_id, undefined)}
+                            >
+                              <UserPlus className="h-3 w-3 mr-1" />
+                              {parentCount} parent{parentCount > 1 ? "s" : ""}
+                            </Badge>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              title="Invite a parent or guardian"
+                              onClick={() => inviteParent(r.athlete_id, pendingParentInvite)}
+                            >
+                              <UserPlus className="h-3.5 w-3.5 mr-1" />
+                              {pendingParentInvite ? "Copy parent link" : "Invite parent"}
+                            </Button>
+                          )}
+                          {/* Manager view lists every athlete in the org
                               directly from the athletes table, not via a
                               personal coach_athletes link — there's nothing
                               to "remove" in the same sense there, so this
                               only shows for a regular coach's own roster. */}
-                            {!isManager && (
-                              <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    title="Remove from roster"
-                                    className="text-muted-foreground hover:text-destructive"
-                                  >
-                                    <UserMinus className="h-4 w-4" />
-                                  </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle>Remove {r.athletes?.name} from your roster?</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                      This only removes them from your own roster — their account and training data
-                                      aren't deleted, and any other coach they're linked to keeps their own access.
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                    <AlertDialogAction onClick={() => removeFromRoster(r.athlete_id)}>
-                                      Remove
-                                    </AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
-                            )}
-                          </div>
+                          {!isManager && (
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button size="icon" variant="ghost" title="Remove from roster" className="text-muted-foreground hover:text-destructive">
+                                  <UserMinus className="h-4 w-4" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Remove {r.athletes?.name} from your roster?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    This only removes them from your own roster — their account and training data
+                                    aren't deleted, and any other coach they're linked to keeps their own access.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction onClick={() => removeFromRoster(r.athlete_id)}>Remove</AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          )}
                         </div>
+                      </div>
                       );
                     })}
                   </div>
@@ -444,70 +357,37 @@ function AthletesPage() {
             <Card>
               <CardHeader>
                 <CardTitle>Add an athlete</CardTitle>
-                <CardDescription>
-                  Creates the athlete in your roster. Email is optional — they can link later by signing in.
-                </CardDescription>
+                <CardDescription>Creates the athlete in your roster. Email is optional — they can link later by signing in.</CardDescription>
               </CardHeader>
               <CardContent className="grid sm:grid-cols-3 gap-3">
-                <div>
-                  <Label>Name</Label>
-                  <Input value={name} onChange={(e) => setName(e.target.value)} />
-                </div>
-                <div>
-                  <Label>Primary event</Label>
-                  <Input placeholder="800m" value={event} onChange={(e) => setEvent(e.target.value)} />
-                </div>
-                <div>
-                  <Label>Invite email (optional)</Label>
-                  <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-                </div>
+                <div><Label>Name</Label><Input value={name} onChange={(e) => setName(e.target.value)} /></div>
+                <div><Label>Primary event</Label><Input placeholder="800m" value={event} onChange={(e) => setEvent(e.target.value)} /></div>
+                <div><Label>Invite email (optional)</Label><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
                 <div>
                   <Label>Time zone</Label>
                   <Select value={timezone} onValueChange={setTimezone}>
-                    <SelectTrigger className="mt-1">
-                      <SelectValue />
-                    </SelectTrigger>
+                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {TIMEZONE_OPTIONS.map((z) => (
-                        <SelectItem key={z.value} value={z.value}>
-                          {z.label}
-                        </SelectItem>
+                        <SelectItem key={z.value} value={z.value}>{z.label}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="sm:col-span-3">
-                  <Button onClick={addAthlete}>Add</Button>
-                </div>
+                <div className="sm:col-span-3"><Button onClick={addAthlete}>Add</Button></div>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader>
                 <CardTitle>Invite an existing account</CardTitle>
-                <CardDescription>
-                  If the athlete already has a Strider account, send them a join request — they'll see it on their
-                  Profile.
-                </CardDescription>
+                <CardDescription>If the athlete already has a Strider account, send them a join request — they'll see it on their Profile.</CardDescription>
               </CardHeader>
               <CardContent className="grid sm:grid-cols-3 gap-3">
-                <div>
-                  <Label>Account email</Label>
-                  <Input type="email" value={joinEmail} onChange={(e) => setJoinEmail(e.target.value)} />
-                </div>
-                <div>
-                  <Label>Display name (optional)</Label>
-                  <Input value={joinName} onChange={(e) => setJoinName(e.target.value)} />
-                </div>
-                <div>
-                  <Label>Message (optional)</Label>
-                  <Input value={joinMessage} onChange={(e) => setJoinMessage(e.target.value)} />
-                </div>
-                <div className="sm:col-span-3">
-                  <Button variant="outline" onClick={sendJoinRequest}>
-                    Send join request
-                  </Button>
-                </div>
+                <div><Label>Account email</Label><Input type="email" value={joinEmail} onChange={(e) => setJoinEmail(e.target.value)} /></div>
+                <div><Label>Display name (optional)</Label><Input value={joinName} onChange={(e) => setJoinName(e.target.value)} /></div>
+                <div><Label>Message (optional)</Label><Input value={joinMessage} onChange={(e) => setJoinMessage(e.target.value)} /></div>
+                <div className="sm:col-span-3"><Button variant="outline" onClick={sendJoinRequest}>Send join request</Button></div>
               </CardContent>
             </Card>
           </div>
@@ -533,9 +413,7 @@ function AthletesPage() {
           </DialogHeader>
           <Input readOnly value={inviteLink ?? ""} onFocus={(e) => e.currentTarget.select()} />
           <DialogFooter>
-            <Button variant="outline" onClick={() => setInviteLink(null)}>
-              Close
-            </Button>
+            <Button variant="outline" onClick={() => setInviteLink(null)}>Close</Button>
             <Button onClick={copyLink}>Copy link</Button>
           </DialogFooter>
         </DialogContent>
