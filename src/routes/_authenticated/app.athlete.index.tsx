@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuthUser, useMyRoles } from "@/lib/use-auth";
+import { useAuthUser, useMyRoles, useMyRawRoles, useMyLinkedAthletes } from "@/lib/use-auth";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -42,7 +42,15 @@ function AthleteProfileIndexPage() {
   const filterAthleteId = search.athleteId;
   const { user, loading } = useAuthUser();
   const { data: roles = [] } = useMyRoles();
+  const { data: rawRoles = [] } = useMyRawRoles();
   const isCoach = roles.includes("coach") || roles.includes("manager");
+  // A parent only ever gets a read-only link to an already-published page —
+  // creating/managing a page stays a coach or athlete action, so this
+  // branch never offers a "Create page" button, only "View page" once one
+  // exists.
+  const isParent = rawRoles.includes("parent") && !isCoach;
+  const { data: linkedAthletesRaw } = useMyLinkedAthletes();
+  const [parentPages, setParentPages] = useState<{ athlete_id: string; name: string; slug: string | null }[]>([]);
 
   const [checking, setChecking] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -54,6 +62,36 @@ function AthleteProfileIndexPage() {
     [],
   );
   const [creatingId, setCreatingId] = useState<string | null>(null);
+
+  // Parent path: resolve whichever of the linked children already have a
+  // published page. Runs independently of the self/coach effect below —
+  // a parent has neither a self athlete row nor a coach roster, so it'd
+  // never populate anything on its own.
+  useEffect(() => {
+    if (!isParent || !linkedAthletesRaw) return;
+    let cancelled = false;
+    (async () => {
+      const athletes = (linkedAthletesRaw ?? []).map((r: any) => r.athletes).filter(Boolean);
+      const athleteIds = athletes.map((a: any) => a.id);
+      if (athleteIds.length === 0) {
+        if (!cancelled) setParentPages([]);
+        return;
+      }
+      const { data: pages } = await (supabase as any)
+        .from("athlete_profiles")
+        .select("athlete_id, slug")
+        .in("athlete_id", athleteIds);
+      const slugByAthlete = new Map((pages ?? []).map((p: any) => [p.athlete_id, p.slug]));
+      if (!cancelled) {
+        setParentPages(
+          athletes.map((a: any) => ({ athlete_id: a.id, name: a.name, slug: slugByAthlete.get(a.id) ?? null })),
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isParent, linkedAthletesRaw]);
 
   useEffect(() => {
     if (loading || !user) return;
@@ -193,6 +231,39 @@ function AthleteProfileIndexPage() {
               {creatingId === selfAthlete.id ? "Creating…" : "Create Profile"}
             </Button>
           </div>
+        )}
+
+        {!checking && isParent && parentPages.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Athlete page{parentPages.length > 1 ? "s" : ""}</CardTitle>
+              <CardDescription>
+                {parentPages.length > 1
+                  ? "Public pages for your linked athletes."
+                  : `${parentPages[0].name}'s public page.`}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {parentPages.map((p) => (
+                <div key={p.athlete_id} className="flex items-center justify-between rounded-md border p-3 text-sm">
+                  <span>{p.name}</span>
+                  {p.slug ? (
+                    <Button asChild size="sm" variant="outline">
+                      <Link to="/app/athlete/$slug" params={{ slug: p.slug }}>
+                        View page
+                      </Link>
+                    </Button>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">No public page yet</span>
+                  )}
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
+        {!checking && isParent && parentPages.length === 0 && (
+          <p className="text-sm text-muted-foreground">No linked athletes found on your account yet.</p>
         )}
 
         {!checking && displayedRoster.length > 0 && (
