@@ -145,6 +145,25 @@ function RacesPage() {
   return (
     <AppShell>
       <div className="space-y-6 max-w-6xl">
+        {isCoach && (
+          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+            <Link to="/app/athletes" className="hover:text-foreground">
+              Athletes
+            </Link>
+            {activeAthleteId && (
+              <>
+                <span className="text-border">/</span>
+                <Link
+                  to="/app/athletes/$athleteId"
+                  params={{ athleteId: activeAthleteId }}
+                  className="hover:text-foreground"
+                >
+                  {activeAthlete?.name ?? "Athlete"}
+                </Link>
+              </>
+            )}
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <Trophy className="h-5 w-5 text-[var(--accent-red)]" />
           <h1 className="text-2xl font-bold">Race results</h1>
