@@ -31,6 +31,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { uploadAndParseSessionFile } from "@/lib/session-files.functions";
 import { toast } from "sonner";
 import { AthleteSubnav } from "@/components/athlete-subnav";
+import { BucketTabStrip, TRAINING_TABS } from "@/components/bucket-tab-strip";
 
 const searchSchema = z.object({
   athleteId: z.string().optional(),
@@ -515,6 +516,12 @@ function CalendarPage() {
             </div>
             <AthleteSubnav athleteId={selectedAthleteId} active="calendar" />
           </>
+        )}
+        {!(isCoach && selectedAthleteId) && !isParent && (
+          <BucketTabStrip
+            items={TRAINING_TABS.filter((t) => t.to !== "/app/daily-log" || roles.includes("athlete"))}
+            active="/app/sessions/calendar"
+          />
         )}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
