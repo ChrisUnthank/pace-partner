@@ -22,7 +22,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { CalendarDays, Maximize2, UserMinus } from "lucide-react";
+import { CalendarDays, Eye, Maximize2, UserMinus } from "lucide-react";
 import { AthleteSummaryPanel } from "@/components/athlete-summary-panel";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TIMEZONE_OPTIONS, guessLocalTimezone } from "@/lib/timezones";
@@ -197,9 +197,13 @@ function AthletesPage() {
                         <button
                           type="button"
                           onClick={() => setSelectedAthleteId(r.athlete_id)}
-                          className="flex-1 min-w-0 text-left"
+                          title="Quick view"
+                          className="flex-1 min-w-0 text-left group"
                         >
-                          <div className="font-medium truncate">{r.athletes?.name}</div>
+                          <div className="font-medium truncate flex items-center gap-1.5">
+                            <span className="truncate">{r.athletes?.name}</span>
+                            <Eye className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />
+                          </div>
                           <div className="text-xs text-muted-foreground truncate">{r.athletes?.primary_event ?? "—"}</div>
                         </button>
                         <div className="flex items-center gap-2 shrink-0">
