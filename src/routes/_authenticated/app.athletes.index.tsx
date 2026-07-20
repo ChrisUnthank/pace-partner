@@ -22,7 +22,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { CalendarDays, Eye, Maximize2, UserMinus } from "lucide-react";
+import { CalendarDays, Eye, Maximize2, UserMinus, UserPlus } from "lucide-react";
 import { AthleteSummaryPanel } from "@/components/athlete-summary-panel";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TIMEZONE_OPTIONS, guessLocalTimezone } from "@/lib/timezones";
@@ -47,6 +47,7 @@ function AthletesPage() {
   // ever uploaded until someone corrected it directly in the database.
   const [timezone, setTimezone] = useState(guessLocalTimezone());
   const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [inviteLinkLabel, setInviteLinkLabel] = useState("Invite link ready");
   const [joinEmail, setJoinEmail] = useState("");
   const [joinName, setJoinName] = useState("");
   const [joinMessage, setJoinMessage] = useState("");
@@ -91,6 +92,31 @@ function AthletesPage() {
     },
   });
 
+  // Parent-link counts + pending parent-invite tokens per athlete, so the
+  // roster can show "1 parent linked" / offer to copy an outstanding
+  // invite instead of always minting a new one. One query for the whole
+  // roster rather than N+1 per-row queries.
+  const athleteIds = (roster ?? []).map((r: any) => r.athlete_id);
+  const { data: parentInfo } = useQuery({
+    queryKey: ["roster-parent-info", athleteIds.join(",")],
+    enabled: athleteIds.length > 0,
+    queryFn: async () => {
+      const [{ data: links, error: linksErr }, { data: invites, error: invitesErr }] = await Promise.all([
+        supabase.from("parent_athlete_links").select("athlete_id").in("athlete_id", athleteIds).eq("status", "active"),
+        supabase.from("parent_invites").select("athlete_id, token, accepted_at, email").in("athlete_id", athleteIds),
+      ]);
+      if (linksErr) { toast.error(linksErr.message); }
+      if (invitesErr) { toast.error(invitesErr.message); }
+      const countByAthlete = new Map<string, number>();
+      for (const l of links ?? []) countByAthlete.set(l.athlete_id, (countByAthlete.get(l.athlete_id) ?? 0) + 1);
+      const pendingByAthlete = new Map<string, { token: string; email: string }>();
+      for (const inv of invites ?? []) {
+        if (!inv.accepted_at) pendingByAthlete.set(inv.athlete_id, { token: inv.token, email: inv.email });
+      }
+      return { countByAthlete, pendingByAthlete };
+    },
+  });
+
   const selectedAthlete = roster?.find((r: any) => r.athlete_id === selectedAthleteId)?.athletes ?? null;
 
   async function addAthlete() {
@@ -104,7 +130,10 @@ function AthletesPage() {
       const { data: inv } = await supabase.from("athlete_invites").insert({
         coach_user_id: user!.id, athlete_id: ath.id, email,
       }).select("token").single();
-      if (inv?.token) setInviteLink(`${window.location.origin}/claim/${inv.token}`);
+      if (inv?.token) {
+        setInviteLinkLabel("Invite link ready");
+        setInviteLink(`${window.location.origin}/claim/${inv.token}`);
+      }
     }
     setName(""); setEvent(""); setEmail("");
     toast.success("Athlete added");
@@ -128,6 +157,32 @@ function AthletesPage() {
       await navigator.clipboard.writeText(link);
       toast.success("Invite link copied");
     } catch {
+      setInviteLinkLabel("Invite link ready");
+      setInviteLink(link);
+    }
+  }
+
+  // Sends (or re-copies a pending) parent invite for this athlete. Coach
+  // grants access explicitly by choosing who to invite — mirrors the
+  // athlete invite flow exactly, just against parent_invites instead.
+  async function inviteParent(athleteId: string, pending: { token: string; email: string } | undefined) {
+    let token = pending?.token;
+    if (!token) {
+      const inviteEmail = window.prompt("Parent/guardian email to invite:");
+      if (!inviteEmail) return;
+      const { data, error } = await supabase.from("parent_invites").insert({
+        coach_user_id: user!.id, athlete_id: athleteId, email: inviteEmail,
+      }).select("token").single();
+      if (error || !data) { toast.error(error?.message ?? "Failed"); return; }
+      token = data.token;
+      qc.invalidateQueries({ queryKey: ["roster-parent-info"] });
+    }
+    const link = `${window.location.origin}/claim/${token}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      toast.success("Parent invite link copied");
+    } catch {
+      setInviteLinkLabel("Parent invite link ready");
       setInviteLink(link);
     }
   }
@@ -195,7 +250,10 @@ function AthletesPage() {
                   <p className="p-4 text-sm text-muted-foreground">No athletes yet — add one below.</p>
                 ) : (
                   <div className="divide-y">
-                    {roster.map((r: any) => (
+                    {roster.map((r: any) => {
+                      const parentCount = parentInfo?.countByAthlete.get(r.athlete_id) ?? 0;
+                      const pendingParentInvite = parentInfo?.pendingByAthlete.get(r.athlete_id);
+                      return (
                       <div
                         key={r.athlete_id}
                         className={`flex justify-between items-center px-4 py-3 hover:bg-accent/40 gap-3 ${
@@ -235,6 +293,31 @@ function AthletesPage() {
                               </Button>
                             </>
                           )}
+                          {/* Parent invite — coach-granted, mirrors the
+                              athlete invite affordance. Shows a count badge
+                              once at least one parent is linked so it's
+                              obvious at a glance who already has access. */}
+                          {parentCount > 0 ? (
+                            <Badge
+                              variant="outline"
+                              title="Parents/guardians linked"
+                              className="cursor-pointer"
+                              onClick={() => inviteParent(r.athlete_id, undefined)}
+                            >
+                              <UserPlus className="h-3 w-3 mr-1" />
+                              {parentCount} parent{parentCount > 1 ? "s" : ""}
+                            </Badge>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              title="Invite a parent or guardian"
+                              onClick={() => inviteParent(r.athlete_id, pendingParentInvite)}
+                            >
+                              <UserPlus className="h-3.5 w-3.5 mr-1" />
+                              {pendingParentInvite ? "Copy parent link" : "Invite parent"}
+                            </Button>
+                          )}
                           {/* Manager view lists every athlete in the org
                               directly from the athletes table, not via a
                               personal coach_athletes link — there's nothing
@@ -264,7 +347,8 @@ function AthletesPage() {
                           )}
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </CardContent>
@@ -324,8 +408,8 @@ function AthletesPage() {
       <Dialog open={!!inviteLink} onOpenChange={(o) => !o && setInviteLink(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Invite link ready</DialogTitle>
-            <DialogDescription>Send this link to your athlete. It's valid for 30 days and works once.</DialogDescription>
+            <DialogTitle>{inviteLinkLabel}</DialogTitle>
+            <DialogDescription>Send this link. It's valid for 30 days and works once.</DialogDescription>
           </DialogHeader>
           <Input readOnly value={inviteLink ?? ""} onFocus={(e) => e.currentTarget.select()} />
           <DialogFooter>
