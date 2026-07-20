@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
@@ -348,6 +348,14 @@ function AthleteAnalytics({
   const since = customFrom ?? isoDaysAgo(days);
   // (We still cap analytics queries by "since"; "to" is applied client-side where it matters.)
 
+  // Navigating here from another athlete's Analytics link (or the roster)
+  // is a client-side route change, so the browser won't reset scroll on
+  // its own — without this, switching athletes could silently land the
+  // page already scrolled to wherever the previous athlete's page was.
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [athleteId]);
+
   const { data: athlete } = useQuery({
     queryKey: ["analytics-athlete", athleteId],
     queryFn: async () => {
@@ -633,7 +641,10 @@ function AthleteAnalytics({
       // "cross_training" bucket for older data with no activity_type set.
       let key: string | null;
       if (r.day_type && r.day_type !== "training") {
-        if (r.day_type === "cross_training" && (r.activity_type === "gym" || r.activity_type === "ride" || r.activity_type === "swim")) {
+        if (
+          r.day_type === "cross_training" &&
+          (r.activity_type === "gym" || r.activity_type === "ride" || r.activity_type === "swim")
+        ) {
           key = r.activity_type;
         } else {
           key = r.day_type;
@@ -645,14 +656,36 @@ function AthleteAnalytics({
       buckets.set(key, (buckets.get(key) ?? 0) + Number(r.total_time_seconds ?? 0));
     }
     const order = [
-      "easy", "aerobic", "tempo", "threshold", "vo2", "anaerobic", "speed",
-      "race", "recovery", "gym", "ride", "swim", "cross_training", "rest",
+      "easy",
+      "aerobic",
+      "tempo",
+      "threshold",
+      "vo2",
+      "anaerobic",
+      "speed",
+      "race",
+      "recovery",
+      "gym",
+      "ride",
+      "swim",
+      "cross_training",
+      "rest",
     ];
     const LABELS: Record<string, string> = {
-      easy: "Easy", aerobic: "Aerobic", tempo: "Tempo", threshold: "Threshold", vo2: "VO2",
-      anaerobic: "Anaerobic", speed: "Speed", race: "Race", recovery: "Recovery",
-      gym: "Gym", ride: "Ride", swim: "Swim",
-      cross_training: "Cross-training (other)", rest: "Rest",
+      easy: "Easy",
+      aerobic: "Aerobic",
+      tempo: "Tempo",
+      threshold: "Threshold",
+      vo2: "VO2",
+      anaerobic: "Anaerobic",
+      speed: "Speed",
+      race: "Race",
+      recovery: "Recovery",
+      gym: "Gym",
+      ride: "Ride",
+      swim: "Swim",
+      cross_training: "Cross-training (other)",
+      rest: "Rest",
     };
     return order
       .filter((k) => buckets.has(k))
@@ -735,9 +768,7 @@ function AthleteAnalytics({
       <Card>
         <CardHeader>
           <CardTitle>Fitness, Fatigue & Form</CardTitle>
-          <CardDescription>
-            Fitness, fatigue, and form over {RANGES[range].label.toLowerCase()}.
-          </CardDescription>
+          <CardDescription>Fitness, fatigue, and form over {RANGES[range].label.toLowerCase()}.</CardDescription>
         </CardHeader>
         <CardContent>
           {!load || load.length < 3 ? (
@@ -757,7 +788,15 @@ function AthleteAnalytics({
                         height="6"
                         patternTransform="rotate(45)"
                       >
-                        <line x1="0" y1="0" x2="0" y2="6" stroke="hsl(var(--muted-foreground))" strokeOpacity="0.4" strokeWidth="1.5" />
+                        <line
+                          x1="0"
+                          y1="0"
+                          x2="0"
+                          y2="6"
+                          stroke="hsl(var(--muted-foreground))"
+                          strokeOpacity="0.4"
+                          strokeWidth="1.5"
+                        />
                       </pattern>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
@@ -790,14 +829,7 @@ function AthleteAnalytics({
                       fill="#3b82f6"
                       fillOpacity={0.12}
                     />
-                    <Line
-                      type="monotone"
-                      dataKey="ctl"
-                      name="Fitness"
-                      stroke="#10b981"
-                      strokeWidth={2}
-                      dot={false}
-                    />
+                    <Line type="monotone" dataKey="ctl" name="Fitness" stroke="#10b981" strokeWidth={2} dot={false} />
                     <Line
                       type="monotone"
                       dataKey="atl"
@@ -876,13 +908,13 @@ function AthleteAnalytics({
               </div>
               <p className="text-[11px] text-muted-foreground mt-2">
                 Dashed guide lines mark this athlete's own acute:chronic load-ratio thresholds (Fatigue ÷ Fitness) —
-                below the grey line is under-loaded, between grey and amber is the typical training zone, above amber
-                is worth watching, above red carries elevated injury risk. The cyan line is a general peaking/taper
+                below the grey line is under-loaded, between grey and amber is the typical training zone, above amber is
+                worth watching, above red carries elevated injury risk. The cyan line is a general peaking/taper
                 guideline for the final 1-2 weeks before a key race — not personalized to this athlete, just a common
                 starting point. Same thresholds the readiness score and "Needs Attention" alerts already use, so this
-                chart, the alerts, and the reports all agree with each other. Pink markers show actual race days
-                (solid = completed, dashed = planned) — worth building a picture over time of where this athlete's
-                own Form tends to sit when they race well.
+                chart, the alerts, and the reports all agree with each other. Pink markers show actual race days (solid
+                = completed, dashed = planned) — worth building a picture over time of where this athlete's own Form
+                tends to sit when they race well.
               </p>
               {lowConfidenceEndDate && (
                 <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1.5">
@@ -894,9 +926,8 @@ function AthleteAnalytics({
                       opacity: 0.6,
                     }}
                   />
-                  Hatched region (through {lowConfidenceEndDate}): building baseline — not enough history yet to
-                  fully trust these early readings, especially for an athlete with real training history predating
-                  this app.
+                  Hatched region (through {lowConfidenceEndDate}): building baseline — not enough history yet to fully
+                  trust these early readings, especially for an athlete with real training history predating this app.
                 </p>
               )}
             </>
@@ -1071,13 +1102,15 @@ function AthleteAnalytics({
           <CardHeader>
             <CardTitle>Time by Training Intent</CardTitle>
             <CardDescription>
-              Session-level total time grouped by intent, {volumePeriodLabel(granularity)} — race days included,
-              colors match the calendar.
+              Session-level total time grouped by intent, {volumePeriodLabel(granularity)} — race days included, colors
+              match the calendar.
             </CardDescription>
           </CardHeader>
           <CardContent>
             {intentData.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No completed training sessions {volumePeriodLabel(granularity)}.</p>
+              <p className="text-sm text-muted-foreground">
+                No completed training sessions {volumePeriodLabel(granularity)}.
+              </p>
             ) : (
               <div className="h-[220px] w-full">
                 <ResponsiveContainer>
@@ -1499,8 +1532,8 @@ function VolumeShareCard({ sessions, granularity }: { sessions: any[]; granulari
           <div>
             <CardTitle>Volume by Session Component</CardTitle>
             <CardDescription>
-              Share of {mode === "minutes" ? "time" : "distance"} across warmup, work, strides, recovery, and
-              cooldown — {volumePeriodLabel(granularity)} to date.
+              Share of {mode === "minutes" ? "time" : "distance"} across warmup, work, strides, recovery, and cooldown —{" "}
+              {volumePeriodLabel(granularity)} to date.
             </CardDescription>
           </div>
           <div className="flex border rounded-md overflow-hidden text-xs">
