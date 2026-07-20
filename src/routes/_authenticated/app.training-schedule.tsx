@@ -64,15 +64,14 @@ function TrainingSchedulePage() {
   const { data: linkedAthletes } = useMyLinkedAthletes();
   // Athlete sees their own group by default; a parent sees their first
   // linked child's group. Neither overrides an explicit manual pick.
-  const selfAthleteId = isAthleteRole ? myAthlete?.id : isParent ? linkedAthletes?.[0]?.athletes?.id : undefined;
   const { data: myMembership } = useQuery({
-    queryKey: ["my-training-group", selfAthleteId],
-    enabled: !!selfAthleteId,
+    queryKey: ["my-training-group", effectiveSelfAthleteId],
+    enabled: !!effectiveSelfAthleteId,
     queryFn: async () => {
       const { data } = await supabase
         .from("training_group_members")
         .select("group_id")
-        .eq("athlete_id", selfAthleteId!)
+        .eq("athlete_id", effectiveSelfAthleteId!)
         .limit(1)
         .maybeSingle();
       return data?.group_id ?? null;
@@ -91,8 +90,15 @@ function TrainingSchedulePage() {
     },
   });
 
-  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
-  const activeGroupId = selectedGroupId ?? myMembership ?? groups?.[0]?.id ?? null;
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null); // coach browsing groups
+  const [viewingChildId, setViewingChildId] = useState<string | null>(null); // parent switching between their children
+  const effectiveSelfAthleteId = isAthleteRole ? myAthlete?.id : isParent ? (viewingChildId ?? linkedAthletes?.[0]?.athletes?.id) : undefined;
+
+  // Coaches can browse any group. Everyone else only ever sees the group
+  // they (or, for a parent, their selected child) are actually assigned
+  // to — never a fallback to "the first group that exists," which would
+  // let someone browse a squad they're not part of.
+  const activeGroupId = isCoach ? (selectedGroupId ?? groups?.[0]?.id ?? null) : myMembership ?? null;
 
   const [newGroupOpen, setNewGroupOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
@@ -154,6 +160,23 @@ function TrainingSchedulePage() {
     },
   });
 
+  // Avatar stack — who this schedule applies to. Scoped to whichever
+  // group is currently active, visible to the coach and to anyone
+  // (athlete/parent) viewing their own group's schedule — this is just
+  // "who's in my squad," not sensitive contact info.
+  const { data: activeGroupMembers } = useQuery({
+    queryKey: ["training-group-avatars", activeGroupId],
+    enabled: !!activeGroupId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("training_group_members")
+        .select("athletes(id, name, profile_image_url)")
+        .eq("group_id", activeGroupId!);
+      if (error) return [];
+      return (data ?? []).map((r: any) => r.athletes).filter(Boolean);
+    },
+  });
+
   if (!groups) return null;
 
   return (
@@ -163,32 +186,72 @@ function TrainingSchedulePage() {
         <p className="text-sm text-muted-foreground">Location, days, and times for squad, group, or individual training with the coach.</p>
       </div>
 
-      <BucketTabStrip items={TRAINING_TABS} active="/app/training-schedule" />
+      <BucketTabStrip
+        items={TRAINING_TABS.filter((t) => t.to !== "/app/my-schedule" || isAthleteRole || isParent)}
+        active="/app/training-schedule"
+      />
 
-      <div className="flex flex-wrap items-center gap-2">
-        {groups.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No groups yet.</p>
-        ) : (
-          <Select value={activeGroupId ?? ""} onValueChange={setSelectedGroupId}>
-            <SelectTrigger className="w-64"><SelectValue placeholder="Select group" /></SelectTrigger>
+      <div className="flex flex-wrap items-center gap-3">
+        {isCoach ? (
+          <>
+            {groups.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No groups yet.</p>
+            ) : (
+              <Select value={activeGroupId ?? ""} onValueChange={setSelectedGroupId}>
+                <SelectTrigger className="w-64"><SelectValue placeholder="Select group" /></SelectTrigger>
+                <SelectContent>
+                  {groups.map((g: any) => (
+                    <SelectItem key={g.id} value={g.id}>
+                      {g.name} {memberCounts?.get(g.id) ? `(${memberCounts.get(g.id)})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <Button size="sm" variant="outline" onClick={() => setNewGroupOpen(true)}>
+              <Plus className="h-3.5 w-3.5 mr-1" /> New group
+            </Button>
+            {activeGroupId && (
+              <Button size="sm" variant="outline" onClick={() => setRosterOpen(true)}>
+                <Users className="h-3.5 w-3.5 mr-1" /> Manage athletes
+              </Button>
+            )}
+          </>
+        ) : isParent && (linkedAthletes?.length ?? 0) > 1 ? (
+          // A parent with more than one linked child switches between
+          // children, not between groups — the group follows whichever
+          // child is selected, never a free choice of any group.
+          <Select
+            value={effectiveSelfAthleteId ?? ""}
+            onValueChange={setViewingChildId}
+          >
+            <SelectTrigger className="w-56"><SelectValue placeholder="Select child" /></SelectTrigger>
             <SelectContent>
-              {groups.map((g: any) => (
-                <SelectItem key={g.id} value={g.id}>
-                  {g.name} {memberCounts?.get(g.id) ? `(${memberCounts.get(g.id)})` : ""}
-                </SelectItem>
+              {linkedAthletes!.map((r: any) => (
+                <SelectItem key={r.athletes.id} value={r.athletes.id}>{r.athletes.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
+        ) : (
+          <span className="text-sm font-medium">
+            {activeGroupId ? groups.find((g: any) => g.id === activeGroupId)?.name : "Not yet assigned to a group"}
+          </span>
         )}
-        {isCoach && (
-          <Button size="sm" variant="outline" onClick={() => setNewGroupOpen(true)}>
-            <Plus className="h-3.5 w-3.5 mr-1" /> New group
-          </Button>
-        )}
-        {isCoach && activeGroupId && (
-          <Button size="sm" variant="outline" onClick={() => setRosterOpen(true)}>
-            <Users className="h-3.5 w-3.5 mr-1" /> Manage athletes
-          </Button>
+
+        {/* Avatar stack — who this schedule applies to. */}
+        {activeGroupId && activeGroupMembers && activeGroupMembers.length > 0 && (
+          <div className="flex items-center -space-x-2 ml-1">
+            {activeGroupMembers.slice(0, 6).map((a: any) => (
+              <div key={a.id} title={a.name} className="ring-2 ring-background rounded-full">
+                <UserAvatar name={a.name} imageUrl={a.profile_image_url ?? null} size="sm" />
+              </div>
+            ))}
+            {activeGroupMembers.length > 6 && (
+              <div className="ring-2 ring-background rounded-full h-7 w-7 grid place-items-center bg-muted text-[10px] font-bold text-muted-foreground">
+                +{activeGroupMembers.length - 6}
+              </div>
+            )}
+          </div>
         )}
       </div>
 
