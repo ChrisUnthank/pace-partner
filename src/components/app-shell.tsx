@@ -19,6 +19,7 @@ import {
   Zap,
   ClipboardList,
   Clock,
+  CalendarHeart,
   Megaphone,
   MessageSquare,
   MessageCircle,
@@ -138,6 +139,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         // for the first time, since Sessions/Calendar/Daily Log all stay
         // hidden from them.
         { to: "/app/training-schedule", label: "Training Schedule", icon: Clock, show: true },
+        // Athlete/parent only — a coach has no personal calendar to view.
+        { to: "/app/my-schedule", label: "My Schedule", icon: CalendarHeart, show: isAthlete || isParent },
       ],
     },
     {
