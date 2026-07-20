@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Flag, Plus } from "lucide-react";
+import { AthleteSubnav } from "@/components/athlete-subnav";
 import { secToClock } from "@/lib/format";
 
 const searchSchema = z.object({
@@ -134,6 +135,8 @@ function RaceTacticsList() {
             </Link>
           </Button>
         </div>
+
+        {isCoach && filterAthleteId && <AthleteSubnav athleteId={filterAthleteId} active="race-tactics" />}
 
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
