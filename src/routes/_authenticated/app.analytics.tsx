@@ -29,6 +29,7 @@ import {
   ReferenceArea,
 } from "recharts";
 import { ArrowUpRight, ArrowDownRight, ArrowRight, AlertTriangle } from "lucide-react";
+import { AthleteSubnav } from "@/components/athlete-subnav";
 
 const RANGES = {
   "4w": { days: 28, label: "4 weeks" },
@@ -738,6 +739,8 @@ function AthleteAnalytics({
           onCustomRange={onCustomRange}
         />
       </div>
+
+      {showBack && <AthleteSubnav athleteId={athleteId} active="analytics" />}
 
       {/* Fitness / Fatigue / Form chart */}
       <Card>
