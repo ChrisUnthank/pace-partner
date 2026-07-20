@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
@@ -347,14 +347,6 @@ function AthleteAnalytics({
   const days = RANGES[range].days;
   const since = customFrom ?? isoDaysAgo(days);
   // (We still cap analytics queries by "since"; "to" is applied client-side where it matters.)
-
-  // Navigating here from another athlete's Analytics link (or the roster)
-  // is a client-side route change, so the browser won't reset scroll on
-  // its own — without this, switching athletes could silently land the
-  // page already scrolled to wherever the previous athlete's page was.
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, [athleteId]);
 
   const { data: athlete } = useQuery({
     queryKey: ["analytics-athlete", athleteId],
