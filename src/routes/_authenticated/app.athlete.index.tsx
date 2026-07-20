@@ -1,12 +1,22 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuthUser, useMyRoles } from "@/lib/use-auth";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { AthleteSubnav } from "@/components/athlete-subnav";
+
+const searchSchema = z.object({
+  // Present when arriving via the athlete-context tab strip (a specific
+  // athlete doesn't have a page yet) — narrows "Athlete pages you manage"
+  // down to just that athlete instead of the whole roster.
+  athleteId: z.string().optional(),
+});
 
 export const Route = createFileRoute("/_authenticated/app/athlete/")({
+  validateSearch: searchSchema,
   component: AthleteProfileIndexPage,
 });
 
@@ -28,6 +38,8 @@ async function createProfileFor(athleteId: string, athleteName: string) {
 
 function AthleteProfileIndexPage() {
   const navigate = useNavigate();
+  const search = Route.useSearch();
+  const filterAthleteId = search.athleteId;
   const { user, loading } = useAuthUser();
   const { data: roles = [] } = useMyRoles();
   const isCoach = roles.includes("coach") || roles.includes("manager");
@@ -68,11 +80,17 @@ function AthleteProfileIndexPage() {
           setChecking(false);
           return;
         }
-        if (page?.slug) {
+        // Only auto-redirect the self-service path when there's no
+        // specific athlete being targeted — arriving here via the tab
+        // strip for a *different* athlete on the roster shouldn't get
+        // hijacked into the logged-in coach's own page.
+        if (page?.slug && !filterAthleteId) {
           navigate({ to: "/app/athlete/$slug", params: { slug: page.slug }, replace: true });
           return;
         }
-        setSelfAthlete(athlete);
+        if (!filterAthleteId || filterAthleteId === athlete.id) {
+          setSelfAthlete(athlete);
+        }
       }
 
       // Also offer the coach-roster path whenever the account has the
@@ -109,7 +127,7 @@ function AthleteProfileIndexPage() {
     return () => {
       cancelled = true;
     };
-  }, [loading, user, isCoach, navigate]);
+  }, [loading, user, isCoach, navigate, filterAthleteId]);
 
   async function createSelfProfile() {
     if (!selfAthlete) return;
@@ -138,12 +156,37 @@ function AthleteProfileIndexPage() {
     }
   }
 
+  // When arriving for a specific athlete, narrow the roster list down to
+  // just them — a coach who clicked the "Athlete Page" tab from a
+  // specific athlete's context wants that athlete's page, not a reminder
+  // of everyone else's.
+  const displayedRoster = filterAthleteId ? roster.filter((r) => r.athlete_id === filterAthleteId) : roster;
+  const filteredAthleteName = filterAthleteId
+    ? roster.find((r) => r.athlete_id === filterAthleteId)?.name ??
+      (selfAthlete?.id === filterAthleteId ? selfAthlete.name : undefined)
+    : undefined;
+
   return (
     <AppShell>
       <div className="max-w-lg space-y-6">
+        {isCoach && filterAthleteId && (
+          <>
+            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+              <Link to="/app/athletes" className="hover:text-foreground">
+                Athletes
+              </Link>
+              <span className="text-border">/</span>
+              <Link to="/app/athletes/$athleteId" params={{ athleteId: filterAthleteId }} className="hover:text-foreground">
+                {filteredAthleteName ?? "Athlete"}
+              </Link>
+            </div>
+            <AthleteSubnav athleteId={filterAthleteId} active="athlete-page" />
+          </>
+        )}
+
         {checking && <p className="text-sm text-muted-foreground">Loading…</p>}
 
-        {!checking && selfAthlete && (
+        {!checking && selfAthlete && (!filterAthleteId || filterAthleteId === selfAthlete.id) && (
           <div className="space-y-3">
             <h1 className="text-2xl font-bold">Create your athlete page</h1>
             <Button onClick={createSelfProfile} disabled={creatingId === selfAthlete.id}>
@@ -152,17 +195,27 @@ function AthleteProfileIndexPage() {
           </div>
         )}
 
-        {!checking && roster.length > 0 && (
+        {!checking && displayedRoster.length > 0 && (
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Athlete pages you manage</CardTitle>
+              <CardTitle className="text-base">
+                {filterAthleteId ? "Athlete page" : "Athlete pages you manage"}
+              </CardTitle>
               <CardDescription>
-                Set up or open a public page for an athlete you coach — useful for anyone without their own Strider
-                login.
+                {filterAthleteId ? (
+                  <>
+                    Set up or open {filteredAthleteName ?? "this athlete"}'s public page.{" "}
+                    <Link to="/app/athlete" className="underline">
+                      View all athlete pages
+                    </Link>
+                  </>
+                ) : (
+                  "Set up or open a public page for an athlete you coach — useful for anyone without their own Strider login."
+                )}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
-              {roster.map((r) => (
+              {displayedRoster.map((r) => (
                 <div key={r.athlete_id} className="flex items-center justify-between rounded-md border p-3 text-sm">
                   <span>{r.name}</span>
                   <Button
@@ -182,6 +235,16 @@ function AthleteProfileIndexPage() {
         {!checking && !selfAthlete && roster.length === 0 && (
           <p className="text-sm text-muted-foreground">
             No athlete profile linked to your account, and no athletes on your roster yet.
+          </p>
+        )}
+
+        {!checking && filterAthleteId && !selfAthlete && displayedRoster.length === 0 && roster.length > 0 && (
+          <p className="text-sm text-muted-foreground">
+            Couldn't find that athlete on your roster.{" "}
+            <Link to="/app/athlete" className="underline">
+              View all athlete pages
+            </Link>
+            .
           </p>
         )}
 
