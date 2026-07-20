@@ -11,16 +11,17 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Plus, Pencil, Trash2, MapPin, CalendarPlus, ExternalLink, Ban, Megaphone, ChevronRight } from "lucide-react";
+import { Plus, Pencil, Trash2, MapPin, CalendarPlus, ExternalLink, Ban, Megaphone, ChevronRight, Users } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuthUser, useMyRoles } from "@/lib/use-auth";
+import { useAuthUser, useMyRoles, useMyRawRoles, useMyAthlete, useMyLinkedAthletes } from "@/lib/use-auth";
 import { createPost } from "@/lib/noticeboard.functions";
 import { BucketTabStrip, TRAINING_TABS } from "@/components/bucket-tab-strip";
 import { DAY_TYPE_META, DAY_TYPE_OPTIONS, WEEKDAY_NAMES, WEEKDAY_SHORT, type TrainingDayType } from "@/lib/training-day-types";
 import { downloadICS, googleCalendarLink, mapLink } from "@/lib/training-schedule-helpers";
 import { cn } from "@/lib/utils";
+import { UserAvatar } from "@/components/user-avatar";
 
 export const Route = createFileRoute("/_authenticated/app/training-schedule")({
   component: () => (
@@ -53,8 +54,30 @@ function toISO(d: Date) {
 function TrainingSchedulePage() {
   const { user } = useAuthUser();
   const { data: roles = [] } = useMyRoles();
+  const { data: rawRoles = [] } = useMyRawRoles();
   const isCoach = roles.includes("coach") || roles.includes("manager");
+  const isAthleteRole = roles.includes("athlete");
+  const isParent = rawRoles.includes("parent") && !isCoach;
   const qc = useQueryClient();
+
+  const { data: myAthlete } = useMyAthlete();
+  const { data: linkedAthletes } = useMyLinkedAthletes();
+  // Athlete sees their own group by default; a parent sees their first
+  // linked child's group. Neither overrides an explicit manual pick.
+  const selfAthleteId = isAthleteRole ? myAthlete?.id : isParent ? linkedAthletes?.[0]?.athletes?.id : undefined;
+  const { data: myMembership } = useQuery({
+    queryKey: ["my-training-group", selfAthleteId],
+    enabled: !!selfAthleteId,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("training_group_members")
+        .select("group_id")
+        .eq("athlete_id", selfAthleteId!)
+        .limit(1)
+        .maybeSingle();
+      return data?.group_id ?? null;
+    },
+  });
 
   const { data: groups } = useQuery({
     queryKey: ["training-groups"],
@@ -69,7 +92,7 @@ function TrainingSchedulePage() {
   });
 
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
-  const activeGroupId = selectedGroupId ?? groups?.[0]?.id ?? null;
+  const activeGroupId = selectedGroupId ?? myMembership ?? groups?.[0]?.id ?? null;
 
   const [newGroupOpen, setNewGroupOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
@@ -116,6 +139,20 @@ function TrainingSchedulePage() {
 
   const [detailSlot, setDetailSlot] = useState<any | null>(null);
   const [newSlotDay, setNewSlotDay] = useState<number | "one-off" | null>(null);
+  const [rosterOpen, setRosterOpen] = useState(false);
+
+  const groupIds = (groups ?? []).map((g: any) => g.id);
+  const { data: memberCounts } = useQuery({
+    queryKey: ["training-group-member-counts", groupIds.join(",")],
+    enabled: groupIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("training_group_members").select("group_id").in("group_id", groupIds);
+      if (error) return new Map<string, number>();
+      const counts = new Map<string, number>();
+      for (const r of data ?? []) counts.set(r.group_id, (counts.get(r.group_id) ?? 0) + 1);
+      return counts;
+    },
+  });
 
   if (!groups) return null;
 
@@ -133,10 +170,12 @@ function TrainingSchedulePage() {
           <p className="text-sm text-muted-foreground">No groups yet.</p>
         ) : (
           <Select value={activeGroupId ?? ""} onValueChange={setSelectedGroupId}>
-            <SelectTrigger className="w-56"><SelectValue placeholder="Select group" /></SelectTrigger>
+            <SelectTrigger className="w-64"><SelectValue placeholder="Select group" /></SelectTrigger>
             <SelectContent>
               {groups.map((g: any) => (
-                <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                <SelectItem key={g.id} value={g.id}>
+                  {g.name} {memberCounts?.get(g.id) ? `(${memberCounts.get(g.id)})` : ""}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -144,6 +183,11 @@ function TrainingSchedulePage() {
         {isCoach && (
           <Button size="sm" variant="outline" onClick={() => setNewGroupOpen(true)}>
             <Plus className="h-3.5 w-3.5 mr-1" /> New group
+          </Button>
+        )}
+        {isCoach && activeGroupId && (
+          <Button size="sm" variant="outline" onClick={() => setRosterOpen(true)}>
+            <Users className="h-3.5 w-3.5 mr-1" /> Manage athletes
           </Button>
         )}
       </div>
@@ -276,7 +320,134 @@ function TrainingSchedulePage() {
           <Button onClick={createGroup} disabled={!newGroupName.trim()}>Create group</Button>
         </DialogContent>
       </Dialog>
+
+      {rosterOpen && activeGroupId && (
+        <RosterDialog
+          groups={groups}
+          activeGroupId={activeGroupId}
+          onClose={() => setRosterOpen(false)}
+          onChanged={() => qc.invalidateQueries({ queryKey: ["training-group-member-counts"] })}
+        />
+      )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Manage athletes — assign, remove, or move an athlete between the
+// coach's groups. Presented as one dropdown per athlete rather than a
+// checkbox grid, since the described use case is "pick their group," not
+// genuine multi-group membership.
+// ---------------------------------------------------------------------------
+function RosterDialog({
+  groups,
+  activeGroupId,
+  onClose,
+  onChanged,
+}: {
+  groups: any[];
+  activeGroupId: string;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const { user } = useAuthUser();
+  const { data: rawRoles = [] } = useMyRawRoles();
+  const isManager = rawRoles.includes("manager");
+  const qc = useQueryClient();
+  const [search, setSearch] = useState("");
+  const groupIds = groups.map((g) => g.id);
+
+  const { data: roster } = useQuery({
+    queryKey: ["roster-for-groups", user?.id, isManager],
+    enabled: !!user,
+    queryFn: async () => {
+      if (isManager) {
+        const { data } = await supabase.from("athletes").select("id, name").order("name");
+        return data ?? [];
+      }
+      const { data } = await supabase
+        .from("coach_athletes")
+        .select("athletes(id, name)")
+        .eq("coach_user_id", user!.id);
+      return (data ?? []).map((r: any) => r.athletes).filter(Boolean);
+    },
+  });
+
+  const { data: memberships } = useQuery({
+    queryKey: ["training-group-memberships", groupIds.join(",")],
+    enabled: groupIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("training_group_members").select("athlete_id, group_id").in("group_id", groupIds);
+      if (error) return new Map<string, string>();
+      const map = new Map<string, string>();
+      for (const r of data ?? []) map.set(r.athlete_id, r.group_id);
+      return map;
+    },
+  });
+
+  async function setAthleteGroup(athleteId: string, newGroupId: string | null) {
+    const { error: delError } = await supabase
+      .from("training_group_members")
+      .delete()
+      .eq("athlete_id", athleteId)
+      .in("group_id", groupIds);
+    if (delError) {
+      toast.error(delError.message);
+      return;
+    }
+    if (newGroupId) {
+      const { error: insError } = await supabase
+        .from("training_group_members")
+        .insert({ group_id: newGroupId, athlete_id: athleteId, added_by: user!.id });
+      if (insError) {
+        toast.error(insError.message);
+        return;
+      }
+    }
+    toast.success(newGroupId ? "Group updated" : "Removed from group");
+    qc.invalidateQueries({ queryKey: ["training-group-memberships"] });
+    onChanged();
+  }
+
+  const filtered = (roster ?? []).filter((a: any) => a.name.toLowerCase().includes(search.toLowerCase()));
+
+  return (
+    <Dialog open={true} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Manage athletes</DialogTitle>
+          <DialogDescription>Assign each athlete to a group, or set to "Not assigned" to remove them.</DialogDescription>
+        </DialogHeader>
+        <Input placeholder="Search athletes…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <div className="space-y-1.5">
+          {(!roster || roster.length === 0) && <p className="text-sm text-muted-foreground">No athletes on your roster yet.</p>}
+          {filtered.map((a: any) => {
+            const currentGroupId = memberships?.get(a.id) ?? "";
+            return (
+              <div key={a.id} className="flex items-center justify-between gap-2 rounded border px-2.5 py-1.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <UserAvatar name={a.name} imageUrl={null} size="sm" />
+                  <span className="text-sm font-medium truncate">{a.name}</span>
+                </div>
+                <Select
+                  value={currentGroupId || "none"}
+                  onValueChange={(v) => setAthleteGroup(a.id, v === "none" ? null : v)}
+                >
+                  <SelectTrigger className="w-44 h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Not assigned</SelectItem>
+                    {groups.map((g: any) => (
+                      <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            );
+          })}
+        </div>
+        <Button variant="outline" onClick={onClose}>Done</Button>
+      </DialogContent>
+    </Dialog>
   );
 }
 
