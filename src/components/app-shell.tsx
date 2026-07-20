@@ -86,11 +86,18 @@ export function AppShell({ children }: { children: ReactNode }) {
   // Standalone top-level items — these deliberately stay outside any
   // bucket. Athletes already has its own Overview + AthleteSubnav pattern
   // once you're inside a specific athlete, so it doesn't need a second
-  // layer of grouping here. Profile is account settings only.
+  // layer of grouping here. Profile is account settings only — not a
+  // bucket, just like Home and Athletes.
   const topLevelItems: NavLeaf[] = [
     { to: "/app", label: "Home", icon: Home, show: true },
     { to: "/app/athletes", label: "Athletes", icon: Users, show: isCoach },
   ];
+
+  // Profile stays standalone too, but renders after the buckets (its
+  // original position at the end of the nav) rather than up top with
+  // Home/Athletes — it's the account-settings page, not a frequent
+  // destination the way Home is.
+  const accountItems: NavLeaf[] = [{ to: "/app/profile", label: "Profile", icon: User2, show: true }];
 
   // Bucketed groups — Phase 1 of the sidebar restructure. Routes are
   // unchanged; this only changes how they're grouped/navigated to. Each
@@ -131,8 +138,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       ],
     },
     {
-      id: "comms",
-      label: "Comms Hub",
+      id: "community",
+      label: "Community",
       icon: MessageSquare,
       children: [
         { to: "/app/noticeboard", label: "Noticeboard", icon: Megaphone, show: true },
@@ -149,6 +156,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   ];
 
   const visibleTopLevel = topLevelItems.filter((n) => n.show);
+  const visibleAccountItems = accountItems.filter((n) => n.show);
   const visibleBuckets = bucketDefs
     .map((b) => ({ ...b, children: b.children.filter((c) => c.show) }))
     .filter((b) => b.children.length > 0);
@@ -175,8 +183,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   // array order) so e.g. "/app/sessions/calendar" resolves to "Calendar"
   // and not the shorter "/app/sessions" → "Sessions" match.
   const allLeaves = useMemo(
-    () => [...visibleTopLevel, ...visibleBuckets.flatMap((b) => b.children)],
-    [visibleTopLevel, visibleBuckets],
+    () => [...visibleTopLevel, ...visibleAccountItems, ...visibleBuckets.flatMap((b) => b.children)],
+    [visibleTopLevel, visibleAccountItems, visibleBuckets],
   );
   const crumb = (() => {
     const matches = allLeaves.filter((n) => (n.to === "/app" ? path === "/app" : path.startsWith(n.to)));
@@ -197,6 +205,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       show: true,
       bucketActive: isBucketActive(b),
     })),
+    ...visibleAccountItems,
   ];
 
   return (
@@ -317,6 +326,33 @@ export function AppShell({ children }: { children: ReactNode }) {
                   </div>
                 )}
               </div>
+            );
+          })}
+
+          {/* Standalone account item (Profile) — same simple link style as
+              Home/Athletes, deliberately rendered after the buckets since
+              it's a settings destination, not a frequent one. */}
+          {visibleAccountItems.map((n) => {
+            const active = path.startsWith(n.to);
+            return (
+              <Link
+                key={n.to}
+                to={n.to}
+                title={collapsed ? n.label : undefined}
+                className={cn(
+                  "relative flex items-center gap-3 rounded-md text-sm font-medium transition-colors",
+                  collapsed ? "justify-center h-10" : "px-3 h-10",
+                  active
+                    ? "bg-sidebar-accent text-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/60",
+                )}
+              >
+                {active && (
+                  <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-[var(--accent-red)]" />
+                )}
+                <n.icon className={cn("h-4 w-4", active && "text-[var(--accent-red)]")} />
+                {!collapsed && <span>{n.label}</span>}
+              </Link>
             );
           })}
         </nav>
