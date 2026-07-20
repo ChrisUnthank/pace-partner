@@ -432,7 +432,7 @@ function AthleteEditorPage() {
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-3xl space-y-6 pb-16">
+      <div className="space-y-6 pb-16">
         {isCoach && (
           <>
             <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
@@ -768,23 +768,25 @@ function AthleteEditorPage() {
                         Reposition individual photos (only matters for Square/Portrait/Landscape — skipped for "no
                         crop")
                       </p>
-                      {(form.gallery_images ? form.gallery_images.split("\n").filter(Boolean) : []).map(
-                        (url: string, i: number) => {
-                          const pos = (form.gallery_image_positions || {})[url] ?? { x: 50, y: 50 };
-                          return (
-                            <div key={url + i} className="rounded-md border p-3">
-                              <p className="mb-2 text-xs text-muted-foreground">Photo {i + 1}</p>
-                              <HeroImagePositionPicker
-                                imageUrl={url}
-                                x={pos.x}
-                                y={pos.y}
-                                onChange={(x, y) => setGalleryImagePosition(url, x, y)}
-                                aspectClassName={galleryAspectClass(form.gallery_aspect ?? "square")}
-                              />
-                            </div>
-                          );
-                        },
-                      )}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {(form.gallery_images ? form.gallery_images.split("\n").filter(Boolean) : []).map(
+                          (url: string, i: number) => {
+                            const pos = (form.gallery_image_positions || {})[url] ?? { x: 50, y: 50 };
+                            return (
+                              <div key={url + i} className="rounded-md border p-3">
+                                <p className="mb-2 text-xs text-muted-foreground">Photo {i + 1}</p>
+                                <HeroImagePositionPicker
+                                  imageUrl={url}
+                                  x={pos.x}
+                                  y={pos.y}
+                                  onChange={(x, y) => setGalleryImagePosition(url, x, y)}
+                                  aspectClassName={galleryAspectClass(form.gallery_aspect ?? "square")}
+                                />
+                              </div>
+                            );
+                          },
+                        )}
+                      </div>
                     </div>
                   )}
               </CardContent>
