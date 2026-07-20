@@ -1,5 +1,6 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { z } from "zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyAthlete, useMyRoles, useAuthUser } from "@/lib/use-auth";
@@ -16,7 +17,12 @@ import { toast } from "sonner";
 import { Trash2, Trophy, CalendarClock, Medal, TrendingUp } from "lucide-react";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
+const searchSchema = z.object({
+  athleteId: z.string().optional(),
+});
+
 export const Route = createFileRoute("/_authenticated/app/races/")({
+  validateSearch: searchSchema,
   component: RacesPage,
 });
 
@@ -106,6 +112,7 @@ function buildMonthlyFrequency(races: any[]) {
 }
 
 function RacesPage() {
+  const search = Route.useSearch();
   const { user } = useAuthUser();
   const { data: roles = [] } = useMyRoles();
   const { data: myAthlete } = useMyAthlete();
@@ -124,7 +131,13 @@ function RacesPage() {
     },
   });
 
-  const [athleteId, setAthleteId] = useState<string>("");
+  const [athleteId, setAthleteId] = useState<string>(search.athleteId ?? "");
+  // Re-syncs whenever the URL's athleteId changes underneath this page —
+  // e.g. clicking "Races" from a different athlete's full view while this
+  // page is already open — rather than only reading it once on mount.
+  useEffect(() => {
+    if (search.athleteId) setAthleteId(search.athleteId);
+  }, [search.athleteId]);
   const activeAthleteId = athleteId || myAthlete?.id || "";
   const activeAthlete =
     activeAthleteId === myAthlete?.id ? myAthlete : (roster ?? []).find((a: any) => a.id === activeAthleteId);
