@@ -105,6 +105,9 @@ function CalendarPage() {
   });
 
   const selectedAthleteId = search.athleteId ?? myAthlete?.id ?? roster?.[0]?.id ?? "";
+  const selectedAthleteName =
+    roster?.find((a) => a.id === selectedAthleteId)?.name ??
+    (myAthlete && myAthlete.id === selectedAthleteId ? myAthlete.name : undefined);
 
   // Home location for forecasting, auto-detected from the athlete's most
   // recent completed GPS session — there's no dedicated "home location"
@@ -478,6 +481,17 @@ function CalendarPage() {
   return (
     <AppShell>
       <div className="space-y-4">
+        {isCoach && selectedAthleteId && (
+          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+            <Link to="/app/athletes" className="hover:text-foreground">
+              Athletes
+            </Link>
+            <span className="text-border">/</span>
+            <Link to="/app/athletes/$athleteId" params={{ athleteId: selectedAthleteId }} className="hover:text-foreground">
+              {selectedAthleteName ?? "Athlete"}
+            </Link>
+          </div>
+        )}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold">Calendar</h1>
@@ -485,7 +499,10 @@ function CalendarPage() {
           </div>
           <div className="flex items-center gap-2">
             <Button asChild variant="outline" size="sm">
-              <Link to="/app/sessions">
+              <Link
+                to="/app/sessions"
+                search={selectedAthleteId ? ({ athleteId: selectedAthleteId } as any) : undefined}
+              >
                 <ListIcon className="h-4 w-4 mr-1" /> List view
               </Link>
             </Button>
