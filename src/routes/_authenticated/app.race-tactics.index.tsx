@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
+import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuthUser, useMyRoles, useMyRawRoles, useMyAthlete } from "@/lib/use-auth";
 import { AppShell } from "@/components/app-shell";
@@ -9,7 +10,12 @@ import { Badge } from "@/components/ui/badge";
 import { Flag, Plus } from "lucide-react";
 import { secToClock } from "@/lib/format";
 
+const searchSchema = z.object({
+  athleteId: z.string().optional(),
+});
+
 export const Route = createFileRoute("/_authenticated/app/race-tactics/")({
+  validateSearch: searchSchema,
   component: RaceTacticsList,
 });
 
@@ -29,6 +35,12 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 function RaceTacticsList() {
+  const search = Route.useSearch();
+  // Present when arriving from a specific athlete's full view (or any
+  // other deep link) — narrows the list to just that athlete instead of
+  // the coach's whole roster, and gets carried through to "New plan" too.
+  const filterAthleteId = search.athleteId;
+
   const { user } = useAuthUser();
   const { data: roles = [] } = useMyRoles();
   const { data: rawRoles = [] } = useMyRawRoles();
@@ -36,8 +48,17 @@ function RaceTacticsList() {
   const isCoach = roles.includes("coach");
   const isManager = rawRoles.includes("manager");
 
+  const { data: filterAthlete } = useQuery({
+    queryKey: ["race-tactics-filter-athlete", filterAthleteId],
+    enabled: !!filterAthleteId,
+    queryFn: async () => {
+      const { data } = await supabase.from("athletes").select("id, name").eq("id", filterAthleteId!).maybeSingle();
+      return data;
+    },
+  });
+
   const { data: plans, isLoading } = useQuery({
-    queryKey: ["race-tactics-list", user?.id, isCoach, isManager, myAthlete?.id],
+    queryKey: ["race-tactics-list", user?.id, isCoach, isManager, myAthlete?.id, filterAthleteId],
     enabled: !!user && (isCoach || !!myAthlete),
     queryFn: async () => {
       let query = supabase
@@ -45,7 +66,9 @@ function RaceTacticsList() {
         .select("id, event_name, race_distance_m, race_type, race_date, goal_time_seconds, status, athlete_id, athletes(id, name)")
         .order("race_date", { ascending: true, nullsFirst: false });
 
-      if (!isCoach && myAthlete) {
+      if (filterAthleteId) {
+        query = query.eq("athlete_id", filterAthleteId);
+      } else if (!isCoach && myAthlete) {
         query = query.eq("athlete_id", myAthlete.id);
       } else if (isCoach && !isManager) {
         const { data: links } = await supabase.from("coach_athletes").select("athlete_id").eq("coach_user_id", user!.id);
@@ -60,6 +83,8 @@ function RaceTacticsList() {
     },
   });
 
+  const newPlanSearch = filterAthleteId ? { athleteId: filterAthleteId } : undefined;
+
   return (
     <AppShell>
       <div className="space-y-4 max-w-4xl">
@@ -69,10 +94,22 @@ function RaceTacticsList() {
               <Flag className="h-5 w-5 text-[var(--accent-red)]" />
               Race Tactics
             </h1>
-            <p className="text-sm text-muted-foreground mt-1">Goal-time race plans with editable splits.</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              {filterAthleteId ? (
+                <>
+                  Plans for <span className="font-medium text-foreground">{filterAthlete?.name ?? "this athlete"}</span>
+                  {" · "}
+                  <Link to="/app/race-tactics" className="underline">
+                    View all plans
+                  </Link>
+                </>
+              ) : (
+                "Goal-time race plans with editable splits."
+              )}
+            </p>
           </div>
           <Button asChild>
-            <Link to="/app/race-tactics/new">
+            <Link to="/app/race-tactics/new" search={newPlanSearch as any}>
               <Plus className="h-4 w-4 mr-1" />
               New plan
             </Link>
@@ -84,9 +121,11 @@ function RaceTacticsList() {
         ) : !plans || plans.length === 0 ? (
           <Card>
             <CardContent className="py-8 text-center">
-              <p className="text-sm text-muted-foreground">No race plans yet.</p>
+              <p className="text-sm text-muted-foreground">
+                {filterAthleteId ? "No race plans yet for this athlete." : "No race plans yet."}
+              </p>
               <Button asChild className="mt-3">
-                <Link to="/app/race-tactics/new">
+                <Link to="/app/race-tactics/new" search={newPlanSearch as any}>
                   <Plus className="h-4 w-4 mr-1" />
                   Create the first one
                 </Link>
@@ -107,7 +146,7 @@ function RaceTacticsList() {
                     {p.event_name} <span className="text-muted-foreground">· {p.race_distance_m}m</span>
                   </div>
                   <div className="text-xs text-muted-foreground mt-0.5">
-                    {isCoach ? `${p.athletes?.name ?? "—"} · ` : ""}
+                    {isCoach && !filterAthleteId ? `${p.athletes?.name ?? "—"} · ` : ""}
                     {p.race_date ?? "No date set"}
                   </div>
                 </div>
