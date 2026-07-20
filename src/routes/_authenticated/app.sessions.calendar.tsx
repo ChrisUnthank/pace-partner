@@ -519,7 +519,9 @@ function CalendarPage() {
         )}
         {!(isCoach && selectedAthleteId) && !isParent && (
           <BucketTabStrip
-            items={TRAINING_TABS.filter((t) => t.to !== "/app/daily-log" || roles.includes("athlete"))}
+            items={TRAINING_TABS.filter((t) =>
+              t.to === "/app/daily-log" || t.to === "/app/my-schedule" ? roles.includes("athlete") : true,
+            )}
             active="/app/sessions/calendar"
           />
         )}
