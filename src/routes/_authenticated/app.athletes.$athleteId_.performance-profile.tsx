@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ChevronLeft, IdCard } from "lucide-react";
+import { AthleteSubnav } from "@/components/athlete-subnav";
 import { GoalsCard } from "@/components/goals-card";
 import { PhysiologicalTestingCard } from "@/components/physiological-testing-card";
 import { AthleteIdentityCard, ATHLETE_STATUS_OPTIONS, ATHLETE_STATUS_STYLES } from "@/components/athlete-identity-card";
@@ -15,7 +16,7 @@ import { TrainingResponseCard } from "@/components/training-response-card";
 import { StrengthsDevelopmentCard } from "@/components/strengths-development-card";
 import { RaceProfileCard } from "@/components/race-profile-card";
 
-export const Route = createFileRoute("/_authenticated/app/athletes/$athleteId_/performance-profile")({
+export const Route = createFileRoute("/_authenticated/app/athletes/$athleteId/performance-profile")({
   component: PerformanceProfilePage,
 });
 
@@ -101,6 +102,8 @@ function PerformanceProfilePage() {
             {ATHLETE_STATUS_OPTIONS.find((o) => o.value === athlete?.athlete_status)?.label ?? "Active"}
           </Badge>
         </div>
+
+        {isCoach && <AthleteSubnav athleteId={athleteId} active="performance-profile" />}
 
         <Tabs defaultValue="information" className="w-full">
           <TabsList className="flex flex-wrap h-auto gap-1">
