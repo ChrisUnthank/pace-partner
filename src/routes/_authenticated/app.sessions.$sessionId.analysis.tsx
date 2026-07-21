@@ -1397,6 +1397,15 @@ const INDOOR_GAP_THRESHOLD_S = 60;
 const INDOOR_MIN_DISTANCE_M = 800;
 const INDOOR_MAX_RADIUS_M = 700;
 const INDOOR_MIN_RATIO = 2.5;
+// A genuine treadmill run covers its distance at a real running pace. A
+// race-day corral wait, a walk to the start line, or standing around
+// post-finish trips the exact same distance/radius signature — GPS jitter
+// while mostly stationary in a confined area can quietly add hundreds of
+// "metres" of phantom distance over several minutes — but does so far
+// slower than anyone is actually running. Requiring a running-pace floor
+// (~12:00/km) lets the distance/radius check keep catching real treadmill
+// drift while no longer mislabeling slow confined-area movement as one.
+const INDOOR_MIN_SPEED_MPS = 1.4;
 
 function splitIndoorRuns<T extends { lat?: number; lng?: number; t?: number; d?: number }>(
   points: T[],
@@ -1428,6 +1437,8 @@ function splitIndoorRuns<T extends { lat?: number; lng?: number; t?: number; d?:
     const first = run[0];
     const lastP = run[run.length - 1];
     const distCovered = Math.max(0, Number(lastP.d ?? 0) - Number(first.d ?? 0));
+    const durationS = Math.max(1, Number(lastP.t ?? 0) - Number(first.t ?? 0));
+    const avgSpeedMps = distCovered / durationS;
     const lats = run.map((p) => Number(p.lat));
     const lngs = run.map((p) => Number(p.lng));
     const centroidLat = lats.reduce((a, b) => a + b, 0) / lats.length;
@@ -1437,7 +1448,8 @@ function splitIndoorRuns<T extends { lat?: number; lng?: number; t?: number; d?:
     const isIndoor =
       distCovered >= INDOOR_MIN_DISTANCE_M &&
       maxRadius <= INDOOR_MAX_RADIUS_M &&
-      distCovered / Math.max(maxRadius, 1) >= INDOOR_MIN_RATIO;
+      distCovered / Math.max(maxRadius, 1) >= INDOOR_MIN_RATIO &&
+      avgSpeedMps >= INDOOR_MIN_SPEED_MPS;
 
     if (isIndoor) {
       indoorRuns.push({ centroid: [centroidLat, centroidLng], startD: Number(first.d ?? 0), endD: Number(lastP.d ?? 0) });
