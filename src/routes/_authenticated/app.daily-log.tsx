@@ -16,7 +16,7 @@ import { todayISO } from "@/lib/format";
 import { toast } from "sonner";
 import { DailyLogSessions } from "@/components/daily-log-sessions";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { BucketTabStrip, TRAINING_TABS } from "@/components/bucket-tab-strip";
+import { BucketTabStrip, HEALTH_TABS } from "@/components/bucket-tab-strip";
 
 export const Route = createFileRoute("/_authenticated/app/daily-log")({
   component: DailyLog,
@@ -46,7 +46,7 @@ function DailyLog() {
           </div>
           <DateNav date={logDate} onChange={setLogDate} />
         </div>
-        <BucketTabStrip items={TRAINING_TABS} active="/app/daily-log" />
+        <BucketTabStrip items={HEALTH_TABS} active="/app/daily-log" />
         <VitalsSection athleteId={athlete.id} date={logDate} />
         <SessionsSection athleteId={athlete.id} />
         <EndOfDaySection athleteId={athlete.id} date={logDate} />
