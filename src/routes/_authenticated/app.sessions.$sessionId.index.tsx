@@ -40,6 +40,8 @@ import {
   Trash2,
   ChevronLeft,
   ChevronRight,
+  Flame,
+  Droplet,
 } from "lucide-react";
 import {
   DndContext,
@@ -2677,14 +2679,34 @@ function LactateSummary({ results }: { results: any[] }) {
 function FuelingPanel({ session }: { session: any }) {
   const qc = useQueryClient();
   const [notes, setNotes] = useState(session.fueling_notes ?? "");
+  const [carbs, setCarbs] = useState<string>(session.fueling_carbs_g != null ? String(session.fueling_carbs_g) : "");
+  const [fluid, setFluid] = useState<string>(session.fueling_fluid_ml != null ? String(session.fueling_fluid_ml) : "");
+  const [sodium, setSodium] = useState<string>(session.fueling_sodium_mg != null ? String(session.fueling_sodium_mg) : "");
+  // Re-sync whenever the underlying session row changes — keyed on
+  // session.id (not just the individual fields) so this resets correctly
+  // even when navigating session-to-session via the < > links reuses this
+  // component instance instead of remounting it, same class of stale-
+  // state bug already fixed elsewhere on this page for that reason.
+  useEffect(() => {
+    setNotes(session.fueling_notes ?? "");
+    setCarbs(session.fueling_carbs_g != null ? String(session.fueling_carbs_g) : "");
+    setFluid(session.fueling_fluid_ml != null ? String(session.fueling_fluid_ml) : "");
+    setSodium(session.fueling_sodium_mg != null ? String(session.fueling_sodium_mg) : "");
+  }, [session.id, session.fueling_notes, session.fueling_carbs_g, session.fueling_fluid_ml, session.fueling_sodium_mg]);
+
   async function save() {
     const { error } = await supabase
       .from("sessions")
-      .update({ fueling_notes: notes || null })
+      .update({
+        fueling_notes: notes || null,
+        fueling_carbs_g: carbs === "" ? null : Number(carbs),
+        fueling_fluid_ml: fluid === "" ? null : Number(fluid),
+        fueling_sodium_mg: sodium === "" ? null : Number(sodium),
+      })
       .eq("id", session.id);
     if (error) toast.error(error.message);
     else {
-      toast.success("Fueling notes saved");
+      toast.success("Fueling saved");
       qc.invalidateQueries({ queryKey: ["session", session.id] });
     }
   }
@@ -2694,7 +2716,45 @@ function FuelingPanel({ session }: { session: any }) {
         <CardTitle className="text-base">Fueling</CardTitle>
       </CardHeader>
 
-      <CardContent className="space-y-2">
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-3 gap-2">
+          <div>
+            <Label className="text-xs flex items-center gap-1">
+              <Flame className="h-3 w-3" /> Carbs (g)
+            </Label>
+            <Input
+              type="number"
+              step="0.1"
+              value={carbs}
+              onChange={(e) => setCarbs(e.target.value)}
+              placeholder="60"
+              className="h-8 text-sm"
+            />
+          </div>
+          <div>
+            <Label className="text-xs flex items-center gap-1">
+              <Droplet className="h-3 w-3" /> Fluid (ml)
+            </Label>
+            <Input
+              type="number"
+              value={fluid}
+              onChange={(e) => setFluid(e.target.value)}
+              placeholder="500"
+              className="h-8 text-sm"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Sodium (mg)</Label>
+            <Input
+              type="number"
+              value={sodium}
+              onChange={(e) => setSodium(e.target.value)}
+              placeholder="300"
+              className="h-8 text-sm"
+            />
+          </div>
+        </div>
+
         <Textarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
