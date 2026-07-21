@@ -1,6 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
-import { CalendarDays, CalendarRange, ClipboardList, BookmarkCheck, LayoutGrid, Clock, CalendarHeart, HeartPulse, Apple } from "lucide-react";
+import { CalendarDays, CalendarRange, ClipboardList, BookmarkCheck, LayoutGrid, Clock, CalendarHeart, HeartPulse, Apple, Bath, Bandage } from "lucide-react";
 
 export type BucketTabItem = {
   to: string;
@@ -41,6 +41,8 @@ export const HEALTH_TABS: BucketTabItem[] = [
   { to: "/app/health", label: "Overview", icon: HeartPulse },
   { to: "/app/daily-log", label: "Daily Log", icon: ClipboardList },
   { to: "/app/diet-fuel", label: "Diet & Fuel", icon: Apple },
+  { to: "/app/recovery", label: "Recovery", icon: Bath },
+  { to: "/app/injuries", label: "Injury Management", icon: Bandage },
 ];
 
 // Generic sibling-switcher for pages grouped under one of the sidebar's
