@@ -28,6 +28,8 @@ import { secToClock, metersFmt, paceFmt, roundDistanceForDisplay } from "@/lib/f
 import { sessionClassificationLabel } from "@/lib/session-categories";
 import { useServerFn } from "@tanstack/react-start";
 import { computeContinuousFatigue } from "@/lib/ai.functions";
+import { useMyRoles } from "@/lib/use-auth";
+import { AthleteSubnav } from "@/components/athlete-subnav";
 import {
   normalizeVO,
   formatVO,
@@ -102,6 +104,9 @@ type MetricKey = (typeof METRICS)[number]["key"];
 
 function SessionAnalysis() {
   const { sessionId } = Route.useParams();
+
+  const { data: roles = [] } = useMyRoles();
+  const isCoach = roles.includes("coach");
 
   const [enabled, setEnabled] = useState<Record<MetricKey, boolean>>({
     hr: true,
@@ -467,6 +472,11 @@ function SessionAnalysis() {
           >
             ← Back to details
           </Link>
+          {isCoach && session.athlete_id && (
+            <div className="mt-3">
+              <AthleteSubnav athleteId={session.athlete_id} active="sessions" />
+            </div>
+          )}
           <h1 className="text-2xl font-bold mt-2">{session.title}</h1>
           <p className="text-sm text-muted-foreground">
             {session.session_date} · {session.athletes?.name} · {sessionClassificationLabel(session as any)}
