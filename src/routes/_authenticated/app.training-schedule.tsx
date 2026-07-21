@@ -62,8 +62,12 @@ function TrainingSchedulePage() {
 
   const { data: myAthlete } = useMyAthlete();
   const { data: linkedAthletes } = useMyLinkedAthletes();
+  const [viewingChildId, setViewingChildId] = useState<string | null>(null); // parent switching between their children
   // Athlete sees their own group by default; a parent sees their first
-  // linked child's group. Neither overrides an explicit manual pick.
+  // linked child's group (or whichever child they've switched to).
+  // Neither overrides an explicit manual pick.
+  const effectiveSelfAthleteId = isAthleteRole ? myAthlete?.id : isParent ? (viewingChildId ?? linkedAthletes?.[0]?.athletes?.id) : undefined;
+
   const { data: myMembership } = useQuery({
     queryKey: ["my-training-group", effectiveSelfAthleteId],
     enabled: !!effectiveSelfAthleteId,
@@ -91,8 +95,6 @@ function TrainingSchedulePage() {
   });
 
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null); // coach browsing groups
-  const [viewingChildId, setViewingChildId] = useState<string | null>(null); // parent switching between their children
-  const effectiveSelfAthleteId = isAthleteRole ? myAthlete?.id : isParent ? (viewingChildId ?? linkedAthletes?.[0]?.athletes?.id) : undefined;
 
   // Coaches can browse any group. Everyone else only ever sees the group
   // they (or, for a parent, their selected child) are actually assigned
