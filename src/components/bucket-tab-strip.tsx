@@ -1,6 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
-import { CalendarDays, CalendarRange, ClipboardList, BookmarkCheck, LayoutGrid, Clock, CalendarHeart } from "lucide-react";
+import { CalendarDays, CalendarRange, ClipboardList, BookmarkCheck, LayoutGrid, Clock, CalendarHeart, HeartPulse } from "lucide-react";
 
 export type BucketTabItem = {
   to: string;
@@ -18,12 +18,11 @@ export type BucketTabItem = {
 export const TRAINING_TABS: BucketTabItem[] = [
   { to: "/app/sessions", label: "Sessions", icon: CalendarDays },
   { to: "/app/sessions/calendar", label: "Calendar", icon: CalendarRange },
-  { to: "/app/daily-log", label: "Daily Log", icon: ClipboardList },
   // Open to everyone (coach, athlete, and parent) — unlike the other
   // Training tabs, this one isn't filtered by role at the call sites.
   { to: "/app/training-schedule", label: "Training Schedule", icon: Clock },
   // Athlete/parent only — a coach has no personal calendar to view here.
-  // Filtered at each call site the same way Daily Log already is.
+  // Filtered at each call site the same way My Schedule already is.
   { to: "/app/my-schedule", label: "My Schedule", icon: CalendarHeart },
 ];
 
@@ -31,6 +30,16 @@ export const COACHING_HUB_TABS: BucketTabItem[] = [
   { to: "/app/coaching-hub", label: "Overview", icon: LayoutGrid },
   { to: "/app/templates", label: "Session Templates", icon: BookmarkCheck },
   { to: "/app/plans", label: "Plans", icon: CalendarRange },
+];
+
+// Health & Vitals — Daily Log moved here from Training (it's the
+// day-to-day vitals/soreness/injury log, not a training-load page). More
+// tabs (Diet & Fuel, Recovery, Injury Management, Bicarb, Lactate) get
+// appended here as each is built, same incremental pattern Coaching Hub
+// followed with its own tabs.
+export const HEALTH_TABS: BucketTabItem[] = [
+  { to: "/app/health", label: "Overview", icon: HeartPulse },
+  { to: "/app/daily-log", label: "Daily Log", icon: ClipboardList },
 ];
 
 // Generic sibling-switcher for pages grouped under one of the sidebar's
