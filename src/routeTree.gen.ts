@@ -18,6 +18,7 @@ import { Route as ASlugRouteImport } from './routes/a.$slug'
 import { Route as AuthenticatedAppIndexRouteImport } from './routes/_authenticated/app.index'
 import { Route as AuthenticatedAppZonesRouteImport } from './routes/_authenticated/app.zones'
 import { Route as AuthenticatedAppVitalsRouteImport } from './routes/_authenticated/app.vitals'
+import { Route as AuthenticatedAppTrainingScheduleRouteImport } from './routes/_authenticated/app.training-schedule'
 import { Route as AuthenticatedAppTodayRouteImport } from './routes/_authenticated/app.today'
 import { Route as AuthenticatedAppTemplatesRouteImport } from './routes/_authenticated/app.templates'
 import { Route as AuthenticatedAppSessionsRouteImport } from './routes/_authenticated/app.sessions'
@@ -25,10 +26,12 @@ import { Route as AuthenticatedAppRacesRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedAppProfileRouteImport } from './routes/_authenticated/app.profile'
 import { Route as AuthenticatedAppPlansRouteImport } from './routes/_authenticated/app.plans'
 import { Route as AuthenticatedAppNoticeboardRouteImport } from './routes/_authenticated/app.noticeboard'
+import { Route as AuthenticatedAppMyScheduleRouteImport } from './routes/_authenticated/app.my-schedule'
 import { Route as AuthenticatedAppMessagesRouteImport } from './routes/_authenticated/app.messages'
 import { Route as AuthenticatedAppGroupChatRouteImport } from './routes/_authenticated/app.group-chat'
 import { Route as AuthenticatedAppDailyLogRouteImport } from './routes/_authenticated/app.daily-log'
 import { Route as AuthenticatedAppCompareRouteImport } from './routes/_authenticated/app.compare'
+import { Route as AuthenticatedAppCoachingHubRouteImport } from './routes/_authenticated/app.coaching-hub'
 import { Route as AuthenticatedAppCheckoutRouteImport } from './routes/_authenticated/app.checkout'
 import { Route as AuthenticatedAppCalculatorsRouteImport } from './routes/_authenticated/app.calculators'
 import { Route as AuthenticatedAppAthletesRouteImport } from './routes/_authenticated/app.athletes'
@@ -108,6 +111,12 @@ const AuthenticatedAppVitalsRoute = AuthenticatedAppVitalsRouteImport.update({
   path: '/app/vitals',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedAppTrainingScheduleRoute =
+  AuthenticatedAppTrainingScheduleRouteImport.update({
+    id: '/app/training-schedule',
+    path: '/app/training-schedule',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAppTodayRoute = AuthenticatedAppTodayRouteImport.update({
   id: '/app/today',
   path: '/app/today',
@@ -146,6 +155,12 @@ const AuthenticatedAppNoticeboardRoute =
     path: '/app/noticeboard',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAppMyScheduleRoute =
+  AuthenticatedAppMyScheduleRouteImport.update({
+    id: '/app/my-schedule',
+    path: '/app/my-schedule',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAppMessagesRoute =
   AuthenticatedAppMessagesRouteImport.update({
     id: '/app/messages',
@@ -169,6 +184,12 @@ const AuthenticatedAppCompareRoute = AuthenticatedAppCompareRouteImport.update({
   path: '/app/compare',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedAppCoachingHubRoute =
+  AuthenticatedAppCoachingHubRouteImport.update({
+    id: '/app/coaching-hub',
+    path: '/app/coaching-hub',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAppCheckoutRoute =
   AuthenticatedAppCheckoutRouteImport.update({
     id: '/app/checkout',
@@ -384,10 +405,12 @@ export interface FileRoutesByFullPath {
   '/app/athletes': typeof AuthenticatedAppAthletesRouteWithChildren
   '/app/calculators': typeof AuthenticatedAppCalculatorsRouteWithChildren
   '/app/checkout': typeof AuthenticatedAppCheckoutRoute
+  '/app/coaching-hub': typeof AuthenticatedAppCoachingHubRoute
   '/app/compare': typeof AuthenticatedAppCompareRoute
   '/app/daily-log': typeof AuthenticatedAppDailyLogRoute
   '/app/group-chat': typeof AuthenticatedAppGroupChatRoute
   '/app/messages': typeof AuthenticatedAppMessagesRoute
+  '/app/my-schedule': typeof AuthenticatedAppMyScheduleRoute
   '/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
   '/app/plans': typeof AuthenticatedAppPlansRoute
   '/app/profile': typeof AuthenticatedAppProfileRoute
@@ -395,6 +418,7 @@ export interface FileRoutesByFullPath {
   '/app/sessions': typeof AuthenticatedAppSessionsRouteWithChildren
   '/app/templates': typeof AuthenticatedAppTemplatesRoute
   '/app/today': typeof AuthenticatedAppTodayRoute
+  '/app/training-schedule': typeof AuthenticatedAppTrainingScheduleRoute
   '/app/vitals': typeof AuthenticatedAppVitalsRoute
   '/app/zones': typeof AuthenticatedAppZonesRoute
   '/app/': typeof AuthenticatedAppIndexRoute
@@ -437,15 +461,18 @@ export interface FileRoutesByTo {
   '/claim/$token': typeof ClaimTokenRoute
   '/app/analytics': typeof AuthenticatedAppAnalyticsRoute
   '/app/checkout': typeof AuthenticatedAppCheckoutRoute
+  '/app/coaching-hub': typeof AuthenticatedAppCoachingHubRoute
   '/app/compare': typeof AuthenticatedAppCompareRoute
   '/app/daily-log': typeof AuthenticatedAppDailyLogRoute
   '/app/group-chat': typeof AuthenticatedAppGroupChatRoute
   '/app/messages': typeof AuthenticatedAppMessagesRoute
+  '/app/my-schedule': typeof AuthenticatedAppMyScheduleRoute
   '/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
   '/app/plans': typeof AuthenticatedAppPlansRoute
   '/app/profile': typeof AuthenticatedAppProfileRoute
   '/app/templates': typeof AuthenticatedAppTemplatesRoute
   '/app/today': typeof AuthenticatedAppTodayRoute
+  '/app/training-schedule': typeof AuthenticatedAppTrainingScheduleRoute
   '/app/vitals': typeof AuthenticatedAppVitalsRoute
   '/app/zones': typeof AuthenticatedAppZonesRoute
   '/app': typeof AuthenticatedAppIndexRoute
@@ -490,10 +517,12 @@ export interface FileRoutesById {
   '/_authenticated/app/athletes': typeof AuthenticatedAppAthletesRouteWithChildren
   '/_authenticated/app/calculators': typeof AuthenticatedAppCalculatorsRouteWithChildren
   '/_authenticated/app/checkout': typeof AuthenticatedAppCheckoutRoute
+  '/_authenticated/app/coaching-hub': typeof AuthenticatedAppCoachingHubRoute
   '/_authenticated/app/compare': typeof AuthenticatedAppCompareRoute
   '/_authenticated/app/daily-log': typeof AuthenticatedAppDailyLogRoute
   '/_authenticated/app/group-chat': typeof AuthenticatedAppGroupChatRoute
   '/_authenticated/app/messages': typeof AuthenticatedAppMessagesRoute
+  '/_authenticated/app/my-schedule': typeof AuthenticatedAppMyScheduleRoute
   '/_authenticated/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
   '/_authenticated/app/plans': typeof AuthenticatedAppPlansRoute
   '/_authenticated/app/profile': typeof AuthenticatedAppProfileRoute
@@ -501,6 +530,7 @@ export interface FileRoutesById {
   '/_authenticated/app/sessions': typeof AuthenticatedAppSessionsRouteWithChildren
   '/_authenticated/app/templates': typeof AuthenticatedAppTemplatesRoute
   '/_authenticated/app/today': typeof AuthenticatedAppTodayRoute
+  '/_authenticated/app/training-schedule': typeof AuthenticatedAppTrainingScheduleRoute
   '/_authenticated/app/vitals': typeof AuthenticatedAppVitalsRoute
   '/_authenticated/app/zones': typeof AuthenticatedAppZonesRoute
   '/_authenticated/app/': typeof AuthenticatedAppIndexRoute
@@ -547,10 +577,12 @@ export interface FileRouteTypes {
     | '/app/athletes'
     | '/app/calculators'
     | '/app/checkout'
+    | '/app/coaching-hub'
     | '/app/compare'
     | '/app/daily-log'
     | '/app/group-chat'
     | '/app/messages'
+    | '/app/my-schedule'
     | '/app/noticeboard'
     | '/app/plans'
     | '/app/profile'
@@ -558,6 +590,7 @@ export interface FileRouteTypes {
     | '/app/sessions'
     | '/app/templates'
     | '/app/today'
+    | '/app/training-schedule'
     | '/app/vitals'
     | '/app/zones'
     | '/app/'
@@ -600,15 +633,18 @@ export interface FileRouteTypes {
     | '/claim/$token'
     | '/app/analytics'
     | '/app/checkout'
+    | '/app/coaching-hub'
     | '/app/compare'
     | '/app/daily-log'
     | '/app/group-chat'
     | '/app/messages'
+    | '/app/my-schedule'
     | '/app/noticeboard'
     | '/app/plans'
     | '/app/profile'
     | '/app/templates'
     | '/app/today'
+    | '/app/training-schedule'
     | '/app/vitals'
     | '/app/zones'
     | '/app'
@@ -652,10 +688,12 @@ export interface FileRouteTypes {
     | '/_authenticated/app/athletes'
     | '/_authenticated/app/calculators'
     | '/_authenticated/app/checkout'
+    | '/_authenticated/app/coaching-hub'
     | '/_authenticated/app/compare'
     | '/_authenticated/app/daily-log'
     | '/_authenticated/app/group-chat'
     | '/_authenticated/app/messages'
+    | '/_authenticated/app/my-schedule'
     | '/_authenticated/app/noticeboard'
     | '/_authenticated/app/plans'
     | '/_authenticated/app/profile'
@@ -663,6 +701,7 @@ export interface FileRouteTypes {
     | '/_authenticated/app/sessions'
     | '/_authenticated/app/templates'
     | '/_authenticated/app/today'
+    | '/_authenticated/app/training-schedule'
     | '/_authenticated/app/vitals'
     | '/_authenticated/app/zones'
     | '/_authenticated/app/'
@@ -774,6 +813,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppVitalsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/app/training-schedule': {
+      id: '/_authenticated/app/training-schedule'
+      path: '/app/training-schedule'
+      fullPath: '/app/training-schedule'
+      preLoaderRoute: typeof AuthenticatedAppTrainingScheduleRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/app/today': {
       id: '/_authenticated/app/today'
       path: '/app/today'
@@ -823,6 +869,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppNoticeboardRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/app/my-schedule': {
+      id: '/_authenticated/app/my-schedule'
+      path: '/app/my-schedule'
+      fullPath: '/app/my-schedule'
+      preLoaderRoute: typeof AuthenticatedAppMyScheduleRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/app/messages': {
       id: '/_authenticated/app/messages'
       path: '/app/messages'
@@ -849,6 +902,13 @@ declare module '@tanstack/react-router' {
       path: '/app/compare'
       fullPath: '/app/compare'
       preLoaderRoute: typeof AuthenticatedAppCompareRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/coaching-hub': {
+      id: '/_authenticated/app/coaching-hub'
+      path: '/app/coaching-hub'
+      fullPath: '/app/coaching-hub'
+      preLoaderRoute: typeof AuthenticatedAppCoachingHubRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/app/checkout': {
@@ -1215,10 +1275,12 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAppAthletesRoute: typeof AuthenticatedAppAthletesRouteWithChildren
   AuthenticatedAppCalculatorsRoute: typeof AuthenticatedAppCalculatorsRouteWithChildren
   AuthenticatedAppCheckoutRoute: typeof AuthenticatedAppCheckoutRoute
+  AuthenticatedAppCoachingHubRoute: typeof AuthenticatedAppCoachingHubRoute
   AuthenticatedAppCompareRoute: typeof AuthenticatedAppCompareRoute
   AuthenticatedAppDailyLogRoute: typeof AuthenticatedAppDailyLogRoute
   AuthenticatedAppGroupChatRoute: typeof AuthenticatedAppGroupChatRoute
   AuthenticatedAppMessagesRoute: typeof AuthenticatedAppMessagesRoute
+  AuthenticatedAppMyScheduleRoute: typeof AuthenticatedAppMyScheduleRoute
   AuthenticatedAppNoticeboardRoute: typeof AuthenticatedAppNoticeboardRoute
   AuthenticatedAppPlansRoute: typeof AuthenticatedAppPlansRoute
   AuthenticatedAppProfileRoute: typeof AuthenticatedAppProfileRoute
@@ -1226,6 +1288,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAppSessionsRoute: typeof AuthenticatedAppSessionsRouteWithChildren
   AuthenticatedAppTemplatesRoute: typeof AuthenticatedAppTemplatesRoute
   AuthenticatedAppTodayRoute: typeof AuthenticatedAppTodayRoute
+  AuthenticatedAppTrainingScheduleRoute: typeof AuthenticatedAppTrainingScheduleRoute
   AuthenticatedAppVitalsRoute: typeof AuthenticatedAppVitalsRoute
   AuthenticatedAppZonesRoute: typeof AuthenticatedAppZonesRoute
   AuthenticatedAppIndexRoute: typeof AuthenticatedAppIndexRoute
@@ -1248,10 +1311,12 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAppCalculatorsRoute:
     AuthenticatedAppCalculatorsRouteWithChildren,
   AuthenticatedAppCheckoutRoute: AuthenticatedAppCheckoutRoute,
+  AuthenticatedAppCoachingHubRoute: AuthenticatedAppCoachingHubRoute,
   AuthenticatedAppCompareRoute: AuthenticatedAppCompareRoute,
   AuthenticatedAppDailyLogRoute: AuthenticatedAppDailyLogRoute,
   AuthenticatedAppGroupChatRoute: AuthenticatedAppGroupChatRoute,
   AuthenticatedAppMessagesRoute: AuthenticatedAppMessagesRoute,
+  AuthenticatedAppMyScheduleRoute: AuthenticatedAppMyScheduleRoute,
   AuthenticatedAppNoticeboardRoute: AuthenticatedAppNoticeboardRoute,
   AuthenticatedAppPlansRoute: AuthenticatedAppPlansRoute,
   AuthenticatedAppProfileRoute: AuthenticatedAppProfileRoute,
@@ -1259,6 +1324,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAppSessionsRoute: AuthenticatedAppSessionsRouteWithChildren,
   AuthenticatedAppTemplatesRoute: AuthenticatedAppTemplatesRoute,
   AuthenticatedAppTodayRoute: AuthenticatedAppTodayRoute,
+  AuthenticatedAppTrainingScheduleRoute: AuthenticatedAppTrainingScheduleRoute,
   AuthenticatedAppVitalsRoute: AuthenticatedAppVitalsRoute,
   AuthenticatedAppZonesRoute: AuthenticatedAppZonesRoute,
   AuthenticatedAppIndexRoute: AuthenticatedAppIndexRoute,
@@ -1295,3 +1361,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
