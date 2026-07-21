@@ -1,478 +1,418 @@
-import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
-import { ReactNode, useMemo, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import { useMyRoles, useAuthUser } from "@/lib/use-auth";
+import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AppShell } from "@/components/app-shell";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import {
-  CalendarDays,
-  CalendarRange,
-  Users,
-  User2,
-  LogOut,
-  Home,
-  BookmarkCheck,
-  LineChart,
-  ChevronsLeft,
-  ChevronsRight,
-  ChevronDown,
-  Zap,
-  HeartPulse,
-  Clock,
-  CalendarHeart,
-  Megaphone,
-  MessageSquare,
-  MessageCircle,
-  Trophy,
-  Gauge,
-  Calculator,
-  GitCompare,
-  IdCard,
-  FileText,
-  Flag,
-  Globe,
-} from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Plus, Pencil, Trash2 } from "lucide-react";
+import { format } from "date-fns";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { useMyRoles, useMyRawRoles, useMyAthlete, useMyLinkedAthletes } from "@/lib/use-auth";
+import { BucketTabStrip, TRAINING_TABS } from "@/components/bucket-tab-strip";
+import { DAY_TYPE_META, type TrainingDayType } from "@/lib/training-day-types";
+import { PERSONAL_CATEGORY_META, PERSONAL_CATEGORY_OPTIONS, type PersonalEntryCategory } from "@/lib/personal-calendar-categories";
 import { cn } from "@/lib/utils";
-import { NotificationBell } from "@/components/notification-bell";
-import { useQuery } from "@tanstack/react-query";
 
-type NavLeaf = { to: string; label: string; icon: any; show: boolean };
-type NavBucket = { id: string; label: string; icon: any; children: NavLeaf[] };
-// Unified ordering type — lets standalone links (leaves) and accordion
-// groups (buckets) interleave in one render pass instead of always
-// rendering "all leaves, then all buckets" as two separate blocks. Needed
-// once Health & Vitals had to sit between the Metrics and Performances
-// buckets rather than up with Home/Athletes/Coaching Hub.
-type NavEntry = ({ kind: "leaf" } & NavLeaf) | ({ kind: "bucket" } & NavBucket);
+export const Route = createFileRoute("/_authenticated/app/my-schedule")({
+  component: () => (
+    <AppShell>
+      <MySchedulePage />
+    </AppShell>
+  ),
+});
 
-// Plain path.startsWith(to) treats routes as string prefixes, not path
-// segments — "/app/coaching-hub" starts with the literal characters
-// "/app/coach", so the Coach Profile link (and its Community bucket) was
-// lighting up on every Coaching Hub visit. Same class of bug hits
-// "/app/athletes" vs "/app/athlete". Requiring either an exact match or a
-// real "/" boundary after `to` fixes both without touching route paths.
-// "/app" itself is a special case — literally every route is nested under
-// it, so it only ever counts as active on an exact match.
-function isPathActive(current: string, to: string): boolean {
-  if (to === "/app") return current === "/app";
-  return current === to || current.startsWith(to + "/");
+const AGENDA_DAYS = 21;
+
+function toISO(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function rangeDates(days: number): string[] {
+  const out: string[] = [];
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  for (let i = 0; i < days; i++) {
+    const d = new Date(start);
+    d.setDate(d.getDate() + i);
+    out.push(toISO(d));
+  }
+  return out;
 }
 
-export function AppShell({ children }: { children: ReactNode }) {
-  const navigate = useNavigate();
-  const qc = useQueryClient();
-  const { user } = useAuthUser();
+function MySchedulePage() {
   const { data: roles = [] } = useMyRoles();
-  const isCoach = roles.includes("coach");
-  const isAthlete = roles.includes("athlete");
-  // Parent Portal: deliberately narrow. Most existing "show: true" items
-  // below were written back when only coach/athlete existed, so "true"
-  // effectively meant "either of the two roles that existed" — now that
-  // parent is a real role too, those need to explicitly exclude it rather
-  // than silently start showing pages that assume a coach's roster or an
-  // athlete's own data exists for the signed-in user.
-  const isParent = roles.includes("parent");
-  const isCoachOrAthlete = isCoach || isAthlete;
-  const path = useRouterState({ select: (s) => s.location.pathname });
-  const [collapsed, setCollapsed] = useState(false);
-  // Manual open/close overrides per bucket — a bucket is open if the user
-  // explicitly opened it OR the current route falls inside it (see
-  // isBucketActive below), UNLESS the user explicitly closed it, in which
-  // case that closure wins even while active. Undefined = no override yet,
-  // defer entirely to "is this bucket active".
-  const [bucketOverrides, setBucketOverrides] = useState<Map<string, boolean>>(new Map());
+  const { data: rawRoles = [] } = useMyRawRoles();
+  const isAthleteRole = roles.includes("athlete");
+  const isCoach = roles.includes("coach") || roles.includes("manager");
+  const isParent = rawRoles.includes("parent") && !isCoach;
+  const qc = useQueryClient();
 
-  const { data: coachProfile } = useQuery({
-    queryKey: ["my-coach-profile-slug", user?.id],
-    enabled: !!user && isCoach,
+  const { data: myAthlete } = useMyAthlete();
+  const { data: linkedAthletes } = useMyLinkedAthletes();
+  const [viewingChildId, setViewingChildId] = useState<string | null>(null);
+  const targetAthleteId = isAthleteRole ? myAthlete?.id : isParent ? (viewingChildId ?? linkedAthletes?.[0]?.athletes?.id) : undefined;
+
+  const dates = rangeDates(AGENDA_DAYS);
+  const rangeEnd = dates[dates.length - 1];
+
+  const { data: groupId } = useQuery({
+    queryKey: ["my-schedule-group", targetAthleteId],
+    enabled: !!targetAthleteId,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("coach_profiles")
-        .select("slug")
-        .eq("coach_user_id", user!.id)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
+      const { data } = await supabase.from("training_group_members").select("group_id").eq("athlete_id", targetAthleteId!).limit(1).maybeSingle();
+      return data?.group_id ?? null;
     },
   });
 
-  async function signOut() {
-    await qc.cancelQueries();
-    qc.clear();
-    await supabase.auth.signOut();
-    navigate({ to: "/auth", replace: true });
+  const { data: trainingSlots } = useQuery({
+    queryKey: ["my-schedule-training-slots", groupId],
+    enabled: !!groupId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("squad_training_sessions")
+        .select("*, training_locations(name)")
+        .eq("group_id", groupId!)
+        .eq("active", true);
+      if (error) return [];
+      return data ?? [];
+    },
+  });
+
+  const scheduleIds = (trainingSlots ?? []).map((s: any) => s.id);
+  const { data: overrides } = useQuery({
+    queryKey: ["my-schedule-overrides", scheduleIds.join(",")],
+    enabled: scheduleIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("squad_training_overrides")
+        .select("*, training_locations(name)")
+        .in("schedule_id", scheduleIds)
+        .gte("occurrence_date", dates[0])
+        .lte("occurrence_date", rangeEnd);
+      if (error) return [];
+      return data ?? [];
+    },
+  });
+  const overrideByKey = new Map((overrides ?? []).map((o: any) => [`${o.schedule_id}:${o.occurrence_date}`, o]));
+
+  const { data: personalEntries } = useQuery({
+    queryKey: ["my-schedule-personal", targetAthleteId],
+    enabled: !!targetAthleteId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("athlete_personal_calendar_entries")
+        .select("*")
+        .eq("athlete_id", targetAthleteId!)
+        .eq("active", true);
+      if (error) return [];
+      return data ?? [];
+    },
+  });
+
+  // Build, for each date in the agenda window, the list of training
+  // occurrences (read-only, with overrides applied) and personal entries.
+  const byDate = new Map<string, { training: any[]; personal: any[] }>();
+  for (const d of dates) byDate.set(d, { training: [], personal: [] });
+
+  for (const slot of trainingSlots ?? []) {
+    if (slot.specific_date) {
+      if (byDate.has(slot.specific_date)) byDate.get(slot.specific_date)!.training.push(slot);
+      continue;
+    }
+    if (slot.day_of_week == null) continue;
+    for (const d of dates) {
+      const dow = new Date(d + "T00:00:00").getDay();
+      if (dow !== slot.day_of_week) continue;
+      const ov = overrideByKey.get(`${slot.id}:${d}`);
+      if (ov?.cancelled) continue;
+      byDate.get(d)!.training.push(
+        ov
+          ? {
+              ...slot,
+              start_time: ov.start_time ?? slot.start_time,
+              location_text: ov.location_text ?? slot.location_text,
+              training_locations: ov.training_locations ?? slot.training_locations,
+              notes: ov.notes ?? slot.notes,
+              _overridden: true,
+            }
+          : slot,
+      );
+    }
   }
 
-  // Standalone top-level items — these deliberately stay outside any
-  // bucket. Athletes already has its own Overview + AthleteSubnav pattern
-  // once you're inside a specific athlete, so it doesn't need a second
-  // layer of grouping here. Profile is account settings only — not a
-  // bucket, just like Home and Athletes.
-  //
-  // Profile stays standalone too, but renders after everything else (its
-  // original position at the end of the nav) rather than up top with
-  // Home/Athletes — it's the account-settings page, not a frequent
-  // destination the way Home is.
-  const accountItems: NavLeaf[] = [{ to: "/app/profile", label: "Profile", icon: User2, show: true }];
-
-  // Single ordered list — this array's order IS the sidebar's visual
-  // order, so leaves and buckets can be interleaved (Health & Vitals sits
-  // after the Metrics bucket and before Performances, per Chris's ask,
-  // rather than being grouped with the other standalone leaves up top).
-  const navEntries: NavEntry[] = [
-    { kind: "leaf", to: "/app", label: "Home", icon: Home, show: true },
-    { kind: "leaf", to: "/app/athletes", label: "Athletes", icon: Users, show: isCoach },
-    // Coaching Hub: session templates, plan templates, active plans — and
-    // room to grow into a session library / phase builder later. Gets its
-    // own Overview + tab-strip (BucketTabStrip, same component the
-    // sidebar buckets use) rather than living inside the Training
-    // accordion, since — like Athletes — it has a real landing dashboard
-    // to earn that treatment, not just a handful of unrelated tools.
-    { kind: "leaf", to: "/app/coaching-hub", label: "Coaching Hub", icon: BookmarkCheck, show: isCoach },
-    {
-      kind: "bucket",
-      id: "training",
-      label: "Training",
-      icon: CalendarDays,
-      children: [
-        { to: "/app/sessions", label: "Sessions", icon: CalendarDays, show: isCoachOrAthlete },
-        { to: "/app/sessions/calendar", label: "Calendar", icon: CalendarRange, show: isCoachOrAthlete },
-        // Open to everyone — coach, athlete, and parent alike. This is
-        // also what surfaces the Training bucket in a parent's sidebar
-        // for the first time, since Sessions/Calendar stay hidden from
-        // them. (Daily Log moved to the new Health & Vitals area.)
-        { to: "/app/training-schedule", label: "Training Schedule", icon: Clock, show: true },
-        // Athlete/parent only — a coach has no personal calendar to view.
-        { to: "/app/my-schedule", label: "My Schedule", icon: CalendarHeart, show: isAthlete || isParent },
-      ],
-    },
-    {
-      kind: "bucket",
-      id: "metrics",
-      label: "Metrics",
-      icon: LineChart,
-      children: [
-        { to: "/app/analytics", label: "Analytics", icon: LineChart, show: isCoachOrAthlete },
-        { to: "/app/zones", label: "Zones", icon: Gauge, show: isAthlete || isCoach },
-        { to: "/app/compare", label: "Compare", icon: GitCompare, show: isCoachOrAthlete },
-        { to: "/app/reports", label: "Reports", icon: FileText, show: isCoachOrAthlete },
-      ],
-    },
-    // Health & Vitals: daily log, diet/fuel, recovery, injury management,
-    // bicarb, lactate — a cross-cutting per-athlete area. Sits right after
-    // Metrics and before Performances/Community, rather than up with
-    // Athletes/Coaching Hub. Coach and athlete both see it; a coach
-    // reaches a specific athlete's data via the Health tab on that
-    // athlete's own view (AthleteSubnav), same as Zones/Analytics. Own
-    // Overview + tab-strip, same pattern as Coaching Hub.
-    { kind: "leaf", to: "/app/health", label: "Health & Vitals", icon: HeartPulse, show: isCoachOrAthlete },
-    {
-      kind: "bucket",
-      id: "performances",
-      label: "Performances",
-      icon: Trophy,
-      children: [
-        { to: "/app/races", label: "Races", icon: Trophy, show: isAthlete },
-        { to: "/app/race-tactics", label: "Race Tactics", icon: Flag, show: isAthlete },
-      ],
-    },
-    {
-      kind: "bucket",
-      id: "community",
-      label: "Community",
-      icon: MessageSquare,
-      children: [
-        { to: "/app/noticeboard", label: "Noticeboard", icon: Megaphone, show: true },
-        { to: "/app/group-chat", label: "Group Chat", icon: MessageCircle, show: true },
-        // Messages stays 1:1 coach<->athlete for now — no parent
-        // "observer" concept exists on direct_messages yet, so kept out
-        // of the parent portal's scope rather than exposing a broken/
-        // empty inbox.
-        { to: "/app/messages", label: "Messages", icon: MessageSquare, show: isCoachOrAthlete },
-        { to: "/app/coach", label: "Coach Profile", icon: IdCard, show: isCoach },
-        { to: "/app/athlete", label: "Athlete Page", icon: Globe, show: isAthlete },
-      ],
-    },
-  ];
-
-  const visibleAccountItems = accountItems.filter((n) => n.show);
-  // Buckets drop hidden children first; empty buckets and hidden leaves
-  // are then filtered out — same visibility rules as before, just applied
-  // across one interleaved list instead of two separate ones.
-  const visibleEntries: NavEntry[] = navEntries
-    .map((e) => (e.kind === "bucket" ? { ...e, children: e.children.filter((c) => c.show) } : e))
-    .filter((e) => (e.kind === "bucket" ? e.children.length > 0 : e.show));
-
-  function isBucketActive(bucket: NavBucket) {
-    return bucket.children.some((c) => isPathActive(path, c.to));
+  for (const entry of personalEntries ?? []) {
+    if (entry.specific_date) {
+      if (byDate.has(entry.specific_date)) byDate.get(entry.specific_date)!.personal.push(entry);
+      continue;
+    }
+    if (entry.day_of_week == null) continue;
+    for (const d of dates) {
+      const dow = new Date(d + "T00:00:00").getDay();
+      if (dow === entry.day_of_week) byDate.get(d)!.personal.push(entry);
+    }
   }
 
-  function isBucketOpen(bucket: NavBucket) {
-    const override = bucketOverrides.get(bucket.id);
-    if (override !== undefined) return override;
-    return isBucketActive(bucket);
-  }
-
-  function toggleBucket(bucket: NavBucket) {
-    setBucketOverrides((prev) => {
-      const next = new Map(prev);
-      next.set(bucket.id, !isBucketOpen(bucket));
-      return next;
-    });
-  }
-
-  // Breadcrumb label — longest-matching `to` wins (rather than relying on
-  // array order) so e.g. "/app/sessions/calendar" resolves to "Calendar"
-  // and not the shorter "/app/sessions" → "Sessions" match.
-  const allLeaves = useMemo(
-    () => [...visibleEntries.flatMap((e) => (e.kind === "bucket" ? e.children : [e])), ...visibleAccountItems],
-    [visibleEntries, visibleAccountItems],
-  );
-  const crumb = (() => {
-    const matches = allLeaves.filter((n) => isPathActive(path, n.to));
-    if (matches.length === 0) return "Strider";
-    return matches.reduce((best, n) => (n.to.length > best.to.length ? n : best)).label;
-  })();
-
-  // Mobile bottom nav: buckets collapse to a single tap target — their
-  // first visible child — since a bottom bar can't show an expanded
-  // accordion. Tapping it lands on that page, whose own top tab-strip
-  // (added in phase 2) lets you switch to a sibling from there. Order
-  // mirrors the sidebar's visibleEntries, so Health still lands between
-  // Metrics and Performances here too.
-  const mobileItems: (NavLeaf & { bucketActive?: boolean })[] = [
-    ...visibleEntries.map((e) =>
-      e.kind === "bucket"
-        ? { to: e.children[0].to, label: e.label, icon: e.icon, show: true, bucketActive: isBucketActive(e) }
-        : e,
-    ),
-    ...visibleAccountItems,
-  ];
+  const [entryDialog, setEntryDialog] = useState<{ date?: string; initial?: any } | null>(null);
+  const todayISO = toISO(new Date());
 
   return (
-    <div className="min-h-screen flex bg-background text-foreground">
-      {/* Sidebar */}
-      <aside
-        className={cn(
-          "hidden md:flex flex-col shrink-0 border-r border-border bg-sidebar transition-[width] duration-200 sticky top-0 h-screen overflow-y-auto print:hidden",
-          collapsed ? "w-16" : "w-60",
-        )}
-      >
-        <div className={cn("h-14 flex items-center border-b border-border", collapsed ? "justify-center" : "px-5")}>
-          <Link to="/app" className="flex items-center gap-2 group">
-            <span className="w-7 h-7 grid place-items-center rounded-md bg-[var(--accent-red)] shadow-[0_0_18px_-4px_var(--accent-red)]">
-              <Zap className="h-4 w-4 text-white" strokeWidth={2.5} />
-            </span>
-            {!collapsed && (
-              <span className="font-display text-base font-extrabold tracking-tight uppercase">Strider</span>
-            )}
-          </Link>
-        </div>
-        <nav className="flex-1 px-2 py-4 space-y-0.5">
-          {/* Single interleaved pass — order comes straight from
-              visibleEntries, so Health & Vitals (a leaf) renders between
-              the Metrics and Performances buckets exactly as listed above. */}
-          {visibleEntries.map((entry) => {
-            if (entry.kind === "leaf") {
-              const active = isPathActive(path, entry.to);
-              return (
-                <Link
-                  key={entry.to}
-                  to={entry.to}
-                  title={collapsed ? entry.label : undefined}
-                  className={cn(
-                    "relative flex items-center gap-3 rounded-md text-sm font-medium transition-colors",
-                    collapsed ? "justify-center h-10" : "px-3 h-10",
-                    active
-                      ? "bg-sidebar-accent text-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/60",
-                  )}
-                >
-                  {active && (
-                    <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-[var(--accent-red)]" />
-                  )}
-                  <entry.icon className={cn("h-4 w-4", active && "text-[var(--accent-red)]")} />
-                  {!collapsed && <span>{entry.label}</span>}
-                </Link>
-              );
-            }
+    <div className="max-w-2xl space-y-4">
+      <div>
+        <h1 className="text-2xl font-bold">My Schedule</h1>
+        <p className="text-sm text-muted-foreground">
+          Your coach's training schedule, plus anything else on your plate — work shifts, appointments, whatever else.
+        </p>
+      </div>
 
-            // Bucket — accordion. When the sidebar itself is collapsed to
-            // icon-only width, it falls back to acting like a flat icon
-            // link to its first child (an accordion can't really work at
-            // 64px wide) rather than being unusable.
-            const bucket = entry;
-            const active = isBucketActive(bucket);
-            const open = collapsed ? false : isBucketOpen(bucket);
+      <BucketTabStrip
+        items={TRAINING_TABS.filter((t) => (t.to === "/app/daily-log" || t.to === "/app/my-schedule" ? isAthleteRole || isParent : true))}
+        active="/app/my-schedule"
+      />
 
-            if (collapsed) {
-              const first = bucket.children[0];
-              return (
-                <Link
-                  key={bucket.id}
-                  to={first.to}
-                  title={bucket.label}
-                  className={cn(
-                    "relative flex items-center justify-center h-10 rounded-md text-sm font-medium transition-colors",
-                    active
-                      ? "bg-sidebar-accent text-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/60",
-                  )}
-                >
-                  {active && (
-                    <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-[var(--accent-red)]" />
-                  )}
-                  <bucket.icon className={cn("h-4 w-4", active && "text-[var(--accent-red)]")} />
-                </Link>
-              );
-            }
+      {isParent && (linkedAthletes?.length ?? 0) > 1 && (
+        <Select value={targetAthleteId ?? ""} onValueChange={setViewingChildId}>
+          <SelectTrigger className="w-56"><SelectValue placeholder="Select child" /></SelectTrigger>
+          <SelectContent>
+            {linkedAthletes!.map((r: any) => (
+              <SelectItem key={r.athletes.id} value={r.athletes.id}>{r.athletes.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
 
-            return (
-              <div key={bucket.id}>
-                <button
-                  type="button"
-                  onClick={() => toggleBucket(bucket)}
-                  className={cn(
-                    "relative w-full flex items-center gap-3 px-3 h-10 rounded-md text-sm font-medium transition-colors",
-                    active
-                      ? "text-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/60",
-                  )}
-                  aria-expanded={open}
-                >
-                  {active && (
-                    <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-[var(--accent-red)]" />
-                  )}
-                  <bucket.icon className={cn("h-4 w-4", active && "text-[var(--accent-red)]")} />
-                  <span className="flex-1 text-left">{bucket.label}</span>
-                  <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")} />
-                </button>
-                {open && (
-                  <div className="ml-3.5 pl-3 border-l border-border space-y-0.5 py-0.5">
-                    {bucket.children.map((n) => {
-                      const childActive = isPathActive(path, n.to);
+      <div className="flex justify-end">
+        <Button size="sm" variant="outline" onClick={() => setEntryDialog({})}>
+          <Plus className="h-3.5 w-3.5 mr-1" /> Add personal item
+        </Button>
+      </div>
+
+      <div className="space-y-2">
+        {dates.map((d) => {
+          const day = byDate.get(d)!;
+          const isToday = d === todayISO;
+          return (
+            <Card key={d} className={cn(isToday && "border-primary/50")}>
+              <CardContent className="p-3">
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                    {format(new Date(d + "T00:00:00"), "EEE d MMM")}
+                    {isToday && <span className="ml-1.5 text-primary">· Today</span>}
+                  </div>
+                  <button
+                    onClick={() => setEntryDialog({ date: d })}
+                    className="text-muted-foreground hover:text-foreground"
+                    title="Add personal item on this date"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+
+                {day.training.length === 0 && day.personal.length === 0 ? (
+                  <p className="text-xs text-muted-foreground/60">Nothing scheduled</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {day.training.map((s: any) => {
+                      const meta = DAY_TYPE_META[s.day_type as TrainingDayType] ?? DAY_TYPE_META.group_session;
+                      const loc = s.training_locations?.name ?? s.location_text;
                       return (
-                        <Link
-                          key={n.to}
-                          to={n.to}
-                          className={cn(
-                            "flex items-center gap-2.5 px-2.5 h-8 rounded-md text-[13px] font-medium transition-colors",
-                            childActive
-                              ? "bg-sidebar-accent text-foreground"
-                              : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/60",
-                          )}
-                        >
-                          <n.icon className={cn("h-3.5 w-3.5", childActive && "text-[var(--accent-red)]")} />
-                          <span>{n.label}</span>
-                        </Link>
+                        <div key={s.id} className={cn("rounded-md border px-2.5 py-1.5 text-xs flex items-center justify-between gap-2", meta.colorCls)}>
+                          <span className="truncate">
+                            <span className="font-semibold">{meta.label}</span>
+                            {s.start_time ? ` · ${s.start_time.slice(0, 5)}` : s.time_of_day ? ` · ${s.time_of_day.toUpperCase()}` : ""}
+                            {loc ? ` · ${loc}` : ""}
+                            {s._overridden && " (changed)"}
+                          </span>
+                          <span className="text-[10px] uppercase tracking-wide opacity-70 shrink-0">From coach</span>
+                        </div>
+                      );
+                    })}
+                    {day.personal.map((e: any) => {
+                      const meta = PERSONAL_CATEGORY_META[e.category as PersonalEntryCategory] ?? PERSONAL_CATEGORY_META.other;
+                      return (
+                        <div key={e.id} className={cn("rounded-md border px-2.5 py-1.5 text-xs flex items-center justify-between gap-2", meta.colorCls)}>
+                          <span className="truncate">
+                            <span className="font-semibold">{e.title}</span>
+                            {e.start_time ? ` · ${e.start_time.slice(0, 5)}${e.end_time ? `–${e.end_time.slice(0, 5)}` : ""}` : ""}
+                            {e.location_text ? ` · ${e.location_text}` : ""}
+                          </span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button onClick={() => setEntryDialog({ date: e.specific_date ?? d, initial: e })} className="opacity-70 hover:opacity-100">
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                          </div>
+                        </div>
                       );
                     })}
                   </div>
                 )}
-              </div>
-            );
-          })}
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
 
-          {/* Standalone account item (Profile) — same simple link style as
-              Home/Athletes, deliberately rendered after the buckets since
-              it's a settings destination, not a frequent one. */}
-          {visibleAccountItems.map((n) => {
-            const active = isPathActive(path, n.to);
-            return (
-              <Link
-                key={n.to}
-                to={n.to}
-                title={collapsed ? n.label : undefined}
-                className={cn(
-                  "relative flex items-center gap-3 rounded-md text-sm font-medium transition-colors",
-                  collapsed ? "justify-center h-10" : "px-3 h-10",
-                  active
-                    ? "bg-sidebar-accent text-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/60",
-                )}
-              >
-                {active && (
-                  <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-[var(--accent-red)]" />
-                )}
-                <n.icon className={cn("h-4 w-4", active && "text-[var(--accent-red)]")} />
-                {!collapsed && <span>{n.label}</span>}
-              </Link>
-            );
-          })}
-        </nav>
-        <div className="border-t border-border p-2">
-          <button
-            onClick={() => setCollapsed((c) => !c)}
-            className={cn(
-              "w-full flex items-center gap-2 h-9 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/60 transition-colors",
-              collapsed ? "justify-center" : "px-3",
-            )}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          >
-            {collapsed ? (
-              <ChevronsRight className="h-4 w-4" />
-            ) : (
-              <>
-                <ChevronsLeft className="h-4 w-4" /> Collapse
-              </>
-            )}
-          </button>
-        </div>
-      </aside>
+      {entryDialog && targetAthleteId && (
+        <PersonalEntryDialog
+          athleteId={targetAthleteId}
+          initial={entryDialog.initial}
+          initialDate={entryDialog.date}
+          onClose={() => setEntryDialog(null)}
+          onSaved={() => {
+            setEntryDialog(null);
+            qc.invalidateQueries({ queryKey: ["my-schedule-personal"] });
+          }}
+        />
+      )}
+    </div>
+  );
+}
 
-      {/* Main column */}
-      <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-14 sticky top-0 z-10 border-b border-border bg-background/80 backdrop-blur-md flex items-center justify-between px-4 md:px-6 print:hidden">
-          <div className="flex items-center gap-3 min-w-0">
-            <Link to="/app" className="md:hidden flex items-center gap-2">
-              <span className="w-6 h-6 grid place-items-center rounded-md bg-[var(--accent-red)]">
-                <Zap className="h-3.5 w-3.5 text-white" strokeWidth={2.5} />
-              </span>
-            </Link>
-            <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
-              <span>Strider</span>
-              <span className="text-border">/</span>
-              <span className="text-foreground">{crumb}</span>
+function PersonalEntryDialog({
+  athleteId,
+  initial,
+  initialDate,
+  onClose,
+  onSaved,
+}: {
+  athleteId: string;
+  initial?: any;
+  initialDate?: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const isEdit = !!initial;
+  const [mode, setMode] = useState<"one-off" | "recurring">(initial?.day_of_week != null ? "recurring" : "one-off");
+  const [category, setCategory] = useState<PersonalEntryCategory>(initial?.category ?? "personal");
+  const [title, setTitle] = useState(initial?.title ?? "");
+  const [specificDate, setSpecificDate] = useState(initial?.specific_date ?? initialDate ?? toISO(new Date()));
+  const [dayOfWeek, setDayOfWeek] = useState<string>(String(initial?.day_of_week ?? new Date(initialDate ?? Date.now()).getDay()));
+  const [startTime, setStartTime] = useState(initial?.start_time?.slice(0, 5) ?? "");
+  const [endTime, setEndTime] = useState(initial?.end_time?.slice(0, 5) ?? "");
+  const [locationText, setLocationText] = useState(initial?.location_text ?? "");
+  const [notes, setNotes] = useState(initial?.notes ?? "");
+
+  const m = useMutation({
+    mutationFn: async () => {
+      const payload: any = {
+        athlete_id: athleteId,
+        category,
+        title,
+        day_of_week: mode === "recurring" ? Number(dayOfWeek) : null,
+        specific_date: mode === "one-off" ? specificDate : null,
+        start_time: startTime || null,
+        end_time: endTime || null,
+        location_text: locationText || null,
+        notes: notes || null,
+      };
+      if (isEdit) {
+        const { error } = await supabase.from("athlete_personal_calendar_entries").update(payload).eq("id", initial.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("athlete_personal_calendar_entries").insert(payload);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      toast.success(isEdit ? "Updated" : "Added");
+      onSaved();
+    },
+    onError: (e: any) => toast.error(String(e?.message ?? e)),
+  });
+
+  async function remove() {
+    if (!initial) return;
+    const { error } = await supabase.from("athlete_personal_calendar_entries").delete().eq("id", initial.id);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("Removed");
+    onSaved();
+  }
+
+  const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+  return (
+    <Dialog open={true} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{isEdit ? "Edit item" : "Add personal item"}</DialogTitle>
+          <DialogDescription>Only visible to you{isEdit ? "" : " and a linked parent, if you have one"} — your coach doesn't see this.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <Label className="text-xs">Type</Label>
+            <Select value={category} onValueChange={(v) => setCategory(v as PersonalEntryCategory)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {PERSONAL_CATEGORY_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-xs">Title</Label>
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Evening shift at the cafe" />
+          </div>
+          {!isEdit && (
+            <div className="flex gap-2">
+              <Button size="sm" variant={mode === "one-off" ? "default" : "outline"} onClick={() => setMode("one-off")}>One date</Button>
+              <Button size="sm" variant={mode === "recurring" ? "default" : "outline"} onClick={() => setMode("recurring")}>Every week</Button>
+            </div>
+          )}
+          {mode === "one-off" ? (
+            <div>
+              <Label className="text-xs">Date</Label>
+              <Input type="date" value={specificDate} onChange={(e) => setSpecificDate(e.target.value)} />
+            </div>
+          ) : (
+            <div>
+              <Label className="text-xs">Day of week</Label>
+              <Select value={dayOfWeek} onValueChange={setDayOfWeek}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {WEEKDAY_NAMES.map((d, i) => (
+                    <SelectItem key={i} value={i.toString()}>{d}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs">Start time (optional)</Label>
+              <Input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs">End time (optional)</Label>
+              <Input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <NotificationBell />
-            {isParent && (
-              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground border border-border rounded px-1.5 py-0.5">
-                Parent view
-              </span>
-            )}
-            <span className="text-xs text-muted-foreground hidden sm:inline truncate max-w-[180px]">{user?.email}</span>
-            <Button variant="ghost" size="sm" onClick={signOut} title="Sign out">
-              <LogOut className="h-4 w-4" />
-            </Button>
+          <div>
+            <Label className="text-xs">Location (optional)</Label>
+            <Input value={locationText} onChange={(e) => setLocationText(e.target.value)} />
           </div>
-        </header>
-
-        {/* Mobile bottom nav — buckets collapse to their first visible
-            child (see mobileItems above); the in-page tab-strip (phase 2)
-            is what lets someone switch to a sibling from there. */}
-        <nav className="md:hidden order-last sticky bottom-0 z-10 border-t border-border bg-background/95 backdrop-blur-md flex overflow-x-auto print:hidden">
-          {mobileItems.map((n) => {
-            const active = n.bucketActive ?? isPathActive(path, n.to);
-            return (
-              <Link
-                key={n.to}
-                to={n.to}
-                className={cn(
-                  "flex flex-col items-center gap-0.5 px-3 py-2 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap min-w-[64px]",
-                  active ? "text-[var(--accent-red)]" : "text-muted-foreground",
-                )}
-              >
-                <n.icon className="h-4 w-4" />
-                {n.label}
-              </Link>
-            );
-          })}
-        </nav>
-
-        <main className="flex-1 px-4 md:px-8 py-6 md:py-8 max-w-7xl w-full mx-auto print:p-0 print:max-w-none">{children}</main>
-      </div>
-    </div>
+          <div>
+            <Label className="text-xs">Notes (optional)</Label>
+            <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <Button onClick={() => m.mutate()} disabled={!title.trim() || m.isPending}>{isEdit ? "Save" : "Add"}</Button>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          {isEdit && (
+            <Button variant="ghost" className="text-destructive ml-auto" onClick={remove}>
+              <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete
+            </Button>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
