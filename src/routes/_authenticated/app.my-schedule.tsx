@@ -14,7 +14,7 @@ import { format } from "date-fns";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyRoles, useMyRawRoles, useMyAthlete, useMyLinkedAthletes } from "@/lib/use-auth";
-import { BucketTabStrip, TRAINING_TABS } from "@/components/bucket-tab-strip";
+import { BucketTabStrip, LOCKER_TABS } from "@/components/bucket-tab-strip";
 import { DAY_TYPE_META, type TrainingDayType } from "@/lib/training-day-types";
 import { PERSONAL_CATEGORY_META, PERSONAL_CATEGORY_OPTIONS, type PersonalEntryCategory } from "@/lib/personal-calendar-categories";
 import { cn } from "@/lib/utils";
@@ -163,16 +163,13 @@ function MySchedulePage() {
   return (
     <div className="max-w-2xl space-y-4">
       <div>
-        <h1 className="text-2xl font-bold">My Schedule</h1>
+        <h1 className="text-2xl font-bold">Schedule</h1>
         <p className="text-sm text-muted-foreground">
           Your coach's training schedule, plus anything else on your plate — work shifts, appointments, whatever else.
         </p>
       </div>
 
-      <BucketTabStrip
-        items={TRAINING_TABS.filter((t) => (t.to === "/app/daily-log" || t.to === "/app/my-schedule" ? isAthleteRole || isParent : true))}
-        active="/app/my-schedule"
-      />
+      <BucketTabStrip items={LOCKER_TABS} active="/app/my-schedule" />
 
       {isParent && (linkedAthletes?.length ?? 0) > 1 && (
         <Select value={targetAthleteId ?? ""} onValueChange={setViewingChildId}>
