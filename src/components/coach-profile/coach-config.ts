@@ -67,7 +67,17 @@ export interface CoachConfig {
   testimonials: { quote: string; author: string }[];
   athletes: { name: string; event?: string; photoUrl?: string }[];
   location: { city: string; venue?: string; remoteAvailable: boolean };
-  contact: { email: string; phone?: string; instagram?: string; strava?: string };
+  contact: {
+    email: string;
+    phone?: string;
+    instagram?: string;
+    strava?: string;
+    facebook?: string;
+    twitter?: string;
+    youtube?: string;
+    tiktok?: string;
+    website?: string;
+  };
   // Whether the public page is live. false = only the coach (via the
   // editor's Preview link) can see it; visitors get a "not published yet"
   // placeholder instead of the full page.
@@ -335,6 +345,11 @@ export function coachRowToConfig(
       phone: row.contact?.phone,
       instagram: row.contact?.instagram,
       strava: row.contact?.strava,
+      facebook: row.contact?.facebook,
+      twitter: row.contact?.twitter,
+      youtube: row.contact?.youtube,
+      tiktok: row.contact?.tiktok,
+      website: row.contact?.website,
     },
     isPublished: !!row.is_published,
     // Merge over the defaults key-by-key rather than replacing wholesale —
