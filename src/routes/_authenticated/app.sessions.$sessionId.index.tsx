@@ -1447,6 +1447,7 @@ function SessionDetail() {
         )}
 
         <FuelingPanel session={session} />
+        <GearPanel session={session} />
       </div>
 
       <Dialog open={!!mergeTarget} onOpenChange={(open) => !open && setMergeTarget(null)}>
@@ -2763,6 +2764,141 @@ function FuelingPanel({ session }: { session: any }) {
           className="text-sm"
         />
 
+        <Button size="sm" variant="outline" onClick={save}>
+          Save
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Assigns gear (shoes/bike/etc, from the Locker's Gear page) to this
+// session — the other half of "assign from the session page" alongside
+// the Gear page's own retroactive linker. Multi-select toggle buttons,
+// same interaction pattern the Daily Log's recovery-modalities tags
+// already use, since a session can reasonably have more than one item
+// linked (e.g. a treadmill run: both the treadmill and the shoes worn).
+function GearPanel({ session }: { session: any }) {
+  const qc = useQueryClient();
+  const athleteId = session.athlete_id as string;
+  const sessionId = session.id as string;
+
+  const { data: gearItems } = useQuery({
+    queryKey: ["gear-items-for-session", athleteId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("gear_items")
+        .select("id, gear_type, shoe_category, is_spike, brand, model, nickname")
+        .eq("athlete_id", athleteId)
+        .eq("is_retired", false)
+        .order("gear_type")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+
+  const { data: linkedIds } = useQuery({
+    queryKey: ["session-gear-links", sessionId],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("session_gear").select("gear_id").eq("session_id", sessionId);
+      if (error) throw error;
+      return new Set((data ?? []).map((r: any) => r.gear_id as string));
+    },
+  });
+
+  const [selected, setSelected] = useState<Set<string> | null>(null);
+
+  // Re-sync from the DB whenever we land on a (possibly different)
+  // session or its links load/change — same stale-state guard used
+  // throughout this page for components that don't remount between
+  // sessions.
+  useEffect(() => {
+    if (linkedIds) setSelected(new Set(linkedIds));
+  }, [sessionId, linkedIds]);
+
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev ?? []);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function save() {
+    if (!selected) return;
+    const before = linkedIds ?? new Set<string>();
+    const toAdd = [...selected].filter((id) => !before.has(id));
+    const toRemove = [...before].filter((id) => !selected.has(id));
+
+    if (toAdd.length > 0) {
+      const { error } = await supabase
+        .from("session_gear")
+        .insert(toAdd.map((gear_id) => ({ session_id: sessionId, gear_id, athlete_id: athleteId })) as any);
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+    }
+    if (toRemove.length > 0) {
+      const { error } = await supabase.from("session_gear").delete().eq("session_id", sessionId).in("gear_id", toRemove);
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+    }
+    toast.success("Gear updated");
+    qc.invalidateQueries({ queryKey: ["session-gear-links", sessionId] });
+    qc.invalidateQueries({ queryKey: ["gear-usage", athleteId] });
+    qc.invalidateQueries({ queryKey: ["gear-links"] });
+  }
+
+  if (!gearItems || gearItems.length === 0) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Gear</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            No gear added yet — add shoes, a bike, or other kit on the{" "}
+            <Link to="/app/gear" className="underline">
+              Gear
+            </Link>{" "}
+            page first.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Gear used</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex flex-wrap gap-1.5">
+          {gearItems.map((g) => {
+            const isSelected = selected?.has(g.id) ?? false;
+            const label = g.nickname || `${g.brand} ${g.model}`;
+            return (
+              <button
+                key={g.id}
+                type="button"
+                onClick={() => toggle(g.id)}
+                className={`px-2.5 py-1 text-xs rounded-md border ${
+                  isSelected
+                    ? "bg-[var(--accent-red)] text-white border-[var(--accent-red)]"
+                    : "border-border text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
         <Button size="sm" variant="outline" onClick={save}>
           Save
         </Button>
