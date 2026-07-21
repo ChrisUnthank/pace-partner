@@ -14,6 +14,7 @@
 // not done blindly here.
 
 import type React from "react";
+import { Mail, Phone, AtSign, Globe } from "lucide-react";
 
 // Minimal structural shape both CoachConfig and AthleteConfig already
 // satisfy — TypeScript checks this by shape, not by name, so neither
@@ -133,4 +134,123 @@ export function galleryImagePosition(
   url: string,
 ): { x: number; y: number } {
   return positions[url] ?? { x: 50, y: 50 };
+}
+
+// ---------------------------------------------------------------------------
+// Contact / social links — genuinely shared between both pages, same
+// reasoning as everything else in this file. Structural typing again (see
+// ProfileThemeVars above): both CoachConfig["contact"] and
+// AthleteConfig["contact"] satisfy this shape without needing to import
+// or extend anything from here.
+//
+// Deliberately no brand-mark icons — matches the existing convention
+// already in place (Instagram uses a plain AtSign glyph, Strava uses a
+// plain "S" badge, not their logos) rather than introducing a different
+// visual language for the new platforms.
+// ---------------------------------------------------------------------------
+export interface ProfileContactLinks {
+  email?: string;
+  phone?: string;
+  instagram?: string; // handle, with or without leading @
+  strava?: string; // full profile URL
+  facebook?: string; // full page URL
+  twitter?: string; // handle, with or without leading @ (x.com)
+  youtube?: string; // full channel URL
+  tiktok?: string; // handle, with or without leading @
+  website?: string; // full URL
+}
+
+function PlatformBadge({ letters }: { letters: string }) {
+  return (
+    <span className="h-4 w-4 shrink-0 text-center text-xs font-bold" style={{ color: "var(--brand)" }}>
+      {letters}
+    </span>
+  );
+}
+
+const linkClass = "flex items-center gap-2 hover:opacity-70";
+
+export function ContactLinks({ contact }: { contact: ProfileContactLinks }) {
+  return (
+    <div className="space-y-2 text-sm">
+      {contact.email && (
+        <a href={`mailto:${contact.email}`} className={linkClass}>
+          <Mail className="h-4 w-4 shrink-0" style={{ color: "var(--brand)" }} /> {contact.email}
+        </a>
+      )}
+      {contact.phone && (
+        <a href={`tel:${contact.phone}`} className={linkClass}>
+          <Phone className="h-4 w-4 shrink-0" style={{ color: "var(--brand)" }} /> {contact.phone}
+        </a>
+      )}
+      {contact.instagram && (
+        <a
+          href={`https://instagram.com/${contact.instagram.replace(/^@/, "")}`}
+          target="_blank"
+          rel="noreferrer"
+          className={linkClass}
+        >
+          <AtSign className="h-4 w-4 shrink-0" style={{ color: "var(--brand)" }} /> {contact.instagram}
+        </a>
+      )}
+      {contact.facebook && (
+        <a href={contact.facebook} target="_blank" rel="noreferrer" className={linkClass}>
+          <PlatformBadge letters="f" /> Facebook
+        </a>
+      )}
+      {contact.twitter && (
+        <a
+          href={`https://x.com/${contact.twitter.replace(/^@/, "")}`}
+          target="_blank"
+          rel="noreferrer"
+          className={linkClass}
+        >
+          <PlatformBadge letters="X" /> {contact.twitter}
+        </a>
+      )}
+      {contact.youtube && (
+        <a href={contact.youtube} target="_blank" rel="noreferrer" className={linkClass}>
+          <PlatformBadge letters="YT" /> YouTube
+        </a>
+      )}
+      {contact.tiktok && (
+        <a
+          href={`https://tiktok.com/@${contact.tiktok.replace(/^@/, "")}`}
+          target="_blank"
+          rel="noreferrer"
+          className={linkClass}
+        >
+          <PlatformBadge letters="TT" /> {contact.tiktok}
+        </a>
+      )}
+      {contact.strava && (
+        <a href={contact.strava} target="_blank" rel="noreferrer" className={linkClass}>
+          <PlatformBadge letters="S" /> Strava
+        </a>
+      )}
+      {contact.website && (
+        <a href={contact.website} target="_blank" rel="noreferrer" className={linkClass}>
+          <Globe className="h-4 w-4 shrink-0" style={{ color: "var(--brand)" }} /> Website
+        </a>
+      )}
+    </div>
+  );
+}
+
+// True if any contact/social field has a value — shared by both pages'
+// nav-visibility and section early-return checks, so a page with e.g.
+// only TikTok filled in (no email/instagram/strava) doesn't silently
+// hide its own contact section or nav link.
+export function hasAnyContactLink(contact: ProfileContactLinks): boolean {
+  return !!(
+    contact.email ||
+    contact.phone ||
+    contact.instagram ||
+    contact.strava ||
+    contact.facebook ||
+    contact.twitter ||
+    contact.youtube ||
+    contact.tiktok ||
+    contact.website
+  );
 }
