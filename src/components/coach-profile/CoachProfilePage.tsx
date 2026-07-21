@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Menu, Mail, Phone, AtSign as Instagram, MapPin, Timer, X } from "lucide-react";
+import { Menu, MapPin, Timer, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { SECTION_ORDER_LABELS, type CoachConfig } from "./coach-config";
 import {
@@ -14,6 +14,7 @@ import {
   galleryGridClass,
   galleryAspectClass,
   galleryImagePosition,
+  ContactLinks,
 } from "@/components/profile-shared/section-shell";
 import "./coach-profile-tokens.css";
 
@@ -848,28 +849,7 @@ function LocationContact({ config, altBg, isLast }: { config: CoachConfig; altBg
         </div>
 
         <div>
-          <div className="space-y-2 text-sm">
-            {config.contact.email && (
-              <a href={`mailto:${config.contact.email}`} className="flex items-center gap-2 hover:opacity-70">
-                <Mail className="h-4 w-4" style={{ color: "var(--brand)" }} /> {config.contact.email}
-              </a>
-            )}
-            {config.contact.phone && (
-              <a href={`tel:${config.contact.phone}`} className="flex items-center gap-2 hover:opacity-70">
-                <Phone className="h-4 w-4" style={{ color: "var(--brand)" }} /> {config.contact.phone}
-              </a>
-            )}
-            {config.contact.instagram && (
-              <a
-                href={`https://instagram.com/${config.contact.instagram.replace(/^@/, "")}`}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-2 hover:opacity-70"
-              >
-                <Instagram className="h-4 w-4" style={{ color: "var(--brand)" }} /> {config.contact.instagram}
-              </a>
-            )}
-          </div>
+          <ContactLinks contact={config.contact} />
 
           <InquiryForm config={config} />
         </div>
