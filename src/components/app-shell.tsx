@@ -38,6 +38,12 @@ import { useQuery } from "@tanstack/react-query";
 
 type NavLeaf = { to: string; label: string; icon: any; show: boolean };
 type NavBucket = { id: string; label: string; icon: any; children: NavLeaf[] };
+// Unified ordering type — lets standalone links (leaves) and accordion
+// groups (buckets) interleave in one render pass instead of always
+// rendering "all leaves, then all buckets" as two separate blocks. Needed
+// once Health & Vitals had to sit between the Metrics and Performances
+// buckets rather than up with Home/Athletes/Coaching Hub.
+type NavEntry = ({ kind: "leaf" } & NavLeaf) | ({ kind: "bucket" } & NavBucket);
 
 // Plain path.startsWith(to) treats routes as string prefixes, not path
 // segments — "/app/coaching-hub" starts with the literal characters
@@ -102,39 +108,29 @@ export function AppShell({ children }: { children: ReactNode }) {
   // once you're inside a specific athlete, so it doesn't need a second
   // layer of grouping here. Profile is account settings only — not a
   // bucket, just like Home and Athletes.
-  const topLevelItems: NavLeaf[] = [
-    { to: "/app", label: "Home", icon: Home, show: true },
-    { to: "/app/athletes", label: "Athletes", icon: Users, show: isCoach },
-    // Health & Vitals: daily log, diet/fuel, recovery, injury management,
-    // bicarb, lactate — a cross-cutting per-athlete area, not training-load
-    // specific, so it sits alongside Athletes rather than inside a bucket.
-    // Coach and athlete both see it; a coach reaches a specific athlete's
-    // data via the Health tab on that athlete's own view (AthleteSubnav),
-    // same as Zones/Analytics. Own Overview + tab-strip, same pattern as
-    // Coaching Hub.
-    { to: "/app/health", label: "Health & Vitals", icon: HeartPulse, show: isCoachOrAthlete },
+  //
+  // Profile stays standalone too, but renders after everything else (its
+  // original position at the end of the nav) rather than up top with
+  // Home/Athletes — it's the account-settings page, not a frequent
+  // destination the way Home is.
+  const accountItems: NavLeaf[] = [{ to: "/app/profile", label: "Profile", icon: User2, show: true }];
+
+  // Single ordered list — this array's order IS the sidebar's visual
+  // order, so leaves and buckets can be interleaved (Health & Vitals sits
+  // after the Metrics bucket and before Performances, per Chris's ask,
+  // rather than being grouped with the other standalone leaves up top).
+  const navEntries: NavEntry[] = [
+    { kind: "leaf", to: "/app", label: "Home", icon: Home, show: true },
+    { kind: "leaf", to: "/app/athletes", label: "Athletes", icon: Users, show: isCoach },
     // Coaching Hub: session templates, plan templates, active plans — and
     // room to grow into a session library / phase builder later. Gets its
     // own Overview + tab-strip (BucketTabStrip, same component the
     // sidebar buckets use) rather than living inside the Training
     // accordion, since — like Athletes — it has a real landing dashboard
     // to earn that treatment, not just a handful of unrelated tools.
-    { to: "/app/coaching-hub", label: "Coaching Hub", icon: BookmarkCheck, show: isCoach },
-  ];
-
-  // Profile stays standalone too, but renders after the buckets (its
-  // original position at the end of the nav) rather than up top with
-  // Home/Athletes — it's the account-settings page, not a frequent
-  // destination the way Home is.
-  const accountItems: NavLeaf[] = [{ to: "/app/profile", label: "Profile", icon: User2, show: true }];
-
-  // Bucketed groups — Phase 1 of the sidebar restructure. Routes are
-  // unchanged; this only changes how they're grouped/navigated to. Each
-  // bucket's first visible child doubles as the mobile bottom-nav target
-  // and the "no page picked yet" fallback, since mobile can't show an
-  // expanded accordion the way the desktop sidebar can.
-  const bucketDefs: NavBucket[] = [
+    { kind: "leaf", to: "/app/coaching-hub", label: "Coaching Hub", icon: BookmarkCheck, show: isCoach },
     {
+      kind: "bucket",
       id: "training",
       label: "Training",
       icon: CalendarDays,
@@ -151,6 +147,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       ],
     },
     {
+      kind: "bucket",
       id: "metrics",
       label: "Metrics",
       icon: LineChart,
@@ -161,7 +158,16 @@ export function AppShell({ children }: { children: ReactNode }) {
         { to: "/app/reports", label: "Reports", icon: FileText, show: isCoachOrAthlete },
       ],
     },
+    // Health & Vitals: daily log, diet/fuel, recovery, injury management,
+    // bicarb, lactate — a cross-cutting per-athlete area. Sits right after
+    // Metrics and before Performances/Community, rather than up with
+    // Athletes/Coaching Hub. Coach and athlete both see it; a coach
+    // reaches a specific athlete's data via the Health tab on that
+    // athlete's own view (AthleteSubnav), same as Zones/Analytics. Own
+    // Overview + tab-strip, same pattern as Coaching Hub.
+    { kind: "leaf", to: "/app/health", label: "Health & Vitals", icon: HeartPulse, show: isCoachOrAthlete },
     {
+      kind: "bucket",
       id: "performances",
       label: "Performances",
       icon: Trophy,
@@ -171,6 +177,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       ],
     },
     {
+      kind: "bucket",
       id: "community",
       label: "Community",
       icon: MessageSquare,
@@ -188,11 +195,13 @@ export function AppShell({ children }: { children: ReactNode }) {
     },
   ];
 
-  const visibleTopLevel = topLevelItems.filter((n) => n.show);
   const visibleAccountItems = accountItems.filter((n) => n.show);
-  const visibleBuckets = bucketDefs
-    .map((b) => ({ ...b, children: b.children.filter((c) => c.show) }))
-    .filter((b) => b.children.length > 0);
+  // Buckets drop hidden children first; empty buckets and hidden leaves
+  // are then filtered out — same visibility rules as before, just applied
+  // across one interleaved list instead of two separate ones.
+  const visibleEntries: NavEntry[] = navEntries
+    .map((e) => (e.kind === "bucket" ? { ...e, children: e.children.filter((c) => c.show) } : e))
+    .filter((e) => (e.kind === "bucket" ? e.children.length > 0 : e.show));
 
   function isBucketActive(bucket: NavBucket) {
     return bucket.children.some((c) => isPathActive(path, c.to));
@@ -216,8 +225,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   // array order) so e.g. "/app/sessions/calendar" resolves to "Calendar"
   // and not the shorter "/app/sessions" → "Sessions" match.
   const allLeaves = useMemo(
-    () => [...visibleTopLevel, ...visibleAccountItems, ...visibleBuckets.flatMap((b) => b.children)],
-    [visibleTopLevel, visibleAccountItems, visibleBuckets],
+    () => [...visibleEntries.flatMap((e) => (e.kind === "bucket" ? e.children : [e])), ...visibleAccountItems],
+    [visibleEntries, visibleAccountItems],
   );
   const crumb = (() => {
     const matches = allLeaves.filter((n) => isPathActive(path, n.to));
@@ -228,16 +237,15 @@ export function AppShell({ children }: { children: ReactNode }) {
   // Mobile bottom nav: buckets collapse to a single tap target — their
   // first visible child — since a bottom bar can't show an expanded
   // accordion. Tapping it lands on that page, whose own top tab-strip
-  // (added in phase 2) lets you switch to a sibling from there.
+  // (added in phase 2) lets you switch to a sibling from there. Order
+  // mirrors the sidebar's visibleEntries, so Health still lands between
+  // Metrics and Performances here too.
   const mobileItems: (NavLeaf & { bucketActive?: boolean })[] = [
-    ...visibleTopLevel,
-    ...visibleBuckets.map((b) => ({
-      to: b.children[0].to,
-      label: b.label,
-      icon: b.icon,
-      show: true,
-      bucketActive: isBucketActive(b),
-    })),
+    ...visibleEntries.map((e) =>
+      e.kind === "bucket"
+        ? { to: e.children[0].to, label: e.label, icon: e.icon, show: true, bucketActive: isBucketActive(e) }
+        : e,
+    ),
     ...visibleAccountItems,
   ];
 
@@ -261,36 +269,39 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Link>
         </div>
         <nav className="flex-1 px-2 py-4 space-y-0.5">
-          {/* Standalone items (Home, Athletes) */}
-          {visibleTopLevel.map((n) => {
-            const active = isPathActive(path, n.to);
-            return (
-              <Link
-                key={n.to}
-                to={n.to}
-                title={collapsed ? n.label : undefined}
-                className={cn(
-                  "relative flex items-center gap-3 rounded-md text-sm font-medium transition-colors",
-                  collapsed ? "justify-center h-10" : "px-3 h-10",
-                  active
-                    ? "bg-sidebar-accent text-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/60",
-                )}
-              >
-                {active && (
-                  <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-[var(--accent-red)]" />
-                )}
-                <n.icon className={cn("h-4 w-4", active && "text-[var(--accent-red)]")} />
-                {!collapsed && <span>{n.label}</span>}
-              </Link>
-            );
-          })}
+          {/* Single interleaved pass — order comes straight from
+              visibleEntries, so Health & Vitals (a leaf) renders between
+              the Metrics and Performances buckets exactly as listed above. */}
+          {visibleEntries.map((entry) => {
+            if (entry.kind === "leaf") {
+              const active = isPathActive(path, entry.to);
+              return (
+                <Link
+                  key={entry.to}
+                  to={entry.to}
+                  title={collapsed ? entry.label : undefined}
+                  className={cn(
+                    "relative flex items-center gap-3 rounded-md text-sm font-medium transition-colors",
+                    collapsed ? "justify-center h-10" : "px-3 h-10",
+                    active
+                      ? "bg-sidebar-accent text-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/60",
+                  )}
+                >
+                  {active && (
+                    <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-[var(--accent-red)]" />
+                  )}
+                  <entry.icon className={cn("h-4 w-4", active && "text-[var(--accent-red)]")} />
+                  {!collapsed && <span>{entry.label}</span>}
+                </Link>
+              );
+            }
 
-          {/* Bucketed groups — accordion. When the sidebar itself is
-              collapsed to icon-only width, buckets fall back to acting
-              like a flat icon list of their first child (an accordion
-              can't really work at 64px wide) rather than being unusable. */}
-          {visibleBuckets.map((bucket) => {
+            // Bucket — accordion. When the sidebar itself is collapsed to
+            // icon-only width, it falls back to acting like a flat icon
+            // link to its first child (an accordion can't really work at
+            // 64px wide) rather than being unusable.
+            const bucket = entry;
             const active = isBucketActive(bucket);
             const open = collapsed ? false : isBucketOpen(bucket);
 
