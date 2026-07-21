@@ -59,7 +59,7 @@ function LactatePage() {
 // below, so it's one query, not two.
 // ----------------------------------------------------------------------------
 
-function useLactateSessionPoints(athleteId: string) {
+export function useLactateSessionPoints(athleteId: string) {
   return useQuery({
     queryKey: ["lactate-points", athleteId],
     queryFn: async () => {
@@ -110,7 +110,7 @@ function useLactateSessionPoints(athleteId: string) {
   });
 }
 
-function useLactateSpotChecks(athleteId: string) {
+export function useLactateSpotChecks(athleteId: string) {
   return useQuery({
     queryKey: ["lactate-spot-checks", athleteId],
     queryFn: async () => {
