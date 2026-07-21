@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Menu, Mail, AtSign as Instagram, Heart, Trophy, X } from "lucide-react";
+import { Menu, Heart, Trophy, X } from "lucide-react";
 import { SECTION_ORDER_LABELS, type AthleteConfig } from "./athlete-config";
 import {
   SectionShell,
@@ -12,6 +12,8 @@ import {
   galleryGridClass,
   galleryAspectClass,
   galleryImagePosition,
+  ContactLinks,
+  hasAnyContactLink,
 } from "@/components/profile-shared/section-shell";
 // Reuses the coach page's CSS tokens as-is — same [data-coach-root] theme
 // system (light/dark × modern/traditional), just applied to a
@@ -35,7 +37,7 @@ const SECTION_HAS_CONTENT: Record<string, (config: AthleteConfig) => boolean> = 
   blog: (c) => c.blogPosts.length > 0,
   sponsors: (c) => c.sponsors.length > 0,
   donate: (c) => !!c.donate,
-  contact: (c) => !!(c.contact.email || c.contact.instagram || c.contact.strava),
+  contact: (c) => hasAnyContactLink(c.contact),
 };
 function sectionHasContent(config: AthleteConfig, key: string): boolean {
   return SECTION_HAS_CONTENT[key]?.(config) ?? true;
@@ -860,42 +862,14 @@ function Donate({ config, altBg }: { config: AthleteConfig; altBg?: boolean }) {
 }
 
 function Contact({ config, altBg, isLast }: { config: AthleteConfig; altBg?: boolean; isLast?: boolean }) {
-  const { email, instagram, strava } = config.contact;
-  if (!email && !instagram && !strava) return null;
+  if (!hasAnyContactLink(config.contact)) return null;
   return (
     <SectionShell id="contact" altBg={altBg} noBorderBottom={isLast}>
       <SectionHeading centered={config.style === "traditional"}>Get in touch</SectionHeading>
       <div
         className={`mx-auto flex max-w-md flex-col gap-3 text-sm ${config.style === "traditional" ? "items-center" : ""}`}
       >
-        {email && (
-          <a href={`mailto:${email}`} className="flex items-center gap-2 hover:opacity-70">
-            <Mail className="h-4 w-4" style={{ color: "var(--brand)" }} /> {email}
-          </a>
-        )}
-        {instagram && (
-          <a
-            href={`https://instagram.com/${instagram.replace(/^@/, "")}`}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-2 hover:opacity-70"
-          >
-            <Instagram className="h-4 w-4" style={{ color: "var(--brand)" }} /> {instagram}
-          </a>
-        )}
-        {strava && (
-          <a
-            href={strava}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-2 hover:opacity-70"
-          >
-            <span className="h-4 w-4 text-center text-xs font-bold" style={{ color: "var(--brand)" }}>
-              S
-            </span>
-            Strava
-          </a>
-        )}
+        <ContactLinks contact={config.contact} />
       </div>
     </SectionShell>
   );
