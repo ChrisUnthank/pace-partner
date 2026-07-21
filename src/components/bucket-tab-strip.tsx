@@ -34,9 +34,9 @@ export const COACHING_HUB_TABS: BucketTabItem[] = [
 
 // Health & Vitals — Daily Log moved here from Training (it's the
 // day-to-day vitals/soreness/injury log, not a training-load page). More
-// tabs (Recovery, Injury Management, Bicarb, Lactate) get appended here
-// as each is built, same incremental pattern Coaching Hub followed with
-// its own tabs.
+// tabs (Diet & Fuel, Recovery, Injury Management, Bicarb, Lactate) get
+// appended here as each is built, same incremental pattern Coaching Hub
+// followed with its own tabs.
 export const HEALTH_TABS: BucketTabItem[] = [
   { to: "/app/health", label: "Overview", icon: HeartPulse },
   { to: "/app/daily-log", label: "Daily Log", icon: ClipboardList },
