@@ -216,6 +216,11 @@ function AthleteEditorPage() {
         contact_email: p.contact?.email || "",
         contact_instagram: p.contact?.instagram || "",
         contact_strava: p.contact?.strava || "",
+        contact_facebook: p.contact?.facebook || "",
+        contact_twitter: p.contact?.twitter || "",
+        contact_youtube: p.contact?.youtube || "",
+        contact_tiktok: p.contact?.tiktok || "",
+        contact_website: p.contact?.website || "",
         is_published: !!p.is_published,
         sections: { ...Object.fromEntries(DEFAULT_SECTION_ORDER.map((k) => [k, true])), ...(p.sections_enabled || {}) },
         section_order: normalizeSectionOrder(p.section_order),
@@ -409,6 +414,11 @@ function AthleteEditorPage() {
           email: form.contact_email || undefined,
           instagram: form.contact_instagram || undefined,
           strava: form.contact_strava || undefined,
+          facebook: form.contact_facebook || undefined,
+          twitter: form.contact_twitter || undefined,
+          youtube: form.contact_youtube || undefined,
+          tiktok: form.contact_tiktok || undefined,
+          website: form.contact_website || undefined,
         },
         is_published: !!form.is_published,
         sections_enabled: form.sections,
@@ -428,7 +438,16 @@ function AthleteEditorPage() {
     form.donate_url
   );
   const resultsDone = (results || []).some((r: any) => r.is_public);
-  const contactDone = !!(form.contact_email || form.contact_instagram || form.contact_strava);
+  const contactDone = !!(
+    form.contact_email ||
+    form.contact_instagram ||
+    form.contact_strava ||
+    form.contact_facebook ||
+    form.contact_twitter ||
+    form.contact_youtube ||
+    form.contact_tiktok ||
+    form.contact_website
+  );
 
   return (
     <AppShell>
@@ -1029,8 +1048,23 @@ function AthleteEditorPage() {
                 <Field label="Instagram handle">
                   <Input value={form.contact_instagram} onChange={(e) => setForm({ ...form, contact_instagram: e.target.value })} placeholder="@yourname" />
                 </Field>
+                <Field label="Facebook page URL">
+                  <Input value={form.contact_facebook} onChange={(e) => setForm({ ...form, contact_facebook: e.target.value })} placeholder="https://facebook.com/..." />
+                </Field>
+                <Field label="X (Twitter) handle">
+                  <Input value={form.contact_twitter} onChange={(e) => setForm({ ...form, contact_twitter: e.target.value })} placeholder="@yourname" />
+                </Field>
+                <Field label="YouTube channel URL">
+                  <Input value={form.contact_youtube} onChange={(e) => setForm({ ...form, contact_youtube: e.target.value })} placeholder="https://youtube.com/@..." />
+                </Field>
+                <Field label="TikTok handle">
+                  <Input value={form.contact_tiktok} onChange={(e) => setForm({ ...form, contact_tiktok: e.target.value })} placeholder="@yourname" />
+                </Field>
                 <Field label="Strava profile URL">
                   <Input value={form.contact_strava} onChange={(e) => setForm({ ...form, contact_strava: e.target.value })} placeholder="https://strava.com/athletes/..." />
+                </Field>
+                <Field label="Website URL">
+                  <Input value={form.contact_website} onChange={(e) => setForm({ ...form, contact_website: e.target.value })} placeholder="https://..." />
                 </Field>
               </CardContent>
             </Card>
