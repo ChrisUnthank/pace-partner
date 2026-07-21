@@ -12,6 +12,8 @@ import { metersFmt, secToClock, clockToSec, paceFmt } from "@/lib/format";
 import { reconstructTrack, buildSplitsFromCorrectedPoints, smoothSeries } from "@/lib/gps-reconstruction";
 import { MapContainer, TileLayer, Polyline, CircleMarker } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
+import { useMyRoles } from "@/lib/use-auth";
+import { AthleteSubnav } from "@/components/athlete-subnav";
 
 export const Route = createFileRoute("/_authenticated/app/races/$raceId/analysis")({
   component: RaceAnalysisPage,
@@ -25,6 +27,9 @@ function newSplit(): Split {
 
 function RaceAnalysisPage() {
   const { raceId } = Route.useParams();
+
+  const { data: roles = [] } = useMyRoles();
+  const isCoach = roles.includes("coach");
 
   const { data: race, isLoading } = useQuery({
     queryKey: ["race", raceId],
@@ -343,6 +348,7 @@ function RaceAnalysisPage() {
             ← Back to session
           </Link>
         )}
+        {isCoach && race.athlete_id && <AthleteSubnav athleteId={race.athlete_id} active="races" />}
         <div className="flex items-center gap-2">
           <Trophy className="h-5 w-5 text-[var(--accent-red)]" />
           <div>
