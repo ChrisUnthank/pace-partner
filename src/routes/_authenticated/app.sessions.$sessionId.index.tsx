@@ -15,6 +15,7 @@ import { sessionClassificationLabel } from "@/lib/session-categories";
 import { stepKindBarClass, stepKindTextClass } from "@/lib/step-kind-colors";
 import { saveSessionAsTemplate } from "@/lib/templates";
 import { useAuthUser, useMyRoles } from "@/lib/use-auth";
+import { AthleteSubnav } from "@/components/athlete-subnav";
 import {
   Dialog,
   DialogContent,
@@ -773,6 +774,8 @@ function SessionDetail() {
             </Button>
           </div>
         </div>
+
+        {isCoach && session.athlete_id && <AthleteSubnav athleteId={session.athlete_id} active="sessions" />}
 
         {/* ───────────────── Header card: who / what / when + primary actions ───────────────── */}
         <Card>
