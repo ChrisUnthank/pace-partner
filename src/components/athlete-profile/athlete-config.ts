@@ -103,7 +103,17 @@ export interface AthleteConfig {
     publishedAt?: string;
   }[];
 
-  contact: { email?: string; phone?: string; instagram?: string; strava?: string };
+  contact: {
+    email?: string;
+    phone?: string;
+    instagram?: string;
+    strava?: string;
+    facebook?: string;
+    twitter?: string;
+    youtube?: string;
+    tiktok?: string;
+    website?: string;
+  };
 
   isPublished: boolean;
   sections: {
@@ -322,6 +332,11 @@ export function athleteRowToConfig(
       phone: profileRow.contact?.phone,
       instagram: profileRow.contact?.instagram,
       strava: profileRow.contact?.strava,
+      facebook: profileRow.contact?.facebook,
+      twitter: profileRow.contact?.twitter,
+      youtube: profileRow.contact?.youtube,
+      tiktok: profileRow.contact?.tiktok,
+      website: profileRow.contact?.website,
     },
 
     isPublished: !!profileRow.is_published,
