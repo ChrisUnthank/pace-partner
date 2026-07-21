@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { z } from "zod";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/input";
 import { AthleteSubnav } from "@/components/athlete-subnav";
 import { BucketTabStrip, HEALTH_TABS } from "@/components/bucket-tab-strip";
 import { todayISO } from "@/lib/format";
-import { AlertTriangle, Search } from "lucide-react";
+import { AlertTriangle, Search, Apple, Bath, Bandage, FlaskConical, TestTube2 } from "lucide-react";
+import { useLactateSessionPoints, useLactateSpotChecks } from "./app.lactate";
 
 const searchSchema = z.object({
   // Present when a coach arrives via a specific athlete's tab strip —
@@ -124,9 +125,7 @@ function HealthSnapshotCard({ snapshot }: { snapshot: { vitals: any; checkin: an
             })}
           </span>
         </CardTitle>
-        <CardDescription>
-          Pulled from Daily Log — this page will grow to cover diet/fuel, recovery, injuries, bicarb, and lactate too.
-        </CardDescription>
+        <CardDescription>Sleep, resting HR, weight, and soreness from Daily Log.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -159,12 +158,238 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 // ----------------------------------------------------------------------------
+// Per-tab summary tiles — one small card per remaining Health tab (Diet &
+// Fuel, Recovery, Injury Management, Bicarb, Lactate), each just showing
+// its single most-recent entry with a link through to the full page. Kept
+// deliberately lightweight — the full detail/history/forms already live on
+// each tab's own page; this is a glance, not a duplicate of it.
+// ----------------------------------------------------------------------------
+
+function SummaryTile({ icon: Icon, title, to, children }: { icon: any; title: string; to: string; children: ReactNode }) {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center justify-between gap-2">
+          <span className="flex items-center gap-1.5">
+            <Icon className="h-4 w-4 text-muted-foreground" /> {title}
+          </span>
+          <Link to={to} className="text-xs font-medium text-[var(--accent-red)] hover:underline whitespace-nowrap">
+            Open →
+          </Link>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="text-sm">{children}</CardContent>
+    </Card>
+  );
+}
+
+function fmtShortDate(dateStr: string) {
+  return new Date(dateStr + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function DietFuelSummary({ athleteId }: { athleteId: string }) {
+  const { data } = useQuery({
+    queryKey: ["health-overview-nutrition", athleteId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("daily_nutrition")
+        .select("nutrition_date, calories, carbs_g")
+        .eq("athlete_id", athleteId)
+        .order("nutrition_date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data as any;
+    },
+  });
+
+  return (
+    <SummaryTile icon={Apple} title="Diet & Fuel" to="/app/diet-fuel">
+      {data ? (
+        <>
+          <div className="text-muted-foreground text-xs mb-1">{fmtShortDate(data.nutrition_date)}</div>
+          <div className="font-medium">
+            {data.calories != null ? `${data.calories} kcal` : "No calories logged"}
+            {data.carbs_g != null && ` · ${data.carbs_g}g carbs`}
+          </div>
+        </>
+      ) : (
+        <p className="text-muted-foreground">No nutrition logged yet.</p>
+      )}
+    </SummaryTile>
+  );
+}
+
+function RecoverySummary({ athleteId }: { athleteId: string }) {
+  const { data } = useQuery({
+    queryKey: ["health-overview-recovery", athleteId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("recovery_sessions")
+        .select("session_date, modality, duration_minutes")
+        .eq("athlete_id", athleteId)
+        .order("session_date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data as any;
+    },
+  });
+
+  return (
+    <SummaryTile icon={Bath} title="Recovery" to="/app/recovery">
+      {data ? (
+        <>
+          <div className="text-muted-foreground text-xs mb-1">{fmtShortDate(data.session_date)}</div>
+          <div className="font-medium capitalize">
+            {data.modality.replace("_", " ")}
+            {data.duration_minutes != null && ` · ${data.duration_minutes} min`}
+          </div>
+        </>
+      ) : (
+        <p className="text-muted-foreground">No recovery sessions logged yet.</p>
+      )}
+    </SummaryTile>
+  );
+}
+
+function InjurySummary({ athleteId }: { athleteId: string }) {
+  const { data } = useQuery({
+    queryKey: ["health-overview-injuries", athleteId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("injuries")
+        .select("body_part, side, status")
+        .eq("athlete_id", athleteId)
+        .neq("status", "resolved")
+        .order("onset_date", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+
+  return (
+    <SummaryTile icon={Bandage} title="Injury Management" to="/app/injuries">
+      {!data || data.length === 0 ? (
+        <p className="text-muted-foreground">No active injuries.</p>
+      ) : (
+        <div className="space-y-1">
+          {data.slice(0, 3).map((i, idx) => (
+            <div key={idx} className="flex items-center justify-between gap-2">
+              <span className="capitalize font-medium">
+                {i.body_part} {i.side && i.side !== "n/a" ? `(${i.side})` : ""}
+              </span>
+              <Badge variant={i.status === "active" ? "destructive" : "secondary"} className="text-[10px] shrink-0">
+                {i.status}
+              </Badge>
+            </div>
+          ))}
+          {data.length > 3 && <div className="text-xs text-muted-foreground">+{data.length - 3} more</div>}
+        </div>
+      )}
+    </SummaryTile>
+  );
+}
+
+function BicarbSummary({ athleteId }: { athleteId: string }) {
+  const { data } = useQuery({
+    queryKey: ["health-overview-bicarb", athleteId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("bicarb_log")
+        .select("log_date, dose_g, product")
+        .eq("athlete_id", athleteId)
+        .order("log_date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data as any;
+    },
+  });
+
+  return (
+    <SummaryTile icon={FlaskConical} title="Bicarb" to="/app/bicarb">
+      {data ? (
+        <>
+          <div className="text-muted-foreground text-xs mb-1">{fmtShortDate(data.log_date)}</div>
+          <div className="font-medium">
+            {data.dose_g != null ? `${data.dose_g}g` : "Dose not logged"}
+            {data.product && ` · ${data.product}`}
+          </div>
+        </>
+      ) : (
+        <p className="text-muted-foreground">No bicarb use logged yet.</p>
+      )}
+    </SummaryTile>
+  );
+}
+
+function LactateSummary({ athleteId }: { athleteId: string }) {
+  // Reuses the Lactate page's own hooks (session-derived readings +
+  // spot checks) rather than re-implementing that three-step
+  // sessions -> steps -> interval_results join here too.
+  const { data: points } = useLactateSessionPoints(athleteId);
+  const { data: spotChecks } = useLactateSpotChecks(athleteId);
+
+  const latest = useMemo(() => {
+    const fromSessions = (points ?? []).map((p) => ({ date: p.sessionDate, mmol: p.mmol, label: p.sessionTitle }));
+    const fromSpot = (spotChecks ?? []).map((s: any) => ({
+      date: s.check_date as string,
+      mmol: Number(s.mmol),
+      label: s.context || "Spot check",
+    }));
+    const all = [...fromSessions, ...fromSpot].filter((r) => r.date);
+    if (all.length === 0) return null;
+    return all.sort((a, b) => ((a.date as string) < (b.date as string) ? 1 : -1))[0];
+  }, [points, spotChecks]);
+
+  return (
+    <SummaryTile icon={TestTube2} title="Lactate" to="/app/lactate">
+      {latest ? (
+        <>
+          <div className="text-muted-foreground text-xs mb-1">{fmtShortDate(latest.date as string)}</div>
+          <div className="font-medium">
+            {latest.mmol.toFixed(1)} mmol · {latest.label}
+          </div>
+        </>
+      ) : (
+        <p className="text-muted-foreground">No lactate readings yet.</p>
+      )}
+    </SummaryTile>
+  );
+}
+
+// Groups the five tiles above into one responsive grid — shared by both
+// the athlete's own view and a coach viewing one specific athlete, so the
+// two stay in lockstep rather than risking drift between two separate
+// copies of the same five queries.
+function HealthOverviewExtras({ athleteId }: { athleteId: string }) {
+  return (
+    <div className="grid sm:grid-cols-2 gap-3">
+      <DietFuelSummary athleteId={athleteId} />
+      <RecoverySummary athleteId={athleteId} />
+      <InjurySummary athleteId={athleteId} />
+      <BicarbSummary athleteId={athleteId} />
+      <LactateSummary athleteId={athleteId} />
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------
 // Athlete self-service snapshot
 // ----------------------------------------------------------------------------
 
 function AthleteHealthView() {
-  const { data: athlete } = useMyAthlete();
+  const { data: athlete, isLoading: athleteLoading } = useMyAthlete();
   const { data: snapshot, isLoading } = useLatestHealthSnapshot(athlete?.id);
+
+  if (athleteLoading) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (!athlete)
+    return (
+      <p className="text-sm">
+        No athlete profile linked. Visit <Link to="/app/profile" className="underline">Profile</Link>.
+      </p>
+    );
 
   return (
     <div className="space-y-6">
@@ -174,6 +399,7 @@ function AthleteHealthView() {
       </div>
       <BucketTabStrip items={HEALTH_TABS} active="/app/health" />
       {isLoading ? <p className="text-sm text-muted-foreground">Loading…</p> : <HealthSnapshotCard snapshot={snapshot} />}
+      <HealthOverviewExtras athleteId={athlete.id} />
       <Card>
         <CardContent className="p-4 flex items-center justify-between gap-3 flex-wrap">
           <p className="text-sm text-muted-foreground">Log today's vitals, sessions, and end-of-day note.</p>
@@ -211,6 +437,7 @@ function CoachAthleteHealthView({ athleteId }: { athleteId: string }) {
       </div>
       <AthleteSubnav athleteId={athleteId} active="health" />
       {isLoading ? <p className="text-sm text-muted-foreground">Loading…</p> : <HealthSnapshotCard snapshot={snapshot} />}
+      <HealthOverviewExtras athleteId={athleteId} />
       {/* Daily Log itself is still self-service (athlete-only) — a coach
           view of another athlete's Daily Log entries is a follow-up piece,
           not yet built. This snapshot is read from the same daily_vitals /
