@@ -324,6 +324,12 @@ function CoachEditorPage() {
         contact_email: c.contact?.email || "",
         contact_phone: c.contact?.phone || "",
         contact_instagram: c.contact?.instagram || "",
+        contact_strava: c.contact?.strava || "",
+        contact_facebook: c.contact?.facebook || "",
+        contact_twitter: c.contact?.twitter || "",
+        contact_youtube: c.contact?.youtube || "",
+        contact_tiktok: c.contact?.tiktok || "",
+        contact_website: c.contact?.website || "",
         sample_sessions:
           Array.isArray(c.sample_sessions) && c.sample_sessions.length
             ? c.sample_sessions
@@ -405,6 +411,12 @@ function CoachEditorPage() {
           email: form.contact_email || undefined,
           phone: form.contact_phone || undefined,
           instagram: form.contact_instagram || undefined,
+          strava: form.contact_strava || undefined,
+          facebook: form.contact_facebook || undefined,
+          twitter: form.contact_twitter || undefined,
+          youtube: form.contact_youtube || undefined,
+          tiktok: form.contact_tiktok || undefined,
+          website: form.contact_website || undefined,
         },
         sample_sessions: (form.sample_sessions || []).filter((s: any) => s.name || s.target || s.purpose),
         plans: (form.plans || []).filter((p: any) => p.name || p.price || p.description),
@@ -1290,6 +1302,48 @@ function CoachEditorPage() {
                     value={form.contact_instagram}
                     onChange={(e) => setForm({ ...form, contact_instagram: e.target.value })}
                     placeholder="@yourcoachname"
+                  />
+                </Field>
+                <Field label="Facebook page URL">
+                  <Input
+                    value={form.contact_facebook}
+                    onChange={(e) => setForm({ ...form, contact_facebook: e.target.value })}
+                    placeholder="https://facebook.com/..."
+                  />
+                </Field>
+                <Field label="X (Twitter) handle">
+                  <Input
+                    value={form.contact_twitter}
+                    onChange={(e) => setForm({ ...form, contact_twitter: e.target.value })}
+                    placeholder="@yourcoachname"
+                  />
+                </Field>
+                <Field label="YouTube channel URL">
+                  <Input
+                    value={form.contact_youtube}
+                    onChange={(e) => setForm({ ...form, contact_youtube: e.target.value })}
+                    placeholder="https://youtube.com/@..."
+                  />
+                </Field>
+                <Field label="TikTok handle">
+                  <Input
+                    value={form.contact_tiktok}
+                    onChange={(e) => setForm({ ...form, contact_tiktok: e.target.value })}
+                    placeholder="@yourcoachname"
+                  />
+                </Field>
+                <Field label="Strava profile URL">
+                  <Input
+                    value={form.contact_strava}
+                    onChange={(e) => setForm({ ...form, contact_strava: e.target.value })}
+                    placeholder="https://strava.com/athletes/..."
+                  />
+                </Field>
+                <Field label="Website URL">
+                  <Input
+                    value={form.contact_website}
+                    onChange={(e) => setForm({ ...form, contact_website: e.target.value })}
+                    placeholder="https://..."
                   />
                 </Field>
               </CardContent>
