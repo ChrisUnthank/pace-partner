@@ -11,31 +11,14 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import {
-  Plus,
-  Pencil,
-  Trash2,
-  MapPin,
-  CalendarPlus,
-  ExternalLink,
-  Ban,
-  Megaphone,
-  ChevronRight,
-  Users,
-} from "lucide-react";
+import { Plus, Pencil, Trash2, MapPin, CalendarPlus, ExternalLink, Ban, Megaphone, ChevronRight, Users } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuthUser, useMyRoles, useMyRawRoles, useMyAthlete, useMyLinkedAthletes } from "@/lib/use-auth";
 import { createPost } from "@/lib/noticeboard.functions";
 import { BucketTabStrip, TRAINING_TABS } from "@/components/bucket-tab-strip";
-import {
-  DAY_TYPE_META,
-  DAY_TYPE_OPTIONS,
-  WEEKDAY_NAMES,
-  WEEKDAY_SHORT,
-  type TrainingDayType,
-} from "@/lib/training-day-types";
+import { DAY_TYPE_META, DAY_TYPE_OPTIONS, WEEKDAY_NAMES, WEEKDAY_SHORT, type TrainingDayType } from "@/lib/training-day-types";
 import { downloadICS, googleCalendarLink, mapLink } from "@/lib/training-schedule-helpers";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/user-avatar";
@@ -83,11 +66,7 @@ function TrainingSchedulePage() {
   // Athlete sees their own group by default; a parent sees their first
   // linked child's group (or whichever child they've switched to).
   // Neither overrides an explicit manual pick.
-  const effectiveSelfAthleteId = isAthleteRole
-    ? myAthlete?.id
-    : isParent
-      ? (viewingChildId ?? linkedAthletes?.[0]?.athletes?.id)
-      : undefined;
+  const effectiveSelfAthleteId = isAthleteRole ? myAthlete?.id : isParent ? (viewingChildId ?? linkedAthletes?.[0]?.athletes?.id) : undefined;
 
   const { data: myMembership } = useQuery({
     queryKey: ["my-training-group", effectiveSelfAthleteId],
@@ -121,7 +100,7 @@ function TrainingSchedulePage() {
   // they (or, for a parent, their selected child) are actually assigned
   // to — never a fallback to "the first group that exists," which would
   // let someone browse a squad they're not part of.
-  const activeGroupId = isCoach ? (selectedGroupId ?? groups?.[0]?.id ?? null) : (myMembership ?? null);
+  const activeGroupId = isCoach ? (selectedGroupId ?? groups?.[0]?.id ?? null) : myMembership ?? null;
 
   const [newGroupOpen, setNewGroupOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
@@ -206,9 +185,7 @@ function TrainingSchedulePage() {
     <div className="space-y-4 max-w-5xl">
       <div>
         <h1 className="text-2xl font-bold">Training Schedule</h1>
-        <p className="text-sm text-muted-foreground">
-          Location, days, and times for squad, group, or individual training with the coach.
-        </p>
+        <p className="text-sm text-muted-foreground">Location, days, and times for squad, group, or individual training with the coach.</p>
       </div>
 
       <BucketTabStrip
@@ -223,9 +200,7 @@ function TrainingSchedulePage() {
               <p className="text-sm text-muted-foreground">No groups yet.</p>
             ) : (
               <Select value={activeGroupId ?? ""} onValueChange={setSelectedGroupId}>
-                <SelectTrigger className="w-64">
-                  <SelectValue placeholder="Select group" />
-                </SelectTrigger>
+                <SelectTrigger className="w-64"><SelectValue placeholder="Select group" /></SelectTrigger>
                 <SelectContent>
                   {groups.map((g: any) => (
                     <SelectItem key={g.id} value={g.id}>
@@ -248,15 +223,14 @@ function TrainingSchedulePage() {
           // A parent with more than one linked child switches between
           // children, not between groups — the group follows whichever
           // child is selected, never a free choice of any group.
-          <Select value={effectiveSelfAthleteId ?? ""} onValueChange={setViewingChildId}>
-            <SelectTrigger className="w-56">
-              <SelectValue placeholder="Select child" />
-            </SelectTrigger>
+          <Select
+            value={effectiveSelfAthleteId ?? ""}
+            onValueChange={setViewingChildId}
+          >
+            <SelectTrigger className="w-56"><SelectValue placeholder="Select child" /></SelectTrigger>
             <SelectContent>
               {linkedAthletes!.map((r: any) => (
-                <SelectItem key={r.athletes.id} value={r.athletes.id}>
-                  {r.athletes.name}
-                </SelectItem>
+                <SelectItem key={r.athletes.id} value={r.athletes.id}>{r.athletes.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -320,9 +294,7 @@ function TrainingSchedulePage() {
                             {s.start_time ? (
                               <div className="tabular-nums opacity-80">{s.start_time.slice(0, 5)}</div>
                             ) : s.time_of_day ? (
-                              <div className="opacity-80 uppercase text-[10px] font-bold tracking-wide">
-                                {s.time_of_day}
-                              </div>
+                              <div className="opacity-80 uppercase text-[10px] font-bold tracking-wide">{s.time_of_day}</div>
                             ) : null}
                           </button>
                         );
@@ -369,17 +341,11 @@ function TrainingSchedulePage() {
                     <div className="min-w-0">
                       <div className="text-sm font-medium">
                         {format(new Date(s.specific_date + "T00:00:00"), "EEE d MMM")}
-                        {s.start_time
-                          ? ` · ${s.start_time.slice(0, 5)}`
-                          : s.time_of_day
-                            ? ` · ${s.time_of_day.toUpperCase()}`
-                            : ""}
+                        {s.start_time ? ` · ${s.start_time.slice(0, 5)}` : s.time_of_day ? ` · ${s.time_of_day.toUpperCase()}` : ""}
                       </div>
                       <div className="text-xs text-muted-foreground truncate">
                         {meta.label}
-                        {s.location_text || s.training_locations?.name
-                          ? ` · ${s.training_locations?.name ?? s.location_text}`
-                          : ""}
+                        {s.location_text || s.training_locations?.name ? ` · ${s.training_locations?.name ?? s.location_text}` : ""}
                       </div>
                     </div>
                   </div>
@@ -417,14 +383,10 @@ function TrainingSchedulePage() {
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>New group</DialogTitle>
-            <DialogDescription>
-              A group runs its own independent weekly schedule — e.g. Senior Squad vs Junior Squad.
-            </DialogDescription>
+            <DialogDescription>A group runs its own independent weekly schedule — e.g. Senior Squad vs Junior Squad.</DialogDescription>
           </DialogHeader>
           <Input value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} placeholder="Senior Squad" />
-          <Button onClick={createGroup} disabled={!newGroupName.trim()}>
-            Create group
-          </Button>
+          <Button onClick={createGroup} disabled={!newGroupName.trim()}>Create group</Button>
         </DialogContent>
       </Dialog>
 
@@ -472,7 +434,10 @@ function RosterDialog({
         const { data } = await supabase.from("athletes").select("id, name").order("name");
         return data ?? [];
       }
-      const { data } = await supabase.from("coach_athletes").select("athletes(id, name)").eq("coach_user_id", user!.id);
+      const { data } = await supabase
+        .from("coach_athletes")
+        .select("athletes(id, name)")
+        .eq("coach_user_id", user!.id);
       return (data ?? []).map((r: any) => r.athletes).filter(Boolean);
     },
   });
@@ -481,10 +446,7 @@ function RosterDialog({
     queryKey: ["training-group-memberships", groupIds.join(",")],
     enabled: groupIds.length > 0,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("training_group_members")
-        .select("athlete_id, group_id")
-        .in("group_id", groupIds);
+      const { data, error } = await supabase.from("training_group_members").select("athlete_id, group_id").in("group_id", groupIds);
       if (error) return new Map<string, string>();
       const map = new Map<string, string>();
       for (const r of data ?? []) map.set(r.athlete_id, r.group_id);
@@ -523,15 +485,11 @@ function RosterDialog({
       <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Manage athletes</DialogTitle>
-          <DialogDescription>
-            Assign each athlete to a group, or set to "Not assigned" to remove them.
-          </DialogDescription>
+          <DialogDescription>Assign each athlete to a group, or set to "Not assigned" to remove them.</DialogDescription>
         </DialogHeader>
         <Input placeholder="Search athletes…" value={search} onChange={(e) => setSearch(e.target.value)} />
         <div className="space-y-1.5">
-          {(!roster || roster.length === 0) && (
-            <p className="text-sm text-muted-foreground">No athletes on your roster yet.</p>
-          )}
+          {(!roster || roster.length === 0) && <p className="text-sm text-muted-foreground">No athletes on your roster yet.</p>}
           {filtered.map((a: any) => {
             const currentGroupId = memberships?.get(a.id) ?? "";
             return (
@@ -544,15 +502,11 @@ function RosterDialog({
                   value={currentGroupId || "none"}
                   onValueChange={(v) => setAthleteGroup(a.id, v === "none" ? null : v)}
                 >
-                  <SelectTrigger className="w-44 h-8 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
+                  <SelectTrigger className="w-44 h-8 text-xs"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Not assigned</SelectItem>
                     {groups.map((g: any) => (
-                      <SelectItem key={g.id} value={g.id}>
-                        {g.name}
-                      </SelectItem>
+                      <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -560,9 +514,7 @@ function RosterDialog({
             );
           })}
         </div>
-        <Button variant="outline" onClick={onClose}>
-          Done
-        </Button>
+        <Button variant="outline" onClick={onClose}>Done</Button>
       </DialogContent>
     </Dialog>
   );
@@ -612,17 +564,12 @@ function SlotDetailDialog({
     slot.specific_date ??
     (slot.day_of_week != null ? toISO(nextDateForWeekday(slot.day_of_week, slot.start_time)) : null);
 
-  function exportOccurrence(
-    dateOverride?: string,
-    timeOverride?: string | null,
-    locOverride?: string | null,
-    notesOverride?: string | null,
-  ) {
+  function exportOccurrence(dateOverride?: string, timeOverride?: string | null, locOverride?: string | null, notesOverride?: string | null) {
     const fallbackTime = slot.time_of_day === "pm" ? "15:00" : slot.time_of_day === "am" ? "07:00" : null;
     const occ = {
       title: `${meta.label}${slot.squad_label ? ` — ${slot.squad_label}` : ""}`,
       date: dateOverride ?? nextDate!,
-      startTime: timeOverride !== undefined ? timeOverride : (slot.start_time?.slice(0, 5) ?? fallbackTime),
+      startTime: timeOverride !== undefined ? timeOverride : slot.start_time?.slice(0, 5) ?? fallbackTime,
       location: locOverride !== undefined ? locOverride : locationName,
       notes: notesOverride !== undefined ? notesOverride : slot.notes,
     };
@@ -674,22 +621,18 @@ function SlotDetailDialog({
             {slot.start_time
               ? ` · ${slot.start_time.slice(0, 5)}`
               : slot.time_of_day
-                ? ` · ${slot.time_of_day.toUpperCase()}`
-                : " · No fixed time"}
+              ? ` · ${slot.time_of_day.toUpperCase()}`
+              : " · No fixed time"}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3 text-sm">
           {locationName && (
             <div className="flex items-center justify-between gap-2">
-              <span className="flex items-center gap-1.5">
-                <MapPin className="h-3.5 w-3.5 text-muted-foreground" /> {locationName}
-              </span>
+              <span className="flex items-center gap-1.5"><MapPin className="h-3.5 w-3.5 text-muted-foreground" /> {locationName}</span>
               {map && (
                 <Button asChild size="sm" variant="ghost">
-                  <a href={map} target="_blank" rel="noreferrer">
-                    <ExternalLink className="h-3.5 w-3.5 mr-1" /> Map
-                  </a>
+                  <a href={map} target="_blank" rel="noreferrer"><ExternalLink className="h-3.5 w-3.5 mr-1" /> Map</a>
                 </Button>
               )}
             </div>
@@ -725,13 +668,7 @@ function SlotDetailDialog({
                 <p className="text-xs text-muted-foreground">No exceptions — this series runs as scheduled.</p>
               )}
               {overrides?.map((ov: any) => (
-                <OverrideRow
-                  key={ov.id}
-                  override={ov}
-                  slot={slot}
-                  isCoach={isCoach}
-                  onChanged={() => qc.invalidateQueries({ queryKey: ["squad-training-overrides", slot.id] })}
-                />
+                <OverrideRow key={ov.id} override={ov} slot={slot} isCoach={isCoach} onChanged={() => qc.invalidateQueries({ queryKey: ["squad-training-overrides", slot.id] })} />
               ))}
             </div>
           )}
@@ -763,29 +700,10 @@ function SlotDetailDialog({
   );
 }
 
-function OverrideRow({
-  override,
-  slot,
-  isCoach,
-  onChanged,
-}: {
-  override: any;
-  slot: any;
-  isCoach: boolean;
-  onChanged: () => void;
-}) {
-  const locationName =
-    override.training_locations?.name ??
-    override.location_text ??
-    slot.training_locations?.name ??
-    slot.location_text ??
-    null;
+function OverrideRow({ override, slot, isCoach, onChanged }: { override: any; slot: any; isCoach: boolean; onChanged: () => void }) {
+  const locationName = override.training_locations?.name ?? override.location_text ?? slot.training_locations?.name ?? slot.location_text ?? null;
   const time = override.start_time ?? slot.start_time;
-  const map = mapLink({
-    lat: override.training_locations?.lat,
-    lng: override.training_locations?.lng,
-    text: locationName,
-  });
+  const map = mapLink({ lat: override.training_locations?.lat, lng: override.training_locations?.lng, text: locationName });
 
   async function remove() {
     const { error } = await supabase.from("squad_training_overrides").delete().eq("id", override.id);
@@ -802,26 +720,18 @@ function OverrideRow({
       <div className="min-w-0">
         <div className="font-medium flex items-center gap-1.5">
           {format(new Date(override.occurrence_date + "T00:00:00"), "EEE d MMM")}
-          {override.cancelled && (
-            <Badge variant="outline" className="text-[10px]">
-              <Ban className="h-2.5 w-2.5 mr-0.5" />
-              Cancelled
-            </Badge>
-          )}
+          {override.cancelled && <Badge variant="outline" className="text-[10px]"><Ban className="h-2.5 w-2.5 mr-0.5" />Cancelled</Badge>}
         </div>
         {!override.cancelled && (
           <div className="text-muted-foreground truncate">
-            {time?.slice(0, 5)}
-            {locationName ? ` · ${locationName}` : ""}
+            {time?.slice(0, 5)}{locationName ? ` · ${locationName}` : ""}
           </div>
         )}
       </div>
       <div className="flex items-center gap-1 shrink-0">
         {!override.cancelled && map && (
           <Button asChild size="icon" variant="ghost" className="h-6 w-6">
-            <a href={map} target="_blank" rel="noreferrer">
-              <ExternalLink className="h-3 w-3" />
-            </a>
+            <a href={map} target="_blank" rel="noreferrer"><ExternalLink className="h-3 w-3" /></a>
           </Button>
         )}
         {!override.cancelled && (
@@ -873,9 +783,7 @@ function OverrideFormDialog({ slot, onClose, onSaved }: { slot: any; onClose: ()
         notes: notes || null,
         created_by: user!.id,
       };
-      const { error } = await supabase
-        .from("squad_training_overrides")
-        .upsert(payload, { onConflict: "schedule_id,occurrence_date" });
+      const { error } = await supabase.from("squad_training_overrides").upsert(payload, { onConflict: "schedule_id,occurrence_date" });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -909,39 +817,22 @@ function OverrideFormDialog({ slot, onClose, onSaved }: { slot: any; onClose: ()
               </label>
               {useCustomTime && <Input type="time" value={time} onChange={(e) => setTime(e.target.value)} />}
               <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={useCustomLocation}
-                  onChange={(e) => setUseCustomLocation(e.target.checked)}
-                />
+                <input type="checkbox" checked={useCustomLocation} onChange={(e) => setUseCustomLocation(e.target.checked)} />
                 Different location for this date
               </label>
               {useCustomLocation && (
-                <Input
-                  value={locationText}
-                  onChange={(e) => setLocationText(e.target.value)}
-                  placeholder="e.g. Indoor track (wet weather)"
-                />
+                <Input value={locationText} onChange={(e) => setLocationText(e.target.value)} placeholder="e.g. Indoor track (wet weather)" />
               )}
             </>
           )}
           <div>
             <Label className="text-xs">Note (optional)</Label>
-            <Textarea
-              rows={2}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Reason for the change, if useful to note"
-            />
+            <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Reason for the change, if useful to note" />
           </div>
         </div>
         <div className="flex gap-2">
-          <Button onClick={() => m.mutate()} disabled={m.isPending}>
-            Save change
-          </Button>
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
+          <Button onClick={() => m.mutate()} disabled={m.isPending}>Save change</Button>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
         </div>
       </DialogContent>
     </Dialog>
@@ -1012,9 +903,7 @@ function SlotFormDialog({
         const { error } = await supabase.from("squad_training_sessions").update(payload).eq("id", initial.id);
         if (error) throw error;
       } else {
-        const { error } = await supabase
-          .from("squad_training_sessions")
-          .insert({ ...payload, coach_user_id: user!.id });
+        const { error } = await supabase.from("squad_training_sessions").insert({ ...payload, coach_user_id: user!.id });
         if (error) throw error;
       }
 
@@ -1022,23 +911,14 @@ function SlotFormDialog({
         const meta = DAY_TYPE_META[dayType];
         const when =
           mode === "one-off"
-            ? new Date(specificDate + "T00:00:00").toLocaleDateString(undefined, {
-                weekday: "long",
-                month: "long",
-                day: "numeric",
-              })
+            ? new Date(specificDate + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })
             : `${WEEKDAY_NAMES[Number(dayOfWeek)]}s`;
         const timeLabel = hasTime
           ? new Date(`2000-01-01T${startTime}`).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
           : timeOfDay
-            ? timeOfDay.toUpperCase()
-            : "";
-        const locLabel =
-          locationMode === "saved"
-            ? savedLocations?.find((l: any) => l.id === locationId)?.name
-            : locationMode === "custom"
-              ? locationText
-              : "";
+          ? timeOfDay.toUpperCase()
+          : "";
+        const locLabel = locationMode === "saved" ? savedLocations?.find((l: any) => l.id === locationId)?.name : locationMode === "custom" ? locationText : "";
         await createPostFn({
           data: {
             post_type: "training_event",
@@ -1065,14 +945,10 @@ function SlotFormDialog({
           <div>
             <Label className="text-xs">Day type</Label>
             <Select value={dayType} onValueChange={(v) => setDayType(v as TrainingDayType)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
+              <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 {DAY_TYPE_OPTIONS.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>
-                    {o.label}
-                  </SelectItem>
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -1080,25 +956,13 @@ function SlotFormDialog({
 
           <div>
             <Label className="text-xs">Label (optional)</Label>
-            <Input
-              value={squadLabel}
-              onChange={(e) => setSquadLabel(e.target.value)}
-              placeholder="e.g. Track intervals"
-            />
+            <Input value={squadLabel} onChange={(e) => setSquadLabel(e.target.value)} placeholder="e.g. Track intervals" />
           </div>
 
           {!isEdit && (
             <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant={mode === "recurring" ? "default" : "outline"}
-                onClick={() => setMode("recurring")}
-              >
-                Weekly
-              </Button>
-              <Button size="sm" variant={mode === "one-off" ? "default" : "outline"} onClick={() => setMode("one-off")}>
-                One-off date
-              </Button>
+              <Button size="sm" variant={mode === "recurring" ? "default" : "outline"} onClick={() => setMode("recurring")}>Weekly</Button>
+              <Button size="sm" variant={mode === "one-off" ? "default" : "outline"} onClick={() => setMode("one-off")}>One-off date</Button>
             </div>
           )}
 
@@ -1106,14 +970,10 @@ function SlotFormDialog({
             <div>
               <Label className="text-xs">Day of week</Label>
               <Select value={dayOfWeek} onValueChange={setDayOfWeek}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {WEEKDAY_NAMES.map((d, i) => (
-                    <SelectItem key={i} value={i.toString()}>
-                      {d}
-                    </SelectItem>
+                    <SelectItem key={i} value={i.toString()}>{d}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -1133,33 +993,15 @@ function SlotFormDialog({
 
           <div>
             <Label className="text-xs">
-              Time of day{" "}
-              {hasTime && (
-                <span className="text-muted-foreground font-normal">
-                  (optional, in addition to the exact time above)
-                </span>
-              )}
+              Time of day {hasTime && <span className="text-muted-foreground font-normal">(optional, in addition to the exact time above)</span>}
             </Label>
             <div className="flex gap-2 mt-1">
-              <Button
-                size="sm"
-                variant={timeOfDay === "am" ? "default" : "outline"}
-                onClick={() => setTimeOfDay(timeOfDay === "am" ? "" : "am")}
-              >
-                AM
-              </Button>
-              <Button
-                size="sm"
-                variant={timeOfDay === "pm" ? "default" : "outline"}
-                onClick={() => setTimeOfDay(timeOfDay === "pm" ? "" : "pm")}
-              >
-                PM
-              </Button>
+              <Button size="sm" variant={timeOfDay === "am" ? "default" : "outline"} onClick={() => setTimeOfDay(timeOfDay === "am" ? "" : "am")}>AM</Button>
+              <Button size="sm" variant={timeOfDay === "pm" ? "default" : "outline"} onClick={() => setTimeOfDay(timeOfDay === "pm" ? "" : "pm")}>PM</Button>
             </div>
             {!hasTime && (
               <p className="text-xs text-muted-foreground mt-1">
-                Useful for days without one fixed time — e.g. an Individual Program day, or telling apart a
-                morning/afternoon double day.
+                Useful for days without one fixed time — e.g. an Individual Program day, or telling apart a morning/afternoon double day.
               </p>
             )}
           </div>
@@ -1167,48 +1009,22 @@ function SlotFormDialog({
           <div>
             <Label className="text-xs">Location</Label>
             <div className="flex gap-2 mb-1.5">
-              <Button
-                size="sm"
-                variant={locationMode === "saved" ? "default" : "outline"}
-                onClick={() => setLocationMode("saved")}
-              >
-                Saved location
-              </Button>
-              <Button
-                size="sm"
-                variant={locationMode === "custom" ? "default" : "outline"}
-                onClick={() => setLocationMode("custom")}
-              >
-                Custom text
-              </Button>
-              <Button
-                size="sm"
-                variant={locationMode === "none" ? "default" : "outline"}
-                onClick={() => setLocationMode("none")}
-              >
-                None
-              </Button>
+              <Button size="sm" variant={locationMode === "saved" ? "default" : "outline"} onClick={() => setLocationMode("saved")}>Saved location</Button>
+              <Button size="sm" variant={locationMode === "custom" ? "default" : "outline"} onClick={() => setLocationMode("custom")}>Custom text</Button>
+              <Button size="sm" variant={locationMode === "none" ? "default" : "outline"} onClick={() => setLocationMode("none")}>None</Button>
             </div>
             {locationMode === "saved" && (
               <Select value={locationId} onValueChange={setLocationId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Pick a saved location" />
-                </SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="Pick a saved location" /></SelectTrigger>
                 <SelectContent>
                   {(savedLocations ?? []).map((l: any) => (
-                    <SelectItem key={l.id} value={l.id}>
-                      {l.name}
-                    </SelectItem>
+                    <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             )}
             {locationMode === "custom" && (
-              <Input
-                value={locationText}
-                onChange={(e) => setLocationText(e.target.value)}
-                placeholder="e.g. Athletics track"
-              />
+              <Input value={locationText} onChange={(e) => setLocationText(e.target.value)} placeholder="e.g. Athletics track" />
             )}
           </div>
 
@@ -1218,29 +1034,21 @@ function SlotFormDialog({
           </div>
 
           <label className="flex items-start gap-2 text-sm border rounded-md p-2.5 cursor-pointer">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={announce}
-              onChange={(e) => setAnnounce(e.target.checked)}
-            />
+            <input type="checkbox" className="mt-0.5" checked={announce} onChange={(e) => setAnnounce(e.target.checked)} />
             <span>
-              <span className="font-medium flex items-center gap-1.5">
-                <Megaphone className="h-3.5 w-3.5" /> Announce on Noticeboard
-              </span>
-              <span className="text-xs text-muted-foreground block mt-0.5">
-                Off by default — turn on for changes worth calling out.
-              </span>
+              <span className="font-medium flex items-center gap-1.5"><Megaphone className="h-3.5 w-3.5" /> Announce on Noticeboard</span>
+              <span className="text-xs text-muted-foreground block mt-0.5">Off by default — turn on for changes worth calling out.</span>
             </span>
           </label>
         </div>
         <div className="flex gap-2">
-          <Button onClick={() => m.mutate()} disabled={(mode === "one-off" && !specificDate) || m.isPending}>
+          <Button
+            onClick={() => m.mutate()}
+            disabled={(mode === "one-off" && !specificDate) || m.isPending}
+          >
             {isEdit ? "Save" : "Add"}
           </Button>
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
         </div>
       </DialogContent>
     </Dialog>
