@@ -17,7 +17,7 @@ import {
   ChevronsRight,
   ChevronDown,
   Zap,
-  ClipboardList,
+  HeartPulse,
   Clock,
   CalendarHeart,
   Megaphone,
@@ -105,6 +105,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   const topLevelItems: NavLeaf[] = [
     { to: "/app", label: "Home", icon: Home, show: true },
     { to: "/app/athletes", label: "Athletes", icon: Users, show: isCoach },
+    // Health & Vitals: daily log, diet/fuel, recovery, injury management,
+    // bicarb, lactate — a cross-cutting per-athlete area, not training-load
+    // specific, so it sits alongside Athletes rather than inside a bucket.
+    // Coach and athlete both see it; a coach reaches a specific athlete's
+    // data via the Health tab on that athlete's own view (AthleteSubnav),
+    // same as Zones/Analytics. Own Overview + tab-strip, same pattern as
+    // Coaching Hub.
+    { to: "/app/health", label: "Health & Vitals", icon: HeartPulse, show: isCoachOrAthlete },
     // Coaching Hub: session templates, plan templates, active plans — and
     // room to grow into a session library / phase builder later. Gets its
     // own Overview + tab-strip (BucketTabStrip, same component the
@@ -133,11 +141,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       children: [
         { to: "/app/sessions", label: "Sessions", icon: CalendarDays, show: isCoachOrAthlete },
         { to: "/app/sessions/calendar", label: "Calendar", icon: CalendarRange, show: isCoachOrAthlete },
-        { to: "/app/daily-log", label: "Daily Log", icon: ClipboardList, show: isAthlete },
         // Open to everyone — coach, athlete, and parent alike. This is
         // also what surfaces the Training bucket in a parent's sidebar
-        // for the first time, since Sessions/Calendar/Daily Log all stay
-        // hidden from them.
+        // for the first time, since Sessions/Calendar stay hidden from
+        // them. (Daily Log moved to the new Health & Vitals area.)
         { to: "/app/training-schedule", label: "Training Schedule", icon: Clock, show: true },
         // Athlete/parent only — a coach has no personal calendar to view.
         { to: "/app/my-schedule", label: "My Schedule", icon: CalendarHeart, show: isAthlete || isParent },
