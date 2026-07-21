@@ -21,15 +21,20 @@ export const TRAINING_TABS: BucketTabItem[] = [
   // Open to everyone (coach, athlete, and parent) — unlike the other
   // Training tabs, this one isn't filtered by role at the call sites.
   { to: "/app/training-schedule", label: "Training Schedule", icon: Clock },
-  // Athlete/parent only — a coach has no personal calendar to view here.
-  // Filtered at each call site the same way My Schedule already is.
-  { to: "/app/my-schedule", label: "My Schedule", icon: CalendarHeart },
 ];
 
 export const COACHING_HUB_TABS: BucketTabItem[] = [
   { to: "/app/coaching-hub", label: "Overview", icon: LayoutGrid },
   { to: "/app/templates", label: "Session Templates", icon: BookmarkCheck },
   { to: "/app/plans", label: "Plans", icon: CalendarRange },
+];
+
+// Locker — personal schedule (moved from Training), plus gear,
+// credentials, and event entries as each gets built. Schedule is the only
+// tab so far, so this strip won't actually render yet (BucketTabStrip
+// hides itself at length <= 1) until Gear lands.
+export const LOCKER_TABS: BucketTabItem[] = [
+  { to: "/app/my-schedule", label: "Schedule", icon: CalendarHeart },
 ];
 
 // Health & Vitals — Daily Log moved here from Training (it's the
