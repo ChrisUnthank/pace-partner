@@ -41,7 +41,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { stepKindBarClass, stepKindTextClass } from "@/lib/step-kind-colors";
-
+import {4  WORKOU*_TARGET_ZONES,5  inferWorkoutTarge*Mode,6  type WorkoutTargetMode,7  *ype WorkoutTargetZone,8} from "@/l*b/workout-target-modes";
 // This route previously had no search-param handling at all — the
 // Calendar page's "+" menu has been passing date/mode/dayType here for a
 // while, but none of it was ever read, so every link silently landed on
@@ -62,14 +62,41 @@ export const Route = createFileRoute("/_authenticated/app/sessions/new")({
 });
 
 type StepDraft = {
+ function clearModePayload(mode: WorkoutTargetMode, s: StepDraft): StepDraft {
+  return {
+    ...s,
+    target_mode: mode,
+    target_pace_sec_per_km:
+      mode === "pace"
+        ? s.target_pace_sec_per_km ?? 300
+        : null,
+
+    target_threshold_pace_pct:
+      mode === "threshold_pace_pct"
+        ? s.target_threshold_pace_pct ?? 100
+        : null,
+
+    target_threshold_hr_pct:
+      mode === "threshold_hr_pct"
+        ? s.target_threshold_hr_pct ?? 100
+        : null,
+
+    target_zone:
+      mode === "zone"
+        ? s.target_zone ?? "z3"
+        : null,
+
+    target_rpe:
+      mode === "rpe"
+        ? s.target_rpe ?? 6
+        : null,
+  };
+}
+ 
   kind: "warmup" | "work" | "recovery" | "cooldown" | "strides";
   reps: number;
   set_count?: number;
-  target_kind?: "time" | "distance";
-  target_distance_m?: number | null;
-  target_time_seconds?: number | null;
-  target_pace_sec_per_km?: number | null;
-  is_ladder?: boolean;
+     target_kind?: "time" | "distance";2  target_distance_m?: number | null;3  target_time_seconds?: number | null;4 5  target_mode?: WorkoutTargetMode | null;6 7  target_pace_sec_per_km?: number | null;8  target_threshold_pace_pct?: number | null;9  target_threshold_hr_pct?: number | null;10  target_zone?: WorkoutTargetZone | null;11  target_rpe?: number | null;12 13  is_ladder?: boolean;
   counts_toward_distance?: boolean;
   recovery_between_reps_seconds?: number | null;
   recovery_between_reps_mode?: "standing" | "walk" | "jog" | "float";
@@ -86,10 +113,46 @@ type StepDraft = {
   notes?: string;
   _uid?: string;
 };
+function clearModePayload(mode: WorkoutTargetMode, s: StepDraft): StepDraft {
+  return {
+    ...s,
+    target_mode: mode,
+    target_pace_sec_per_km:
+      mode === "pace"
+        ? (s.target_pace_sec_per_km ?? 300)
+        : null,
+
+    target_threshold_pace_pct:
+      mode === "threshold_pace_pct"
+        ? (s.target_threshold_pace_pct ?? 100)
+        : null,
+
+    target_threshold_hr_pct:
+      mode === "threshold_hr_pct"
+        ? (s.target_threshold_hr_pct ?? 100)
+        : null,
+
+    target_zone:
+      mode === "zone"
+        ? (s.target_zone ?? "z3")
+        : null,
+
+    target_rpe:
+      mode === "rpe"
+        ? (s.target_rpe ?? 6)
+        : null,
+  };
+}
 
 const defaultStep = (kind: StepDraft["kind"]): StepDraft =>
   kind === "recovery"
-    ? { kind, reps: 1, recovery_mode: "jog", recovery_target_kind: "time", recovery_target_seconds: 90 }
+    ? {
+        kind,
+        reps: 1,
+        recovery_mode: "jog",
+        recovery_target_kind: "time",
+        recovery_target_seconds: 90,
+      }
     : kind === "work"
       ? {
           kind,
@@ -97,6 +160,14 @@ const defaultStep = (kind: StepDraft["kind"]): StepDraft =>
           set_count: 1,
           target_kind: "distance",
           target_distance_m: 400,
+
+          target_mode: "pace",
+          target_pace_sec_per_km: null,
+          target_threshold_pace_pct: null,
+          target_threshold_hr_pct: null,
+          target_zone: null,
+          target_rpe: null,
+
           recovery_between_reps_seconds: 90,
           recovery_between_reps_mode: "jog",
           recovery_between_reps_target_kind: "time",
@@ -106,9 +177,20 @@ const defaultStep = (kind: StepDraft["kind"]): StepDraft =>
           counts_toward_distance: true,
         }
       : kind === "strides"
-        ? { kind, reps: 4, target_kind: "distance", target_distance_m: 80, counts_toward_distance: true }
-        : { kind, reps: 1, target_kind: "time", target_time_seconds: 600, counts_toward_distance: true };
-
+        ? {
+            kind,
+            reps: 4,
+            target_kind: "distance",
+            target_distance_m: 80,
+            counts_toward_distance: true,
+          }
+        : {
+            kind,
+            reps: 1,
+            target_kind: "time",
+            target_time_seconds: 600,
+            counts_toward_distance: true,
+          };
 let _uidCounter = 0;
 const withUid = (s: StepDraft): StepDraft => ({ ...s, _uid: s._uid ?? `s${++_uidCounter}_${Date.now()}` });
 
@@ -270,16 +352,25 @@ function NewSession() {
     setIsLongRun(!!(tpl as any).is_long_run);
     setAppliedFromTemplateId(templateId);
     setSteps(
-      (tsteps ?? []).map((s: any) =>
-        withUid({
-          kind: s.kind,
-          reps: s.reps,
-          set_count: s.set_count,
-          target_kind: s.target_kind,
-          target_distance_m: s.target_distance_m,
-          target_time_seconds: s.target_time_seconds,
-          target_pace_sec_per_km: s.target_pace_sec_per_km,
-          is_ladder: s.is_ladder,
+  (tsteps ?? []).map((s: any) => {
+    const inferred = inferWorkoutTargetMode(s);
+
+    return withUid({
+      kind: s.kind,
+      reps: s.reps,
+      set_count: s.set_count,
+      target_kind: s.target_kind,
+      target_distance_m: s.target_distance_m,
+      target_time_seconds: s.target_time_seconds,
+
+      target_mode: (s.target_mode ?? inferred) as WorkoutTargetMode,
+      target_pace_sec_per_km: s.target_pace_sec_per_km,
+      target_threshold_pace_pct: s.target_threshold_pace_pct,
+      target_threshold_hr_pct: s.target_threshold_hr_pct,
+      target_zone: s.target_zone,
+      target_rpe: s.target_rpe,
+
+      is_ladder: s.is_ladder,
           counts_toward_distance: s.counts_toward_distance,
           recovery_between_reps_seconds: s.recovery_between_reps_seconds,
           recovery_between_reps_mode: s.recovery_between_reps_mode,
@@ -293,10 +384,10 @@ function NewSession() {
           recovery_target_kind: s.recovery_target_kind,
           recovery_target_seconds: s.recovery_target_seconds,
           recovery_target_distance_m: s.recovery_target_distance_m,
-          notes: s.notes,
-        }),
-      ),
-    );
+                notes: s.notes,
+    });
+  }),
+);
     toast.success(`Loaded "${(tpl as any).name}" — edit freely before saving`);
   }
 
