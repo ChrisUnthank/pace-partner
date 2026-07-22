@@ -163,9 +163,10 @@ function MySchedulePage() {
   return (
     <div className="max-w-2xl space-y-4">
       <div>
-        <h1 className="text-2xl font-bold">Schedule</h1>
+        <h1 className="text-2xl font-bold">Diary</h1>
         <p className="text-sm text-muted-foreground">
-          Your coach's training schedule, plus anything else on your plate — work shifts, appointments, whatever else.
+          Your day, laid out — coach-assigned sessions from Training Schedule alongside your own work shifts,
+          appointments, and everything else on your plate.
         </p>
       </div>
 
