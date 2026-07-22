@@ -231,6 +231,7 @@ function SessionDetail() {
     },
   });
 
+
   // "8 × 1km + 90s jog recovery". Fetches every work step, not just the
   // first — a session can legitimately have more than one (e.g. a 2km
   // opener followed by 5 x 1km reps produces two separate work steps, one
@@ -256,10 +257,7 @@ function SessionDetail() {
   // now returns {main, recovery} per step so the recovery portion can be
   // styled smaller than the main "N × distance" part.
   const workoutStructures = useMemo(
-    () =>
-      (workSteps ?? [])
-        .map((s) => formatWorkoutStructure(s))
-        .filter((x): x is { main: string; recovery: string | null } => !!x),
+    () => (workSteps ?? []).map((s) => formatWorkoutStructure(s)).filter((x): x is { main: string; recovery: string | null } => !!x),
     [workSteps],
   );
 
@@ -365,14 +363,8 @@ function SessionDetail() {
       theirs.add(sessionId);
 
       const [{ error: err1 }, { error: err2 }] = await Promise.all([
-        supabase
-          .from("sessions")
-          .update({ same_day_ignored_ids: Array.from(mine) } as any)
-          .eq("id", sessionId),
-        supabase
-          .from("sessions")
-          .update({ same_day_ignored_ids: Array.from(theirs) } as any)
-          .eq("id", otherSessionId),
+        supabase.from("sessions").update({ same_day_ignored_ids: Array.from(mine) } as any).eq("id", sessionId),
+        supabase.from("sessions").update({ same_day_ignored_ids: Array.from(theirs) } as any).eq("id", otherSessionId),
       ]);
       if (err1) throw err1;
       if (err2) throw err2;
@@ -384,6 +376,7 @@ function SessionDetail() {
     }
     setIgnoringId(null);
   }
+
 
   async function clearReviewDismissed() {
     // Whenever composition changes (new file, merge, or a fresh classification
@@ -752,9 +745,7 @@ function SessionDetail() {
               size="sm"
               variant="outline"
               disabled={!adjacentSessions?.prev}
-              title={
-                adjacentSessions?.prev ? (adjacentSessions.prev.title ?? "Previous session") : "No earlier session"
-              }
+              title={adjacentSessions?.prev ? adjacentSessions.prev.title ?? "Previous session" : "No earlier session"}
             >
               {adjacentSessions?.prev ? (
                 <Link to="/app/sessions/$sessionId" params={{ sessionId: adjacentSessions.prev.id }}>
@@ -771,7 +762,7 @@ function SessionDetail() {
               size="sm"
               variant="outline"
               disabled={!adjacentSessions?.next}
-              title={adjacentSessions?.next ? (adjacentSessions.next.title ?? "Next session") : "No later session"}
+              title={adjacentSessions?.next ? adjacentSessions.next.title ?? "Next session" : "No later session"}
             >
               {adjacentSessions?.next ? (
                 <Link to="/app/sessions/$sessionId" params={{ sessionId: adjacentSessions.next.id }}>
@@ -894,7 +885,7 @@ function SessionDetail() {
 
                           if (!data?.id) {
                             toast.error(
-                              'No race record found for this session — use "Recreate race record" on the Official Distance card below to fix it.',
+                              "No race record found for this session — use \"Recreate race record\" on the Official Distance card below to fix it.",
                             );
                             return;
                           }
@@ -929,7 +920,12 @@ function SessionDetail() {
                     Save as template
                   </Button>
                 )}
-                <Button size="sm" variant="outline" disabled={uploading} onClick={() => fileInputRef.current?.click()}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={uploading}
+                  onClick={() => fileInputRef.current?.click()}
+                >
                   {uploading ? "Uploading…" : "Upload activity"}
                 </Button>
                 <input
@@ -1155,9 +1151,7 @@ function SessionDetail() {
                   {session.day_type === "race" && !raceLoading && !race && (
                     <div className="text-xs text-amber-600 mt-1 space-y-1">
                       <div>
-                        {raceError
-                          ? `Couldn't load race record: ${raceError.message}`
-                          : "No race record found for this session."}
+                        {raceError ? `Couldn't load race record: ${raceError.message}` : "No race record found for this session."}
                       </div>
                       <Button size="sm" variant="outline" className="h-6 text-xs" onClick={createPerformanceRecord}>
                         Recreate race record
@@ -1666,8 +1660,7 @@ function buildNewStepRow(sessionId: string, kind: string, stepOrder: number) {
     recovery_between_sets_mode: kind === "work" && setCount > 1 ? (d.recovery_between_sets_mode ?? null) : null,
     recovery_between_sets_target_kind:
       kind === "work" && setCount > 1 ? (d.recovery_between_sets_target_kind ?? "time") : "time",
-    recovery_between_sets_distance_m:
-      kind === "work" && setCount > 1 ? (d.recovery_between_sets_distance_m ?? null) : null,
+    recovery_between_sets_distance_m: kind === "work" && setCount > 1 ? (d.recovery_between_sets_distance_m ?? null) : null,
     recovery_mode: d.recovery_mode ?? null,
     recovery_target_kind: d.recovery_target_kind ?? null,
     recovery_target_seconds: d.recovery_target_seconds ?? null,
@@ -1699,15 +1692,7 @@ const BLOCK_KIND_LABEL: Record<string, string> = {
 // needs recomputing there. Adding/deleting a block is the one case that can
 // change aggregates (a deleted block's results go with it), so both call
 // the same session-level query invalidations the rest of the page uses.
-function WorkoutStructureOrderEditor({
-  session,
-  steps,
-  qc,
-}: {
-  session: any;
-  steps: any[];
-  qc: ReturnType<typeof useQueryClient>;
-}) {
+function WorkoutStructureOrderEditor({ session, steps, qc }: { session: any; steps: any[]; qc: ReturnType<typeof useQueryClient> }) {
   const [localSteps, setLocalSteps] = useState(steps);
   const [saving, setSaving] = useState(false);
   const [blockToDelete, setBlockToDelete] = useState<any | null>(null);
@@ -1733,12 +1718,7 @@ function WorkoutStructureOrderEditor({
   async function persistOrder(next: any[]) {
     setSaving(true);
     const results = await Promise.all(
-      next.map((s, i) =>
-        supabase
-          .from("steps")
-          .update({ step_order: i + 1 })
-          .eq("id", s.id),
-      ),
+      next.map((s, i) => supabase.from("steps").update({ step_order: i + 1 }).eq("id", s.id)),
     );
     const failed = results.find((r) => r.error);
     if (failed?.error) {
@@ -1773,19 +1753,14 @@ function WorkoutStructureOrderEditor({
       toast.error(error.message);
       return;
     }
-    toast.success(
-      `${BLOCK_KIND_LABEL[kind]} added at the end — drag it into position, then set its reps/targets below`,
-    );
+    toast.success(`${BLOCK_KIND_LABEL[kind]} added at the end — drag it into position, then set its reps/targets below`);
     invalidateStructure();
   }
 
   async function reassignKind(step: any, newKind: string) {
     if (newKind === step.kind) return;
     setSaving(true);
-    const { error } = await supabase
-      .from("steps")
-      .update({ kind: newKind } as any)
-      .eq("id", step.id);
+    const { error } = await supabase.from("steps").update({ kind: newKind } as any).eq("id", step.id);
     setSaving(false);
     if (error) {
       toast.error(error.message);
@@ -1896,11 +1871,7 @@ function SortableStructureRow({
     opacity: isDragging ? 0.5 : 1,
   };
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className="flex items-stretch gap-3 border rounded-md bg-background overflow-hidden"
-    >
+    <div ref={setNodeRef} style={style} className="flex items-stretch gap-3 border rounded-md bg-background overflow-hidden">
       <div className={`w-1.5 shrink-0 ${stepKindBarClass(step.kind)}`} />
       <div className="flex-1 min-w-0 px-3 py-2.5 flex items-center gap-3">
         <button
@@ -1914,9 +1885,7 @@ function SortableStructureRow({
           <GripVertical className="h-4 w-4" />
         </button>
         <span className="text-sm text-muted-foreground w-5 shrink-0 tabular-nums">{position}.</span>
-        <span className={`text-sm font-medium flex-1 ${stepKindTextClass(step.kind)}`}>
-          {stepStructureSummary(step)}
-        </span>
+        <span className={`text-sm font-medium flex-1 ${stepKindTextClass(step.kind)}`}>{stepStructureSummary(step)}</span>
 
         <Select value={step.kind} onValueChange={onReassignKind}>
           <SelectTrigger className="h-7 w-[110px] text-xs shrink-0" disabled={disabled}>
@@ -1957,6 +1926,7 @@ function stepStructureSummary(step: any): string {
   // see the matching note in StepBlock's header above.
   return kindLabel;
 }
+
 
 function StepBlock({
   session,
@@ -2040,28 +2010,18 @@ function StepBlock({
     if (!reps || reps.length === 0) return;
 
     if (step.target_kind === "distance") {
-      const values = reps
-        .map((r: any) => Number(r.actual_distance_m))
-        .filter((v: number) => Number.isFinite(v) && v > 0);
+      const values = reps.map((r: any) => Number(r.actual_distance_m)).filter((v: number) => Number.isFinite(v) && v > 0);
       if (values.length === 0) return;
       const avg = Math.round(values.reduce((a: number, b: number) => a + b, 0) / values.length);
       if (avg === step.target_distance_m) return;
-      const { error } = await supabase
-        .from("steps")
-        .update({ target_distance_m: avg } as any)
-        .eq("id", step.id);
+      const { error } = await supabase.from("steps").update({ target_distance_m: avg } as any).eq("id", step.id);
       if (error) console.error("Failed to recompute step target distance:", error.message);
     } else {
-      const values = reps
-        .map((r: any) => Number(r.actual_time_seconds))
-        .filter((v: number) => Number.isFinite(v) && v > 0);
+      const values = reps.map((r: any) => Number(r.actual_time_seconds)).filter((v: number) => Number.isFinite(v) && v > 0);
       if (values.length === 0) return;
       const avg = Math.round(values.reduce((a: number, b: number) => a + b, 0) / values.length);
       if (avg === step.target_time_seconds) return;
-      const { error } = await supabase
-        .from("steps")
-        .update({ target_time_seconds: avg } as any)
-        .eq("id", step.id);
+      const { error } = await supabase.from("steps").update({ target_time_seconds: avg } as any).eq("id", step.id);
       if (error) console.error("Failed to recompute step target time:", error.message);
     }
   }
@@ -2313,9 +2273,7 @@ function StepBlock({
                           return (
                             <div key={`${setN}-${rep}`}>
                               <RepRow step={step} rep={rep} result={r} onSave={(p) => saveRep(setN, rep, p)} />
-                              {step.reps > 1 && rep < reps.length && (
-                                <RecoveryBetweenReps step={step} session={session} />
-                              )}
+                              {step.reps > 1 && rep < reps.length && <RecoveryBetweenReps step={step} session={session} />}
                             </div>
                           );
                         })}
@@ -2589,12 +2547,7 @@ function RecoveryBetweenReps({ step, session }: { step: any; session: any }) {
     setTimeText(secToClock(step.recovery_between_reps_seconds || 0));
     setDistanceText(step.recovery_between_reps_distance_m ?? "");
     setMode(step.recovery_between_reps_mode ?? "standing");
-  }, [
-    step.id,
-    step.recovery_between_reps_seconds,
-    step.recovery_between_reps_distance_m,
-    step.recovery_between_reps_mode,
-  ]);
+  }, [step.id, step.recovery_between_reps_seconds, step.recovery_between_reps_distance_m, step.recovery_between_reps_mode]);
 
   async function commit() {
     const patch: any = { recovery_between_reps_mode: mode || null };
@@ -2729,9 +2682,7 @@ function FuelingPanel({ session }: { session: any }) {
   const [notes, setNotes] = useState(session.fueling_notes ?? "");
   const [carbs, setCarbs] = useState<string>(session.fueling_carbs_g != null ? String(session.fueling_carbs_g) : "");
   const [fluid, setFluid] = useState<string>(session.fueling_fluid_ml != null ? String(session.fueling_fluid_ml) : "");
-  const [sodium, setSodium] = useState<string>(
-    session.fueling_sodium_mg != null ? String(session.fueling_sodium_mg) : "",
-  );
+  const [sodium, setSodium] = useState<string>(session.fueling_sodium_mg != null ? String(session.fueling_sodium_mg) : "");
   // Re-sync whenever the underlying session row changes — keyed on
   // session.id (not just the individual fields) so this resets correctly
   // even when navigating session-to-session via the < > links reuses this
@@ -2891,11 +2842,7 @@ function GearPanel({ session }: { session: any }) {
       }
     }
     if (toRemove.length > 0) {
-      const { error } = await supabase
-        .from("session_gear")
-        .delete()
-        .eq("session_id", sessionId)
-        .in("gear_id", toRemove);
+      const { error } = await supabase.from("session_gear").delete().eq("session_id", sessionId).in("gear_id", toRemove);
       if (error) {
         toast.error(error.message);
         return;
