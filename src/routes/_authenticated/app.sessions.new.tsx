@@ -41,7 +41,12 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { stepKindBarClass, stepKindTextClass } from "@/lib/step-kind-colors";
-import {4  WORKOU*_TARGET_ZONES,5  inferWorkoutTarge*Mode,6  type WorkoutTargetMode,7  *ype WorkoutTargetZone,8} from "@/l*b/workout-target-modes";
+import {
+  WORKOUT_TARGET_ZONES,
+  inferWorkoutTargetMode,
+  type WorkoutTargetMode,
+  type WorkoutTargetZone,
+} from "@/lib/workout-target-modes";
 // This route previously had no search-param handling at all — the
 // Calendar page's "+" menu has been passing date/mode/dayType here for a
 // while, but none of it was ever read, so every link silently landed on
