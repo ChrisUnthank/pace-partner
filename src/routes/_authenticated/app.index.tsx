@@ -13,7 +13,7 @@ import { DashboardAlertsPanel } from "@/components/dashboard-alerts-panel";
 import { UserAvatar } from "@/components/user-avatar";
 import { RecentReviewsCard } from "@/components/recent-reviews-card";
 import { Badge } from "@/components/ui/badge";
-import { ClipboardList, CalendarDays, Megaphone, MessageSquare, Trophy } from "lucide-react";
+import { ClipboardList, CalendarDays, Megaphone, MessageSquare, Trophy, CalendarRange, LineChart, ArrowRight, HeartPulse, Backpack, AlertTriangle } from "lucide-react";
 import { listPosts } from "@/lib/noticeboard.functions";
 import { listMessageContacts } from "@/lib/messages.functions";
 import { ActivityIcon } from "@/lib/activity-icon";
@@ -212,12 +212,19 @@ function AppHome() {
           </Card>
         )}
 
+        {/* Prominent, shared regardless of role — the two places most
+            people land here to get to. Deliberately just link cards (not
+            embedded calendar/chart content) per the plan for this rebuild;
+            an embedded preview is a reasonable future add if this proves
+            not to be enough on its own. */}
+        {!rolesLoading && rawRoles.length > 0 && <TopLinksRow />}
+
         {isCoach && (
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <QuickTile to="/app/messages" icon={MessageSquare} label="Messages" badge={unreadCount} />
             <QuickTile to="/app/noticeboard" icon={Megaphone} label="Noticeboard" />
-            <QuickTile to="/app/sessions/calendar" icon={CalendarDays} label="Calendar" />
             <QuickTile to="/app/athletes" icon={ClipboardList} label="Athletes" />
+            <QuickTile to="/app/health" icon={HeartPulse} label="Health & Vitals" />
           </div>
         )}
 
@@ -350,6 +357,12 @@ function AppHome() {
                 <Link to="/app/daily-log">Open Daily Log</Link>
               </Button>
               <Button asChild variant="outline">
+                <Link to="/app/health">Health & Vitals</Link>
+              </Button>
+              <Button asChild variant="outline">
+                <Link to="/app/my-schedule">Locker</Link>
+              </Button>
+              <Button asChild variant="outline">
                 <Link to="/app/sessions">All sessions</Link>
               </Button>
               <Button asChild variant="outline">
@@ -443,6 +456,8 @@ function AthleteHome({ athleteId }: { athleteId: string }) {
         </CardContent>
       </Card>
 
+      <AthleteAttentionCard athleteId={athleteId} />
+
       <Card>
         <CardHeader>
           <CardTitle>Next session</CardTitle>
@@ -480,9 +495,11 @@ function AthleteHome({ athleteId }: { athleteId: string }) {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
         <QuickTile to="/app/daily-log" icon={ClipboardList} label="Daily Log" />
         <QuickTile to="/app/sessions" icon={CalendarDays} label="Sessions" />
+        <QuickTile to="/app/health" icon={HeartPulse} label="Health & Vitals" />
+        <QuickTile to="/app/my-schedule" icon={Backpack} label="Locker" />
         <QuickTile to="/app/noticeboard" icon={Megaphone} label="Noticeboard" />
         <QuickTile to="/app/messages" icon={MessageSquare} label="Messages" />
       </div>
@@ -530,6 +547,165 @@ function Stat({ label, value }: { label: string; value: string }) {
       <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
       <div className="text-lg font-semibold tabular-nums">{value}</div>
     </div>
+  );
+}
+
+// Prominent, shared Calendar + Analytics row — these are the two
+// destinations most people land on Home to reach, so they get their own
+// larger cards rather than blending into the smaller QuickTile grid
+// below. Same destinations for every role; Calendar/Analytics already
+// scope their own content by who's viewing.
+function TopLinksRow() {
+  return (
+    <div className="grid sm:grid-cols-2 gap-3">
+      <BigLinkCard
+        to="/app/sessions/calendar"
+        icon={CalendarRange}
+        title="Calendar"
+        description="See what's planned, day by day."
+      />
+      <BigLinkCard
+        to="/app/analytics"
+        icon={LineChart}
+        title="Analytics"
+        description="Trends, load, and progress over time."
+      />
+    </div>
+  );
+}
+
+function BigLinkCard({ to, icon: Icon, title, description }: { to: string; icon: any; title: string; description: string }) {
+  return (
+    <Link to={to} className="group block">
+      <Card className="h-full transition-colors hover:border-[var(--accent-red)]/40 hover:bg-sidebar-accent/30">
+        <CardContent className="p-5 flex items-center gap-4">
+          <span className="shrink-0 w-11 h-11 rounded-lg bg-[var(--accent-red)]/10 grid place-items-center">
+            <Icon className="h-5 w-5 text-[var(--accent-red)]" />
+          </span>
+          <div className="min-w-0">
+            <div className="font-semibold flex items-center gap-1.5">
+              {title}
+              <ArrowRight className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
+            <div className="text-sm text-muted-foreground">{description}</div>
+          </div>
+        </CardContent>
+      </Card>
+    </Link>
+  );
+}
+
+// Athlete-facing equivalent of the coach's "Needs Attention" panel — but
+// personal (just this one athlete, not a roster loop) and simpler (no
+// dismiss/severity machinery, just a short list), since it's read
+// directly rather than through the coach alerts server function. Renders
+// nothing at all when there's genuinely nothing to flag, same philosophy
+// as the coach panel's "all on track" state.
+function AthleteAttentionCard({ athleteId }: { athleteId: string }) {
+  const { data: injuries } = useQuery({
+    queryKey: ["home-injuries", athleteId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("injuries")
+        .select("body_part, side, status")
+        .eq("athlete_id", athleteId)
+        .neq("status", "resolved");
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+
+  const { data: soonEvent } = useQuery({
+    queryKey: ["home-next-event", athleteId],
+    queryFn: async () => {
+      const today = todayISO();
+      const soon = new Date();
+      soon.setDate(soon.getDate() + 7);
+      const { data, error } = await supabase
+        .from("event_entries")
+        .select("event_name, event_date")
+        .eq("athlete_id", athleteId)
+        .gte("event_date", today)
+        .lte("event_date", soon.toISOString().slice(0, 10))
+        .order("event_date", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const { data: wornGear } = useQuery({
+    queryKey: ["home-gear-retirement", athleteId],
+    queryFn: async () => {
+      const { data: items, error } = await supabase
+        .from("gear_items")
+        .select("id, brand, model, nickname, retirement_target_km")
+        .eq("athlete_id", athleteId)
+        .eq("is_retired", false)
+        .not("retirement_target_km", "is", null);
+      if (error) throw error;
+      if (!items || items.length === 0) return [] as any[];
+      const ids = items.map((i) => i.id);
+      const { data: links, error: linkErr } = await supabase
+        .from("session_gear")
+        .select("gear_id, sessions(total_distance_m)")
+        .in("gear_id", ids);
+      if (linkErr) throw linkErr;
+      const usage = new Map<string, number>();
+      for (const l of (links ?? []) as any[]) {
+        const m = Number(l.sessions?.total_distance_m ?? 0);
+        usage.set(l.gear_id, (usage.get(l.gear_id) ?? 0) + m);
+      }
+      return items
+        .map((i: any) => ({ ...i, km: (usage.get(i.id) ?? 0) / 1000 }))
+        .filter((i: any) => i.km >= Number(i.retirement_target_km) * 0.9);
+    },
+  });
+
+  const hasAnything = (injuries?.length ?? 0) > 0 || !!soonEvent || (wornGear?.length ?? 0) > 0;
+  if (!hasAnything) return null;
+
+  return (
+    <Card className="border-l-4 border-l-amber-500">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 text-amber-500" /> Worth a look
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2 text-sm">
+        {(injuries ?? []).map((i: any, idx: number) => (
+          <div key={idx} className="flex items-center justify-between gap-2">
+            <span className="capitalize truncate">
+              Active injury — {i.body_part} {i.side && i.side !== "n/a" ? `(${i.side})` : ""}
+            </span>
+            <Link to="/app/injuries" className="text-xs text-[var(--accent-red)] hover:underline shrink-0">
+              Open →
+            </Link>
+          </div>
+        ))}
+        {soonEvent && (
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate">
+              {soonEvent.event_name} — {relativeDate(soonEvent.event_date)}
+            </span>
+            <Link to="/app/event-entries" className="text-xs text-[var(--accent-red)] hover:underline shrink-0">
+              Open →
+            </Link>
+          </div>
+        )}
+        {(wornGear ?? []).map((g: any, idx: number) => (
+          <div key={idx} className="flex items-center justify-between gap-2">
+            <span className="truncate">
+              {g.nickname || `${g.brand} ${g.model}`} — {g.km.toFixed(0)}/{g.retirement_target_km}km
+            </span>
+            <Link to="/app/gear" className="text-xs text-[var(--accent-red)] hover:underline shrink-0">
+              Open →
+            </Link>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   );
 }
 
