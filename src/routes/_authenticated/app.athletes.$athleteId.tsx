@@ -376,7 +376,7 @@ function AthleteDetail() {
             <CardContent className="p-0 flex-1 min-h-0 overflow-y-auto">
               {!load || load.length === 0 ? <p className="p-4 text-sm text-muted-foreground">No load data yet.</p> : (
                 <table className="w-full text-sm">
-                  <thead className="text-muted-foreground text-xs"><tr><th className="text-left p-2">Date</th><th>Volume</th><th>Load</th><th>CTL</th><th>ATL</th><th>TSB</th></tr></thead>
+                  <thead className="text-muted-foreground text-xs"><tr><th className="text-left p-2">Date</th><th>Volume</th><th>Load</th><th>Fitness</th><th>Fatigue</th><th>Form</th></tr></thead>
                   <tbody>
                     {load.map((d: any) => (
                       <tr key={d.load_date} className="border-t">
