@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -14,6 +14,7 @@ import { CoachChat } from "@/components/coach-chat";
 import { toast } from "sonner";
 import { RefreshCw } from "lucide-react";
 import { AthleteSubnav } from "@/components/athlete-subnav";
+import { CoachAthletePicker } from "@/components/coach-athlete-picker";
 import { UserAvatar } from "@/components/user-avatar";
 import { GenerateReviewCard } from "@/components/generate-review-card";
 import { AthleteReminderSettings } from "@/components/reminder-settings";
@@ -100,11 +101,25 @@ function primaryEventDistanceM(text: string | null | undefined): number | null {
 
 function AthleteDetail() {
   const { athleteId } = Route.useParams();
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const { data: roles = [] } = useMyRoles();
   const isCoach = roles.includes("coach");
   const { data: myAthlete } = useMyAthlete();
   const canEdit = isCoach || myAthlete?.id === athleteId;
+
+  // Roster fetch for the athlete picker — this page is reached via a
+  // route param (not a search param), so switching athletes means
+  // navigating to a whole new URL rather than updating the current one.
+  const { data: roster } = useQuery({
+    queryKey: ["athlete-overview-roster"],
+    enabled: isCoach,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("coach_athletes").select("athletes(id, name, profile_image_url)");
+      if (error) throw error;
+      return ((data ?? []) as any[]).map((r) => r.athletes).filter(Boolean);
+    },
+  });
 
   // Navigating here from the roster's summary panel ("Full view") is a
   // client-side route change, not a full page load — the browser has no
@@ -321,11 +336,21 @@ function AthleteDetail() {
                 </p>
               </div>
             </div>
-            <ReadinessBadge
-              status={today?.readiness_status as any}
-              score={today?.readiness_score as any}
-              confidence={today?.confidence as any}
-            />
+            <div className="flex items-center gap-3 flex-wrap">
+              {isCoach && (
+                <CoachAthletePicker
+                  roster={roster ?? []}
+                  myAthlete={myAthlete as any}
+                  value={athleteId}
+                  onChange={(v) => navigate({ to: "/app/athletes/$athleteId", params: { athleteId: v } })}
+                />
+              )}
+              <ReadinessBadge
+                status={today?.readiness_status as any}
+                score={today?.readiness_score as any}
+                confidence={today?.confidence as any}
+              />
+            </div>
           </div>
 
           <div className="mt-4">
