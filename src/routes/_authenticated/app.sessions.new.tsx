@@ -458,36 +458,100 @@ function NewSession() {
 
     const isContinuous = dayType === "training" && structure === "continuous";
     const stepsToSave = isContinuous ? steps.map(flattenWorkToContinuous) : steps;
-    const stepRows = stepsToSave.map((s, i) => ({
-      session_id: sess.id,
-      step_order: i + 1,
-      kind: s.kind,
-      reps: s.reps,
-      set_count: s.kind === "work" ? Math.max(1, s.set_count ?? 1) : 1,
-      target_kind: s.target_kind ?? null,
-      target_distance_m: s.target_distance_m ?? null,
-      target_time_seconds: s.target_time_seconds ?? null,
-      target_pace_sec_per_km: s.target_pace_sec_per_km ?? null,
-      is_ladder: s.kind === "work" ? !!s.is_ladder : false,
-      counts_toward_distance: s.counts_toward_distance ?? true,
-      recovery_between_reps_seconds: s.kind === "work" ? (s.recovery_between_reps_seconds ?? null) : null,
-      recovery_between_reps_mode: s.kind === "work" ? (s.recovery_between_reps_mode ?? null) : null,
-      recovery_between_reps_target_kind: s.kind === "work" ? (s.recovery_between_reps_target_kind ?? "time") : "time",
-      recovery_between_reps_distance_m: s.kind === "work" ? (s.recovery_between_reps_distance_m ?? null) : null,
-      recovery_between_sets_seconds:
-        s.kind === "work" && (s.set_count ?? 1) > 1 ? (s.recovery_between_sets_seconds ?? null) : null,
-      recovery_between_sets_mode:
-        s.kind === "work" && (s.set_count ?? 1) > 1 ? (s.recovery_between_sets_mode ?? null) : null,
-      recovery_between_sets_target_kind:
-        s.kind === "work" && (s.set_count ?? 1) > 1 ? (s.recovery_between_sets_target_kind ?? "time") : "time",
-      recovery_between_sets_distance_m:
-        s.kind === "work" && (s.set_count ?? 1) > 1 ? (s.recovery_between_sets_distance_m ?? null) : null,
-      recovery_mode: s.recovery_mode ?? null,
-      recovery_target_kind: s.recovery_target_kind ?? null,
-      recovery_target_seconds: s.recovery_target_seconds ?? null,
-      recovery_target_distance_m: s.recovery_target_distance_m ?? null,
-      notes: s.notes ?? null,
-    }));
+    const stepRows = stepsToSave.map((s, i) => {
+  const mode =
+    s.kind === "work"
+      ? (s.target_mode ?? inferWorkoutTargetMode(s as any))
+      : null;
+
+  const cleaned =
+    s.kind === "work" && mode
+      ? clearModePayload(mode, s)
+      : s;
+
+  return {
+    session_id: sess.id,
+    step_order: i + 1,
+
+    kind: cleaned.kind,
+    reps: cleaned.reps,
+
+    set_count:
+      cleaned.kind === "work"
+        ? Math.max(1, cleaned.set_count ?? 1)
+        : 1,
+
+    target_kind: cleaned.target_kind ?? null,
+    target_distance_m: cleaned.target_distance_m ?? null,
+    target_time_seconds: cleaned.target_time_seconds ?? null,
+
+    target_mode: mode,
+    target_pace_sec_per_km: cleaned.target_pace_sec_per_km ?? null,
+    target_threshold_pace_pct: cleaned.target_threshold_pace_pct ?? null,
+    target_threshold_hr_pct: cleaned.target_threshold_hr_pct ?? null,
+    target_zone: cleaned.target_zone ?? null,
+    target_rpe: cleaned.target_rpe ?? null,
+
+    is_ladder:
+      cleaned.kind === "work"
+        ? !!cleaned.is_ladder
+        : false,
+
+    counts_toward_distance:
+      cleaned.counts_toward_distance ?? true,
+
+    recovery_between_reps_seconds:
+      cleaned.kind === "work"
+        ? (cleaned.recovery_between_reps_seconds ?? null)
+        : null,
+
+    recovery_between_reps_mode:
+      cleaned.kind === "work"
+        ? (cleaned.recovery_between_reps_mode ?? null)
+        : null,
+
+    recovery_between_reps_target_kind:
+      cleaned.kind === "work"
+        ? (cleaned.recovery_between_reps_target_kind ?? "time")
+        : "time",
+
+    recovery_between_reps_distance_m:
+      cleaned.kind === "work"
+        ? (cleaned.recovery_between_reps_distance_m ?? null)
+        : null,
+
+    recovery_between_sets_seconds:
+      cleaned.kind === "work" &&
+      (cleaned.set_count ?? 1) > 1
+        ? (cleaned.recovery_between_sets_seconds ?? null)
+        : null,
+
+    recovery_between_sets_mode:
+      cleaned.kind === "work" &&
+      (cleaned.set_count ?? 1) > 1
+        ? (cleaned.recovery_between_sets_mode ?? null)
+        : null,
+
+    recovery_between_sets_target_kind:
+      cleaned.kind === "work" &&
+      (cleaned.set_count ?? 1) > 1
+        ? (cleaned.recovery_between_sets_target_kind ?? "time")
+        : "time",
+
+    recovery_between_sets_distance_m:
+      cleaned.kind === "work" &&
+      (cleaned.set_count ?? 1) > 1
+        ? (cleaned.recovery_between_sets_distance_m ?? null)
+        : null,
+
+    recovery_mode: cleaned.recovery_mode ?? null,
+    recovery_target_kind: cleaned.recovery_target_kind ?? null,
+    recovery_target_seconds: cleaned.recovery_target_seconds ?? null,
+    recovery_target_distance_m: cleaned.recovery_target_distance_m ?? null,
+
+    notes: cleaned.notes ?? null,
+  };
+});
     const { error: stepErr } = await supabase.from("steps").insert(stepRows);
     if (stepErr) {
       toast.error(stepErr.message);
