@@ -8,6 +8,7 @@ import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ReadinessBadge } from "@/components/readiness-badge";
+import { CoachAthletePicker } from "@/components/coach-athlete-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   ResponsiveContainer,
@@ -170,12 +171,12 @@ function CoachRoster({
     enabled: !!user,
     queryFn: async () => {
       if (isManager) {
-        const { data } = await supabase.from("athletes").select("id, name, primary_event").order("name");
+        const { data } = await supabase.from("athletes").select("id, name, primary_event, profile_image_url").order("name");
         return (data ?? []).map((a: any) => ({ athlete_id: a.id, athletes: a }));
       }
       const { data } = await supabase
         .from("coach_athletes")
-        .select("athlete_id, athletes(id, name, primary_event)")
+        .select("athlete_id, athletes(id, name, primary_event, profile_image_url)")
         .eq("coach_user_id", user!.id);
       return data ?? [];
     },
@@ -348,6 +349,30 @@ function AthleteAnalytics({
   const days = RANGES[range].days;
   const since = customFrom ?? isoDaysAgo(days);
   // (We still cap analytics queries by "since"; "to" is applied client-side where it matters.)
+
+  // Own roster fetch — mirrors CoachRoster's query — so a coach can switch
+  // directly to another athlete from within this scoped view via
+  // CoachAthletePicker, not just navigate back to the roster page first.
+  const navigate = useNavigate({ from: Route.fullPath });
+  const { user } = useAuthUser();
+  const { data: rawRoles = [] } = useMyRawRoles();
+  const isManager = rawRoles.includes("manager");
+  const { data: myAthlete } = useMyAthlete();
+  const { data: roster } = useQuery({
+    queryKey: ["analytics-roster", user?.id, isManager],
+    enabled: !!user && showBack,
+    queryFn: async () => {
+      if (isManager) {
+        const { data } = await supabase.from("athletes").select("id, name, profile_image_url").order("name");
+        return data ?? [];
+      }
+      const { data } = await supabase
+        .from("coach_athletes")
+        .select("athletes(id, name, profile_image_url)")
+        .eq("coach_user_id", user!.id);
+      return ((data ?? []) as any[]).map((r) => r.athletes).filter(Boolean);
+    },
+  });
 
   // Navigating here from another athlete's Analytics link (or the roster)
   // is a client-side route change, so the browser won't reset scroll on
@@ -731,13 +756,23 @@ function AthleteAnalytics({
             />
           </div>
         </div>
-        <RangePicker
-          value={range}
-          onChange={onRangeChange}
-          customFrom={customFrom}
-          customTo={customTo}
-          onCustomRange={onCustomRange}
-        />
+        <div className="flex items-center gap-2 flex-wrap">
+          {showBack && (
+            <CoachAthletePicker
+              roster={roster ?? []}
+              myAthlete={myAthlete as any}
+              value={athleteId}
+              onChange={(v) => navigate({ search: (p: any) => ({ ...p, athleteId: v }) })}
+            />
+          )}
+          <RangePicker
+            value={range}
+            onChange={onRangeChange}
+            customFrom={customFrom}
+            customTo={customTo}
+            onCustomRange={onCustomRange}
+          />
+        </div>
       </div>
 
       {showBack && <AthleteSubnav athleteId={athleteId} active="analytics" />}
