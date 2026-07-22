@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { CoachAthletePicker } from "@/components/coach-athlete-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { metersFmt, secToClock, clockToSec, todayISO } from "@/lib/format";
@@ -125,7 +126,7 @@ function RacesPage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("coach_athletes")
-        .select("athletes(id, name, primary_event)")
+        .select("athletes(id, name, primary_event, profile_image_url)")
         .eq("coach_user_id", user!.id);
 
       return (data ?? []).map((r: any) => r.athletes).filter(Boolean);
@@ -170,39 +171,26 @@ function RacesPage() {
             <Trophy className="h-5 w-5 text-[var(--accent-red)]" />
             <h1 className="text-2xl font-bold">Race results</h1>
           </div>
-          {activeAthleteId && (
-            <Button asChild variant="outline" size="sm">
-              <Link to="/app/race-tactics" search={{ athleteId: activeAthleteId } as any}>
-                <Flag className="h-4 w-4 mr-1" /> Race Tactics
-              </Link>
-            </Button>
-          )}
+          <div className="flex items-center gap-2 flex-wrap">
+            {isCoach && (
+              <CoachAthletePicker
+                roster={roster ?? []}
+                myAthlete={myAthlete as any}
+                value={activeAthleteId}
+                onChange={setAthleteId}
+              />
+            )}
+            {activeAthleteId && (
+              <Button asChild variant="outline" size="sm">
+                <Link to="/app/race-tactics" search={{ athleteId: activeAthleteId } as any}>
+                  <Flag className="h-4 w-4 mr-1" /> Race Tactics
+                </Link>
+              </Button>
+            )}
+          </div>
         </div>
 
         {isCoach && activeAthleteId && <AthleteSubnav athleteId={activeAthleteId} active="races" />}
-
-        {isCoach && (
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Athlete</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Select value={activeAthleteId} onValueChange={setAthleteId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Pick athlete" />
-                </SelectTrigger>
-                <SelectContent>
-                  {myAthlete && <SelectItem value={myAthlete.id}>{myAthlete.name} (me)</SelectItem>}
-                  {(roster ?? []).map((a: any) => (
-                    <SelectItem key={a.id} value={a.id}>
-                      {a.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </CardContent>
-          </Card>
-        )}
 
         {activeAthleteId ? (
           <RaceList athleteId={activeAthleteId} primaryEvent={activeAthlete?.primary_event ?? null} />
