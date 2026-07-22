@@ -826,7 +826,139 @@ type StepEditorProps = {
   anchored?: "top" | "bottom";
   structure?: string;
 };
+function WorkTargetModeFields({
+  step,
+  onUpdate,
+}: {
+  step: StepDraft;
+  onUpdate: (p: Partial<StepDraft>) => void;
+}) {
+  const mode = step.target_mode ?? inferWorkoutTargetMode(step as any) ?? "pace";
 
+  function updateMode(next: WorkoutTargetMode) {
+    onUpdate(clearModePayload(next, { ...step, target_mode: next }));
+  }
+
+  return (
+    <div className="col-span-2 rounded-md border p-2 space-y-2">
+      <div>
+        <Label className="text-xs">Target mode</Label>
+        <Select value={mode} onValueChange={(v) => updateMode(v as WorkoutTargetMode)}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="pace">Pace</SelectItem>
+            <SelectItem value="threshold_pace_pct">Threshold pace percent</SelectItem>
+            <SelectItem value="threshold_hr_pct">Threshold HR percent</SelectItem>
+            <SelectItem value="zone">Zone</SelectItem>
+            <SelectItem value="rpe">RPE</SelectItem>
+            <SelectItem value="open">Open / no target</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {mode === "pace" && (
+        <div>
+          <Label className="text-xs">Target pace mm:ss /km</Label>
+          <Input
+            placeholder="3:30"
+            defaultValue={step.target_pace_sec_per_km ? secToClock(step.target_pace_sec_per_km) : ""}
+            onChange={(e) => onUpdate({ target_pace_sec_per_km: clockToSec(e.target.value) })}
+          />
+        </div>
+      )}
+
+      {mode === "threshold_pace_pct" && (
+        <div>
+          <Label className="text-xs">Threshold pace percent</Label>
+          <Input
+            type="number"
+            placeholder="100"
+            value={step.target_threshold_pace_pct ?? ""}
+            onChange={(e) =>
+              onUpdate({
+                target_threshold_pace_pct: e.target.value === "" ? null : Number(e.target.value),
+              })
+            }
+          />
+          <p className="text-[11px] text-muted-foreground mt-1">
+            Example: 100 means threshold pace. 95 means slightly slower than threshold.
+          </p>
+        </div>
+      )}
+
+      {mode === "threshold_hr_pct" && (
+        <div>
+          <Label className="text-xs">Threshold HR percent</Label>
+          <Input
+            type="number"
+            placeholder="95"
+            value={step.target_threshold_hr_pct ?? ""}
+            onChange={(e) =>
+              onUpdate({
+                target_threshold_hr_pct: e.target.value === "" ? null : Number(e.target.value),
+              })
+            }
+          />
+          <p className="text-[11px] text-muted-foreground mt-1">
+            Example: 95 means 95 percent of threshold heart rate.
+          </p>
+        </div>
+      )}
+
+      {mode === "zone" && (
+        <div>
+          <Label className="text-xs">Zone</Label>
+          <Select
+            value={step.target_zone ?? "z3"}
+            onValueChange={(v) => onUpdate({ target_zone: v as WorkoutTargetZone })}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {WORKOUT_TARGET_ZONES.map((z: any) => {
+                const value = typeof z === "string" ? z : z.value;
+                const label = typeof z === "string" ? z.toUpperCase() : z.label;
+
+                return (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                );
+              })}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {mode === "rpe" && (
+        <div>
+          <Label className="text-xs">RPE</Label>
+          <Input
+            type="number"
+            min={1}
+            max={10}
+            placeholder="6"
+            value={step.target_rpe ?? ""}
+            onChange={(e) =>
+              onUpdate({
+                target_rpe: e.target.value === "" ? null : Number(e.target.value),
+              })
+            }
+          />
+        </div>
+      )}
+
+      {mode === "open" && (
+        <p className="text-[11px] text-muted-foreground">
+          No fixed intensity target. Useful for less advanced athletes, easy aerobic work, or sessions guided by feel.
+        </p>
+      )}
+    </div>
+  );
+}
 function StepFields({
   step: s,
   onUpdate,
@@ -876,14 +1008,7 @@ function StepFields({
               />
             </div>
           )}
-          <div className="col-span-2">
-            <Label className="text-xs">Target pace (mm:ss /km)</Label>
-            <Input
-              placeholder="5:00"
-              defaultValue={s.target_pace_sec_per_km ? secToClock(s.target_pace_sec_per_km) : ""}
-              onChange={(e) => onUpdate({ target_pace_sec_per_km: clockToSec(e.target.value) })}
-            />
-          </div>
+          <WorkTargetModeFields2  step={s}3  onUpdate={onUpdate}4/>
         </div>
       );
     }
@@ -931,12 +1056,7 @@ function StepFields({
             <Input placeholder="3:00" onChange={(e) => onUpdate({ target_time_seconds: clockToSec(e.target.value) })} />
           </div>
         )}
-        <div className="col-span-2">
-          <Label className="text-xs">Target pace (mm:ss /km)</Label>
-          <Input
-            placeholder="3:30"
-            onChange={(e) => onUpdate({ target_pace_sec_per_km: clockToSec(e.target.value) })}
-          />
+        <WorkTargetModeFields2  step={s}3  onUpdate={onUpdate}4/>
         </div>
 
         {/* Recovery between reps */}
