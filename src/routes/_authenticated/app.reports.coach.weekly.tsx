@@ -2,23 +2,23 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useMyRoles, useAuthUser } from "@/lib/use-auth";
+import { useMyAthlete, useMyRoles, useAuthUser } from "@/lib/use-auth";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { CoachAthletePicker } from "@/components/coach-athlete-picker";
 import { metersFmt, secToClock, todayISO } from "@/lib/format";
 import { toast } from "sonner";
-import { Printer, Mail, Users } from "lucide-react";
+import { Printer, Mail, FileText } from "lucide-react";
 
-// NOTE: this file's actual path is app.reports.coach.weekly.tsx (dots),
-// serving /app/reports/coach/weekly — the createFileRoute string below
+// NOTE: this file's actual path is app.reports.athlete.weekly.tsx (dots),
+// serving /app/reports/athlete/weekly — the createFileRoute string below
 // must match that exactly, or the route silently drops from the tree.
-export const Route = createFileRoute("/_authenticated/app/reports/coach/weekly")({
-  component: CoachRosterSummaryPage,
+export const Route = createFileRoute("/_authenticated/app/reports/athlete/weekly")({
+  component: AthleteReportPage,
 });
 
 type PeriodType = "weekly" | "monthly" | "custom";
@@ -39,7 +39,7 @@ function monthStart(dateStr: string) {
 }
 function monthEnd(dateStr: string) {
   const [y, m] = dateStr.split("-").map(Number);
-  const d = new Date(Date.UTC(y, m, 0));
+  const d = new Date(Date.UTC(y, m, 0)); // day 0 of next month = last day of this month
   return d.toISOString().slice(0, 10);
 }
 function formatDateLong(dateStr: string) {
@@ -51,9 +51,24 @@ function periodLabel(type: PeriodType) {
   return "Custom period";
 }
 
-// Mirrors the same vocabulary/colors used on the Athlete Report's type
-// breakdown, kept local to this file per this project's convention of not
-// sharing small helpers across report pages.
+// Session type vocabulary — mirrors sessions.intent (the same values
+// session-files.functions.ts's classifier and the Training Plans
+// effort_type→intent mapping already produce), plus one bucket per
+// cross-training activity_type (gym/ride/swim) and a catch-all "other" for
+// anything with no intent set (rest days, unclassified manual entries).
+// Cross-training used to be a single lumped "Cross-train" bucket — split
+// out once activity_type existed to fill it, so a coach can actually see
+// "how much gym vs bike vs swim" instead of one undifferentiated blob.
+// "cross_train" is kept as a further fallback for any cross_training-day
+// session with no activity_type set (older data, or a manual entry that
+// predates this field). Shared shape for both the type-breakdown bars here
+// and the per-athlete mini graph on the coach report.
+// Same 6-zone palette used everywhere else (Zones card, calendar,
+// session/race analysis) — was previously a separate, uncoordinated color
+// set here, and was also missing "aerobic" and "anaerobic" as valid
+// categories entirely (a session classified as either would silently never
+// show up in the breakdown below, which is why "Easy" sessions that
+// actually classified as Z2/aerobic looked like they'd vanished).
 const SESSION_TYPES: { key: string; label: string; color: string }[] = [
   { key: "easy", label: "Easy", color: "#34d399" },
   { key: "aerobic", label: "Aerobic", color: "#38bdf8" },
@@ -61,37 +76,70 @@ const SESSION_TYPES: { key: string; label: string; color: string }[] = [
   { key: "threshold", label: "Threshold", color: "#f97316" },
   { key: "vo2", label: "VO2", color: "#ef4444" },
   { key: "anaerobic", label: "Anaerobic", color: "#9333ea" },
-  { key: "cross_train", label: "Cross-train", color: "#94a3b8" },
+  { key: "gym", label: "Gym", color: "#a78bfa" },
+  { key: "ride", label: "Ride", color: "#22c55e" },
+  { key: "swim", label: "Swim", color: "#06b6d4" },
+  { key: "cross_train", label: "Cross-train (other)", color: "#94a3b8" },
   { key: "other", label: "Other", color: "#d6d3d1" },
 ];
-function sessionTypeCounts(sessions: any[]): Record<string, number> {
-  const counts: Record<string, number> = {};
-  for (const s of sessions) {
-    const key = s.intent ?? (s.day_type === "cross_training" ? "cross_train" : "other");
-    counts[key] = (counts[key] ?? 0) + 1;
+
+// Single source of truth for "what bucket does this session fall into" —
+// used by both sessionTypeStats (the breakdown bars) and the per-row dot
+// in the session list below, so the two can never disagree with each
+// other about how a given session is classified.
+function sessionTypeKey(s: { intent?: string | null; day_type?: string | null; activity_type?: string | null }): string {
+  if (s.intent) return s.intent;
+  if (s.day_type === "cross_training") {
+    if (s.activity_type === "gym" || s.activity_type === "ride" || s.activity_type === "swim") {
+      return s.activity_type;
+    }
+    return "cross_train";
   }
-  return counts;
+  return "other";
 }
 
-// Compact per-athlete-row bar — a single stacked bar rather than a full
-// legend-and-bars breakdown (that's the Athlete Report's job), since this
-// needs to fit on one line next to a dozen other roster rows.
-function MiniTypeBar({ counts }: { counts: Record<string, number> }) {
-  const total = Object.values(counts).reduce((a, b) => a + b, 0);
-  if (total === 0) return <div className="h-1.5 w-24 rounded-full bg-muted" />;
-  return (
-    <div className="h-1.5 w-24 rounded-full overflow-hidden flex bg-muted" title="Sessions by type">
-      {SESSION_TYPES.filter((t) => (counts[t.key] ?? 0) > 0).map((t) => (
-        <div key={t.key} style={{ width: `${((counts[t.key] ?? 0) / total) * 100}%`, backgroundColor: t.color }} />
-      ))}
-    </div>
-  );
+// Distance/time per type, so pace can be shown per type rather than one
+// blended overall number — averaging an easy run's pace with a VO2
+// interval's pace produces a figure that doesn't actually represent either
+// of them. Warmup, cooldown, and recovery ARE included (they're real
+// continuous effort, same as the classifier already treats them) — only
+// genuinely stopped/idle time is excluded, via total_moving_time_seconds
+// (elapsed time minus detected real stops), the same "moving time" the
+// session Overview page's own Total Avg Pace already prefers, for the
+// same reason: a shoe-change pause or a gap between merged files shouldn't
+// make the pace look slower than the athlete actually ran.
+function sessionTypeStats(sessions: any[]): Record<string, { count: number; distance: number; time: number }> {
+  const stats: Record<string, { count: number; distance: number; time: number }> = {};
+  for (const s of sessions) {
+    const key = sessionTypeKey(s);
+    const cur = stats[key] ?? { count: 0, distance: 0, time: 0 };
+    cur.count += 1;
+    cur.distance += Number(s.total_distance_m ?? 0);
+    cur.time += Number(s.total_moving_time_seconds ?? s.total_time_seconds ?? 0);
+    stats[key] = cur;
+  }
+  return stats;
 }
 
-function CoachRosterSummaryPage() {
+function AthleteReportPage() {
   const { user } = useAuthUser();
   const { data: roles = [] } = useMyRoles();
+  const { data: myAthlete } = useMyAthlete();
   const isCoach = roles.includes("coach");
+
+  const { data: roster } = useQuery({
+    queryKey: ["reports-roster", user?.id, isCoach],
+    enabled: !!user && isCoach,
+    queryFn: async () => {
+      const { data } = await supabase.from("coach_athletes").select("athletes(id, name, profile_image_url)").eq("coach_user_id", user!.id);
+      return (data ?? []).map((r: any) => r.athletes).filter(Boolean);
+    },
+  });
+
+  const [athleteId, setAthleteId] = useState<string>("");
+  const activeAthleteId = athleteId || myAthlete?.id || "";
+  const activeAthleteName =
+    activeAthleteId === myAthlete?.id ? myAthlete?.name : (roster ?? []).find((a: any) => a.id === activeAthleteId)?.name;
 
   const [periodType, setPeriodType] = useState<PeriodType>("weekly");
   const [anchor, setAnchor] = useState(todayISO());
@@ -103,129 +151,143 @@ function CoachRosterSummaryPage() {
   const periodEnd =
     periodType === "weekly" ? addDaysISO(periodStart, 6) : periodType === "monthly" ? monthEnd(anchor) : customTo;
   const periodValid = periodStart <= periodEnd;
-  const isPastOrCurrentDay = (d: string) => d <= todayISO();
 
   const [generated, setGenerated] = useState(false);
   const [emailTo, setEmailTo] = useState(user?.email ?? "");
   const [sending, setSending] = useState(false);
 
-  const { data: roster } = useQuery({
-    queryKey: ["coach-roster-summary-roster", user?.id],
-    enabled: !!user && isCoach,
-    queryFn: async () => {
-      const { data } = await supabase.from("coach_athletes").select("athletes(id, name)").eq("coach_user_id", user!.id);
-      return (data ?? []).map((r: any) => r.athletes).filter(Boolean);
-    },
-  });
-  const athleteIds = (roster ?? []).map((a: any) => a.id);
+  const enabled = generated && !!activeAthleteId && periodValid;
 
-  const enabled = generated && athleteIds.length > 0 && periodValid;
-
-  const { data: sessions, isFetching: loading } = useQuery({
-    queryKey: ["coach-report-sessions", athleteIds.join(","), periodStart, periodEnd],
+  const { data: sessions, isFetching: sessionsLoading } = useQuery({
+    queryKey: ["report-sessions", activeAthleteId, periodStart, periodEnd],
     enabled,
     queryFn: async () => {
       const { data } = await supabase
         .from("sessions")
-        .select("athlete_id, total_distance_m, total_time_seconds, total_moving_time_seconds, rpe, completed_at, is_planned, session_date, intent, day_type")
-        .in("athlete_id", athleteIds)
+        .select("id, title, session_date, total_distance_m, total_time_seconds, total_moving_time_seconds, rpe, completed_at, day_type, intent, activity_type")
+        .eq("athlete_id", activeAthleteId)
         .gte("session_date", periodStart)
-        .lte("session_date", periodEnd);
+        .lte("session_date", periodEnd)
+        .order("session_date", { ascending: true });
       return data ?? [];
     },
   });
 
-  const { data: distanceRows } = useQuery({
-    queryKey: ["coach-report-distance", athleteIds.join(","), periodStart],
+  const { data: weeklyDistanceRow } = useQuery({
+    queryKey: ["report-weekly-distance", activeAthleteId, periodStart],
     enabled: enabled && periodType === "weekly",
     queryFn: async () => {
       const { data } = await supabase
         .from("athlete_weekly_distance" as any)
         .select("*")
-        .in("athlete_id", athleteIds)
-        .eq("week_start", periodStart);
+        .eq("athlete_id", activeAthleteId)
+        .eq("week_start", periodStart)
+        .maybeSingle();
+      return data as any;
+    },
+  });
+
+  const { data: zoneTime } = useQuery({
+    queryKey: ["report-zone-time", activeAthleteId, periodStart, periodEnd],
+    enabled,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("athlete_zone_time_weekly" as any)
+        .select("*")
+        .eq("athlete_id", activeAthleteId)
+        .gte("week_start", weekStartMonday(periodStart))
+        .lte("week_start", periodEnd);
       return (data ?? []) as any[];
     },
   });
 
   const { data: loadRows } = useQuery({
-    queryKey: ["coach-report-load", athleteIds.join(","), periodStart, periodEnd],
+    queryKey: ["report-load", activeAthleteId, periodStart, periodEnd],
     enabled,
     queryFn: async () => {
       const { data } = await supabase
         .from("athlete_load_daily")
         .select("*")
-        .in("athlete_id", athleteIds)
+        .eq("athlete_id", activeAthleteId)
         .gte("load_date", periodStart)
         .lte("load_date", periodEnd)
         .order("load_date", { ascending: true });
-      return (data ?? []) as any[];
+      return data ?? [];
     },
   });
 
-  const rows = useMemo(() => {
-    const list = roster ?? [];
-    const sessionsByAthlete = new Map<string, any[]>();
-    for (const s of sessions ?? []) {
-      const arr = sessionsByAthlete.get(s.athlete_id) ?? [];
-      arr.push(s);
-      sessionsByAthlete.set(s.athlete_id, arr);
+  const { data: allPerformances } = useQuery({
+    queryKey: ["report-performances", activeAthleteId],
+    enabled,
+    queryFn: async () => {
+      const { data } = await supabase.from("performances").select("*").eq("athlete_id", activeAthleteId);
+      return data ?? [];
+    },
+  });
+
+  const { data: feelRows } = useQuery({
+    queryKey: ["report-feel", activeAthleteId, periodStart, periodEnd, (sessions ?? []).map((s: any) => s.id).join(",")],
+    enabled: enabled && (sessions ?? []).length > 0,
+    queryFn: async () => {
+      const ids = (sessions ?? []).map((s: any) => s.id);
+      if (ids.length === 0) return [];
+      const { data } = await supabase.from("session_insights").select("session_id, feel_score").in("session_id", ids);
+      return data ?? [];
+    },
+  });
+
+  const periodPbs = useMemo(() => {
+    if (!allPerformances) return [];
+    const bestByKey = new Map<string, number>();
+    for (const p of allPerformances) {
+      if (p.time_seconds == null) continue;
+      const key = `${p.distance_m}-${p.race_type ?? "none"}`;
+      const cur = bestByKey.get(key);
+      if (cur == null || p.time_seconds < cur) bestByKey.set(key, p.time_seconds);
     }
-    const distanceByAthlete = new Map((distanceRows ?? []).map((r: any) => [r.athlete_id, r]));
-    const lastLoadByAthlete = new Map<string, any>();
-    for (const r of loadRows ?? []) lastLoadByAthlete.set(r.athlete_id, r);
-
-    return list.map((a: any) => {
-      const athleteSessions = sessionsByAthlete.get(a.id) ?? [];
-      const completed = athleteSessions.filter((s) => s.completed_at);
-      const missed = athleteSessions.filter(
-        (s) => s.is_planned && !s.completed_at && isPastOrCurrentDay(s.session_date),
-      );
-      const distanceRow = periodType === "weekly" ? distanceByAthlete.get(a.id) : null;
-      const distance = distanceRow?.distance_m ?? completed.reduce((x: number, s: any) => x + (s.total_distance_m ?? 0), 0);
-      // Avg pace deliberately sums distance/time straight from this
-      // athlete's own completed sessions here (not the pre-aggregated
-      // weekly-distance view used for `distance` above) — keeps the
-      // numerator and denominator from the same source. Uses moving time
-      // (elapsed minus detected stops), same as the Athlete Report and the
-      // session Overview page's own Total Avg Pace — a shoe-change pause
-      // or a gap between merged files shouldn't drag pace down.
-      const paceDistance = completed.reduce((x: number, s: any) => x + (s.total_distance_m ?? 0), 0);
-      const paceTime = completed.reduce(
-        (x: number, s: any) => x + (s.total_moving_time_seconds ?? s.total_time_seconds ?? 0),
-        0,
-      );
-      const avgPace = paceDistance > 0 && paceTime > 0 ? (paceTime / paceDistance) * 1000 : null;
-      const load = lastLoadByAthlete.get(a.id);
-      const typeCounts = sessionTypeCounts(completed);
-
-      const flags: string[] = [];
-      if (athleteSessions.length === 0) flags.push("No sessions logged");
-      if (missed.length > 0) flags.push(`${missed.length} missed`);
-      if (load?.tsb != null && load.tsb < -25) flags.push("High fatigue");
-
-      return {
-        id: a.id,
-        name: a.name,
-        plannedCount: athleteSessions.length,
-        completedCount: completed.length,
-        distance,
-        avgPace,
-        typeCounts,
-        ctl: load?.ctl ?? null,
-        atl: load?.atl ?? null,
-        tsb: load?.tsb ?? null,
-        flags,
-      };
+    return allPerformances.filter((p: any) => {
+      if (p.performance_date < periodStart || p.performance_date > periodEnd) return false;
+      const key = `${p.distance_m}-${p.race_type ?? "none"}`;
+      return bestByKey.get(key) === p.time_seconds;
     });
-  }, [roster, sessions, distanceRows, loadRows, periodType]);
+  }, [allPerformances, periodStart, periodEnd]);
 
-  const totals = useMemo(() => {
-    const totalDistance = rows.reduce((a, r) => a + (r.distance ?? 0), 0);
-    const totalSessions = rows.reduce((a, r) => a + r.completedCount, 0);
-    const flaggedCount = rows.filter((r) => r.flags.length > 0).length;
-    return { athletes: rows.length, totalDistance, totalSessions, flaggedCount };
-  }, [rows]);
+  const stats = useMemo(() => {
+    const list = sessions ?? [];
+    const completed = list.filter((s: any) => s.completed_at);
+    const totalDistance =
+      periodType === "weekly"
+        ? (weeklyDistanceRow?.distance_m ?? completed.reduce((a, s) => a + (s.total_distance_m ?? 0), 0))
+        : completed.reduce((a: number, s: any) => a + (s.total_distance_m ?? 0), 0);
+    const totalTime = completed.reduce(
+      (a: number, s: any) => a + (s.total_moving_time_seconds ?? s.total_time_seconds ?? 0),
+      0,
+    );
+    const rpes = completed.map((s: any) => s.rpe).filter((v: any) => v != null);
+    const avgRpe = rpes.length ? rpes.reduce((a: number, b: number) => a + b, 0) / rpes.length : null;
+    const feels = (feelRows ?? []).map((r: any) => r.feel_score).filter((v: any) => v != null);
+    const avgFeel = feels.length ? feels.reduce((a: number, b: number) => a + b, 0) / feels.length : null;
+    const periodLoad = (loadRows ?? []).reduce((a: number, r: any) => a + (Number(r.training_load) || 0), 0);
+    const lastLoadRow = (loadRows ?? [])[(loadRows ?? []).length - 1];
+    return {
+      total: list.length,
+      completedCount: completed.length,
+      totalDistance,
+      totalTime,
+      avgPace: totalDistance > 0 && totalTime > 0 ? (totalTime / totalDistance) * 1000 : null,
+      avgRpe,
+      avgFeel,
+      periodLoad,
+      ctl: lastLoadRow?.ctl ?? null,
+      atl: lastLoadRow?.atl ?? null,
+      tsb: lastLoadRow?.tsb ?? null,
+    };
+  }, [sessions, weeklyDistanceRow, feelRows, loadRows, periodType]);
+
+  const typeStats = useMemo(() => sessionTypeStats((sessions ?? []).filter((s: any) => s.completed_at)), [sessions]);
+
+  const paceZones = (zoneTime ?? []).filter((r: any) => r.source === "pace");
+  const hrZones = (zoneTime ?? []).filter((r: any) => r.source === "hr");
 
   async function sendEmail() {
     if (!emailTo) {
@@ -233,12 +295,12 @@ function CoachRosterSummaryPage() {
       return;
     }
     setSending(true);
-    const el = document.getElementById("coach-report-printable");
-    const html = `<div style="font-family: Arial, sans-serif; color:#111; max-width:720px;">${el?.innerHTML ?? ""}</div>`;
+    const el = document.getElementById("report-printable");
+    const html = `<div style="font-family: Arial, sans-serif; color:#111; max-width:640px;">${el?.innerHTML ?? ""}</div>`;
     const { error } = await supabase.functions.invoke("send-report-email", {
       body: {
         to: emailTo,
-        subject: `Coach Roster Summary — ${formatDateLong(periodStart)} – ${formatDateLong(periodEnd)}`,
+        subject: `${activeAthleteName ?? "Athlete"} — Report (${formatDateLong(periodStart)} – ${formatDateLong(periodEnd)})`,
         html,
       },
     });
@@ -250,28 +312,34 @@ function CoachRosterSummaryPage() {
     toast.success("Report emailed");
   }
 
-  if (!isCoach) {
-    return (
-      <AppShell>
-        <p className="text-sm text-muted-foreground">This report is only available to coaches.</p>
-      </AppShell>
-    );
-  }
-
   return (
     <AppShell>
-      <div className="space-y-6 max-w-5xl print:max-w-none">
+      <div className="space-y-6 max-w-4xl print:max-w-none">
         <div className="flex items-center gap-2 print:hidden">
-          <Users className="h-5 w-5 text-[var(--accent-red)]" />
-          <h1 className="text-2xl font-bold">Coach Roster Summary</h1>
+          <FileText className="h-5 w-5 text-[var(--accent-red)]" />
+          <h1 className="text-2xl font-bold">Athlete Report</h1>
         </div>
 
         <Card className="print:hidden">
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Report settings</CardTitle>
-            <CardDescription>Roster-wide, one row per athlete. Nothing here is AI-written.</CardDescription>
+            <CardDescription>
+              Pick an athlete and a time frame, then generate. Nothing here is AI-written — every number is pulled
+              straight from recorded data.
+            </CardDescription>
           </CardHeader>
           <CardContent className="grid sm:grid-cols-4 gap-3 items-end">
+            {isCoach && (
+              <div>
+                <Label className="text-xs">Athlete</Label>
+                <CoachAthletePicker
+                  roster={roster ?? []}
+                  myAthlete={myAthlete as any}
+                  value={activeAthleteId}
+                  onChange={(v) => { setAthleteId(v); setGenerated(false); }}
+                />
+              </div>
+            )}
             <div>
               <Label className="text-xs">Time frame</Label>
               <Select value={periodType} onValueChange={(v) => { setPeriodType(v as PeriodType); setGenerated(false); }}>
@@ -302,14 +370,14 @@ function CoachRosterSummaryPage() {
               </>
             )}
 
-            <Button onClick={() => setGenerated(true)} disabled={athleteIds.length === 0 || !periodValid}>
+            <Button onClick={() => setGenerated(true)} disabled={!activeAthleteId || !periodValid}>
               Generate report
             </Button>
             {!periodValid && <p className="text-xs text-destructive sm:col-span-4">"From" must be before "To".</p>}
           </CardContent>
         </Card>
 
-        {generated && periodValid && (
+        {generated && activeAthleteId && periodValid && (
           <>
             <div className="flex items-center gap-2 print:hidden">
               <Button size="sm" variant="outline" onClick={() => window.print()}>
@@ -327,64 +395,80 @@ function CoachRosterSummaryPage() {
               </Button>
             </div>
 
-            {loading ? (
+            {sessionsLoading ? (
               <p className="text-sm text-muted-foreground">Building report…</p>
             ) : (
-              <div id="coach-report-printable" className="space-y-6">
+              <div id="report-printable" className="space-y-6">
                 <div>
-                  <h2 className="text-xl font-bold">Coach Roster Summary — {periodLabel(periodType)}</h2>
+                  <h2 className="text-xl font-bold">{activeAthleteName ?? "Athlete"} — {periodLabel(periodType)} Report</h2>
                   <p className="text-sm text-muted-foreground">
                     {formatDateLong(periodStart)} – {formatDateLong(periodEnd)}
                   </p>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <StatBox label="Athletes" value={String(totals.athletes)} />
-                  <StatBox label="Roster distance" value={metersFmt(totals.totalDistance)} />
-                  <StatBox label="Sessions completed" value={String(totals.totalSessions)} />
-                  <StatBox label="Flagged" value={String(totals.flaggedCount)} />
+                  <StatBox label="Sessions" value={`${stats.completedCount}/${stats.total}`} sub="completed / planned" />
+                  <StatBox label="Distance" value={metersFmt(stats.totalDistance)} />
+                  <StatBox label="Time" value={secToClock(stats.totalTime)} />
+                  <StatBox label="Total load" value={stats.periodLoad ? String(Math.round(stats.periodLoad)) : "—"} />
+                  <StatBox label="Fitness" value={stats.ctl != null ? String(Math.round(stats.ctl)) : "—"} />
+                  <StatBox label="Form" value={stats.tsb != null ? String(Math.round(stats.tsb)) : "—"} />
+                  <StatBox label="Fatigue" value={stats.atl != null ? String(Math.round(stats.atl)) : "—"} />
                 </div>
 
+                <TypeBreakdownCard stats={typeStats} />
+
                 <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base">By athlete</CardTitle>
-                  </CardHeader>
+                  <CardHeader className="pb-2"><CardTitle className="text-base">Sessions in this period</CardTitle></CardHeader>
                   <CardContent className="p-0">
-                    {rows.length === 0 ? (
-                      <p className="p-4 text-sm text-muted-foreground">No athletes on your roster.</p>
+                    {!sessions?.length ? (
+                      <p className="p-4 text-sm text-muted-foreground">No sessions logged in this period.</p>
                     ) : (
-                      <div className="divide-y">
-                        {rows.map((r) => (
-                          <div key={r.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
-                            <div className="min-w-0">
-                              <div className="font-medium truncate">{r.name}</div>
-                              <div className="flex items-center gap-2 mt-1">
-                                <MiniTypeBar counts={r.typeCounts} />
-                                <div className="flex flex-wrap gap-1">
-                                  {r.flags.map((f) => (
-                                    <Badge key={f} variant="outline" className="text-[10px] border-amber-500/50 text-amber-600">
-                                      {f}
-                                    </Badge>
-                                  ))}
-                                </div>
-                              </div>
-                            </div>
-                            <div className="text-right shrink-0 text-xs text-muted-foreground">
-                              <div>
-                                {r.completedCount}/{r.plannedCount} sessions · {metersFmt(r.distance)}
-                                {r.avgPace ? ` · ${secToClock(r.avgPace)}/km` : ""}
-                              </div>
-                              <div>
-                                Fitness {r.ctl != null ? Math.round(r.ctl) : "—"} · Fatigue {r.atl != null ? Math.round(r.atl) : "—"} · Form{" "}
-                                {r.tsb != null ? Math.round(r.tsb) : "—"}
-                              </div>
-                            </div>
+                      <div className="divide-y max-h-[420px] overflow-y-auto print:max-h-none print:overflow-visible">
+                        {sessions.map((s: any) => (
+                          <div key={s.id} className="flex items-center gap-2 px-3 py-1.5 text-xs">
+                            <span className="w-16 shrink-0 text-muted-foreground tabular-nums">{s.session_date.slice(5)}</span>
+                            <TypeDot type={sessionTypeKey(s)} />
+                            <span className="min-w-0 flex-1 truncate font-medium">{s.title ?? "Untitled session"}</span>
+                            <span className="shrink-0 tabular-nums text-muted-foreground w-16 text-right">
+                              {metersFmt(s.total_distance_m ?? 0)}
+                            </span>
+                            <span className="shrink-0 tabular-nums text-muted-foreground w-14 text-right">
+                              {secToClock(s.total_moving_time_seconds ?? s.total_time_seconds ?? 0)}
+                            </span>
+                            <span
+                              className={`shrink-0 w-4 text-center ${s.completed_at ? "text-emerald-600" : "text-muted-foreground/50"}`}
+                              title={s.completed_at ? "Completed" : "Not completed"}
+                            >
+                              {s.completed_at ? "✓" : "·"}
+                            </span>
                           </div>
                         ))}
                       </div>
                     )}
                   </CardContent>
                 </Card>
+
+                {(paceZones.length > 0 || hrZones.length > 0) && (
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <ZoneTable title="Pace zones" rows={paceZones} />
+                    <ZoneTable title="HR zones" rows={hrZones} />
+                  </div>
+                )}
+
+                {periodPbs.length > 0 && (
+                  <Card>
+                    <CardHeader className="pb-2"><CardTitle className="text-base">Personal bests in this period</CardTitle></CardHeader>
+                    <CardContent className="space-y-1">
+                      {periodPbs.map((p: any) => (
+                        <div key={p.id} className="text-sm flex justify-between">
+                          <span>{metersFmt(p.distance_m)} · {p.event_name ?? p.performance_date}</span>
+                          <span className="font-medium tabular-nums">{secToClock(p.time_seconds)}</span>
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
+                )}
 
                 <p className="text-xs text-muted-foreground print:mt-8">
                   Generated {new Date().toLocaleString("en-AU")} — compiled directly from recorded training data, no AI summarization.
@@ -398,11 +482,78 @@ function CoachRosterSummaryPage() {
   );
 }
 
-function StatBox({ label, value }: { label: string; value: string }) {
+function StatBox({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
     <div className="rounded-md border border-border bg-card/40 p-3">
       <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{label}</div>
       <div className="font-display text-xl font-extrabold tabular-nums mt-1">{value}</div>
+      {sub && <div className="text-[10px] text-muted-foreground mt-0.5">{sub}</div>}
     </div>
+  );
+}
+
+function TypeDot({ type }: { type: string }) {
+  const t = SESSION_TYPES.find((x) => x.key === type) ?? SESSION_TYPES[SESSION_TYPES.length - 1];
+  return <span className="inline-block h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: t.color }} title={t.label} />;
+}
+
+function TypeBreakdownCard({ stats }: { stats: Record<string, { count: number; distance: number; time: number }> }) {
+  const total = Object.values(stats).reduce((a, b) => a + b.count, 0);
+  const present = SESSION_TYPES.filter((t) => (stats[t.key]?.count ?? 0) > 0);
+  if (total === 0) return null;
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Sessions by type</CardTitle>
+        <CardDescription>Pace shown per type — an overall blended pace across easy and hard sessions isn't a meaningful number.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-1.5">
+        {present.map((t) => {
+          const s = stats[t.key];
+          const pct = total > 0 ? Math.round((s.count / total) * 100) : 0;
+          const avgPace = s.distance > 0 && s.time > 0 ? (s.time / s.distance) * 1000 : null;
+          return (
+            <div key={t.key} className="flex items-center gap-2 text-sm">
+              <TypeDot type={t.key} />
+              <span className="w-24 shrink-0 text-xs text-muted-foreground">{t.label}</span>
+              <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+                <div className="h-full" style={{ width: `${pct}%`, backgroundColor: t.color }} />
+              </div>
+              <span className="w-16 text-right tabular-nums text-xs text-muted-foreground">
+                {avgPace ? `${secToClock(avgPace)}/km` : "—"}
+              </span>
+              <span className="w-6 text-right tabular-nums text-xs">{s.count}</span>
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ZoneTable({ title, rows }: { title: string; rows: any[] }) {
+  const order = ["z1", "z2", "z3", "z4", "z5"];
+  const byZone = new Map<string, number>();
+  for (const r of rows) byZone.set(r.zone, (byZone.get(r.zone) ?? 0) + (Number(r.seconds) || 0));
+  const totalSec = Array.from(byZone.values()).reduce((a, b) => a + b, 0);
+  return (
+    <Card>
+      <CardHeader className="pb-2"><CardTitle className="text-base">{title}</CardTitle></CardHeader>
+      <CardContent className="space-y-1.5">
+        {order.map((z) => {
+          const sec = byZone.get(z) ?? 0;
+          const pct = totalSec > 0 ? Math.round((sec / totalSec) * 100) : 0;
+          return (
+            <div key={z} className="flex items-center gap-2 text-sm">
+              <span className="w-8 uppercase text-xs text-muted-foreground">{z}</span>
+              <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+                <div className="h-full bg-[var(--accent-red)]" style={{ width: `${pct}%` }} />
+              </div>
+              <span className="w-16 text-right tabular-nums text-xs">{secToClock(sec)}</span>
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
   );
 }
