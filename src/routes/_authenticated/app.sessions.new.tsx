@@ -41,7 +41,12 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { stepKindBarClass, stepKindTextClass } from "@/lib/step-kind-colors";
-import {4  WORKOU*_TARGET_ZONES,5  inferWorkoutTarge*Mode,6  type WorkoutTargetMode,7  *ype WorkoutTargetZone,8} from "@/l*b/workout-target-modes";
+import {
+  WORKOUT_TARGET_ZONES,
+  inferWorkoutTargetMode,
+  type WorkoutTargetMode,
+  type WorkoutTargetZone,
+} from "@/lib/workout-target-modes";
 // This route previously had no search-param handling at all — the
 // Calendar page's "+" menu has been passing date/mode/dayType here for a
 // while, but none of it was ever read, so every link silently landed on
@@ -62,41 +67,19 @@ export const Route = createFileRoute("/_authenticated/app/sessions/new")({
 });
 
 type StepDraft = {
- function clearModePayload(mode: WorkoutTargetMode, s: StepDraft): StepDraft {
-  return {
-    ...s,
-    target_mode: mode,
-    target_pace_sec_per_km:
-      mode === "pace"
-        ? s.target_pace_sec_per_km ?? 300
-        : null,
-
-    target_threshold_pace_pct:
-      mode === "threshold_pace_pct"
-        ? s.target_threshold_pace_pct ?? 100
-        : null,
-
-    target_threshold_hr_pct:
-      mode === "threshold_hr_pct"
-        ? s.target_threshold_hr_pct ?? 100
-        : null,
-
-    target_zone:
-      mode === "zone"
-        ? s.target_zone ?? "z3"
-        : null,
-
-    target_rpe:
-      mode === "rpe"
-        ? s.target_rpe ?? 6
-        : null,
-  };
-}
- 
   kind: "warmup" | "work" | "recovery" | "cooldown" | "strides";
   reps: number;
   set_count?: number;
-     target_kind?: "time" | "distance";2  target_distance_m?: number | null;3  target_time_seconds?: number | null;4 5  target_mode?: WorkoutTargetMode | null;6 7  target_pace_sec_per_km?: number | null;8  target_threshold_pace_pct?: number | null;9  target_threshold_hr_pct?: number | null;10  target_zone?: WorkoutTargetZone | null;11  target_rpe?: number | null;12 13  is_ladder?: boolean;
+  target_kind?: "time" | "distance";
+  target_distance_m?: number | null;
+  target_time_seconds?: number | null;
+  target_mode?: WorkoutTargetMode | null;
+  target_pace_sec_per_km?: number | null;
+  target_threshold_pace_pct?: number | null;
+  target_threshold_hr_pct?: number | null;
+  target_zone?: WorkoutTargetZone | null;
+  target_rpe?: number | null;
+  is_ladder?: boolean;
   counts_toward_distance?: boolean;
   recovery_between_reps_seconds?: number | null;
   recovery_between_reps_mode?: "standing" | "walk" | "jog" | "float";
@@ -1008,7 +991,7 @@ function StepFields({
               />
             </div>
           )}
-          <WorkTargetModeFields2  step={s}3  onUpdate={onUpdate}4/>
+          <WorkTargetModeFields step={s} onUpdate={onUpdate} />
         </div>
       );
     }
@@ -1056,8 +1039,7 @@ function StepFields({
             <Input placeholder="3:00" onChange={(e) => onUpdate({ target_time_seconds: clockToSec(e.target.value) })} />
           </div>
         )}
-        <WorkTargetModeFields2  step={s}3  onUpdate={onUpdate}4/>
-        </div>
+        <WorkTargetModeFields step={s} onUpdate={onUpdate} />
 
         {/* Recovery between reps */}
         <div className="col-span-2 rounded-md border p-2 space-y-2">
