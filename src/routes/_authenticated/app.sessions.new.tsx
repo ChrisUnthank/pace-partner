@@ -47,6 +47,9 @@ import {
   type WorkoutTargetMode,
   type WorkoutTargetZone,
 } from "@/lib/workout-target-modes";
+
+type TargetMode = WorkoutTargetMode | "open";
+
 // This route previously had no search-param handling at all — the
 // Calendar page's "+" menu has been passing date/mode/dayType here for a
 // while, but none of it was ever read, so every link silently landed on
@@ -73,57 +76,45 @@ type StepDraft = {
   target_kind?: "time" | "distance";
   target_distance_m?: number | null;
   target_time_seconds?: number | null;
-  target_mode?: WorkoutTargetMode | null;
+
+  target_mode?: TargetMode | null;
   target_pace_sec_per_km?: number | null;
   target_threshold_pace_pct?: number | null;
   target_threshold_hr_pct?: number | null;
   target_zone?: WorkoutTargetZone | null;
   target_rpe?: number | null;
+
   is_ladder?: boolean;
   counts_toward_distance?: boolean;
+
   recovery_between_reps_seconds?: number | null;
   recovery_between_reps_mode?: "standing" | "walk" | "jog" | "float";
   recovery_between_reps_target_kind?: "time" | "distance";
   recovery_between_reps_distance_m?: number | null;
+
   recovery_between_sets_seconds?: number | null;
   recovery_between_sets_mode?: "standing" | "walk" | "jog" | "float";
   recovery_between_sets_target_kind?: "time" | "distance";
   recovery_between_sets_distance_m?: number | null;
+
   recovery_mode?: "standing" | "walk" | "jog" | "float";
   recovery_target_kind?: "time" | "distance";
   recovery_target_seconds?: number | null;
   recovery_target_distance_m?: number | null;
+
   notes?: string;
   _uid?: string;
 };
-function clearModePayload(mode: WorkoutTargetMode, s: StepDraft): StepDraft {
+
+function clearModePayload(mode: TargetMode, s: StepDraft): StepDraft {
   return {
     ...s,
     target_mode: mode,
-    target_pace_sec_per_km:
-      mode === "pace"
-        ? (s.target_pace_sec_per_km ?? 300)
-        : null,
-
-    target_threshold_pace_pct:
-      mode === "threshold_pace_pct"
-        ? (s.target_threshold_pace_pct ?? 100)
-        : null,
-
-    target_threshold_hr_pct:
-      mode === "threshold_hr_pct"
-        ? (s.target_threshold_hr_pct ?? 100)
-        : null,
-
-    target_zone:
-      mode === "zone"
-        ? (s.target_zone ?? "z3")
-        : null,
-
-    target_rpe:
-      mode === "rpe"
-        ? (s.target_rpe ?? 6)
-        : null,
+    target_pace_sec_per_km: mode === "pace" ? (s.target_pace_sec_per_km ?? 300) : null,
+    target_threshold_pace_pct: mode === "threshold_pace_pct" ? (s.target_threshold_pace_pct ?? 100) : null,
+    target_threshold_hr_pct: mode === "threshold_hr_pct" ? (s.target_threshold_hr_pct ?? 100) : null,
+    target_zone: mode === "zone" ? (s.target_zone ?? ("z3" as WorkoutTargetZone)) : null,
+    target_rpe: mode === "rpe" ? (s.target_rpe ?? 6) : null,
   };
 }
 
@@ -174,7 +165,9 @@ const defaultStep = (kind: StepDraft["kind"]): StepDraft =>
             target_time_seconds: 600,
             counts_toward_distance: true,
           };
+
 let _uidCounter = 0;
+
 const withUid = (s: StepDraft): StepDraft => ({
   ...s,
   _uid: s._uid ?? `s${++_uidCounter}_${Date.now()}`,
@@ -198,7 +191,12 @@ function NewSession() {
         const { data } = await supabase.from("athletes").select("id, name").order("name");
         return data ?? [];
       }
-      const { data } = await supabase.from("coach_athletes").select("athletes(id, name)").eq("coach_user_id", user!.id);
+
+      const { data } = await supabase
+        .from("coach_athletes")
+        .select("athletes(id, name)")
+        .eq("coach_user_id", user!.id);
+
       return (data ?? []).map((r: any) => r.athletes).filter(Boolean);
     },
   });
@@ -211,6 +209,7 @@ function NewSession() {
         .from("session_templates")
         .select("id, name, title, intent, structure, is_long_run, notes")
         .order("created_at", { ascending: false });
+
       return data ?? [];
     },
   });
@@ -222,6 +221,7 @@ function NewSession() {
   const [intent, setIntent] = useState<string>("threshold");
   const [structure, setStructure] = useState<string>("reps_intervals");
   const [isLongRun, setIsLongRun] = useState<boolean>(false);
+
   // Cross-training doesn't get the full running steps builder below — per
   // instruction, most runners do swim/bike as supplementary (often during
   // injury recovery) and gym more consistently, but none of them need
@@ -253,6 +253,7 @@ function NewSession() {
   useEffect(() => {
     if (search.date) setSessionDate(search.date);
   }, [search.date]);
+
   useEffect(() => {
     if (search.dayType) setDayType(search.dayType);
   }, [search.dayType]);
@@ -266,6 +267,7 @@ function NewSession() {
   // Strip rep/set/recovery/ladder fields from a Work step — used when switching to continuous structure.
   function flattenWorkToContinuous(s: StepDraft): StepDraft {
     if (s.kind !== "work") return s;
+
     return {
       ...s,
       reps: 1,
@@ -288,19 +290,24 @@ function NewSession() {
       setSteps((s) => s.map(flattenWorkToContinuous));
     }
   }
+
   function removeStep(i: number) {
     setSteps((s) => s.filter((_, idx) => idx !== i));
   }
+
   function addStep(kind: StepDraft["kind"]) {
     setSteps((s) => {
       const next = withUid(defaultStep(kind));
+
       if (kind === "warmup") {
         // Insert at top of middle (after existing warmups)
         const lastWarm = s.map((x) => x.kind).lastIndexOf("warmup");
         const idx = lastWarm >= 0 ? lastWarm + 1 : 0;
         return [...s.slice(0, idx), next, ...s.slice(idx)];
       }
+
       if (kind === "cooldown") return [...s, next];
+
       // work / recovery / strides → insert before first cooldown (or at end)
       const firstCool = s.findIndex((x) => x.kind === "cooldown");
       const idx = firstCool === -1 ? s.length : firstCool;
@@ -311,9 +318,11 @@ function NewSession() {
   function moveStep(from: number, to: number) {
     setSteps((s) => {
       if (to < 0 || to >= s.length) return s;
+
       // Anchors: first warmup must stay at 0; last cooldown at end.
       if (s[from].kind === "warmup" || s[from].kind === "cooldown") return s;
       if (s[to].kind === "warmup" || s[to].kind === "cooldown") return s;
+
       return arrayMove(s, from, to);
     });
   }
@@ -321,15 +330,18 @@ function NewSession() {
   async function loadTemplate(templateId: string) {
     const tpl = (templates ?? []).find((t: any) => t.id === templateId);
     if (!tpl) return;
+
     const { data: tsteps, error } = await supabase
       .from("template_steps")
       .select("*")
       .eq("template_id", templateId)
       .order("step_order");
+
     if (error) {
       toast.error(error.message);
       return;
     }
+
     setTitle((tpl as any).title ?? "");
     setNotes((tpl as any).notes ?? "");
     setDayType("training");
@@ -337,26 +349,27 @@ function NewSession() {
     setStructure((tpl as any).structure);
     setIsLongRun(!!(tpl as any).is_long_run);
     setAppliedFromTemplateId(templateId);
+
     setSteps(
-  (tsteps ?? []).map((s: any) => {
-    const inferred = inferWorkoutTargetMode(s);
+      (tsteps ?? []).map((s: any) => {
+        const inferred = inferWorkoutTargetMode(s) as TargetMode;
 
-    return withUid({
-      kind: s.kind,
-      reps: s.reps,
-      set_count: s.set_count,
-      target_kind: s.target_kind,
-      target_distance_m: s.target_distance_m,
-      target_time_seconds: s.target_time_seconds,
+        return withUid({
+          kind: s.kind,
+          reps: s.reps,
+          set_count: s.set_count,
+          target_kind: s.target_kind,
+          target_distance_m: s.target_distance_m,
+          target_time_seconds: s.target_time_seconds,
 
-      target_mode: (s.target_mode ?? inferred) as WorkoutTargetMode,
-      target_pace_sec_per_km: s.target_pace_sec_per_km,
-      target_threshold_pace_pct: s.target_threshold_pace_pct,
-      target_threshold_hr_pct: s.target_threshold_hr_pct,
-      target_zone: s.target_zone,
-      target_rpe: s.target_rpe,
+          target_mode: (s.target_mode ?? inferred) as TargetMode,
+          target_pace_sec_per_km: s.target_pace_sec_per_km,
+          target_threshold_pace_pct: s.target_threshold_pace_pct,
+          target_threshold_hr_pct: s.target_threshold_hr_pct,
+          target_zone: s.target_zone,
+          target_rpe: s.target_rpe,
 
-      is_ladder: s.is_ladder,
+          is_ladder: s.is_ladder,
           counts_toward_distance: s.counts_toward_distance,
           recovery_between_reps_seconds: s.recovery_between_reps_seconds,
           recovery_between_reps_mode: s.recovery_between_reps_mode,
@@ -370,10 +383,11 @@ function NewSession() {
           recovery_target_kind: s.recovery_target_kind,
           recovery_target_seconds: s.recovery_target_seconds,
           recovery_target_distance_m: s.recovery_target_distance_m,
-                notes: s.notes,
-    });
-  }),
-);
+          notes: s.notes,
+        });
+      }),
+    );
+
     toast.success(`Loaded "${(tpl as any).name}" — edit freely before saving`);
   }
 
@@ -382,6 +396,7 @@ function NewSession() {
       toast.error("Pick an athlete");
       return;
     }
+
     if (!title) {
       toast.error("Title is required");
       return;
@@ -393,18 +408,24 @@ function NewSession() {
         return;
       }
     }
+
     if (dayType === "cross_training" && !activityType) {
       toast.error("Pick an activity type (Gym / Ride / Swim)");
       return;
     }
 
     const isGymPlan = dayType === "cross_training" && activityType === "gym";
+
     // Maps the coach-friendly easy/moderate/hard picker to a concrete RPE —
     // sessions.rpe is already correctly wired into session_training_load(),
     // so this gets the planned session counting toward training load
     // immediately without needing to touch that function (see the
     // migration's note on why that's being avoided for now).
-    const GYM_INTENSITY_TO_RPE: Record<string, number> = { easy: 3, moderate: 5, hard: 8 };
+    const GYM_INTENSITY_TO_RPE: Record<string, number> = {
+      easy: 3,
+      moderate: 5,
+      hard: 8,
+    };
 
     const { data: sess, error } = await supabase
       .from("sessions")
@@ -429,6 +450,7 @@ function NewSession() {
       } as any)
       .select()
       .single();
+
     if (error || !sess) {
       toast.error(error?.message ?? "Failed");
       return;
@@ -444,105 +466,75 @@ function NewSession() {
 
     const isContinuous = dayType === "training" && structure === "continuous";
     const stepsToSave = isContinuous ? steps.map(flattenWorkToContinuous) : steps;
+
     const stepRows = stepsToSave.map((s, i) => {
-  const mode =
-    s.kind === "work"
-      ? (s.target_mode ?? inferWorkoutTargetMode(s as any))
-      : null;
+      const mode = s.kind === "work" ? ((s.target_mode ?? inferWorkoutTargetMode(s as any)) as TargetMode) : null;
+      const cleaned = s.kind === "work" && mode ? clearModePayload(mode, s) : s;
 
-  const cleaned =
-    s.kind === "work" && mode
-      ? clearModePayload(mode, s)
-      : s;
+      return {
+        session_id: sess.id,
+        step_order: i + 1,
 
-  return {
-    session_id: sess.id,
-    step_order: i + 1,
+        kind: cleaned.kind,
+        reps: cleaned.reps,
 
-    kind: cleaned.kind,
-    reps: cleaned.reps,
+        set_count: cleaned.kind === "work" ? Math.max(1, cleaned.set_count ?? 1) : 1,
 
-    set_count:
-      cleaned.kind === "work"
-        ? Math.max(1, cleaned.set_count ?? 1)
-        : 1,
+        target_kind: cleaned.target_kind ?? null,
+        target_distance_m: cleaned.target_distance_m ?? null,
+        target_time_seconds: cleaned.target_time_seconds ?? null,
 
-    target_kind: cleaned.target_kind ?? null,
-    target_distance_m: cleaned.target_distance_m ?? null,
-    target_time_seconds: cleaned.target_time_seconds ?? null,
+        target_mode: mode,
+        target_pace_sec_per_km: cleaned.target_pace_sec_per_km ?? null,
+        target_threshold_pace_pct: cleaned.target_threshold_pace_pct ?? null,
+        target_threshold_hr_pct: cleaned.target_threshold_hr_pct ?? null,
+        target_zone: cleaned.target_zone ?? null,
+        target_rpe: cleaned.target_rpe ?? null,
 
-    target_mode: mode,
-    target_pace_sec_per_km: cleaned.target_pace_sec_per_km ?? null,
-    target_threshold_pace_pct: cleaned.target_threshold_pace_pct ?? null,
-    target_threshold_hr_pct: cleaned.target_threshold_hr_pct ?? null,
-    target_zone: cleaned.target_zone ?? null,
-    target_rpe: cleaned.target_rpe ?? null,
+        is_ladder: cleaned.kind === "work" ? !!cleaned.is_ladder : false,
+        counts_toward_distance: cleaned.counts_toward_distance ?? true,
 
-    is_ladder:
-      cleaned.kind === "work"
-        ? !!cleaned.is_ladder
-        : false,
+        recovery_between_reps_seconds:
+          cleaned.kind === "work" ? (cleaned.recovery_between_reps_seconds ?? null) : null,
+        recovery_between_reps_mode:
+          cleaned.kind === "work" ? (cleaned.recovery_between_reps_mode ?? null) : null,
+        recovery_between_reps_target_kind:
+          cleaned.kind === "work" ? (cleaned.recovery_between_reps_target_kind ?? "time") : "time",
+        recovery_between_reps_distance_m:
+          cleaned.kind === "work" ? (cleaned.recovery_between_reps_distance_m ?? null) : null,
 
-    counts_toward_distance:
-      cleaned.counts_toward_distance ?? true,
+        recovery_between_sets_seconds:
+          cleaned.kind === "work" && (cleaned.set_count ?? 1) > 1
+            ? (cleaned.recovery_between_sets_seconds ?? null)
+            : null,
+        recovery_between_sets_mode:
+          cleaned.kind === "work" && (cleaned.set_count ?? 1) > 1
+            ? (cleaned.recovery_between_sets_mode ?? null)
+            : null,
+        recovery_between_sets_target_kind:
+          cleaned.kind === "work" && (cleaned.set_count ?? 1) > 1
+            ? (cleaned.recovery_between_sets_target_kind ?? "time")
+            : "time",
+        recovery_between_sets_distance_m:
+          cleaned.kind === "work" && (cleaned.set_count ?? 1) > 1
+            ? (cleaned.recovery_between_sets_distance_m ?? null)
+            : null,
 
-    recovery_between_reps_seconds:
-      cleaned.kind === "work"
-        ? (cleaned.recovery_between_reps_seconds ?? null)
-        : null,
+        recovery_mode: cleaned.recovery_mode ?? null,
+        recovery_target_kind: cleaned.recovery_target_kind ?? null,
+        recovery_target_seconds: cleaned.recovery_target_seconds ?? null,
+        recovery_target_distance_m: cleaned.recovery_target_distance_m ?? null,
+        notes: cleaned.notes ?? null,
+      };
+    });
 
-    recovery_between_reps_mode:
-      cleaned.kind === "work"
-        ? (cleaned.recovery_between_reps_mode ?? null)
-        : null,
-
-    recovery_between_reps_target_kind:
-      cleaned.kind === "work"
-        ? (cleaned.recovery_between_reps_target_kind ?? "time")
-        : "time",
-
-    recovery_between_reps_distance_m:
-      cleaned.kind === "work"
-        ? (cleaned.recovery_between_reps_distance_m ?? null)
-        : null,
-
-    recovery_between_sets_seconds:
-      cleaned.kind === "work" &&
-      (cleaned.set_count ?? 1) > 1
-        ? (cleaned.recovery_between_sets_seconds ?? null)
-        : null,
-
-    recovery_between_sets_mode:
-      cleaned.kind === "work" &&
-      (cleaned.set_count ?? 1) > 1
-        ? (cleaned.recovery_between_sets_mode ?? null)
-        : null,
-
-    recovery_between_sets_target_kind:
-      cleaned.kind === "work" &&
-      (cleaned.set_count ?? 1) > 1
-        ? (cleaned.recovery_between_sets_target_kind ?? "time")
-        : "time",
-
-    recovery_between_sets_distance_m:
-      cleaned.kind === "work" &&
-      (cleaned.set_count ?? 1) > 1
-        ? (cleaned.recovery_between_sets_distance_m ?? null)
-        : null,
-
-    recovery_mode: cleaned.recovery_mode ?? null,
-    recovery_target_kind: cleaned.recovery_target_kind ?? null,
-    recovery_target_seconds: cleaned.recovery_target_seconds ?? null,
-    recovery_target_distance_m: cleaned.recovery_target_distance_m ?? null,
-
-    notes: cleaned.notes ?? null,
-  };
-});
     const { error: stepErr } = await supabase.from("steps").insert(stepRows);
+
     if (stepErr) {
       toast.error(stepErr.message);
       return;
     }
+
     toast.success("Session created");
     navigate({ to: "/app/sessions/$sessionId", params: { sessionId: sess.id } });
   }
@@ -588,7 +580,11 @@ function NewSession() {
                     <SelectValue placeholder="Pick athlete" />
                   </SelectTrigger>
                   <SelectContent>
-                    {myAthlete && <SelectItem value={myAthlete.id}>{myAthlete.name} (me)</SelectItem>}
+                    {myAthlete && (
+                      <SelectItem value={myAthlete.id}>
+                        {myAthlete.name} (me)
+                      </SelectItem>
+                    )}
                     {(rosterAthletes ?? []).map((a: any) => (
                       <SelectItem key={a.id} value={a.id}>
                         {a.name}
@@ -600,6 +596,7 @@ function NewSession() {
                 <Input className="mt-1" value={myAthlete?.name ?? ""} readOnly />
               )}
             </div>
+
             <div>
               <Label>Date</Label>
               <Input
@@ -609,6 +606,7 @@ function NewSession() {
                 className="mt-1"
               />
             </div>
+
             <div>
               <Label>Day type</Label>
               <Select value={dayType} onValueChange={setDayType}>
@@ -624,6 +622,7 @@ function NewSession() {
                 </SelectContent>
               </Select>
             </div>
+
             <div className="sm:col-span-2 lg:col-span-3">
               <Label>Title</Label>
               <Input
@@ -633,6 +632,7 @@ function NewSession() {
                 className="mt-1"
               />
             </div>
+
             {dayType === "training" && (
               <>
                 <div>
@@ -650,6 +650,7 @@ function NewSession() {
                     </SelectContent>
                   </Select>
                 </div>
+
                 <div>
                   <Label>Structure</Label>
                   <Select value={structure} onValueChange={handleStructureChange}>
@@ -665,6 +666,7 @@ function NewSession() {
                     </SelectContent>
                   </Select>
                 </div>
+
                 <div className="flex items-center gap-2">
                   <Checkbox id="is-long-run" checked={isLongRun} onCheckedChange={(v) => setIsLongRun(!!v)} />
                   <Label htmlFor="is-long-run" className="text-sm font-normal">
@@ -673,6 +675,7 @@ function NewSession() {
                 </div>
               </>
             )}
+
             {dayType === "cross_training" && (
               <>
                 <div>
@@ -688,6 +691,7 @@ function NewSession() {
                     </SelectContent>
                   </Select>
                 </div>
+
                 {activityType === "gym" && (
                   <div>
                     <Label>Gym type</Label>
@@ -715,6 +719,7 @@ function NewSession() {
                     </Select>
                   </div>
                 )}
+
                 {activityType === "gym" && gymCategory === "strength_resistance" && (
                   <div>
                     <Label>Focus</Label>
@@ -730,6 +735,7 @@ function NewSession() {
                     </Select>
                   </div>
                 )}
+
                 {activityType === "gym" && (
                   <div>
                     <Label>Duration (min)</Label>
@@ -741,6 +747,7 @@ function NewSession() {
                     />
                   </div>
                 )}
+
                 {activityType === "gym" && (
                   <div>
                     <Label>Intensity</Label>
@@ -758,6 +765,7 @@ function NewSession() {
                 )}
               </>
             )}
+
             <div className="sm:col-span-2 lg:col-span-3">
               <Label>Notes</Label>
               <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
@@ -812,6 +820,7 @@ type StepEditorProps = {
   anchored?: "top" | "bottom";
   structure?: string;
 };
+
 function WorkTargetModeFields({
   step,
   onUpdate,
@@ -819,9 +828,9 @@ function WorkTargetModeFields({
   step: StepDraft;
   onUpdate: (p: Partial<StepDraft>) => void;
 }) {
-  const mode = step.target_mode ?? inferWorkoutTargetMode(step as any) ?? "pace";
+  const mode = (step.target_mode ?? inferWorkoutTargetMode(step as any) ?? "pace") as TargetMode;
 
-  function updateMode(next: WorkoutTargetMode) {
+  function updateMode(next: TargetMode) {
     onUpdate(clearModePayload(next, { ...step, target_mode: next }));
   }
 
@@ -829,7 +838,7 @@ function WorkTargetModeFields({
     <div className="col-span-2 rounded-md border p-2 space-y-2">
       <div>
         <Label className="text-xs">Target mode</Label>
-        <Select value={mode} onValueChange={(v) => updateMode(v as WorkoutTargetMode)}>
+        <Select value={mode} onValueChange={(v) => updateMode(v as TargetMode)}>
           <SelectTrigger>
             <SelectValue />
           </SelectTrigger>
@@ -897,7 +906,7 @@ function WorkTargetModeFields({
         <div>
           <Label className="text-xs">Zone</Label>
           <Select
-            value={step.target_zone ?? "z3"}
+            value={step.target_zone ?? ("z3" as WorkoutTargetZone)}
             onValueChange={(v) => onUpdate({ target_zone: v as WorkoutTargetZone })}
           >
             <SelectTrigger>
@@ -945,6 +954,7 @@ function WorkTargetModeFields({
     </div>
   );
 }
+
 function StepFields({
   step: s,
   onUpdate,
@@ -956,6 +966,7 @@ function StepFields({
 }) {
   if (s.kind === "work") {
     const isContinuous = structure === "continuous";
+
     if (isContinuous) {
       return (
         <div className="grid grid-cols-2 gap-2">
@@ -963,6 +974,7 @@ function StepFields({
             Continuous effort — one sustained block. For reps with recovery, change the session structure to
             Reps/Intervals.
           </div>
+
           <div>
             <Label className="text-xs">Target</Label>
             <Select value={s.target_kind} onValueChange={(v) => onUpdate({ target_kind: v as any })}>
@@ -975,6 +987,7 @@ function StepFields({
               </SelectContent>
             </Select>
           </div>
+
           {s.target_kind === "distance" ? (
             <div>
               <Label className="text-xs">Distance (m)</Label>
@@ -994,12 +1007,15 @@ function StepFields({
               />
             </div>
           )}
+
           <WorkTargetModeFields step={s} onUpdate={onUpdate} />
         </div>
       );
     }
+
     const repsKind = s.recovery_between_reps_target_kind ?? "time";
     const setsKind = s.recovery_between_sets_target_kind ?? "time";
+
     return (
       <div className="grid grid-cols-2 gap-2">
         <div>
@@ -1011,10 +1027,12 @@ function StepFields({
             onChange={(e) => onUpdate({ set_count: Math.max(1, Number(e.target.value)) })}
           />
         </div>
+
         <div>
           <Label className="text-xs">Reps</Label>
           <Input type="number" value={s.reps} onChange={(e) => onUpdate({ reps: Number(e.target.value) })} />
         </div>
+
         <div>
           <Label className="text-xs">Target</Label>
           <Select value={s.target_kind} onValueChange={(v) => onUpdate({ target_kind: v as any })}>
@@ -1027,6 +1045,7 @@ function StepFields({
             </SelectContent>
           </Select>
         </div>
+
         {s.target_kind === "distance" ? (
           <div>
             <Label className="text-xs">Distance (m)</Label>
@@ -1042,6 +1061,7 @@ function StepFields({
             <Input placeholder="3:00" onChange={(e) => onUpdate({ target_time_seconds: clockToSec(e.target.value) })} />
           </div>
         )}
+
         <WorkTargetModeFields step={s} onUpdate={onUpdate} />
 
         {/* Recovery between reps */}
@@ -1065,9 +1085,13 @@ function StepFields({
                 </SelectContent>
               </Select>
             </div>
+
             <div>
               <Label className="text-xs">Target</Label>
-              <Select value={repsKind} onValueChange={(v) => onUpdate({ recovery_between_reps_target_kind: v as any })}>
+              <Select
+                value={repsKind}
+                onValueChange={(v) => onUpdate({ recovery_between_reps_target_kind: v as any })}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -1077,6 +1101,7 @@ function StepFields({
                 </SelectContent>
               </Select>
             </div>
+
             {repsKind === "time" ? (
               <div>
                 <Label className="text-xs">Time (mm:ss)</Label>
@@ -1121,6 +1146,7 @@ function StepFields({
                   </SelectContent>
                 </Select>
               </div>
+
               <div>
                 <Label className="text-xs">Target</Label>
                 <Select
@@ -1136,6 +1162,7 @@ function StepFields({
                   </SelectContent>
                 </Select>
               </div>
+
               {setsKind === "time" ? (
                 <div>
                   <Label className="text-xs">Time (mm:ss)</Label>
@@ -1167,6 +1194,7 @@ function StepFields({
           </span>
           {(s.set_count ?? 1) > 1 && <> = {(s.set_count ?? 1) * s.reps} total reps</>}
         </div>
+
         <div className="col-span-2 flex items-center gap-2 pt-1">
           <Checkbox checked={!!s.is_ladder} onCheckedChange={(v) => onUpdate({ is_ladder: !!v })} />
           <Label className="text-xs font-normal">
@@ -1176,6 +1204,7 @@ function StepFields({
       </div>
     );
   }
+
   if (s.kind === "strides") {
     return (
       <div className="grid grid-cols-2 gap-2">
@@ -1183,6 +1212,7 @@ function StepFields({
           <Label className="text-xs">Reps</Label>
           <Input type="number" value={s.reps} onChange={(e) => onUpdate({ reps: Number(e.target.value) })} />
         </div>
+
         <div>
           <Label className="text-xs">Distance (m)</Label>
           <Input
@@ -1191,8 +1221,11 @@ function StepFields({
             onChange={(e) => onUpdate({ target_distance_m: Number(e.target.value), target_kind: "distance" })}
           />
         </div>
+
         <div
-          className={`col-span-2 rounded-md border-2 p-2 ${s.counts_toward_distance ? "border-emerald-500 bg-emerald-500/5" : "border-amber-500 bg-amber-500/10"}`}
+          className={`col-span-2 rounded-md border-2 p-2 ${
+            s.counts_toward_distance ? "border-emerald-500 bg-emerald-500/5" : "border-amber-500 bg-amber-500/10"
+          }`}
         >
           <div className="flex items-center gap-2">
             <Checkbox
@@ -1214,6 +1247,7 @@ function StepFields({
       </div>
     );
   }
+
   if (s.kind === "recovery") {
     return (
       <div className="grid grid-cols-2 gap-2">
@@ -1221,6 +1255,7 @@ function StepFields({
           Easy effort <strong>between separate Work blocks</strong> (e.g. 90s jog between a threshold block and a speed
           block). For recovery between reps or sets inside a single Work block, use the fields inside that Work step.
         </div>
+
         <div>
           <Label className="text-xs">Mode</Label>
           <Select value={s.recovery_mode} onValueChange={(v) => onUpdate({ recovery_mode: v as any })}>
@@ -1235,6 +1270,7 @@ function StepFields({
             </SelectContent>
           </Select>
         </div>
+
         <div>
           <Label className="text-xs">Target</Label>
           <Select value={s.recovery_target_kind} onValueChange={(v) => onUpdate({ recovery_target_kind: v as any })}>
@@ -1247,6 +1283,7 @@ function StepFields({
             </SelectContent>
           </Select>
         </div>
+
         {s.recovery_target_kind === "time" ? (
           <div className="col-span-2">
             <Label className="text-xs">Recovery (mm:ss)</Label>
@@ -1269,6 +1306,7 @@ function StepFields({
       </div>
     );
   }
+
   // warmup / cooldown
   return (
     <div className="grid grid-cols-2 gap-2">
@@ -1279,6 +1317,7 @@ function StepFields({
           onChange={(e) => onUpdate({ target_time_seconds: clockToSec(e.target.value), target_kind: "time" })}
         />
       </div>
+
       <div>
         <Label className="text-xs">Distance (m)</Label>
         <Input
@@ -1324,11 +1363,13 @@ function StepCard({ step, position, onUpdate, onRemove, anchored, structure }: S
 
 function SortableStep(props: StepEditorProps & { id: string }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.id });
+
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
   };
+
   return (
     <div ref={setNodeRef} style={style} className="flex flex-col h-full border rounded-md bg-background overflow-hidden">
       <div className={`h-1.5 w-full shrink-0 ${stepKindBarClass(props.step.kind)}`} />
@@ -1346,6 +1387,7 @@ function SortableStep(props: StepEditorProps & { id: string }) {
             </button>
             {props.position}. {stepTitle(props.step)}
           </span>
+
           <div className="flex items-center gap-1">
             <Button size="sm" variant="ghost" onClick={props.onMoveUp} disabled={!props.onMoveUp} aria-label="Move up">
               <ArrowUp className="h-4 w-4" />
@@ -1391,23 +1433,29 @@ function StepsCard({
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
+
   // Partition by global index so we can pass real indices to updateStep/removeStep.
   const warmIdx: number[] = [];
   const midIdx: number[] = [];
   const coolIdx: number[] = [];
+
   steps.forEach((s, i) => {
     if (s.kind === "warmup") warmIdx.push(i);
     else if (s.kind === "cooldown") coolIdx.push(i);
     else midIdx.push(i);
   });
+
   const midUids = midIdx.map((i) => steps[i]._uid!);
 
   function handleDragEnd(ev: DragEndEvent) {
     const { active, over } = ev;
     if (!over || active.id === over.id) return;
+
     const from = midUids.indexOf(String(active.id));
     const to = midUids.indexOf(String(over.id));
+
     if (from === -1 || to === -1) return;
+
     reorder(arrayMove(midUids, from, to));
   }
 
@@ -1420,6 +1468,7 @@ function StepsCard({
           Strides) to reorder.
         </CardDescription>
       </CardHeader>
+
       <CardContent className="grid lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 space-y-3">
           {warmIdx.map((i, pos) => (
@@ -1475,26 +1524,26 @@ function StepsCard({
               <Plus className="h-3 w-3 mr-1" />
               Warmup
             </Button>
+
             <Button variant="outline" className="h-auto py-3 justify-start" onClick={() => addStep("work")}>
               <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("work")}`} />
               <Plus className="h-3 w-3 mr-1" />
               Work block
             </Button>
+
             <Button variant="outline" className="h-auto py-3 justify-start" onClick={() => addStep("recovery")}>
               <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("recovery")}`} />
               <Plus className="h-3 w-3 mr-1" />
               Recovery between blocks
             </Button>
+
             <Button variant="outline" className="h-auto py-3 justify-start" onClick={() => addStep("cooldown")}>
               <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("cooldown")}`} />
               <Plus className="h-3 w-3 mr-1" />
               Cooldown
             </Button>
-            <Button
-              variant="outline"
-              className="h-auto py-3 justify-start"
-              onClick={() => addStep("strides")}
-            >
+
+            <Button variant="outline" className="h-auto py-3 justify-start" onClick={() => addStep("strides")}>
               <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("strides")}`} />
               <Plus className="h-3 w-3 mr-1" />
               Strides / Run-throughs
