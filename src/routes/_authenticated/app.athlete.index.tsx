@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuthUser, useMyRoles, useMyRawRoles, useMyLinkedAthletes } from "@/lib/use-auth";
@@ -7,6 +7,7 @@ import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { AthleteSubnav } from "@/components/athlete-subnav";
+import { CoachAthletePicker } from "@/components/coach-athlete-picker";
 
 const searchSchema = z.object({
   // Present when arriving via the athlete-context tab strip (a specific
@@ -58,9 +59,9 @@ function AthleteProfileIndexPage() {
   const [selfAthlete, setSelfAthlete] = useState<{ id: string; name: string } | null>(null);
   // Coach path: no self athlete row (or has one, doesn't matter — coaches
   // can still manage pages for athletes they coach) — offer their roster.
-  const [roster, setRoster] = useState<{ athlete_id: string; name: string; hasPage: boolean; slug: string | null }[]>(
-    [],
-  );
+  const [roster, setRoster] = useState<
+    { athlete_id: string; name: string; hasPage: boolean; slug: string | null; profile_image_url: string | null }[]
+  >([]);
   const [creatingId, setCreatingId] = useState<string | null>(null);
 
   // Parent path: resolve whichever of the linked children already have a
@@ -138,7 +139,7 @@ function AthleteProfileIndexPage() {
       if (isCoach) {
         const { data: links } = await (supabase as any)
           .from("coach_athletes")
-          .select("athlete_id, athletes ( id, name )")
+          .select("athlete_id, athletes ( id, name, profile_image_url )")
           .eq("coach_user_id", user.id);
         const athleteIds = [...new Set((links ?? []).map((l: any) => l.athlete_id))];
         if (athleteIds.length) {
@@ -155,6 +156,7 @@ function AthleteProfileIndexPage() {
               name: a.name,
               hasPage: pageByAthleteId.has(a.id),
               slug: pageByAthleteId.get(a.id) ?? null,
+              profile_image_url: a.profile_image_url ?? null,
             }));
           if (!cancelled) setRoster(rows);
         }
@@ -203,20 +205,33 @@ function AthleteProfileIndexPage() {
     ? roster.find((r) => r.athlete_id === filterAthleteId)?.name ??
       (selfAthlete?.id === filterAthleteId ? selfAthlete.name : undefined)
     : undefined;
+  // Shape roster needs for the shared picker — this page's own roster
+  // state carries extra fields (hasPage/slug) the picker doesn't need.
+  const pickerRoster = useMemo(
+    () => roster.map((r) => ({ id: r.athlete_id, name: r.name, profile_image_url: r.profile_image_url })),
+    [roster],
+  );
 
   return (
     <AppShell>
       <div className="max-w-lg space-y-6">
         {isCoach && filterAthleteId && (
           <>
-            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
-              <Link to="/app/athletes" className="hover:text-foreground">
-                Athletes
-              </Link>
-              <span className="text-border">/</span>
-              <Link to="/app/athletes/$athleteId" params={{ athleteId: filterAthleteId }} className="hover:text-foreground">
-                {filteredAthleteName ?? "Athlete"}
-              </Link>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                <Link to="/app/athletes" className="hover:text-foreground">
+                  Athletes
+                </Link>
+                <span className="text-border">/</span>
+                <Link to="/app/athletes/$athleteId" params={{ athleteId: filterAthleteId }} className="hover:text-foreground">
+                  {filteredAthleteName ?? "Athlete"}
+                </Link>
+              </div>
+              <CoachAthletePicker
+                roster={pickerRoster}
+                value={filterAthleteId}
+                onChange={(v) => navigate({ search: (p: any) => ({ ...p, athleteId: v }) })}
+              />
             </div>
             <AthleteSubnav athleteId={filterAthleteId} active="athlete-page" />
           </>
