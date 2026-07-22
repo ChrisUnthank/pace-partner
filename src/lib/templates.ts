@@ -49,10 +49,14 @@ function pickStructural(row: any) {
 // Manually planned values are already round numbers, so snapping is a
 // no-op for them. The source session itself is never modified.
 
-// Common prescribed rep distances — snapping picks the nearest rung, so
-// 409 goes to 400 (not 410) and 925 goes to 1000 (not 900).
+// Common prescribed rep distances from 150m up — snapping picks the nearest
+// rung, so 190 goes to 200, 409 to 400, and 925 to 1000. Note 900 is
+// deliberately NOT a rung: reps in the 900s are almost always a GPS-short
+// 1km, and adding it would stop 925 snapping to 1000. Below 150m (sprint
+// territory) prescriptions run in 10m increments, so those round to the
+// nearest 10 instead — see snapDistanceM.
 const REP_DISTANCE_LADDER_M = [
-  50, 60, 80, 100, 120, 150, 200, 250, 300, 400, 500, 600, 800,
+  150, 200, 250, 300, 400, 500, 600, 700, 800,
   1000, 1200, 1500, 1600, 2000, 2400, 3000,
 ];
 
@@ -61,6 +65,7 @@ function snapDistanceM(v: number | null | undefined): number | null {
   // Half and full marathon get pinned exactly when the recording is close.
   if (Math.abs(v - 21100) <= 400) return 21100;
   if (Math.abs(v - 42200) <= 600) return 42200;
+  if (v < 145) return Math.max(10, Math.round(v / 10) * 10); // sprints: nearest 10m
   if (v <= 3000) {
     let best = REP_DISTANCE_LADDER_M[0];
     for (const d of REP_DISTANCE_LADDER_M) {
