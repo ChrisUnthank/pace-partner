@@ -41,6 +41,58 @@ function pickStructural(row: any) {
   return out;
 }
 
+// ── Snapping GPS actuals to prescribable values ──────────────────────────────
+// Sessions rebuilt from FIT files store what the athlete actually ran
+// (20×408m reps, a 3998m warmup, 93s recoveries). A template is a
+// prescription, so on save-as-template these get snapped to the value a
+// coach would actually write: 409→400, 925→1000, 3998→4000, 3:02→3:00.
+// Manually planned values are already round numbers, so snapping is a
+// no-op for them. The source session itself is never modified.
+
+// Common prescribed rep distances — snapping picks the nearest rung, so
+// 409 goes to 400 (not 410) and 925 goes to 1000 (not 900).
+const REP_DISTANCE_LADDER_M = [
+  50, 60, 80, 100, 120, 150, 200, 250, 300, 400, 500, 600, 800,
+  1000, 1200, 1500, 1600, 2000, 2400, 3000,
+];
+
+function snapDistanceM(v: number | null | undefined): number | null {
+  if (v == null || !Number.isFinite(v) || v <= 0) return v ?? null;
+  // Half and full marathon get pinned exactly when the recording is close.
+  if (Math.abs(v - 21100) <= 400) return 21100;
+  if (Math.abs(v - 42200) <= 600) return 42200;
+  if (v <= 3000) {
+    let best = REP_DISTANCE_LADDER_M[0];
+    for (const d of REP_DISTANCE_LADDER_M) {
+      if (Math.abs(v - d) < Math.abs(v - best)) best = d;
+    }
+    return best;
+  }
+  if (v <= 10000) return Math.round(v / 500) * 500; // 3–10km: nearest 500m
+  return Math.round(v / 1000) * 1000; // beyond: nearest km
+}
+
+function snapTimeS(v: number | null | undefined): number | null {
+  if (v == null || !Number.isFinite(v) || v <= 0) return v ?? null;
+  if (v < 600) return Math.max(5, Math.round(v / 15) * 15); // under 10 min: nearest 15s
+  if (v < 1800) return Math.round(v / 30) * 30; // 10–30 min: nearest 30s
+  return Math.round(v / 60) * 60; // beyond: whole minutes
+}
+
+function tidyStepForTemplate(row: any) {
+  return {
+    ...row,
+    target_distance_m: snapDistanceM(row.target_distance_m),
+    target_time_seconds: snapTimeS(row.target_time_seconds),
+    recovery_between_reps_seconds: snapTimeS(row.recovery_between_reps_seconds),
+    recovery_between_reps_distance_m: snapDistanceM(row.recovery_between_reps_distance_m),
+    recovery_between_sets_seconds: snapTimeS(row.recovery_between_sets_seconds),
+    recovery_between_sets_distance_m: snapDistanceM(row.recovery_between_sets_distance_m),
+    recovery_target_seconds: snapTimeS(row.recovery_target_seconds),
+    recovery_target_distance_m: snapDistanceM(row.recovery_target_distance_m),
+  };
+}
+
 /** Save an existing session as a coach-owned template (copies its steps). */
 export async function saveSessionAsTemplate(args: {
   sessionId: string;
@@ -70,7 +122,10 @@ export async function saveSessionAsTemplate(args: {
   if (tplErr || !tpl) return { ok: false, error: tplErr?.message ?? "Failed to create template" };
 
   if (steps && steps.length > 0) {
-    const rows = steps.map((s: any) => ({ template_id: (tpl as any).id, ...pickStructural(s) }));
+    const rows = steps.map((s: any) => ({
+      template_id: (tpl as any).id,
+      ...pickStructural(tidyStepForTemplate(s)),
+    }));
     const { error: tsErr } = await supabase.from("template_steps").insert(rows as any);
     if (tsErr) {
       // Roll back the template row so a failed steps copy can't leave an
