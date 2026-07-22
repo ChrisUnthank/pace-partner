@@ -174,7 +174,11 @@ const defaultStep = (kind: StepDraft["kind"]): StepDraft =>
             target_time_seconds: 600,
             counts_toward_distance: true,
           };
-let _uidCounter = 0;2 3const withUid = (s: StepDraft): StepDraft => ({4  ...s,5  _uid: s._uid ?? `s${++_uidCounter}_${Date.now()}`,6});
+let _uidCounter = 0;
+const withUid = (s: StepDraft): StepDraft => ({
+  ...s,
+  _uid: s._uid ?? `s${++_uidCounter}_${Date.now()}`,
+});
 
 function NewSession() {
   const navigate = useNavigate();
