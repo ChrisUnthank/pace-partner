@@ -22,18 +22,25 @@ import { Route as AuthenticatedAppTrainingScheduleRouteImport } from './routes/_
 import { Route as AuthenticatedAppTodayRouteImport } from './routes/_authenticated/app.today'
 import { Route as AuthenticatedAppTemplatesRouteImport } from './routes/_authenticated/app.templates'
 import { Route as AuthenticatedAppSessionsRouteImport } from './routes/_authenticated/app.sessions'
+import { Route as AuthenticatedAppRecoveryRouteImport } from './routes/_authenticated/app.recovery'
 import { Route as AuthenticatedAppRacesRouteImport } from './routes/_authenticated/app.races'
 import { Route as AuthenticatedAppProfileRouteImport } from './routes/_authenticated/app.profile'
 import { Route as AuthenticatedAppPlansRouteImport } from './routes/_authenticated/app.plans'
 import { Route as AuthenticatedAppNoticeboardRouteImport } from './routes/_authenticated/app.noticeboard'
 import { Route as AuthenticatedAppMyScheduleRouteImport } from './routes/_authenticated/app.my-schedule'
 import { Route as AuthenticatedAppMessagesRouteImport } from './routes/_authenticated/app.messages'
+import { Route as AuthenticatedAppLactateRouteImport } from './routes/_authenticated/app.lactate'
+import { Route as AuthenticatedAppInjuriesRouteImport } from './routes/_authenticated/app.injuries'
+import { Route as AuthenticatedAppHealthRouteImport } from './routes/_authenticated/app.health'
 import { Route as AuthenticatedAppGroupChatRouteImport } from './routes/_authenticated/app.group-chat'
+import { Route as AuthenticatedAppGearRouteImport } from './routes/_authenticated/app.gear'
+import { Route as AuthenticatedAppDietFuelRouteImport } from './routes/_authenticated/app.diet-fuel'
 import { Route as AuthenticatedAppDailyLogRouteImport } from './routes/_authenticated/app.daily-log'
 import { Route as AuthenticatedAppCompareRouteImport } from './routes/_authenticated/app.compare'
 import { Route as AuthenticatedAppCoachingHubRouteImport } from './routes/_authenticated/app.coaching-hub'
 import { Route as AuthenticatedAppCheckoutRouteImport } from './routes/_authenticated/app.checkout'
 import { Route as AuthenticatedAppCalculatorsRouteImport } from './routes/_authenticated/app.calculators'
+import { Route as AuthenticatedAppBicarbRouteImport } from './routes/_authenticated/app.bicarb'
 import { Route as AuthenticatedAppAthletesRouteImport } from './routes/_authenticated/app.athletes'
 import { Route as AuthenticatedAppAnalyticsRouteImport } from './routes/_authenticated/app.analytics'
 import { Route as AuthenticatedAppSessionsIndexRouteImport } from './routes/_authenticated/app.sessions.index'
@@ -134,6 +141,12 @@ const AuthenticatedAppSessionsRoute =
     path: '/app/sessions',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAppRecoveryRoute =
+  AuthenticatedAppRecoveryRouteImport.update({
+    id: '/app/recovery',
+    path: '/app/recovery',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAppRacesRoute = AuthenticatedAppRacesRouteImport.update({
   id: '/app/races',
   path: '/app/races',
@@ -167,10 +180,37 @@ const AuthenticatedAppMessagesRoute =
     path: '/app/messages',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAppLactateRoute = AuthenticatedAppLactateRouteImport.update({
+  id: '/app/lactate',
+  path: '/app/lactate',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedAppInjuriesRoute =
+  AuthenticatedAppInjuriesRouteImport.update({
+    id: '/app/injuries',
+    path: '/app/injuries',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppHealthRoute = AuthenticatedAppHealthRouteImport.update({
+  id: '/app/health',
+  path: '/app/health',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedAppGroupChatRoute =
   AuthenticatedAppGroupChatRouteImport.update({
     id: '/app/group-chat',
     path: '/app/group-chat',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppGearRoute = AuthenticatedAppGearRouteImport.update({
+  id: '/app/gear',
+  path: '/app/gear',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedAppDietFuelRoute =
+  AuthenticatedAppDietFuelRouteImport.update({
+    id: '/app/diet-fuel',
+    path: '/app/diet-fuel',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedAppDailyLogRoute =
@@ -202,6 +242,11 @@ const AuthenticatedAppCalculatorsRoute =
     path: '/app/calculators',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAppBicarbRoute = AuthenticatedAppBicarbRouteImport.update({
+  id: '/app/bicarb',
+  path: '/app/bicarb',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedAppAthletesRoute =
   AuthenticatedAppAthletesRouteImport.update({
     id: '/app/athletes',
@@ -403,18 +448,25 @@ export interface FileRoutesByFullPath {
   '/claim/$token': typeof ClaimTokenRoute
   '/app/analytics': typeof AuthenticatedAppAnalyticsRoute
   '/app/athletes': typeof AuthenticatedAppAthletesRouteWithChildren
+  '/app/bicarb': typeof AuthenticatedAppBicarbRoute
   '/app/calculators': typeof AuthenticatedAppCalculatorsRouteWithChildren
   '/app/checkout': typeof AuthenticatedAppCheckoutRoute
   '/app/coaching-hub': typeof AuthenticatedAppCoachingHubRoute
   '/app/compare': typeof AuthenticatedAppCompareRoute
   '/app/daily-log': typeof AuthenticatedAppDailyLogRoute
+  '/app/diet-fuel': typeof AuthenticatedAppDietFuelRoute
+  '/app/gear': typeof AuthenticatedAppGearRoute
   '/app/group-chat': typeof AuthenticatedAppGroupChatRoute
+  '/app/health': typeof AuthenticatedAppHealthRoute
+  '/app/injuries': typeof AuthenticatedAppInjuriesRoute
+  '/app/lactate': typeof AuthenticatedAppLactateRoute
   '/app/messages': typeof AuthenticatedAppMessagesRoute
   '/app/my-schedule': typeof AuthenticatedAppMyScheduleRoute
   '/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
   '/app/plans': typeof AuthenticatedAppPlansRoute
   '/app/profile': typeof AuthenticatedAppProfileRoute
   '/app/races': typeof AuthenticatedAppRacesRouteWithChildren
+  '/app/recovery': typeof AuthenticatedAppRecoveryRoute
   '/app/sessions': typeof AuthenticatedAppSessionsRouteWithChildren
   '/app/templates': typeof AuthenticatedAppTemplatesRoute
   '/app/today': typeof AuthenticatedAppTodayRoute
@@ -460,16 +512,23 @@ export interface FileRoutesByTo {
   '/c/$slug': typeof CSlugRoute
   '/claim/$token': typeof ClaimTokenRoute
   '/app/analytics': typeof AuthenticatedAppAnalyticsRoute
+  '/app/bicarb': typeof AuthenticatedAppBicarbRoute
   '/app/checkout': typeof AuthenticatedAppCheckoutRoute
   '/app/coaching-hub': typeof AuthenticatedAppCoachingHubRoute
   '/app/compare': typeof AuthenticatedAppCompareRoute
   '/app/daily-log': typeof AuthenticatedAppDailyLogRoute
+  '/app/diet-fuel': typeof AuthenticatedAppDietFuelRoute
+  '/app/gear': typeof AuthenticatedAppGearRoute
   '/app/group-chat': typeof AuthenticatedAppGroupChatRoute
+  '/app/health': typeof AuthenticatedAppHealthRoute
+  '/app/injuries': typeof AuthenticatedAppInjuriesRoute
+  '/app/lactate': typeof AuthenticatedAppLactateRoute
   '/app/messages': typeof AuthenticatedAppMessagesRoute
   '/app/my-schedule': typeof AuthenticatedAppMyScheduleRoute
   '/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
   '/app/plans': typeof AuthenticatedAppPlansRoute
   '/app/profile': typeof AuthenticatedAppProfileRoute
+  '/app/recovery': typeof AuthenticatedAppRecoveryRoute
   '/app/templates': typeof AuthenticatedAppTemplatesRoute
   '/app/today': typeof AuthenticatedAppTodayRoute
   '/app/training-schedule': typeof AuthenticatedAppTrainingScheduleRoute
@@ -515,18 +574,25 @@ export interface FileRoutesById {
   '/claim/$token': typeof ClaimTokenRoute
   '/_authenticated/app/analytics': typeof AuthenticatedAppAnalyticsRoute
   '/_authenticated/app/athletes': typeof AuthenticatedAppAthletesRouteWithChildren
+  '/_authenticated/app/bicarb': typeof AuthenticatedAppBicarbRoute
   '/_authenticated/app/calculators': typeof AuthenticatedAppCalculatorsRouteWithChildren
   '/_authenticated/app/checkout': typeof AuthenticatedAppCheckoutRoute
   '/_authenticated/app/coaching-hub': typeof AuthenticatedAppCoachingHubRoute
   '/_authenticated/app/compare': typeof AuthenticatedAppCompareRoute
   '/_authenticated/app/daily-log': typeof AuthenticatedAppDailyLogRoute
+  '/_authenticated/app/diet-fuel': typeof AuthenticatedAppDietFuelRoute
+  '/_authenticated/app/gear': typeof AuthenticatedAppGearRoute
   '/_authenticated/app/group-chat': typeof AuthenticatedAppGroupChatRoute
+  '/_authenticated/app/health': typeof AuthenticatedAppHealthRoute
+  '/_authenticated/app/injuries': typeof AuthenticatedAppInjuriesRoute
+  '/_authenticated/app/lactate': typeof AuthenticatedAppLactateRoute
   '/_authenticated/app/messages': typeof AuthenticatedAppMessagesRoute
   '/_authenticated/app/my-schedule': typeof AuthenticatedAppMyScheduleRoute
   '/_authenticated/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
   '/_authenticated/app/plans': typeof AuthenticatedAppPlansRoute
   '/_authenticated/app/profile': typeof AuthenticatedAppProfileRoute
   '/_authenticated/app/races': typeof AuthenticatedAppRacesRouteWithChildren
+  '/_authenticated/app/recovery': typeof AuthenticatedAppRecoveryRoute
   '/_authenticated/app/sessions': typeof AuthenticatedAppSessionsRouteWithChildren
   '/_authenticated/app/templates': typeof AuthenticatedAppTemplatesRoute
   '/_authenticated/app/today': typeof AuthenticatedAppTodayRoute
@@ -575,18 +641,25 @@ export interface FileRouteTypes {
     | '/claim/$token'
     | '/app/analytics'
     | '/app/athletes'
+    | '/app/bicarb'
     | '/app/calculators'
     | '/app/checkout'
     | '/app/coaching-hub'
     | '/app/compare'
     | '/app/daily-log'
+    | '/app/diet-fuel'
+    | '/app/gear'
     | '/app/group-chat'
+    | '/app/health'
+    | '/app/injuries'
+    | '/app/lactate'
     | '/app/messages'
     | '/app/my-schedule'
     | '/app/noticeboard'
     | '/app/plans'
     | '/app/profile'
     | '/app/races'
+    | '/app/recovery'
     | '/app/sessions'
     | '/app/templates'
     | '/app/today'
@@ -632,16 +705,23 @@ export interface FileRouteTypes {
     | '/c/$slug'
     | '/claim/$token'
     | '/app/analytics'
+    | '/app/bicarb'
     | '/app/checkout'
     | '/app/coaching-hub'
     | '/app/compare'
     | '/app/daily-log'
+    | '/app/diet-fuel'
+    | '/app/gear'
     | '/app/group-chat'
+    | '/app/health'
+    | '/app/injuries'
+    | '/app/lactate'
     | '/app/messages'
     | '/app/my-schedule'
     | '/app/noticeboard'
     | '/app/plans'
     | '/app/profile'
+    | '/app/recovery'
     | '/app/templates'
     | '/app/today'
     | '/app/training-schedule'
@@ -686,18 +766,25 @@ export interface FileRouteTypes {
     | '/claim/$token'
     | '/_authenticated/app/analytics'
     | '/_authenticated/app/athletes'
+    | '/_authenticated/app/bicarb'
     | '/_authenticated/app/calculators'
     | '/_authenticated/app/checkout'
     | '/_authenticated/app/coaching-hub'
     | '/_authenticated/app/compare'
     | '/_authenticated/app/daily-log'
+    | '/_authenticated/app/diet-fuel'
+    | '/_authenticated/app/gear'
     | '/_authenticated/app/group-chat'
+    | '/_authenticated/app/health'
+    | '/_authenticated/app/injuries'
+    | '/_authenticated/app/lactate'
     | '/_authenticated/app/messages'
     | '/_authenticated/app/my-schedule'
     | '/_authenticated/app/noticeboard'
     | '/_authenticated/app/plans'
     | '/_authenticated/app/profile'
     | '/_authenticated/app/races'
+    | '/_authenticated/app/recovery'
     | '/_authenticated/app/sessions'
     | '/_authenticated/app/templates'
     | '/_authenticated/app/today'
@@ -841,6 +928,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppSessionsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/app/recovery': {
+      id: '/_authenticated/app/recovery'
+      path: '/app/recovery'
+      fullPath: '/app/recovery'
+      preLoaderRoute: typeof AuthenticatedAppRecoveryRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/app/races': {
       id: '/_authenticated/app/races'
       path: '/app/races'
@@ -883,11 +977,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppMessagesRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/app/lactate': {
+      id: '/_authenticated/app/lactate'
+      path: '/app/lactate'
+      fullPath: '/app/lactate'
+      preLoaderRoute: typeof AuthenticatedAppLactateRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/injuries': {
+      id: '/_authenticated/app/injuries'
+      path: '/app/injuries'
+      fullPath: '/app/injuries'
+      preLoaderRoute: typeof AuthenticatedAppInjuriesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/health': {
+      id: '/_authenticated/app/health'
+      path: '/app/health'
+      fullPath: '/app/health'
+      preLoaderRoute: typeof AuthenticatedAppHealthRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/app/group-chat': {
       id: '/_authenticated/app/group-chat'
       path: '/app/group-chat'
       fullPath: '/app/group-chat'
       preLoaderRoute: typeof AuthenticatedAppGroupChatRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/gear': {
+      id: '/_authenticated/app/gear'
+      path: '/app/gear'
+      fullPath: '/app/gear'
+      preLoaderRoute: typeof AuthenticatedAppGearRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/diet-fuel': {
+      id: '/_authenticated/app/diet-fuel'
+      path: '/app/diet-fuel'
+      fullPath: '/app/diet-fuel'
+      preLoaderRoute: typeof AuthenticatedAppDietFuelRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/app/daily-log': {
@@ -923,6 +1052,13 @@ declare module '@tanstack/react-router' {
       path: '/app/calculators'
       fullPath: '/app/calculators'
       preLoaderRoute: typeof AuthenticatedAppCalculatorsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/bicarb': {
+      id: '/_authenticated/app/bicarb'
+      path: '/app/bicarb'
+      fullPath: '/app/bicarb'
+      preLoaderRoute: typeof AuthenticatedAppBicarbRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/app/athletes': {
@@ -1273,18 +1409,25 @@ const AuthenticatedAppSessionsRouteWithChildren =
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAppAnalyticsRoute: typeof AuthenticatedAppAnalyticsRoute
   AuthenticatedAppAthletesRoute: typeof AuthenticatedAppAthletesRouteWithChildren
+  AuthenticatedAppBicarbRoute: typeof AuthenticatedAppBicarbRoute
   AuthenticatedAppCalculatorsRoute: typeof AuthenticatedAppCalculatorsRouteWithChildren
   AuthenticatedAppCheckoutRoute: typeof AuthenticatedAppCheckoutRoute
   AuthenticatedAppCoachingHubRoute: typeof AuthenticatedAppCoachingHubRoute
   AuthenticatedAppCompareRoute: typeof AuthenticatedAppCompareRoute
   AuthenticatedAppDailyLogRoute: typeof AuthenticatedAppDailyLogRoute
+  AuthenticatedAppDietFuelRoute: typeof AuthenticatedAppDietFuelRoute
+  AuthenticatedAppGearRoute: typeof AuthenticatedAppGearRoute
   AuthenticatedAppGroupChatRoute: typeof AuthenticatedAppGroupChatRoute
+  AuthenticatedAppHealthRoute: typeof AuthenticatedAppHealthRoute
+  AuthenticatedAppInjuriesRoute: typeof AuthenticatedAppInjuriesRoute
+  AuthenticatedAppLactateRoute: typeof AuthenticatedAppLactateRoute
   AuthenticatedAppMessagesRoute: typeof AuthenticatedAppMessagesRoute
   AuthenticatedAppMyScheduleRoute: typeof AuthenticatedAppMyScheduleRoute
   AuthenticatedAppNoticeboardRoute: typeof AuthenticatedAppNoticeboardRoute
   AuthenticatedAppPlansRoute: typeof AuthenticatedAppPlansRoute
   AuthenticatedAppProfileRoute: typeof AuthenticatedAppProfileRoute
   AuthenticatedAppRacesRoute: typeof AuthenticatedAppRacesRouteWithChildren
+  AuthenticatedAppRecoveryRoute: typeof AuthenticatedAppRecoveryRoute
   AuthenticatedAppSessionsRoute: typeof AuthenticatedAppSessionsRouteWithChildren
   AuthenticatedAppTemplatesRoute: typeof AuthenticatedAppTemplatesRoute
   AuthenticatedAppTodayRoute: typeof AuthenticatedAppTodayRoute
@@ -1308,19 +1451,26 @@ interface AuthenticatedRouteRouteChildren {
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAppAnalyticsRoute: AuthenticatedAppAnalyticsRoute,
   AuthenticatedAppAthletesRoute: AuthenticatedAppAthletesRouteWithChildren,
+  AuthenticatedAppBicarbRoute: AuthenticatedAppBicarbRoute,
   AuthenticatedAppCalculatorsRoute:
     AuthenticatedAppCalculatorsRouteWithChildren,
   AuthenticatedAppCheckoutRoute: AuthenticatedAppCheckoutRoute,
   AuthenticatedAppCoachingHubRoute: AuthenticatedAppCoachingHubRoute,
   AuthenticatedAppCompareRoute: AuthenticatedAppCompareRoute,
   AuthenticatedAppDailyLogRoute: AuthenticatedAppDailyLogRoute,
+  AuthenticatedAppDietFuelRoute: AuthenticatedAppDietFuelRoute,
+  AuthenticatedAppGearRoute: AuthenticatedAppGearRoute,
   AuthenticatedAppGroupChatRoute: AuthenticatedAppGroupChatRoute,
+  AuthenticatedAppHealthRoute: AuthenticatedAppHealthRoute,
+  AuthenticatedAppInjuriesRoute: AuthenticatedAppInjuriesRoute,
+  AuthenticatedAppLactateRoute: AuthenticatedAppLactateRoute,
   AuthenticatedAppMessagesRoute: AuthenticatedAppMessagesRoute,
   AuthenticatedAppMyScheduleRoute: AuthenticatedAppMyScheduleRoute,
   AuthenticatedAppNoticeboardRoute: AuthenticatedAppNoticeboardRoute,
   AuthenticatedAppPlansRoute: AuthenticatedAppPlansRoute,
   AuthenticatedAppProfileRoute: AuthenticatedAppProfileRoute,
   AuthenticatedAppRacesRoute: AuthenticatedAppRacesRouteWithChildren,
+  AuthenticatedAppRecoveryRoute: AuthenticatedAppRecoveryRoute,
   AuthenticatedAppSessionsRoute: AuthenticatedAppSessionsRouteWithChildren,
   AuthenticatedAppTemplatesRoute: AuthenticatedAppTemplatesRoute,
   AuthenticatedAppTodayRoute: AuthenticatedAppTodayRoute,
