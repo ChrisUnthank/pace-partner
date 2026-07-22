@@ -34,8 +34,10 @@ import { Route as AuthenticatedAppInjuriesRouteImport } from './routes/_authenti
 import { Route as AuthenticatedAppHealthRouteImport } from './routes/_authenticated/app.health'
 import { Route as AuthenticatedAppGroupChatRouteImport } from './routes/_authenticated/app.group-chat'
 import { Route as AuthenticatedAppGearRouteImport } from './routes/_authenticated/app.gear'
+import { Route as AuthenticatedAppEventEntriesRouteImport } from './routes/_authenticated/app.event-entries'
 import { Route as AuthenticatedAppDietFuelRouteImport } from './routes/_authenticated/app.diet-fuel'
 import { Route as AuthenticatedAppDailyLogRouteImport } from './routes/_authenticated/app.daily-log'
+import { Route as AuthenticatedAppCredentialsRouteImport } from './routes/_authenticated/app.credentials'
 import { Route as AuthenticatedAppCompareRouteImport } from './routes/_authenticated/app.compare'
 import { Route as AuthenticatedAppCoachingHubRouteImport } from './routes/_authenticated/app.coaching-hub'
 import { Route as AuthenticatedAppCheckoutRouteImport } from './routes/_authenticated/app.checkout'
@@ -207,6 +209,12 @@ const AuthenticatedAppGearRoute = AuthenticatedAppGearRouteImport.update({
   path: '/app/gear',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedAppEventEntriesRoute =
+  AuthenticatedAppEventEntriesRouteImport.update({
+    id: '/app/event-entries',
+    path: '/app/event-entries',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAppDietFuelRoute =
   AuthenticatedAppDietFuelRouteImport.update({
     id: '/app/diet-fuel',
@@ -217,6 +225,12 @@ const AuthenticatedAppDailyLogRoute =
   AuthenticatedAppDailyLogRouteImport.update({
     id: '/app/daily-log',
     path: '/app/daily-log',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppCredentialsRoute =
+  AuthenticatedAppCredentialsRouteImport.update({
+    id: '/app/credentials',
+    path: '/app/credentials',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedAppCompareRoute = AuthenticatedAppCompareRouteImport.update({
@@ -453,8 +467,10 @@ export interface FileRoutesByFullPath {
   '/app/checkout': typeof AuthenticatedAppCheckoutRoute
   '/app/coaching-hub': typeof AuthenticatedAppCoachingHubRoute
   '/app/compare': typeof AuthenticatedAppCompareRoute
+  '/app/credentials': typeof AuthenticatedAppCredentialsRoute
   '/app/daily-log': typeof AuthenticatedAppDailyLogRoute
   '/app/diet-fuel': typeof AuthenticatedAppDietFuelRoute
+  '/app/event-entries': typeof AuthenticatedAppEventEntriesRoute
   '/app/gear': typeof AuthenticatedAppGearRoute
   '/app/group-chat': typeof AuthenticatedAppGroupChatRoute
   '/app/health': typeof AuthenticatedAppHealthRoute
@@ -516,8 +532,10 @@ export interface FileRoutesByTo {
   '/app/checkout': typeof AuthenticatedAppCheckoutRoute
   '/app/coaching-hub': typeof AuthenticatedAppCoachingHubRoute
   '/app/compare': typeof AuthenticatedAppCompareRoute
+  '/app/credentials': typeof AuthenticatedAppCredentialsRoute
   '/app/daily-log': typeof AuthenticatedAppDailyLogRoute
   '/app/diet-fuel': typeof AuthenticatedAppDietFuelRoute
+  '/app/event-entries': typeof AuthenticatedAppEventEntriesRoute
   '/app/gear': typeof AuthenticatedAppGearRoute
   '/app/group-chat': typeof AuthenticatedAppGroupChatRoute
   '/app/health': typeof AuthenticatedAppHealthRoute
@@ -579,8 +597,10 @@ export interface FileRoutesById {
   '/_authenticated/app/checkout': typeof AuthenticatedAppCheckoutRoute
   '/_authenticated/app/coaching-hub': typeof AuthenticatedAppCoachingHubRoute
   '/_authenticated/app/compare': typeof AuthenticatedAppCompareRoute
+  '/_authenticated/app/credentials': typeof AuthenticatedAppCredentialsRoute
   '/_authenticated/app/daily-log': typeof AuthenticatedAppDailyLogRoute
   '/_authenticated/app/diet-fuel': typeof AuthenticatedAppDietFuelRoute
+  '/_authenticated/app/event-entries': typeof AuthenticatedAppEventEntriesRoute
   '/_authenticated/app/gear': typeof AuthenticatedAppGearRoute
   '/_authenticated/app/group-chat': typeof AuthenticatedAppGroupChatRoute
   '/_authenticated/app/health': typeof AuthenticatedAppHealthRoute
@@ -646,8 +666,10 @@ export interface FileRouteTypes {
     | '/app/checkout'
     | '/app/coaching-hub'
     | '/app/compare'
+    | '/app/credentials'
     | '/app/daily-log'
     | '/app/diet-fuel'
+    | '/app/event-entries'
     | '/app/gear'
     | '/app/group-chat'
     | '/app/health'
@@ -709,8 +731,10 @@ export interface FileRouteTypes {
     | '/app/checkout'
     | '/app/coaching-hub'
     | '/app/compare'
+    | '/app/credentials'
     | '/app/daily-log'
     | '/app/diet-fuel'
+    | '/app/event-entries'
     | '/app/gear'
     | '/app/group-chat'
     | '/app/health'
@@ -771,8 +795,10 @@ export interface FileRouteTypes {
     | '/_authenticated/app/checkout'
     | '/_authenticated/app/coaching-hub'
     | '/_authenticated/app/compare'
+    | '/_authenticated/app/credentials'
     | '/_authenticated/app/daily-log'
     | '/_authenticated/app/diet-fuel'
+    | '/_authenticated/app/event-entries'
     | '/_authenticated/app/gear'
     | '/_authenticated/app/group-chat'
     | '/_authenticated/app/health'
@@ -1012,6 +1038,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppGearRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/app/event-entries': {
+      id: '/_authenticated/app/event-entries'
+      path: '/app/event-entries'
+      fullPath: '/app/event-entries'
+      preLoaderRoute: typeof AuthenticatedAppEventEntriesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/app/diet-fuel': {
       id: '/_authenticated/app/diet-fuel'
       path: '/app/diet-fuel'
@@ -1024,6 +1057,13 @@ declare module '@tanstack/react-router' {
       path: '/app/daily-log'
       fullPath: '/app/daily-log'
       preLoaderRoute: typeof AuthenticatedAppDailyLogRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/credentials': {
+      id: '/_authenticated/app/credentials'
+      path: '/app/credentials'
+      fullPath: '/app/credentials'
+      preLoaderRoute: typeof AuthenticatedAppCredentialsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/app/compare': {
@@ -1414,8 +1454,10 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAppCheckoutRoute: typeof AuthenticatedAppCheckoutRoute
   AuthenticatedAppCoachingHubRoute: typeof AuthenticatedAppCoachingHubRoute
   AuthenticatedAppCompareRoute: typeof AuthenticatedAppCompareRoute
+  AuthenticatedAppCredentialsRoute: typeof AuthenticatedAppCredentialsRoute
   AuthenticatedAppDailyLogRoute: typeof AuthenticatedAppDailyLogRoute
   AuthenticatedAppDietFuelRoute: typeof AuthenticatedAppDietFuelRoute
+  AuthenticatedAppEventEntriesRoute: typeof AuthenticatedAppEventEntriesRoute
   AuthenticatedAppGearRoute: typeof AuthenticatedAppGearRoute
   AuthenticatedAppGroupChatRoute: typeof AuthenticatedAppGroupChatRoute
   AuthenticatedAppHealthRoute: typeof AuthenticatedAppHealthRoute
@@ -1457,8 +1499,10 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAppCheckoutRoute: AuthenticatedAppCheckoutRoute,
   AuthenticatedAppCoachingHubRoute: AuthenticatedAppCoachingHubRoute,
   AuthenticatedAppCompareRoute: AuthenticatedAppCompareRoute,
+  AuthenticatedAppCredentialsRoute: AuthenticatedAppCredentialsRoute,
   AuthenticatedAppDailyLogRoute: AuthenticatedAppDailyLogRoute,
   AuthenticatedAppDietFuelRoute: AuthenticatedAppDietFuelRoute,
+  AuthenticatedAppEventEntriesRoute: AuthenticatedAppEventEntriesRoute,
   AuthenticatedAppGearRoute: AuthenticatedAppGearRoute,
   AuthenticatedAppGroupChatRoute: AuthenticatedAppGroupChatRoute,
   AuthenticatedAppHealthRoute: AuthenticatedAppHealthRoute,

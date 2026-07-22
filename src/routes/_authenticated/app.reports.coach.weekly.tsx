@@ -17,7 +17,7 @@ import { Printer, Mail, FileText } from "lucide-react";
 // NOTE: this file's actual path is app.reports.athlete.weekly.tsx (dots),
 // serving /app/reports/athlete/weekly — the createFileRoute string below
 // must match that exactly, or the route silently drops from the tree.
-export const Route = createFileRoute("/_authenticated/app/reports/athlete/weekly")({
+export const Route = createFileRoute("/_authenticated/app/reports/coach/weekly")({
   component: AthleteReportPage,
 });
 

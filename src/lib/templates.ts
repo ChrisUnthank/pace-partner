@@ -6,6 +6,8 @@ import { supabase } from "@/integrations/supabase/client";
 const STEP_STRUCTURAL_COLS = [
   "step_order", "kind", "reps", "set_count",
   "target_kind", "target_distance_m", "target_time_seconds", "target_pace_sec_per_km",
+  "target_mode", "target_threshold_pace_pct", "target_threshold_hr_pct",
+  "target_zone", "target_rpe",
   "is_ladder", "counts_toward_distance",
   "recovery_between_reps_seconds", "recovery_between_reps_mode",
   "recovery_between_reps_target_kind", "recovery_between_reps_distance_m",
