@@ -48,7 +48,8 @@ import {
   type WorkoutTargetZone,
 } from "@/lib/workout-target-modes";
 
-type TargetMode = WorkoutTargetMode | "open";
+// "open" is already part of the WorkoutTargetMode union — no extension needed.
+type TargetMode = WorkoutTargetMode;
 
 // This route previously had no search-param handling at all — the
 // Calendar page's "+" menu has been passing date/mode/dayType here for a
@@ -106,15 +107,57 @@ type StepDraft = {
   _uid?: string;
 };
 
-function clearModePayload(mode: TargetMode, s: StepDraft): StepDraft {
+// Called when the coach switches Target mode in the builder. Clears the
+// payload fields that belong to other modes but deliberately does NOT
+// pre-fill a default value for the new mode — an empty field stays empty
+// until the coach types something, so nothing can ever be saved that the
+// coach didn't visibly enter. (The previous version injected 300s pace /
+// 100% / z3 / RPE 6 as fallbacks, which meant a blank target silently
+// saved as a real one.)
+function setModePayload(mode: TargetMode, s: StepDraft): StepDraft {
   return {
     ...s,
     target_mode: mode,
-    target_pace_sec_per_km: mode === "pace" ? (s.target_pace_sec_per_km ?? 300) : null,
-    target_threshold_pace_pct: mode === "threshold_pace_pct" ? (s.target_threshold_pace_pct ?? 100) : null,
-    target_threshold_hr_pct: mode === "threshold_hr_pct" ? (s.target_threshold_hr_pct ?? 100) : null,
-    target_zone: mode === "zone" ? (s.target_zone ?? ("z3" as WorkoutTargetZone)) : null,
-    target_rpe: mode === "rpe" ? (s.target_rpe ?? 6) : null,
+    target_pace_sec_per_km: mode === "pace" ? (s.target_pace_sec_per_km ?? null) : null,
+    target_threshold_pace_pct: mode === "threshold_pace_pct" ? (s.target_threshold_pace_pct ?? null) : null,
+    target_threshold_hr_pct: mode === "threshold_hr_pct" ? (s.target_threshold_hr_pct ?? null) : null,
+    target_zone: mode === "zone" ? (s.target_zone ?? null) : null,
+    target_rpe: mode === "rpe" ? (s.target_rpe ?? null) : null,
+  };
+}
+
+// Called only at save time, for work steps. Guarantees two things the DB
+// constraints and downstream readers rely on:
+//   1. Exactly one payload field (or none) is set — everything not matching
+//      the effective mode is nulled, satisfying the exclusivity CHECK.
+//   2. If the chosen mode's own value was never filled in, the step is
+//      saved as "open" (no target) rather than being given a made-up
+//      default — blank means blank.
+function normalizeWorkTargetForSave(s: StepDraft): StepDraft {
+  const chosen = (s.target_mode ?? inferWorkoutTargetMode(s as any)) as TargetMode;
+
+  const payloadByMode: Record<TargetMode, number | string | null | undefined> = {
+    pace: s.target_pace_sec_per_km,
+    threshold_pace_pct: s.target_threshold_pace_pct,
+    threshold_hr_pct: s.target_threshold_hr_pct,
+    zone: s.target_zone,
+    rpe: s.target_rpe,
+    open: null,
+  };
+
+  const v = payloadByMode[chosen];
+  const hasValue =
+    chosen !== "open" && v != null && !(typeof v === "number" && !Number.isFinite(v));
+  const effective: TargetMode = hasValue ? chosen : "open";
+
+  return {
+    ...s,
+    target_mode: effective,
+    target_pace_sec_per_km: effective === "pace" ? (s.target_pace_sec_per_km ?? null) : null,
+    target_threshold_pace_pct: effective === "threshold_pace_pct" ? (s.target_threshold_pace_pct ?? null) : null,
+    target_threshold_hr_pct: effective === "threshold_hr_pct" ? (s.target_threshold_hr_pct ?? null) : null,
+    target_zone: effective === "zone" ? (s.target_zone ?? null) : null,
+    target_rpe: effective === "rpe" ? (s.target_rpe ?? null) : null,
   };
 }
 
@@ -414,6 +457,38 @@ function NewSession() {
       return;
     }
 
+    // Validate target values against the same ranges the database enforces
+    // (pct 1–200, RPE 1–10) BEFORE inserting the session row — otherwise a
+    // bad value fails the steps insert with a cryptic constraint error and
+    // leaves an orphaned, step-less session behind.
+    if (dayType !== "cross_training") {
+      for (let i = 0; i < steps.length; i++) {
+        const s = steps[i];
+        if (s.kind !== "work") continue;
+        const m = (s.target_mode ?? inferWorkoutTargetMode(s as any)) as TargetMode;
+        if (
+          m === "threshold_pace_pct" &&
+          s.target_threshold_pace_pct != null &&
+          (s.target_threshold_pace_pct <= 0 || s.target_threshold_pace_pct > 200)
+        ) {
+          toast.error(`Step ${i + 1}: threshold pace percent must be between 1 and 200`);
+          return;
+        }
+        if (
+          m === "threshold_hr_pct" &&
+          s.target_threshold_hr_pct != null &&
+          (s.target_threshold_hr_pct <= 0 || s.target_threshold_hr_pct > 200)
+        ) {
+          toast.error(`Step ${i + 1}: threshold HR percent must be between 1 and 200`);
+          return;
+        }
+        if (m === "rpe" && s.target_rpe != null && (s.target_rpe < 1 || s.target_rpe > 10)) {
+          toast.error(`Step ${i + 1}: RPE must be between 1 and 10`);
+          return;
+        }
+      }
+    }
+
     const isGymPlan = dayType === "cross_training" && activityType === "gym";
 
     // Maps the coach-friendly easy/moderate/hard picker to a concrete RPE —
@@ -468,8 +543,8 @@ function NewSession() {
     const stepsToSave = isContinuous ? steps.map(flattenWorkToContinuous) : steps;
 
     const stepRows = stepsToSave.map((s, i) => {
-      const mode = s.kind === "work" ? ((s.target_mode ?? inferWorkoutTargetMode(s as any)) as TargetMode) : null;
-      const cleaned = s.kind === "work" && mode ? clearModePayload(mode, s) : s;
+      const cleaned = s.kind === "work" ? normalizeWorkTargetForSave(s) : s;
+      const mode = cleaned.kind === "work" ? ((cleaned.target_mode ?? "open") as TargetMode) : null;
 
       return {
         session_id: sess.id,
@@ -828,10 +903,12 @@ function WorkTargetModeFields({
   step: StepDraft;
   onUpdate: (p: Partial<StepDraft>) => void;
 }) {
-  const mode = (step.target_mode ?? inferWorkoutTargetMode(step as any) ?? "pace") as TargetMode;
+  // inferWorkoutTargetMode always returns a valid mode ("open" as its own
+  // fallback), so no extra "?? pace" default is needed here.
+  const mode = (step.target_mode ?? inferWorkoutTargetMode(step as any)) as TargetMode;
 
   function updateMode(next: TargetMode) {
-    onUpdate(clearModePayload(next, { ...step, target_mode: next }));
+    onUpdate(setModePayload(next, { ...step, target_mode: next }));
   }
 
   return (
@@ -859,7 +936,16 @@ function WorkTargetModeFields({
           <Input
             placeholder="3:30"
             defaultValue={step.target_pace_sec_per_km ? secToClock(step.target_pace_sec_per_km) : ""}
-            onChange={(e) => onUpdate({ target_pace_sec_per_km: clockToSec(e.target.value) })}
+            onChange={(e) => {
+              // Clearing the field (or typing something unparseable) must
+              // store null, not 0/NaN — null is what save-time
+              // normalization reads as "no pace entered → open".
+              const raw = e.target.value.trim();
+              const secs = raw === "" ? null : clockToSec(raw);
+              onUpdate({
+                target_pace_sec_per_km: secs != null && Number.isFinite(secs) && secs > 0 ? secs : null,
+              });
+            }}
           />
         </div>
       )}
@@ -869,13 +955,14 @@ function WorkTargetModeFields({
           <Label className="text-xs">Threshold pace percent</Label>
           <Input
             type="number"
+            min={1}
+            max={200}
             placeholder="100"
             value={step.target_threshold_pace_pct ?? ""}
-            onChange={(e) =>
-              onUpdate({
-                target_threshold_pace_pct: e.target.value === "" ? null : Number(e.target.value),
-              })
-            }
+            onChange={(e) => {
+              const v = e.target.value === "" ? null : Number(e.target.value);
+              onUpdate({ target_threshold_pace_pct: v != null && Number.isFinite(v) ? v : null });
+            }}
           />
           <p className="text-[11px] text-muted-foreground mt-1">
             Example: 100 means threshold pace. 95 means slightly slower than threshold.
@@ -888,13 +975,14 @@ function WorkTargetModeFields({
           <Label className="text-xs">Threshold HR percent</Label>
           <Input
             type="number"
+            min={1}
+            max={200}
             placeholder="95"
             value={step.target_threshold_hr_pct ?? ""}
-            onChange={(e) =>
-              onUpdate({
-                target_threshold_hr_pct: e.target.value === "" ? null : Number(e.target.value),
-              })
-            }
+            onChange={(e) => {
+              const v = e.target.value === "" ? null : Number(e.target.value);
+              onUpdate({ target_threshold_hr_pct: v != null && Number.isFinite(v) ? v : null });
+            }}
           />
           <p className="text-[11px] text-muted-foreground mt-1">
             Example: 95 means 95 percent of threshold heart rate.
@@ -905,24 +993,24 @@ function WorkTargetModeFields({
       {mode === "zone" && (
         <div>
           <Label className="text-xs">Zone</Label>
+          {/* Previously this displayed "Z3" whenever no zone was chosen while
+              the underlying state was still null — the coach saw a target
+              that was never going to be saved. A real placeholder keeps the
+              display honest: pick a zone and it saves; leave it and the step
+              saves as open (no target). */}
           <Select
-            value={step.target_zone ?? ("z3" as WorkoutTargetZone)}
+            value={step.target_zone ?? ""}
             onValueChange={(v) => onUpdate({ target_zone: v as WorkoutTargetZone })}
           >
             <SelectTrigger>
-              <SelectValue />
+              <SelectValue placeholder="Pick a zone…" />
             </SelectTrigger>
             <SelectContent>
-              {WORKOUT_TARGET_ZONES.map((z: any) => {
-                const value = typeof z === "string" ? z : z.value;
-                const label = typeof z === "string" ? z.toUpperCase() : z.label;
-
-                return (
-                  <SelectItem key={value} value={value}>
-                    {label}
-                  </SelectItem>
-                );
-              })}
+              {WORKOUT_TARGET_ZONES.map((z) => (
+                <SelectItem key={z} value={z}>
+                  {z.toUpperCase()}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -937,11 +1025,10 @@ function WorkTargetModeFields({
             max={10}
             placeholder="6"
             value={step.target_rpe ?? ""}
-            onChange={(e) =>
-              onUpdate({
-                target_rpe: e.target.value === "" ? null : Number(e.target.value),
-              })
-            }
+            onChange={(e) => {
+              const v = e.target.value === "" ? null : Number(e.target.value);
+              onUpdate({ target_rpe: v != null && Number.isFinite(v) ? v : null });
+            }}
           />
         </div>
       )}
