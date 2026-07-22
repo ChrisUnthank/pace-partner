@@ -89,7 +89,7 @@ export const buildAthletePayload = createServerFn({ method: "POST" })
     const since14 = new Date(Date.now() - 14 * 86400_000).toISOString().slice(0, 10);
     const [athlete, sessions, load, vitals, insights, physio, zones] = await Promise.all([
       sb.from("athletes").select("name, sex, primary_event, hr_max, hr_rest, training_age_years, weight, dob").eq("id", data.athleteId).maybeSingle(),
-      sb.from("sessions").select("session_date, title, intent, day_type, rpe, completion_pct, total_distance_m, total_time_seconds, completed_at").eq("athlete_id", data.athleteId).gte("session_date", since28).order("session_date", { ascending: false }).limit(30),
+      sb.from("sessions").select("id, session_date, title, intent, day_type, rpe, completion_pct, total_distance_m, total_time_seconds, completed_at").eq("athlete_id", data.athleteId).gte("session_date", since28).order("session_date", { ascending: false }).limit(30),
       sb.from("athlete_load_daily").select("load_date, combined_load, ctl, atl, tsb, readiness_status, readiness_score").eq("athlete_id", data.athleteId).gte("load_date", since14).order("load_date", { ascending: false }),
       sb.from("daily_vitals").select("vitals_date, sleep_hours, resting_hr, weight_kg, hydration").eq("athlete_id", data.athleteId).gte("vitals_date", since14).order("vitals_date", { ascending: false }),
       sb.from("session_insights").select("created_at, feel_score, went_well, was_difficult, niggles").eq("athlete_id", data.athleteId).order("created_at", { ascending: false }).limit(5),
@@ -97,9 +97,44 @@ export const buildAthletePayload = createServerFn({ method: "POST" })
       sb.from("athlete_zone_profiles").select("hr_z1_max, hr_z2_max, hr_z3_max, hr_z4_max, pace_z1_max, pace_z2_max, pace_z3_max, pace_z4_max").eq("athlete_id", data.athleteId).maybeSingle(),
     ]);
 
-    const sList = (sessions.data ?? []).map((s) => ({
+    // Work-only distance per session — isolated to work/strides steps,
+    // excluding warmup/recovery/cooldown. Without this, the only distance
+    // figure available was total_distance_m (the whole session), which an
+    // AI review or chat asked to discuss "work volume" would have no way
+    // to distinguish from — silently reporting a session's full distance
+    // (easy warmup/cooldown included) as if it were the hard-effort
+    // portion alone. Same class of gap as the work_avg_pace_sec_per_km
+    // fix elsewhere in this app (that one fell back to whole-session
+    // blended pace for the same reason: no genuine work-only figure had
+    // ever been computed).
+    const sessionIds = (sessions.data ?? []).map((s: any) => s.id);
+    const workDistanceBySession = new Map<string, number>();
+    if (sessionIds.length > 0) {
+      const { data: workSteps } = await sb
+        .from("steps")
+        .select("id, session_id")
+        .in("session_id", sessionIds)
+        .in("kind", ["work", "strides"]);
+      const stepToSession = new Map<string, string>((workSteps ?? []).map((s: any) => [s.id, s.session_id]));
+      const workStepIds = (workSteps ?? []).map((s: any) => s.id);
+      if (workStepIds.length > 0) {
+        const { data: workResults } = await sb
+          .from("interval_results")
+          .select("step_id, actual_distance_m")
+          .in("step_id", workStepIds);
+        for (const r of workResults ?? []) {
+          const sid = stepToSession.get(r.step_id);
+          if (!sid) continue;
+          workDistanceBySession.set(sid, (workDistanceBySession.get(sid) ?? 0) + Number(r.actual_distance_m ?? 0));
+        }
+      }
+    }
+
+    const sList = (sessions.data ?? []).map((s: any) => ({
       d: s.session_date, t: s.title, i: s.intent, ty: s.day_type,
-      rpe: s.rpe, c: s.completion_pct, km: s.total_distance_m ? Math.round(Number(s.total_distance_m) / 100) / 10 : null,
+      rpe: s.rpe, c: s.completion_pct,
+      km: s.total_distance_m ? Math.round(Number(s.total_distance_m) / 100) / 10 : null,
+      work_km: workDistanceBySession.has(s.id) ? Math.round(workDistanceBySession.get(s.id)! / 100) / 10 : null,
       done: !!s.completed_at,
     }));
     const loadRows = load.data ?? [];
@@ -118,6 +153,7 @@ export const buildAthletePayload = createServerFn({ method: "POST" })
       physio: physio.data ?? {},
       zones: zones.data ?? {},
       recent_sessions_28d: sList,
+      session_field_legend: "km = total session distance including warmup/cooldown. work_km = hard-effort portion only (work + strides steps), excludes warmup/recovery/cooldown. Use work_km, not km, for any question about work/quality volume.",
       recent_insights: (insights.data ?? []).map((i: any) => ({ d: i.created_at?.slice(0, 10), feel: i.feel_score, well: i.went_well?.slice(0, 80), hard: i.was_difficult?.slice(0, 80), niggles: i.niggles?.slice(0, 80) })),
     };
   });
