@@ -17,9 +17,27 @@ const STEP_STRUCTURAL_COLS = [
   "notes",
 ] as const;
 
+// Columns that are NOT NULL (with a default) in steps/template_steps. Older
+// rows — especially FIT-imported steps created before some of these columns
+// existed — can hold genuine blanks for them, and the previous pickStructural
+// turned every blank into an explicit `null`, which the destination table
+// rejects with "null value in column … violates not-null constraint". Copying
+// a blank now falls back to the same default the database itself would use.
+const NOT_NULL_FALLBACKS: Record<string, unknown> = {
+  reps: 1,
+  set_count: 1,
+  is_ladder: false,
+  counts_toward_distance: true,
+  recovery_between_reps_target_kind: "time",
+  recovery_between_sets_target_kind: "time",
+};
+
 function pickStructural(row: any) {
   const out: any = {};
-  for (const k of STEP_STRUCTURAL_COLS) out[k] = row[k] ?? null;
+  for (const k of STEP_STRUCTURAL_COLS) {
+    const v = row[k];
+    out[k] = v ?? (k in NOT_NULL_FALLBACKS ? NOT_NULL_FALLBACKS[k] : null);
+  }
   return out;
 }
 
@@ -54,7 +72,13 @@ export async function saveSessionAsTemplate(args: {
   if (steps && steps.length > 0) {
     const rows = steps.map((s: any) => ({ template_id: (tpl as any).id, ...pickStructural(s) }));
     const { error: tsErr } = await supabase.from("template_steps").insert(rows as any);
-    if (tsErr) return { ok: false, error: tsErr.message };
+    if (tsErr) {
+      // Roll back the template row so a failed steps copy can't leave an
+      // empty "shell" template behind — a shell shows up in the Templates
+      // list but populates nothing when applied.
+      await supabase.from("session_templates").delete().eq("id", (tpl as any).id);
+      return { ok: false, error: tsErr.message };
+    }
   }
   return { ok: true, templateId: (tpl as any).id };
 }
@@ -75,6 +99,17 @@ export async function applyTemplateToSession(args: {
     .from("template_steps").select("*").eq("template_id", args.templateId).order("step_order");
   if (tsErr) return { ok: false, error: tsErr.message };
 
+  // A template with no steps is a broken shell (created while template
+  // saving was failing partway) — applying it would create a session with
+  // a title and nothing else. Refuse with a clear explanation instead.
+  if (!tsteps || tsteps.length === 0) {
+    return {
+      ok: false,
+      error:
+        "This template has no steps — it was saved while template saving was broken. Delete it and re-save it from the original session.",
+    };
+  }
+
   const { data: sess, error: sErr } = await supabase.from("sessions").insert({
     athlete_id: args.athleteId,
     created_by: args.createdByUserId,
@@ -90,10 +125,13 @@ export async function applyTemplateToSession(args: {
   } as any).select().single();
   if (sErr || !sess) return { ok: false, error: sErr?.message ?? "Failed to create session" };
 
-  if (tsteps && tsteps.length > 0) {
-    const rows = tsteps.map((s: any) => ({ session_id: (sess as any).id, ...pickStructural(s) }));
-    const { error: insErr } = await supabase.from("steps").insert(rows as any);
-    if (insErr) return { ok: false, error: insErr.message };
+  const rows = tsteps.map((s: any) => ({ session_id: (sess as any).id, ...pickStructural(s) }));
+  const { error: insErr } = await supabase.from("steps").insert(rows as any);
+  if (insErr) {
+    // Roll back the session row so a failed steps copy can't leave an
+    // empty planned session on the athlete's calendar.
+    await supabase.from("sessions").delete().eq("id", (sess as any).id);
+    return { ok: false, error: insErr.message };
   }
   return { ok: true, sessionId: (sess as any).id };
 }
