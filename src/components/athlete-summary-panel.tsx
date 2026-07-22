@@ -146,15 +146,15 @@ export function AthleteSummaryPanel({
           <div className="grid grid-cols-3 gap-2">
             <div className="border rounded-lg px-2 py-2 text-center">
               <div className="text-base font-semibold tabular-nums">{load.ctl?.toFixed?.(0) ?? "—"}</div>
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wide">CTL</div>
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Fitness</div>
             </div>
             <div className="border rounded-lg px-2 py-2 text-center">
               <div className="text-base font-semibold tabular-nums">{load.atl?.toFixed?.(0) ?? "—"}</div>
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wide">ATL</div>
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Fatigue</div>
             </div>
             <div className="border rounded-lg px-2 py-2 text-center">
               <div className="text-base font-semibold tabular-nums">{load.tsb?.toFixed?.(0) ?? "—"}</div>
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wide">TSB</div>
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Form</div>
             </div>
           </div>
         </div>
