@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyRoles, useMyAthlete } from "@/lib/use-auth";
@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ChevronLeft, IdCard } from "lucide-react";
 import { AthleteSubnav } from "@/components/athlete-subnav";
+import { CoachAthletePicker } from "@/components/coach-athlete-picker";
 import { GoalsCard } from "@/components/goals-card";
 import { PhysiologicalTestingCard } from "@/components/physiological-testing-card";
 import { AthleteIdentityCard, ATHLETE_STATUS_OPTIONS, ATHLETE_STATUS_STYLES } from "@/components/athlete-identity-card";
@@ -22,10 +23,25 @@ export const Route = createFileRoute("/_authenticated/app/athletes/$athleteId_/p
 
 function PerformanceProfilePage() {
   const { athleteId } = Route.useParams();
+  const navigate = useNavigate();
   const { data: roles = [] } = useMyRoles();
   const isCoach = roles.includes("coach");
   const { data: myAthlete } = useMyAthlete();
   const canEdit = isCoach || myAthlete?.id === athleteId;
+
+  // Roster fetch for the athlete picker — this page is reached via a
+  // route param (not a search param like most other coach-scoped pages),
+  // so switching athletes here means navigating to a whole new URL rather
+  // than just updating the current one.
+  const { data: roster } = useQuery({
+    queryKey: ["performance-profile-roster"],
+    enabled: isCoach,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("coach_athletes").select("athletes(id, name, profile_image_url)");
+      if (error) throw error;
+      return ((data ?? []) as any[]).map((r) => r.athletes).filter(Boolean);
+    },
+  });
 
   // Same ["athlete", athleteId] key the main profile page
   // (app.athletes.$athleteId.tsx) uses — both pages render the shared
@@ -98,9 +114,21 @@ function PerformanceProfilePage() {
             <IdCard className="h-5 w-5 text-[var(--accent-red)]" />
             <h1 className="text-2xl font-bold">{athlete?.name} — Performance Profile</h1>
           </div>
-          <Badge variant="outline" className={ATHLETE_STATUS_STYLES[athlete?.athlete_status ?? "active"]}>
-            {ATHLETE_STATUS_OPTIONS.find((o) => o.value === athlete?.athlete_status)?.label ?? "Active"}
-          </Badge>
+          <div className="flex items-center gap-2 flex-wrap">
+            {isCoach && (
+              <CoachAthletePicker
+                roster={roster ?? []}
+                myAthlete={myAthlete as any}
+                value={athleteId}
+                onChange={(v) =>
+                  navigate({ to: "/app/athletes/$athleteId/performance-profile", params: { athleteId: v } })
+                }
+              />
+            )}
+            <Badge variant="outline" className={ATHLETE_STATUS_STYLES[athlete?.athlete_status ?? "active"]}>
+              {ATHLETE_STATUS_OPTIONS.find((o) => o.value === athlete?.athlete_status)?.label ?? "Active"}
+            </Badge>
+          </div>
         </div>
 
         {isCoach && <AthleteSubnav athleteId={athleteId} active="performance-profile" />}
