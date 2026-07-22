@@ -1040,7 +1040,6 @@ function StepFields({
           </div>
         )}
         <WorkTargetModeFields step={s} onUpdate={onUpdate} />
-        </div>
 
         {/* Recovery between reps */}
         <div className="col-span-2 rounded-md border p-2 space-y-2">
