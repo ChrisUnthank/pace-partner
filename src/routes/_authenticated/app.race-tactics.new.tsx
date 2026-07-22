@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { CoachAthletePicker } from "@/components/coach-athlete-picker";
 import { toast } from "sonner";
 import { ChevronLeft, Flag } from "lucide-react";
 import { clockToSec, secToClock } from "@/lib/format";
@@ -58,10 +59,10 @@ function NewRaceTacticsPlan() {
     enabled: !!user && isCoach,
     queryFn: async () => {
       if (isManager) {
-        const { data } = await supabase.from("athletes").select("id, name").order("name");
+        const { data } = await supabase.from("athletes").select("id, name, profile_image_url").order("name");
         return data ?? [];
       }
-      const { data } = await supabase.from("coach_athletes").select("athletes(id, name)").eq("coach_user_id", user!.id);
+      const { data } = await supabase.from("coach_athletes").select("athletes(id, name, profile_image_url)").eq("coach_user_id", user!.id);
       return (data ?? []).map((r: any) => r.athletes).filter(Boolean);
     },
   });
@@ -238,18 +239,14 @@ function NewRaceTacticsPlan() {
             {isCoach && (
               <div>
                 <Label className="text-xs">Athlete</Label>
-                <Select value={athleteId} onValueChange={setAthleteId}>
-                  <SelectTrigger className="mt-1">
-                    <SelectValue placeholder="Choose an athlete" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(roster ?? []).map((a: any) => (
-                      <SelectItem key={a.id} value={a.id}>
-                        {a.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="mt-1">
+                  <CoachAthletePicker
+                    roster={roster ?? []}
+                    myAthlete={myAthlete as any}
+                    value={athleteId}
+                    onChange={setAthleteId}
+                  />
+                </div>
               </div>
             )}
 
