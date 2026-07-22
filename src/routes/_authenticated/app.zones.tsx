@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { ZoneBoundariesCard } from "@/components/zone-boundaries-card";
 import { AthleteSubnav } from "@/components/athlete-subnav";
+import { CoachAthletePicker } from "@/components/coach-athlete-picker";
 import { paceFmt, secToClock } from "@/lib/format";
 import { AlertTriangle, Search } from "lucide-react";
 import {
@@ -349,7 +350,11 @@ function AthleteZonesView() {
 // with the breadcrumb + tab strip in place of the plain page title — reached
 // via a specific athlete's tab strip rather than the athlete's own sidebar.
 function CoachAthleteZonesView({ athleteId }: { athleteId: string }) {
+  const navigate = useNavigate({ from: Route.fullPath });
   const [range, setRange] = useState<RangeKey>("6m");
+  const { data: roster } = useCoachRoster();
+  const { data: myAthlete } = useMyAthlete();
+  const rosterAthletes = useMemo(() => (roster ?? []).map((r: any) => r.athletes).filter(Boolean), [roster]);
 
   const { data: athlete } = useQuery({
     queryKey: ["athlete", athleteId],
@@ -462,11 +467,19 @@ function CoachAthleteZonesView({ athleteId }: { athleteId: string }) {
       </div>
       <AthleteSubnav athleteId={athleteId} active="zones" />
 
-      <div>
-        <h1 className="text-2xl font-bold">{athlete?.name ?? "Zones"}</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Training zones, time-in-zone breakdown, and how boundaries have shifted over time.
-        </p>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold">{athlete?.name ?? "Zones"}</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Training zones, time-in-zone breakdown, and how boundaries have shifted over time.
+          </p>
+        </div>
+        <CoachAthletePicker
+          roster={rosterAthletes}
+          myAthlete={myAthlete as any}
+          value={athleteId}
+          onChange={(v) => navigate({ search: (p: any) => ({ ...p, athleteId: v }) })}
+        />
       </div>
 
       <ZoneBoundariesCard athleteId={athleteId} profile={zoneProfile} />
