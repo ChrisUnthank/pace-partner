@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { CoachAthletePicker } from "@/components/coach-athlete-picker";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { CalendarRange, ChevronDown, ChevronUp } from "lucide-react";
@@ -460,8 +461,8 @@ function AssignPlanDialog({ template, onClose }: { template: PlanTemplate; onClo
   const { data: roster } = useQuery({
     queryKey: ["roster-for-plan-assign"],
     queryFn: async () => {
-      const { data } = await supabase.from("coach_athletes").select("athlete_id, athletes(id, name)");
-      return (data ?? []) as any[];
+      const { data } = await supabase.from("coach_athletes").select("athlete_id, athletes(id, name, profile_image_url)");
+      return ((data ?? []) as any[]).map((r) => r.athletes).filter(Boolean);
     },
   });
 
@@ -522,18 +523,9 @@ function AssignPlanDialog({ template, onClose }: { template: PlanTemplate; onClo
         <div className="space-y-3">
           <div>
             <Label className="text-xs">Athlete</Label>
-            <Select value={athleteId} onValueChange={setAthleteId}>
-              <SelectTrigger className="mt-1">
-                <SelectValue placeholder="Choose an athlete" />
-              </SelectTrigger>
-              <SelectContent>
-                {(roster ?? []).map((r: any) => (
-                  <SelectItem key={r.athlete_id} value={r.athlete_id}>
-                    {r.athletes?.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="mt-1">
+              <CoachAthletePicker roster={roster ?? []} value={athleteId} onChange={setAthleteId} />
+            </div>
           </div>
 
           <div>
