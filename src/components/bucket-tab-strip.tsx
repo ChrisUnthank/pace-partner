@@ -1,6 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
-import { CalendarDays, CalendarRange, ClipboardList, BookmarkCheck, LayoutGrid, Clock, CalendarHeart, HeartPulse, Apple, Bath, Bandage, FlaskConical, TestTube2, Footprints, IdCard } from "lucide-react";
+import { CalendarDays, CalendarRange, ClipboardList, BookmarkCheck, LayoutGrid, Clock, CalendarHeart, HeartPulse, Apple, Bath, Bandage, FlaskConical, TestTube2, Footprints, IdCard, Ticket } from "lucide-react";
 
 export type BucketTabItem = {
   to: string;
@@ -37,6 +37,7 @@ export const LOCKER_TABS: BucketTabItem[] = [
   { to: "/app/my-schedule", label: "Schedule", icon: CalendarHeart },
   { to: "/app/gear", label: "Gear", icon: Footprints },
   { to: "/app/credentials", label: "Credentials", icon: IdCard },
+  { to: "/app/event-entries", label: "Event Entries", icon: Ticket },
 ];
 
 // Health & Vitals — Daily Log moved here from Training (it's the
