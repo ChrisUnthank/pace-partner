@@ -226,62 +226,36 @@ function AthleteDetail() {
     },
   });
 
-  // Weekly distance, computed the same way as the Training load volume above
-  // (actual distance from interval_results, falling back to planned target
-  // for non-completed sessions) but summed across every step in the session
-  // — warmup, work, strides, and cooldown alike. Replaces the old
-  // athlete_weekly_distance view, which excluded certain warm-up
-  // "run-through" steps from the total.
+  // Weekly distance — sums each completed session's own total_distance_m,
+  // the same canonical figure Calendar and Analytics both use, grouped
+  // Monday-Sunday. Previously re-summed distance from raw interval_results
+  // rows per step instead (to catch warm-up "run-through" steps an old
+  // database view used to exclude), but that left it exposed to picking
+  // up orphaned/duplicate interval_results rows for a session — the same
+  // class of data-integrity issue already documented and fixed elsewhere
+  // in this app's FIT pipeline — which could quietly inflate a week's
+  // total well past what Calendar/Analytics showed for that same week.
+  // It also fell back to a planned session's *target* distance whenever
+  // completed_at was null, counting sessions that hadn't actually
+  // happened yet — why the current/in-progress week previously ran well
+  // ahead of Calendar's total for the same days. Neither survives here:
+  // only actually-completed sessions count, using the one total_distance_m
+  // figure already trusted everywhere else in the app.
   const { data: weeklyDistance } = useQuery({
-    queryKey: ["weekly-distance-all-steps", athleteId],
+    queryKey: ["weekly-distance-completed", athleteId],
     queryFn: async () => {
       const since = new Date(Date.now() - 8 * 7 * 86400000).toISOString().slice(0, 10);
 
       const { data: sessRows } = await supabase
         .from("sessions")
-        .select("id, session_date, total_distance_m, completed_at")
+        .select("session_date, total_distance_m")
         .eq("athlete_id", athleteId)
-        .gte("session_date", since);
+        .gte("session_date", since)
+        .not("completed_at", "is", null);
 
       const weekTotals = new Map<string, number>();
-      const sessIds = (sessRows ?? []).map((s: any) => s.id);
-      let actualBySession = new Map<string, number>();
-      let plannedBySession = new Map<string, number>();
-
-      if (sessIds.length > 0) {
-        const { data: steps } = await supabase
-          .from("steps")
-          .select("id, session_id, target_distance_m, reps, set_count")
-          .in("session_id", sessIds);
-
-        const stepToSession = new Map<string, string>();
-
-        for (const st of steps ?? []) {
-          stepToSession.set(st.id, st.session_id);
-          const planned = Number(st.target_distance_m ?? 0) * Number(st.reps ?? 1) * Number(st.set_count ?? 1);
-          plannedBySession.set(st.session_id, (plannedBySession.get(st.session_id) ?? 0) + planned);
-        }
-
-        const stepIds = (steps ?? []).map((s: any) => s.id);
-
-        if (stepIds.length > 0) {
-          const { data: irs } = await supabase
-            .from("interval_results")
-            .select("step_id, actual_distance_m")
-            .in("step_id", stepIds);
-
-          for (const r of irs ?? []) {
-            const sid = stepToSession.get(r.step_id);
-            if (!sid) continue;
-            actualBySession.set(sid, (actualBySession.get(sid) ?? 0) + Number(r.actual_distance_m ?? 0));
-          }
-        }
-      }
-
       for (const s of sessRows ?? []) {
-        let m = actualBySession.get(s.id) ?? 0;
-        if (m === 0 && s.total_distance_m) m = Number(s.total_distance_m);
-        if (m === 0 && !s.completed_at) m = plannedBySession.get(s.id) ?? 0;
+        const m = Number(s.total_distance_m ?? 0);
         if (m > 0) {
           const week = weekStartMonday(s.session_date);
           weekTotals.set(week, (weekTotals.get(week) ?? 0) + m);
@@ -440,7 +414,7 @@ function AthleteDetail() {
           <Card className="flex flex-col">
             <CardHeader>
               <CardTitle>Weekly distance</CardTitle>
-              <CardDescription>Every step in the session — warm-up, work, strides and cooldown.</CardDescription>
+              <CardDescription>Completed sessions only — matches Calendar and Analytics.</CardDescription>
             </CardHeader>
             <CardContent className="p-0 flex-1 min-h-0 overflow-y-auto">
               {!weeklyDistance || weeklyDistance.length === 0 ? <p className="p-4 text-sm text-muted-foreground">No distance logged yet.</p> : (
