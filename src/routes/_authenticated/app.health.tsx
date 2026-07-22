@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState, type ReactNode } from "react";
 import { z } from "zod";
 import { useQuery } from "@tanstack/react-query";
@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { AthleteSubnav } from "@/components/athlete-subnav";
 import { BucketTabStrip, HEALTH_TABS } from "@/components/bucket-tab-strip";
+import { CoachAthletePicker } from "@/components/coach-athlete-picker";
 import { todayISO } from "@/lib/format";
 import { AlertTriangle, Search, Apple, Bath, Bandage, FlaskConical, TestTube2 } from "lucide-react";
 import { useLactateSessionPoints, useLactateSpotChecks } from "./app.lactate";
@@ -420,6 +421,7 @@ function AthleteHealthView() {
 // ----------------------------------------------------------------------------
 
 function CoachAthleteHealthView({ athleteId }: { athleteId: string }) {
+  const navigate = useNavigate({ from: Route.fullPath });
   const { data: athlete } = useQuery({
     queryKey: ["health-athlete-name", athleteId],
     queryFn: async () => {
@@ -428,12 +430,22 @@ function CoachAthleteHealthView({ athleteId }: { athleteId: string }) {
       return data as any;
     },
   });
+  const { data: roster } = useCoachRoster();
+  const { data: myAthlete } = useMyAthlete();
   const { data: snapshot, isLoading } = useLatestHealthSnapshot(athleteId);
+
+  const rosterAthletes = useMemo(() => (roster ?? []).map((r: any) => r.athletes).filter(Boolean), [roster]);
 
   return (
     <div className="space-y-6">
-      <div>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
         <h1 className="text-2xl font-bold">{athlete?.name ?? "Athlete"} — Health & Vitals</h1>
+        <CoachAthletePicker
+          roster={rosterAthletes}
+          myAthlete={myAthlete as any}
+          value={athleteId}
+          onChange={(v) => navigate({ search: (p: any) => ({ ...p, athleteId: v }) })}
+        />
       </div>
       <AthleteSubnav athleteId={athleteId} active="health" />
       {isLoading ? <p className="text-sm text-muted-foreground">Loading…</p> : <HealthSnapshotCard snapshot={snapshot} />}
