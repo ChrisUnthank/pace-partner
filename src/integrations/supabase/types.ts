@@ -2495,8 +2495,13 @@ export type Database = {
           step_order: number
           target_distance_m: number | null
           target_kind: Database["public"]["Enums"]["target_kind"] | null
+          target_mode: string | null
           target_pace_sec_per_km: number | null
+          target_rpe: number | null
+          target_threshold_hr_pct: number | null
+          target_threshold_pace_pct: number | null
           target_time_seconds: number | null
+          target_zone: string | null
         }
         Insert: {
           counts_toward_distance?: boolean
@@ -2526,8 +2531,13 @@ export type Database = {
           step_order: number
           target_distance_m?: number | null
           target_kind?: Database["public"]["Enums"]["target_kind"] | null
+          target_mode?: string | null
           target_pace_sec_per_km?: number | null
+          target_rpe?: number | null
+          target_threshold_hr_pct?: number | null
+          target_threshold_pace_pct?: number | null
           target_time_seconds?: number | null
+          target_zone?: string | null
         }
         Update: {
           counts_toward_distance?: boolean
@@ -2557,8 +2567,13 @@ export type Database = {
           step_order?: number
           target_distance_m?: number | null
           target_kind?: Database["public"]["Enums"]["target_kind"] | null
+          target_mode?: string | null
           target_pace_sec_per_km?: number | null
+          target_rpe?: number | null
+          target_threshold_hr_pct?: number | null
+          target_threshold_pace_pct?: number | null
           target_time_seconds?: number | null
+          target_zone?: string | null
         }
         Relationships: [
           {
@@ -2597,8 +2612,13 @@ export type Database = {
           step_order: number
           target_distance_m: number | null
           target_kind: Database["public"]["Enums"]["target_kind"] | null
+          target_mode: string | null
           target_pace_sec_per_km: number | null
+          target_rpe: number | null
+          target_threshold_hr_pct: number | null
+          target_threshold_pace_pct: number | null
           target_time_seconds: number | null
+          target_zone: string | null
           template_id: string
         }
         Insert: {
@@ -2627,8 +2647,13 @@ export type Database = {
           step_order: number
           target_distance_m?: number | null
           target_kind?: Database["public"]["Enums"]["target_kind"] | null
+          target_mode?: string | null
           target_pace_sec_per_km?: number | null
+          target_rpe?: number | null
+          target_threshold_hr_pct?: number | null
+          target_threshold_pace_pct?: number | null
           target_time_seconds?: number | null
+          target_zone?: string | null
           template_id: string
         }
         Update: {
@@ -2657,8 +2682,13 @@ export type Database = {
           step_order?: number
           target_distance_m?: number | null
           target_kind?: Database["public"]["Enums"]["target_kind"] | null
+          target_mode?: string | null
           target_pace_sec_per_km?: number | null
+          target_rpe?: number | null
+          target_threshold_hr_pct?: number | null
+          target_threshold_pace_pct?: number | null
           target_time_seconds?: number | null
+          target_zone?: string | null
           template_id?: string
         }
         Relationships: [
