@@ -14,7 +14,11 @@ export type AlertType =
   | "consecutive_rest"
   | "tsb_positive"
   | "no_session_today"
-  | "moderate_feel";
+  | "moderate_feel"
+  | "active_injury"
+  | "gear_retirement"
+  | "event_entry_soon"
+  | "credentials_expiring";
 
 export interface DashAlert {
   alert_type: AlertType;
@@ -50,17 +54,45 @@ export const listDashboardAlerts = createServerFn({ method: "GET" })
 
     const ids = roster.map((r) => r.athlete_id);
 
-    const [loadRes, ckRes, sessRes, insRes, dismRes] = await Promise.all([
+    const soon7 = isoDate(new Date(Date.now() + 7 * 86400_000));
+    const soon30 = isoDate(new Date(Date.now() + 30 * 86400_000));
+
+    const [loadRes, ckRes, sessRes, insRes, dismRes, injuriesRes, gearRes, eventsRes, credsRes] = await Promise.all([
       sb.from("athlete_load_daily").select("athlete_id, load_date, atl, tsb, load_ratio").in("athlete_id", ids).gte("load_date", since28).order("load_date", { ascending: false }),
       sb.from("daily_checkins").select("athlete_id, checkin_date, sleep_quality, soreness, injury_flag, injury_notes").in("athlete_id", ids).gte("checkin_date", since28).order("checkin_date", { ascending: false }),
       sb.from("sessions").select("id, athlete_id, session_date, title, day_type, intent, completed_at").in("athlete_id", ids).gte("session_date", since28).order("session_date", { ascending: false }),
       sb.from("session_insights").select("athlete_id, session_id, feel_score, created_at").in("athlete_id", ids).order("created_at", { ascending: false }).limit(200),
       sb.from("alert_dismissals").select("athlete_id, alert_type").eq("coach_user_id", context.userId).eq("dismissed_date", today),
+      // Health & Vitals / Locker additions — open injuries regardless of
+      // today's flag, gear approaching/past its retirement target, event
+      // entries coming up soon, and registration lapsing/lapsed.
+      sb.from("injuries").select("athlete_id, body_part, side, status, onset_date").in("athlete_id", ids).neq("status", "resolved"),
+      sb.from("gear_items").select("id, athlete_id, brand, model, nickname, retirement_target_km").in("athlete_id", ids).eq("is_retired", false).not("retirement_target_km", "is", null),
+      sb.from("event_entries").select("athlete_id, event_name, event_date").in("athlete_id", ids).gte("event_date", today).lte("event_date", soon7),
+      sb.from("athlete_credentials").select("athlete_id, registration_expiry, club_name").in("athlete_id", ids).not("registration_expiry", "is", null).lte("registration_expiry", soon30),
     ]);
     const load = loadRes.data ?? [];
     const checkins = ckRes.data ?? [];
     const sessions28 = sessRes.data ?? [];
     const insights28 = insRes.data ?? [];
+    const openInjuries = injuriesRes.data ?? [];
+    const gearNearingRetirement = gearRes.data ?? [];
+    const soonEvents = eventsRes.data ?? [];
+    const lapsingCredentials = credsRes.data ?? [];
+
+    // Gear usage (km) per gear item — a second, dependent query since it
+    // needs the gear ids from the query above. Only fetched for gear that
+    // already has a retirement target set, keeping this scoped rather
+    // than pulling every session_gear row for the whole roster.
+    const gearIds = gearNearingRetirement.map((g: any) => g.id);
+    const gearUsageRows = gearIds.length
+      ? (await sb.from("session_gear").select("gear_id, sessions(total_distance_m)").in("gear_id", gearIds)).data ?? []
+      : [];
+    const gearKmById = new Map<string, number>();
+    for (const row of gearUsageRows as any[]) {
+      const m = Number(row.sessions?.total_distance_m ?? 0);
+      gearKmById.set(row.gear_id, (gearKmById.get(row.gear_id) ?? 0) + m / 1000);
+    }
 
     const dismissed = new Set((dismRes.data ?? []).map((d: any) => d.athlete_id + ":" + d.alert_type));
     const insightsBySession = new Map<string, any>(insights28.map((i: any) => [i.session_id, i]));
@@ -261,6 +293,64 @@ export const listDashboardAlerts = createServerFn({ method: "GET" })
           trigger: "Feel " + lastFeel.feel_score + "/10 on " + (lastQuality.title ?? "quality session"),
           guidance: "Athlete found their last quality session moderately difficult. Keep an eye on soreness and fatigue over the next 48 hours.",
           actions: [{ label: "View session", kind: "link", target: "/app/sessions/" + lastQuality.id }],
+        });
+      }
+
+      // Health & Vitals / Locker signals — same push()/dismiss machinery,
+      // just reading the newer tables. All link to the athlete's full
+      // profile for now since none of these areas have a dedicated
+      // coach-facing page yet.
+      const athInjuries = openInjuries.filter((i: any) => i.athlete_id === athId);
+      for (const inj of athInjuries) {
+        const days = Math.round((Date.now() - new Date(inj.onset_date + "T00:00:00").getTime()) / 86400_000);
+        push({
+          alert_type: "active_injury", severity: inj.status === "active" ? "critical" : "warning",
+          athlete_id: athId, athlete_name: name, athlete_image_url: img,
+          title: "Active injury — " + inj.body_part + (inj.side && inj.side !== "n/a" ? " (" + inj.side + ")" : ""),
+          trigger: inj.status + ", " + days + " day" + (days === 1 ? "" : "s") + " since onset",
+          guidance: "This injury is still open in Injury Management. Confirm it's being actively managed and factor it into upcoming session planning.",
+          actions: [{ label: "View athlete", kind: "link", target: "/app/athletes/" + athId }],
+        });
+      }
+      const athGear = gearNearingRetirement.filter((g: any) => g.athlete_id === athId);
+      for (const g of athGear) {
+        const km = gearKmById.get(g.id) ?? 0;
+        const target = Number(g.retirement_target_km);
+        if (km < target * 0.9) continue;
+        push({
+          alert_type: "gear_retirement", severity: km >= target ? "warning" : "info",
+          athlete_id: athId, athlete_name: name, athlete_image_url: img,
+          title: (g.nickname || (g.brand + " " + g.model)) + (km >= target ? " past retirement target" : " nearing retirement target"),
+          trigger: km.toFixed(0) + " / " + target + " km",
+          guidance: km >= target
+            ? "This gear has passed its retirement target — worth reviewing whether it's still race/training-ready."
+            : "This gear is approaching its retirement target — worth keeping an eye on wear.",
+          actions: [{ label: "View athlete", kind: "link", target: "/app/athletes/" + athId }],
+        });
+      }
+      const athEvent = soonEvents.find((e: any) => e.athlete_id === athId);
+      if (athEvent) {
+        push({
+          alert_type: "event_entry_soon", severity: "info",
+          athlete_id: athId, athlete_name: name, athlete_image_url: img,
+          title: "Event coming up",
+          trigger: athEvent.event_name + " on " + athEvent.event_date,
+          guidance: "This athlete has an event entry coming up in the next week — worth a check-in on final prep.",
+          actions: [{ label: "View athlete", kind: "link", target: "/app/athletes/" + athId }],
+        });
+      }
+      const athCreds = lapsingCredentials.find((c: any) => c.athlete_id === athId);
+      if (athCreds) {
+        const expired = athCreds.registration_expiry < today;
+        push({
+          alert_type: "credentials_expiring", severity: expired ? "warning" : "info",
+          athlete_id: athId, athlete_name: name, athlete_image_url: img,
+          title: expired ? "Registration expired" : "Registration expiring soon",
+          trigger: (athCreds.club_name ? athCreds.club_name + " — " : "") + "expires " + athCreds.registration_expiry,
+          guidance: expired
+            ? "This athlete's club/federation registration has lapsed — may affect race eligibility."
+            : "This athlete's club/federation registration expires soon — worth a reminder to renew.",
+          actions: [{ label: "View athlete", kind: "link", target: "/app/athletes/" + athId }],
         });
       }
     }
