@@ -165,108 +165,115 @@ export function WorkTargetEditor({
           </DialogHeader>
 
           <div className="space-y-3">
-            <div>
-              <Label className="text-xs">Target mode</Label>
-              <Select value={mode} onValueChange={(v) => updateMode(v as TargetMode)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="pace">Pace</SelectItem>
-                  <SelectItem value="threshold_pace_pct">Threshold pace percent</SelectItem>
-                  <SelectItem value="threshold_hr_pct">Threshold HR percent</SelectItem>
-                  <SelectItem value="zone">Zone</SelectItem>
-                  <SelectItem value="rpe">RPE</SelectItem>
-                  <SelectItem value="open">Open / no target</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {mode === "pace" && (
+            {/* Target mode and its value input sit side by side — mirrors
+                the same layout fix applied in the New Session builder. */}
+            <div className="grid grid-cols-2 gap-2 items-start">
               <div>
-                <Label className="text-xs">Target pace mm:ss /km</Label>
-                <Input
-                  placeholder="3:30"
-                  defaultValue={pace ? secToClock(pace) : ""}
-                  onChange={(e) => {
-                    const raw = e.target.value.trim();
-                    const secs = raw === "" ? null : clockToSec(raw);
-                    setPace(secs != null && Number.isFinite(secs) && secs > 0 ? secs : null);
-                  }}
-                />
-              </div>
-            )}
-
-            {mode === "threshold_pace_pct" && (
-              <div>
-                <Label className="text-xs">Threshold pace percent</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={200}
-                  placeholder="100"
-                  value={thrPacePct ?? ""}
-                  onChange={(e) => {
-                    const v = e.target.value === "" ? null : Number(e.target.value);
-                    setThrPacePct(v != null && Number.isFinite(v) ? v : null);
-                  }}
-                />
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  100 means threshold pace. 95 means slightly slower than threshold.
-                </p>
-              </div>
-            )}
-
-            {mode === "threshold_hr_pct" && (
-              <div>
-                <Label className="text-xs">Threshold HR percent</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={200}
-                  placeholder="95"
-                  value={thrHrPct ?? ""}
-                  onChange={(e) => {
-                    const v = e.target.value === "" ? null : Number(e.target.value);
-                    setThrHrPct(v != null && Number.isFinite(v) ? v : null);
-                  }}
-                />
-              </div>
-            )}
-
-            {mode === "zone" && (
-              <div>
-                <Label className="text-xs">Zone</Label>
-                <Select value={zone ?? ""} onValueChange={(v) => setZone(v)}>
+                <Label className="text-xs">Target mode</Label>
+                <Select value={mode} onValueChange={(v) => updateMode(v as TargetMode)}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Pick a zone…" />
+                    <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="z1">Zone 1</SelectItem>
-                    <SelectItem value="z2">Zone 2</SelectItem>
-                    <SelectItem value="z3">Zone 3</SelectItem>
-                    <SelectItem value="z4">Zone 4</SelectItem>
-                    <SelectItem value="z5">Zone 5</SelectItem>
+                    <SelectItem value="pace">Pace</SelectItem>
+                    <SelectItem value="threshold_pace_pct">Threshold pace percent</SelectItem>
+                    <SelectItem value="threshold_hr_pct">Threshold HR percent</SelectItem>
+                    <SelectItem value="zone">Zone</SelectItem>
+                    <SelectItem value="rpe">RPE</SelectItem>
+                    <SelectItem value="open">Open / no target</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-            )}
 
-            {mode === "rpe" && (
-              <div>
-                <Label className="text-xs">RPE</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={10}
-                  placeholder="6"
-                  value={rpe ?? ""}
-                  onChange={(e) => {
-                    const v = e.target.value === "" ? null : Number(e.target.value);
-                    setRpe(v != null && Number.isFinite(v) ? v : null);
-                  }}
-                />
-              </div>
+              {mode === "pace" && (
+                <div>
+                  <Label className="text-xs">Target pace mm:ss /km</Label>
+                  <Input
+                    placeholder="3:30"
+                    defaultValue={pace ? secToClock(pace) : ""}
+                    onChange={(e) => {
+                      const raw = e.target.value.trim();
+                      const secs = raw === "" ? null : clockToSec(raw);
+                      setPace(secs != null && Number.isFinite(secs) && secs > 0 ? secs : null);
+                    }}
+                  />
+                </div>
+              )}
+
+              {mode === "threshold_pace_pct" && (
+                <div>
+                  <Label className="text-xs">Threshold pace percent</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={200}
+                    placeholder="100"
+                    value={thrPacePct ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value === "" ? null : Number(e.target.value);
+                      setThrPacePct(v != null && Number.isFinite(v) ? v : null);
+                    }}
+                  />
+                </div>
+              )}
+
+              {mode === "threshold_hr_pct" && (
+                <div>
+                  <Label className="text-xs">Threshold HR percent</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={200}
+                    placeholder="95"
+                    value={thrHrPct ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value === "" ? null : Number(e.target.value);
+                      setThrHrPct(v != null && Number.isFinite(v) ? v : null);
+                    }}
+                  />
+                </div>
+              )}
+
+              {mode === "zone" && (
+                <div>
+                  <Label className="text-xs">Zone</Label>
+                  <Select value={zone ?? ""} onValueChange={(v) => setZone(v)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Pick a zone…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="z1">Zone 1</SelectItem>
+                      <SelectItem value="z2">Zone 2</SelectItem>
+                      <SelectItem value="z3">Zone 3</SelectItem>
+                      <SelectItem value="z4">Zone 4</SelectItem>
+                      <SelectItem value="z5">Zone 5</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {mode === "rpe" && (
+                <div>
+                  <Label className="text-xs">RPE</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={10}
+                    placeholder="6"
+                    value={rpe ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value === "" ? null : Number(e.target.value);
+                      setRpe(v != null && Number.isFinite(v) ? v : null);
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+
+            {mode === "threshold_pace_pct" && (
+              <p className="text-[11px] text-muted-foreground -mt-1">
+                100 means threshold pace. 95 means slightly slower than threshold.
+              </p>
             )}
 
             {mode === "open" && (
