@@ -47,6 +47,10 @@ import {
   type WorkoutTargetMode,
   type WorkoutTargetZone,
 } from "@/lib/workout-target-modes";
+import {
+  setModePayload,
+  normalizeWorkTargetForSave,
+} from "@/lib/work-target-normalize";
 
 // "open" is already part of the WorkoutTargetMode union — no extension needed.
 type TargetMode = WorkoutTargetMode;
@@ -114,52 +118,10 @@ type StepDraft = {
 // coach didn't visibly enter. (The previous version injected 300s pace /
 // 100% / z3 / RPE 6 as fallbacks, which meant a blank target silently
 // saved as a real one.)
-function setModePayload(mode: TargetMode, s: StepDraft): StepDraft {
-  return {
-    ...s,
-    target_mode: mode,
-    target_pace_sec_per_km: mode === "pace" ? (s.target_pace_sec_per_km ?? null) : null,
-    target_threshold_pace_pct: mode === "threshold_pace_pct" ? (s.target_threshold_pace_pct ?? null) : null,
-    target_threshold_hr_pct: mode === "threshold_hr_pct" ? (s.target_threshold_hr_pct ?? null) : null,
-    target_zone: mode === "zone" ? (s.target_zone ?? null) : null,
-    target_rpe: mode === "rpe" ? (s.target_rpe ?? null) : null,
-  };
-}
+// setModePayload and normalizeWorkTargetForSave now live in
+// @/lib/work-target-normalize — shared with WorkTargetEditor (the post-hoc
+// target editor on planned sessions), imported above.
 
-// Called only at save time, for work steps. Guarantees two things the DB
-// constraints and downstream readers rely on:
-//   1. Exactly one payload field (or none) is set — everything not matching
-//      the effective mode is nulled, satisfying the exclusivity CHECK.
-//   2. If the chosen mode's own value was never filled in, the step is
-//      saved as "open" (no target) rather than being given a made-up
-//      default — blank means blank.
-function normalizeWorkTargetForSave(s: StepDraft): StepDraft {
-  const chosen = (s.target_mode ?? inferWorkoutTargetMode(s as any)) as TargetMode;
-
-  const payloadByMode: Record<TargetMode, number | string | null | undefined> = {
-    pace: s.target_pace_sec_per_km,
-    threshold_pace_pct: s.target_threshold_pace_pct,
-    threshold_hr_pct: s.target_threshold_hr_pct,
-    zone: s.target_zone,
-    rpe: s.target_rpe,
-    open: null,
-  };
-
-  const v = payloadByMode[chosen];
-  const hasValue =
-    chosen !== "open" && v != null && !(typeof v === "number" && !Number.isFinite(v));
-  const effective: TargetMode = hasValue ? chosen : "open";
-
-  return {
-    ...s,
-    target_mode: effective,
-    target_pace_sec_per_km: effective === "pace" ? (s.target_pace_sec_per_km ?? null) : null,
-    target_threshold_pace_pct: effective === "threshold_pace_pct" ? (s.target_threshold_pace_pct ?? null) : null,
-    target_threshold_hr_pct: effective === "threshold_hr_pct" ? (s.target_threshold_hr_pct ?? null) : null,
-    target_zone: effective === "zone" ? (s.target_zone ?? null) : null,
-    target_rpe: effective === "rpe" ? (s.target_rpe ?? null) : null,
-  };
-}
 
 const defaultStep = (kind: StepDraft["kind"]): StepDraft =>
   kind === "recovery"
