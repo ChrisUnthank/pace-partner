@@ -874,7 +874,7 @@ function WorkTargetModeFields({
   }
 
   return (
-    <div className="col-span-2 rounded-md border p-2 space-y-2">
+    <div className="col-span-2 rounded-md border p-2 grid grid-cols-2 gap-2 items-start">
       <div>
         <Label className="text-xs">Target mode</Label>
         <Select value={mode} onValueChange={(v) => updateMode(v as TargetMode)}>
@@ -891,6 +891,11 @@ function WorkTargetModeFields({
           </SelectContent>
         </Select>
       </div>
+
+      {/* Each mode's own value input sits in the second column, next to
+          Target mode, instead of stacking on its own full-width row below
+          it — pace/percent/zone/RPE only ever need one short input, so a
+          whole row each was wasted space. */}
 
       {mode === "pace" && (
         <div>
@@ -926,10 +931,13 @@ function WorkTargetModeFields({
               onUpdate({ target_threshold_pace_pct: v != null && Number.isFinite(v) ? v : null });
             }}
           />
-          <p className="text-[11px] text-muted-foreground mt-1">
-            Example: 100 means threshold pace. 95 means slightly slower than threshold.
-          </p>
         </div>
+      )}
+
+      {mode === "threshold_pace_pct" && (
+        <p className="col-span-2 text-[11px] text-muted-foreground -mt-1">
+          Example: 100 means threshold pace. 95 means slightly slower than threshold.
+        </p>
       )}
 
       {mode === "threshold_hr_pct" && (
@@ -946,10 +954,13 @@ function WorkTargetModeFields({
               onUpdate({ target_threshold_hr_pct: v != null && Number.isFinite(v) ? v : null });
             }}
           />
-          <p className="text-[11px] text-muted-foreground mt-1">
-            Example: 95 means 95 percent of threshold heart rate.
-          </p>
         </div>
+      )}
+
+      {mode === "threshold_hr_pct" && (
+        <p className="col-span-2 text-[11px] text-muted-foreground -mt-1">
+          Example: 95 means 95 percent of threshold heart rate.
+        </p>
       )}
 
       {mode === "zone" && (
@@ -996,7 +1007,7 @@ function WorkTargetModeFields({
       )}
 
       {mode === "open" && (
-        <p className="text-[11px] text-muted-foreground">
+        <p className="col-span-2 text-[11px] text-muted-foreground">
           No fixed intensity target. Useful for less advanced athletes, easy aerobic work, or sessions guided by feel.
         </p>
       )}
