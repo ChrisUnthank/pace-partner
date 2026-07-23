@@ -79,6 +79,7 @@ import {
 } from "@/lib/session-files.functions";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { computeStrideLengthM, formatStride } from "@/lib/session-metrics";
+import { resolveStepTarget, resolvedTargetShortLabel } from "@/lib/target-resolution";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/")({
   component: SessionDetail,
@@ -111,6 +112,8 @@ function SessionDetail() {
   // ✅ FIT upload setup
   const uploadFile = useServerFn(uploadAndParseSessionFile);
   const [uploading, setUploading] = useState(false);
+  // "2 of 4" while a multi-file batch is in flight; empty for single files.
+  const [uploadProgress, setUploadProgress] = useState("");
   // Triggers the hidden file input below via .click() — a <label> wrapping
   // a shadcn Button (a real <button>) doesn't reliably forward clicks to
   // an associated file input, since the click lands on the button itself
@@ -253,12 +256,34 @@ function SessionDetail() {
     },
   });
 
+  // Zone profile for target resolution (Phase 3) — turns "95% threshold
+  // pace" / "Z3" prescriptions into this athlete's concrete pace/HR ranges.
+  const { data: zoneProfile } = useQuery({
+    queryKey: ["zone-profile-for-targets", session?.athlete_id],
+    enabled: !!session?.athlete_id,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("athlete_zone_profiles")
+        .select("*")
+        .eq("athlete_id", session!.athlete_id)
+        .maybeSingle();
+      return data;
+    },
+  });
+
   // Computed once here rather than inline in JSX — formatWorkoutStructure
   // now returns {main, recovery} per step so the recovery portion can be
-  // styled smaller than the main "N × distance" part.
+  // styled smaller than the main "N × distance" part. Each entry also
+  // carries the step's resolved target (null for Open) for display.
   const workoutStructures = useMemo(
-    () => (workSteps ?? []).map((s) => formatWorkoutStructure(s)).filter((x): x is { main: string; recovery: string | null } => !!x),
-    [workSteps],
+    () =>
+      (workSteps ?? [])
+        .map((s) => {
+          const f = formatWorkoutStructure(s);
+          return f ? { ...f, target: resolvedTargetShortLabel(s, zoneProfile) } : null;
+        })
+        .filter((x): x is { main: string; recovery: string | null; target: string | null } => !!x),
+    [workSteps, zoneProfile],
   );
 
   // Raw points + GPS reconstruction, purely to decide whether the manual
@@ -480,21 +505,46 @@ function SessionDetail() {
     },
   });
 
+  // Reads one file into the base64 payload shape the server fn expects.
+  function fileToBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => {
+        const s = String(r.result || "");
+        const idx = s.indexOf(",");
+        resolve(idx >= 0 ? s.slice(idx + 1) : s);
+      };
+      r.onerror = () => reject(r.error ?? new Error("Could not read file"));
+      r.readAsDataURL(file);
+    });
+  }
+
+  // Multi-file upload onto this session. Files are uploaded strictly one at
+  // a time — each upload triggers rebuildSessionFromAllFiles on the server,
+  // and firing several in parallel would have those rebuilds racing each
+  // other over the same session's derived rows. Order of selection doesn't
+  // matter: the rebuild merges by each file's own recorded timestamps.
+  // A failure on one file (e.g. the duplicate-detection check) shows a
+  // per-file toast and the loop carries on with the rest.
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files ?? []);
+    // Reset immediately so re-selecting the same filename(s) fires onChange again.
+    e.target.value = "";
+    if (!files.length || !session) return;
 
     setUploading(true);
 
-    const reader = new FileReader();
-
-    reader.onload = async () => {
-      const base64 = String(reader.result || "").split(",")[1];
+    let okCount = 0;
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      setUploadProgress(files.length > 1 ? `${i + 1} of ${files.length}` : "");
 
       try {
+        const base64 = await fileToBase64(file);
+
         const res: any = await uploadFile({
           data: {
-            athleteId: session!.athlete_id,
+            athleteId: session.athlete_id,
             sessionId: sessionId,
             filename: file.name,
             kind: file.name.toLowerCase().endsWith(".gpx") ? "gpx" : "fit",
@@ -506,24 +556,28 @@ function SessionDetail() {
           throw new Error(res.error);
         }
 
-        toast.success("File uploaded and session updated");
-        await clearReviewDismissed();
-
-        qc.invalidateQueries({ queryKey: ["session", sessionId] });
-        qc.invalidateQueries({ queryKey: ["steps", sessionId] });
-        qc.invalidateQueries({ queryKey: ["results", sessionId] });
-        qc.invalidateQueries({ queryKey: ["raw-points", sessionId] });
-        qc.invalidateQueries({ queryKey: ["session-file-count", sessionId] });
+        okCount++;
       } catch (err: any) {
         console.error("FIT upload error:", err);
-        toast.error(err.message);
+        toast.error(`${file.name}: ${err?.message ?? "Upload failed"}`);
       }
+    }
 
-      setUploading(false);
-      e.target.value = "";
-    };
+    if (okCount > 0) {
+      toast.success(
+        okCount === 1 ? "File uploaded and session updated" : `${okCount} files uploaded and merged into this session`,
+      );
+      await clearReviewDismissed();
 
-    reader.readAsDataURL(file);
+      qc.invalidateQueries({ queryKey: ["session", sessionId] });
+      qc.invalidateQueries({ queryKey: ["steps", sessionId] });
+      qc.invalidateQueries({ queryKey: ["results", sessionId] });
+      qc.invalidateQueries({ queryKey: ["raw-points", sessionId] });
+      qc.invalidateQueries({ queryKey: ["session-file-count", sessionId] });
+    }
+
+    setUploading(false);
+    setUploadProgress("");
   }
 
   // Creates the performances row for this race-marked session, using
@@ -926,12 +980,13 @@ function SessionDetail() {
                   disabled={uploading}
                   onClick={() => fileInputRef.current?.click()}
                 >
-                  {uploading ? "Uploading…" : "Upload activity"}
+                  {uploading ? (uploadProgress ? `Uploading ${uploadProgress}…` : "Uploading…") : "Upload activity"}
                 </Button>
                 <input
                   ref={fileInputRef}
                   type="file"
                   accept=".fit,.gpx"
+                  multiple
                   className="hidden"
                   disabled={uploading}
                   onChange={handleFileUpload}
@@ -1083,6 +1138,9 @@ function SessionDetail() {
                       {ws.main}
                       {ws.recovery && (
                         <span className="text-sm font-normal text-muted-foreground"> + {ws.recovery}</span>
+                      )}
+                      {ws.target && (
+                        <span className="ml-2 text-sm font-normal text-[var(--accent-red)]">{ws.target}</span>
                       )}
                     </div>
                   ))}
@@ -1388,6 +1446,7 @@ function SessionDetail() {
                   key={step.id}
                   session={session}
                   step={step}
+                  zoneProfile={zoneProfile}
                   results={(results ?? []).filter((r: any) => r.step_id === step.id)}
                   fuelEvents={(fuelEvents ?? []).filter((f: any) => f.step_id === step.id)}
                   forceOpen={allOpen}
@@ -1931,12 +1990,14 @@ function stepStructureSummary(step: any): string {
 function StepBlock({
   session,
   step,
+  zoneProfile,
   results,
   fuelEvents,
   forceOpen,
 }: {
   session: any;
   step: any;
+  zoneProfile?: any;
   results: any[];
   fuelEvents: any[];
   forceOpen?: boolean;
@@ -2196,6 +2257,23 @@ function StepBlock({
               ` · ${setCount > 1 ? `${setCount}×` : ""}${step.reps}×${metersFmt(roundDistanceForDisplay(step.target_distance_m))}`}
 
             {isWork && step.target_kind === "time" && ` · ${step.reps}×${secToClock(step.target_time_seconds)}`}
+
+            {/* Resolved workout target (Phase 3) — "95% thr · 4:07–4:20/km",
+                "Z3 · 4:30–5:00/km", "RPE 7/10". Open steps show nothing.
+                normal-case overrides the CardTitle's capitalize so labels
+                like "bpm" and "thr" don't get mangled. */}
+            {(() => {
+              const t = resolveStepTarget(step, zoneProfile);
+              if (t.mode === "open") return null;
+              return (
+                <span
+                  className="text-sm font-normal normal-case text-[var(--accent-red)]"
+                  title={t.detail ?? undefined}
+                >
+                  {t.label}
+                </span>
+              );
+            })()}
 
             {/* Strides intentionally show no "reps × distance" suffix — unlike
                 a work block's reps, individual strides commonly vary in
