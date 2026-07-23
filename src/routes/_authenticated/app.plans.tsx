@@ -191,13 +191,16 @@ function PlansPage() {
   if (view === "builder") {
     return (
       <AppShell>
-        <PlanBuilder
-          templateId={builderTemplateId}
-          onBack={() => {
-            setView("browse");
-            setBuilderTemplateId(null);
-          }}
-        />
+        <div className="space-y-6 max-w-5xl">
+          <BucketTabStrip items={COACHING_HUB_TABS} active="/app/plans" />
+          <PlanBuilder
+            templateId={builderTemplateId}
+            onBack={() => {
+              setView("browse");
+              setBuilderTemplateId(null);
+            }}
+          />
+        </div>
       </AppShell>
     );
   }
@@ -205,7 +208,7 @@ function PlansPage() {
   return (
     <AppShell>
       <div className="space-y-4">
-        <BucketTabStrip tabs={COACHING_HUB_TABS} />
+        <BucketTabStrip items={COACHING_HUB_TABS} active="/app/plans" />
 
         <div className="flex items-center justify-between">
           <div>
