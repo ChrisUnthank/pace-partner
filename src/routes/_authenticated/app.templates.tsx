@@ -15,7 +15,7 @@ import { INTENT_LABEL, STRUCTURE_LABEL } from "@/lib/session-categories";
 import { applyTemplateToSession } from "@/lib/templates";
 import { todayISO } from "@/lib/format";
 import { toast } from "sonner";
-import { Trash2, Play } from "lucide-react";
+import { Trash2, Play, Plus } from "lucide-react";
 import { BucketTabStrip, COACHING_HUB_TABS } from "@/components/bucket-tab-strip";
 
 export const Route = createFileRoute("/_authenticated/app/templates")({
@@ -76,6 +76,15 @@ function TemplatesPage() {
             <h1 className="text-2xl font-bold">Templates</h1>
             <p className="text-sm text-muted-foreground">Save reusable session structures and apply them to any athlete on any date.</p>
           </div>
+          {/* Same destination as the New session buttons on Home and the
+              Coaching Hub overview — templates and building from scratch
+              are two paths to the same builder, so both should be reachable
+              from wherever a coach happens to be. */}
+          <Button asChild size="sm">
+            <Link to="/app/sessions/new">
+              <Plus className="h-4 w-4 mr-1.5" /> New session
+            </Link>
+          </Button>
         </div>
 
         {(templates ?? []).length === 0 ? (
