@@ -13,7 +13,7 @@ import { DashboardAlertsPanel } from "@/components/dashboard-alerts-panel";
 import { UserAvatar } from "@/components/user-avatar";
 import { RecentReviewsCard } from "@/components/recent-reviews-card";
 import { Badge } from "@/components/ui/badge";
-import { ClipboardList, CalendarDays, Megaphone, MessageSquare, Trophy, CalendarRange, LineChart, ArrowRight, HeartPulse, Backpack, AlertTriangle } from "lucide-react";
+import { ClipboardList, CalendarDays, Megaphone, MessageSquare, Trophy, CalendarRange, LineChart, ArrowRight, HeartPulse, Backpack, AlertTriangle, Plus } from "lucide-react";
 import { listPosts } from "@/lib/noticeboard.functions";
 import { listMessageContacts } from "@/lib/messages.functions";
 import { ActivityIcon } from "@/lib/activity-icon";
@@ -149,6 +149,17 @@ function AppHome() {
               })()}
             </p>
           </div>
+          {/* One-click path into the session builder from the coach's
+              landing page — previously the only routes there were sidebar →
+              Training → Sessions → New session, or via a calendar day. */}
+          {isCoach && (
+            <Button asChild size="sm" className="ml-auto">
+              <Link to="/app/sessions/new">
+                <Plus className="h-4 w-4 mr-1" />
+                New session
+              </Link>
+            </Button>
+          )}
         </div>
 
         {!rolesLoading && rawRoles.length === 0 && (
@@ -321,10 +332,15 @@ function AppHome() {
                     {upcomingRaces.map((race: any) => {
                       const athleteName = roster?.find((r) => r.athlete_id === race.athlete_id)?.athletes?.name;
                       return (
+                        // race.id here is a sessions.id (this card queries the
+                        // sessions table), so it must link to the session page.
+                        // Previously pointed at /app/races/$raceId, which takes
+                        // a performances.id — an upcoming race has no
+                        // performances row yet, so every click 404'd.
                         <Link
                           key={race.id}
-                          to="/app/races/$raceId"
-                          params={{ raceId: race.id }}
+                          to="/app/sessions/$sessionId"
+                          params={{ sessionId: race.id }}
                           className="flex items-center justify-between py-1.5 text-sm hover:bg-accent/50 rounded px-1 -mx-1"
                         >
                           <div className="min-w-0">
