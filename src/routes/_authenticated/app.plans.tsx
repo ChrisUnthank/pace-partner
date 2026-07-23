@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { CoachAthletePicker } from "@/components/coach-athlete-picker";
+import { UserAvatar } from "@/components/user-avatar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { CalendarRange, ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
@@ -138,16 +138,37 @@ function estimateAvgWeeklyDistanceM(sessions: { week_number: number; effort_type
   return weekTotals.reduce((a, b) => a + b, 0) / weekTotals.length;
 }
 
+// Shown wherever a coach is looking at (or about to assign) a system
+// template — these are general-purpose starting points written for a
+// typical athlete at a given level/distance, not a plan built with any
+// specific athlete's history, injuries, or current fitness in mind.
+function SystemTemplateNotice({ compact }: { compact?: boolean }) {
+  return (
+    <div
+      className={`rounded-md border border-amber-300 bg-amber-50 text-amber-900 ${
+        compact ? "text-xs p-2" : "text-sm p-3"
+      }`}
+    >
+      <strong>Starting point, not a prescription.</strong> System templates are general guides, not built for any
+      specific athlete. Review every session and adjust pace, volume, and structure for each athlete's individual
+      needs, history, and current fitness before assigning.
+    </div>
+  );
+}
+
 function PlansPage() {
   const { user } = useAuthUser();
+  const qc = useQueryClient();
   const [view, setView] = useState<"browse" | "builder">("browse");
   const [builderTemplateId, setBuilderTemplateId] = useState<string | null>(null);
+  const [templateSource, setTemplateSource] = useState<"mine" | "system">("mine");
   const [daysFilter, setDaysFilter] = useState<string>("all");
   const [distanceFilter, setDistanceFilter] = useState<string>("all");
   const [levelFilter, setLevelFilter] = useState<string>("all");
   const [volumeFilter, setVolumeFilter] = useState<string>("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [assignTarget, setAssignTarget] = useState<PlanTemplate | null>(null);
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
 
   const { data: templates } = useQuery({
     queryKey: ["plan-templates"],
@@ -176,6 +197,8 @@ function PlansPage() {
   }
 
   const filteredTemplates = (templates ?? []).filter((t) => {
+    if (templateSource === "mine" && t.is_system) return false;
+    if (templateSource === "system" && !t.is_system) return false;
     if (daysFilter !== "all" && String(t.days_per_week) !== daysFilter) return false;
     if (distanceFilter !== "all" && (t.distance_focus ?? "generic") !== distanceFilter) return false;
     if (levelFilter !== "all" && (t.level ?? "intermediate") !== levelFilter) return false;
@@ -187,6 +210,64 @@ function PlansPage() {
     }
     return true;
   });
+
+  // "Use as base": system templates can't be edited directly (they're
+  // shared, not owned by any one coach), so this copies the template's
+  // metadata and every week/day it has into a brand-new template owned by
+  // the current coach — fully editable from that point on, same as
+  // anything built from scratch. Drops straight into the builder for the
+  // new copy afterward.
+  async function duplicateTemplate(t: PlanTemplate) {
+    setDuplicatingId(t.id);
+    try {
+      const { data: newTemplate, error: tErr } = await supabase
+        .from("plan_templates")
+        .insert({
+          name: `${t.name} (My Copy)`,
+          description: t.description,
+          days_per_week: t.days_per_week,
+          duration_weeks: t.duration_weeks,
+          distance_focus: t.distance_focus,
+          level: t.level,
+          is_system: false,
+          created_by: user?.id,
+        } as any)
+        .select()
+        .single();
+      if (tErr || !newTemplate) throw tErr ?? new Error("Failed to duplicate template");
+
+      const { data: sourceSessions, error: sErr } = await supabase
+        .from("plan_template_sessions")
+        .select("*")
+        .eq("plan_template_id", t.id);
+      if (sErr) throw sErr;
+
+      if (sourceSessions && sourceSessions.length > 0) {
+        const rows = sourceSessions.map((s: any) => ({
+          plan_template_id: (newTemplate as any).id,
+          week_number: s.week_number,
+          day_of_week: s.day_of_week,
+          title: s.title,
+          effort_type: s.effort_type,
+          steps: s.steps,
+          session_template_id: s.session_template_id,
+          notes: s.notes,
+        }));
+        const { error: insErr } = await supabase.from("plan_template_sessions").insert(rows as any);
+        if (insErr) throw insErr;
+      }
+
+      toast.success("Copied — now yours to edit");
+      qc.invalidateQueries({ queryKey: ["plan-templates"] });
+      setTemplateSource("mine");
+      setBuilderTemplateId((newTemplate as any).id);
+      setView("builder");
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to duplicate template");
+    } finally {
+      setDuplicatingId(null);
+    }
+  }
 
   if (view === "builder") {
     return (
@@ -226,6 +307,25 @@ function PlansPage() {
             New template
           </Button>
         </div>
+
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant={templateSource === "mine" ? "default" : "outline"}
+            onClick={() => setTemplateSource("mine")}
+          >
+            My Templates
+          </Button>
+          <Button
+            size="sm"
+            variant={templateSource === "system" ? "default" : "outline"}
+            onClick={() => setTemplateSource("system")}
+          >
+            System Templates
+          </Button>
+        </div>
+
+        {templateSource === "system" && <SystemTemplateNotice />}
 
         <Card>
           <CardHeader>
@@ -312,6 +412,7 @@ function PlansPage() {
                               Yours
                             </Badge>
                           )}
+                          {t.is_system && <Badge variant="outline">System</Badge>}
                         </div>
                         {t.description && <p className="text-sm text-muted-foreground mt-1">{t.description}</p>}
                       </div>
@@ -326,6 +427,16 @@ function PlansPage() {
                             }}
                           >
                             Edit
+                          </Button>
+                        )}
+                        {t.is_system && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={duplicatingId === t.id}
+                            onClick={() => duplicateTemplate(t)}
+                          >
+                            {duplicatingId === t.id ? "Copying..." : "Use as base"}
                           </Button>
                         )}
                         <Button
@@ -352,6 +463,7 @@ function PlansPage() {
                     {expandedId === t.id && (
                       <TemplatePreview
                         templateId={t.id}
+                        isSystem={t.is_system}
                         canEdit={!t.is_system && t.created_by === user?.id}
                         onEdit={() => {
                           setBuilderTemplateId(t.id);
@@ -376,10 +488,12 @@ function PlansPage() {
 
 function TemplatePreview({
   templateId,
+  isSystem,
   canEdit,
   onEdit,
 }: {
   templateId: string;
+  isSystem?: boolean;
   canEdit?: boolean;
   onEdit?: () => void;
 }) {
@@ -404,6 +518,7 @@ function TemplatePreview({
 
   return (
     <div className="border-t p-4 space-y-3 bg-muted/20">
+      {isSystem && <SystemTemplateNotice compact />}
       {canEdit && (
         <Button size="sm" variant="outline" onClick={onEdit}>
           Edit this template
@@ -434,7 +549,11 @@ function TemplatePreview({
 
 function AssignPlanDialog({ template, onClose }: { template: PlanTemplate; onClose: () => void }) {
   const qc = useQueryClient();
-  const [athleteId, setAthleteId] = useState("");
+  // Bulk by default — a coach applying a template to a training group
+  // shouldn't have to repeat this dialog once per athlete. Goal linking
+  // only makes sense for a single athlete (a goal is one athlete's own
+  // race target), so that field only shows when exactly one is checked.
+  const [athleteIds, setAthleteIds] = useState<string[]>([]);
   const [startDate, setStartDate] = useState("");
   const [goalId, setGoalId] = useState<string>("none");
   const [assigning, setAssigning] = useState(false);
@@ -447,22 +566,28 @@ function AssignPlanDialog({ template, onClose }: { template: PlanTemplate; onClo
     },
   });
 
+  const singleAthleteId = athleteIds.length === 1 ? athleteIds[0] : undefined;
+
   const { data: athleteGoals } = useQuery({
-    queryKey: ["athlete-goals-for-assign", athleteId],
-    enabled: !!athleteId,
+    queryKey: ["athlete-goals-for-assign", singleAthleteId],
+    enabled: !!singleAthleteId,
     queryFn: async () => {
       const { data } = await supabase
         .from("athlete_goals")
         .select("id, title, goal_type, race_date")
-        .eq("athlete_id", athleteId)
+        .eq("athlete_id", singleAthleteId!)
         .eq("status", "active");
       return data ?? [];
     },
   });
 
+  function toggleAthlete(id: string) {
+    setAthleteIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
   async function assign() {
-    if (!athleteId) {
-      toast.error("Choose an athlete");
+    if (athleteIds.length === 0) {
+      toast.error("Choose at least one athlete");
       return;
     }
     if (!startDate) {
@@ -471,23 +596,43 @@ function AssignPlanDialog({ template, onClose }: { template: PlanTemplate; onClo
     }
 
     setAssigning(true);
-    try {
-      const result = await assignPlanToAthlete({
-        data: {
-          athleteId,
-          planTemplateId: template.id,
-          startDate,
-          goalId: goalId === "none" ? null : goalId,
-        },
-      });
-      toast.success(`Plan assigned — ${result.sessionsCreated} sessions created`);
-      qc.invalidateQueries({ queryKey: ["athlete-plans"] });
-      qc.invalidateQueries({ queryKey: ["calendar-sessions"] });
+    let totalSessions = 0;
+    const failedNames: string[] = [];
+
+    // Sequential, not parallel — same reasoning as assignPlanToAthlete's
+    // own per-day loop: each athlete's assignment is independent, so a
+    // failure partway through a bulk assign should still leave everyone
+    // before it correctly assigned rather than an all-or-nothing rollback.
+    for (const athleteId of athleteIds) {
+      try {
+        const result = await assignPlanToAthlete({
+          data: {
+            athleteId,
+            planTemplateId: template.id,
+            startDate,
+            goalId: singleAthleteId && goalId !== "none" ? goalId : null,
+          },
+        });
+        totalSessions += result.sessionsCreated;
+      } catch (err: any) {
+        const name = (roster ?? []).find((a: any) => a.id === athleteId)?.name ?? athleteId;
+        failedNames.push(name);
+      }
+    }
+
+    setAssigning(false);
+    qc.invalidateQueries({ queryKey: ["athlete-plans"] });
+    qc.invalidateQueries({ queryKey: ["calendar-sessions"] });
+
+    if (failedNames.length === 0) {
+      toast.success(
+        `Plan assigned to ${athleteIds.length} athlete${athleteIds.length > 1 ? "s" : ""} — ${totalSessions} sessions created`,
+      );
       onClose();
-    } catch (err: any) {
-      toast.error(err?.message ?? "Failed to assign plan");
-    } finally {
-      setAssigning(false);
+    } else {
+      toast.error(
+        `Assigned to ${athleteIds.length - failedNames.length}/${athleteIds.length} athletes. Failed: ${failedNames.join(", ")}`,
+      );
     }
   }
 
@@ -497,24 +642,48 @@ function AssignPlanDialog({ template, onClose }: { template: PlanTemplate; onClo
         <DialogHeader>
           <DialogTitle>Assign "{template.name}"</DialogTitle>
           <DialogDescription>
-            Generates real sessions on the athlete's calendar starting the week you pick.
+            Generates real sessions on each selected athlete's calendar starting the week you pick.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
+          {template.is_system && <SystemTemplateNotice compact />}
+
           <div>
-            <Label className="text-xs">Athlete</Label>
-            <CoachAthletePicker
-              athletes={roster ?? []}
-              value={athleteId}
-              onChange={setAthleteId}
-            />
+            <Label className="text-xs">
+              Athletes {athleteIds.length > 0 && `(${athleteIds.length} selected)`}
+            </Label>
+            <div className="mt-1 max-h-56 overflow-y-auto rounded border divide-y">
+              {(roster ?? []).map((a: any) => {
+                const checked = athleteIds.includes(a.id);
+                return (
+                  <label
+                    key={a.id}
+                    className="flex items-center gap-2 p-2 text-sm cursor-pointer hover:bg-accent/40"
+                  >
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      checked={checked}
+                      onChange={() => toggleAthlete(a.id)}
+                    />
+                    <UserAvatar name={a.name} imageUrl={a.profile_image_url} size="sm" />
+                    <span>{a.name}</span>
+                  </label>
+                );
+              })}
+              {(!roster || roster.length === 0) && (
+                <p className="text-xs text-muted-foreground p-2">No athletes on your roster yet.</p>
+              )}
+            </div>
           </div>
+
           <div>
             <Label className="text-xs">Start date (Monday of week 1)</Label>
             <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
           </div>
-          {athleteId && (
+
+          {singleAthleteId ? (
             <div>
               <Label className="text-xs">Link to a goal (optional)</Label>
               <Select value={goalId} onValueChange={setGoalId}>
@@ -535,6 +704,12 @@ function AssignPlanDialog({ template, onClose }: { template: PlanTemplate; onClo
                 <p className="text-xs text-muted-foreground mt-1">No active goals yet for this athlete.</p>
               )}
             </div>
+          ) : (
+            athleteIds.length > 1 && (
+              <p className="text-xs text-muted-foreground">
+                Goal linking is only available when assigning to a single athlete.
+              </p>
+            )
           )}
         </div>
 
@@ -543,7 +718,7 @@ function AssignPlanDialog({ template, onClose }: { template: PlanTemplate; onClo
             Cancel
           </Button>
           <Button onClick={assign} disabled={assigning}>
-            {assigning ? "Assigning..." : "Assign plan"}
+            {assigning ? "Assigning..." : athleteIds.length > 1 ? `Assign to ${athleteIds.length} athletes` : "Assign plan"}
           </Button>
         </DialogFooter>
       </DialogContent>
