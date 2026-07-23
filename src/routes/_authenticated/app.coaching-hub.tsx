@@ -4,18 +4,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { BucketTabStrip } from "@/components/bucket-tab-strip";
-import { BookmarkCheck, CalendarRange, LayoutGrid, Plus } from "lucide-react";
+import { BucketTabStrip, COACHING_HUB_TABS } from "@/components/bucket-tab-strip";
+import { Plus } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/app/coaching-hub")({
   component: CoachingHubOverview,
 });
-
-const HUB_TABS = [
-  { to: "/app/coaching-hub", label: "Overview", icon: LayoutGrid },
-  { to: "/app/templates", label: "Session Templates", icon: BookmarkCheck },
-  { to: "/app/plans", label: "Plans", icon: CalendarRange },
-];
 
 function CoachingHubOverview() {
   const { data: templateCount } = useQuery({
@@ -77,7 +71,7 @@ function CoachingHubOverview() {
           </Button>
         </div>
 
-        <BucketTabStrip items={HUB_TABS} active="/app/coaching-hub" />
+        <BucketTabStrip items={COACHING_HUB_TABS} active="/app/coaching-hub" />
 
         <div className="grid sm:grid-cols-3 gap-3">
           <Card>
