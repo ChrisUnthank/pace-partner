@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { metersFmt, secToClock } from "@/lib/format";
 import { sessionClassificationLabel, SESSION_INTENTS, INTENT_LABEL, DAY_TYPE_LABEL } from "@/lib/session-categories";
-import { Plus, CalendarDays, Upload, Users, Search } from "lucide-react";
+import { Plus, Upload, Users, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ActivityIcon } from "@/lib/activity-icon";
 import { useState, useMemo, useEffect } from "react";
@@ -324,79 +324,42 @@ function SessionsList() {
           />
         </div>
       )}
-      <div className="flex justify-between items-center mb-4">
+      <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
         <h1 className="text-2xl font-bold">Sessions</h1>
+        {/* Primary actions live up here with the heading (Coros-style),
+            not buried in the sidebar. Calendar button dropped — the tab
+            strip above already covers it. */}
+        <div className="flex items-center gap-2">
+          <Button asChild size="sm">
+            <Link to="/app/sessions/new">
+              <Plus className="h-4 w-4 mr-1.5" /> New session
+            </Link>
+          </Button>
+          {athlete && (
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button size="sm" variant="outline">
+                  <Upload className="h-4 w-4 mr-1.5" /> Upload
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-lg">
+                <DialogHeader className="sr-only">
+                  <DialogTitle>Bulk upload FIT or GPX files</DialogTitle>
+                  <DialogDescription>Upload one or more FIT or GPX files to create sessions.</DialogDescription>
+                </DialogHeader>
+                <BulkFitUpload athleteId={athlete.id} />
+              </DialogContent>
+            </Dialog>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Action buttons: shown first on mobile (so nothing needs scrolling to reach),
-            moved to a right-hand sidebar column on larger screens. */}
-        <div className="order-1 lg:order-2 lg:col-span-1">
-          <div className="flex flex-row lg:flex-col gap-2 lg:sticky lg:top-4">
-            <Button asChild variant="outline" className="flex-1 lg:flex-none lg:w-full lg:justify-start">
-              <Link
-                to="/app/sessions/calendar"
-                search={filterAthlete !== "all" ? ({ athleteId: filterAthlete } as any) : undefined}
-              >
-                <CalendarDays className="h-4 w-4 mr-1.5" /> Calendar
-              </Link>
-            </Button>
-            <Button asChild className="flex-1 lg:flex-none lg:w-full lg:justify-start">
-              <Link to="/app/sessions/new">
-                <Plus className="h-4 w-4 mr-1.5" /> New session
-              </Link>
-            </Button>
-            {athlete && (
-              <Dialog>
-                <DialogTrigger asChild>
-                  <Button variant="outline" className="flex-1 lg:flex-none lg:w-full lg:justify-start">
-                    <Upload className="h-4 w-4 mr-1.5" /> Upload
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-lg">
-                  <DialogHeader className="sr-only">
-                    <DialogTitle>Bulk upload FIT or GPX files</DialogTitle>
-                    <DialogDescription>Upload one or more FIT or GPX files to create sessions.</DialogDescription>
-                  </DialogHeader>
-                  <BulkFitUpload athleteId={athlete.id} />
-                </DialogContent>
-              </Dialog>
-            )}
-          </div>
-
-          {/* This week + readiness — only meaningful for the logged-in user's own athlete
-              profile, not a coach browsing a roster of several athletes at once. */}
-          {athlete && (
-            <Card className="mt-3">
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between gap-2">
-                  <CardTitle className="text-sm">This week</CardTitle>
-                  <ReadinessBadge
-                    status={latestLoad?.readiness_status as any}
-                    score={latestLoad?.readiness_score as any}
-                    confidence={latestLoad?.confidence as any}
-                  />
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-1 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Distance</span>
-                  <span className="font-medium">{metersFmt(weekSummary.distanceM)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Time</span>
-                  <span className="font-medium">{secToClock(weekSummary.timeS)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Sessions</span>
-                  <span className="font-medium">
-                    {weekSummary.done}/{weekSummary.total}
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
+        {/* Right-hand sidebar: Filters first, then This week. The old
+            Calendar/New/Upload button stack moved to the page header. */}
+        <div className="order-1 lg:order-2 lg:col-span-1 lg:sticky lg:top-4 self-start">
+          {/* Filters lead the sidebar now that the action buttons moved up
+              to the page header. This week follows below. */}
           {(isCoach || athlete) && (
             <Card className="mt-3 border-[var(--accent-red)]/40">
               <CardHeader className="pb-2">
@@ -462,22 +425,29 @@ function SessionsList() {
                 </div>
                 <div>
                   <Label className="text-xs text-muted-foreground mb-1 block">Date range</Label>
-                  <div className="flex items-center gap-1.5">
-                    <Input
-                      type="date"
-                      className="h-9"
-                      value={filterFrom}
-                      max={filterTo || undefined}
-                      onChange={(e) => setFilterFrom(e.target.value)}
-                    />
-                    <span className="text-muted-foreground text-xs">–</span>
-                    <Input
-                      type="date"
-                      className="h-9"
-                      value={filterTo}
-                      min={filterFrom || undefined}
-                      onChange={(e) => setFilterTo(e.target.value)}
-                    />
+                  {/* Stacked, not side-by-side — two date inputs plus a dash
+                      overflow this narrow sidebar column. */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground w-9 shrink-0">From</span>
+                      <Input
+                        type="date"
+                        className="h-9 flex-1 min-w-0"
+                        value={filterFrom}
+                        max={filterTo || undefined}
+                        onChange={(e) => setFilterFrom(e.target.value)}
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground w-9 shrink-0">To</span>
+                      <Input
+                        type="date"
+                        className="h-9 flex-1 min-w-0"
+                        value={filterTo}
+                        min={filterFrom || undefined}
+                        onChange={(e) => setFilterTo(e.target.value)}
+                      />
+                    </div>
                   </div>
                 </div>
                 {(filterStatus !== "all" || filterIntent !== "all" || filterFrom || filterTo || keywordInput) && (
@@ -496,6 +466,39 @@ function SessionsList() {
                     Clear filters
                   </Button>
                 )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* This week + readiness — only meaningful for the logged-in user's own athlete
+              profile, not a coach browsing a roster of several athletes at once. */}
+          {athlete && (
+            <Card className="mt-3">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle className="text-sm">This week</CardTitle>
+                  <ReadinessBadge
+                    status={latestLoad?.readiness_status as any}
+                    score={latestLoad?.readiness_score as any}
+                    confidence={latestLoad?.confidence as any}
+                  />
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-1 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Distance</span>
+                  <span className="font-medium">{metersFmt(weekSummary.distanceM)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Time</span>
+                  <span className="font-medium">{secToClock(weekSummary.timeS)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Sessions</span>
+                  <span className="font-medium">
+                    {weekSummary.done}/{weekSummary.total}
+                  </span>
+                </div>
               </CardContent>
             </Card>
           )}
