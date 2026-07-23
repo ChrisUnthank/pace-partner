@@ -23,6 +23,7 @@ import {
   sessionColorClass,
   sessionShortLabel,
 } from "@/components/calendar-day-cell";
+import { resolvedTargetShortLabel } from "@/lib/target-resolution";
 import { sessionClassificationLabel } from "@/lib/session-categories";
 import { metersFmt, secToClock } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -250,7 +251,43 @@ function CalendarPage() {
           .in("session_id", sIds);
         fatigue = fz ?? [];
       }
-      return { sessions: (sessions ?? []) as CalendarSession[], load: load ?? [], fatigue, vitals: vitals ?? [] };
+      // First work step's target fields for PLANNED sessions only —
+      // completed pills show actuals, so no target lookup needed there.
+      const plannedIds = (sessions ?? []).filter((s) => !s.completed_at).map((s) => s.id);
+      let plannedWorkSteps: any[] = [];
+      if (plannedIds.length) {
+        const { data: ws } = await supabase
+          .from("steps")
+          .select(
+            "session_id, step_order, target_mode, target_pace_sec_per_km, target_threshold_pace_pct, target_threshold_hr_pct, target_zone, target_rpe",
+          )
+          .in("session_id", plannedIds)
+          .eq("kind", "work")
+          .order("step_order");
+        plannedWorkSteps = ws ?? [];
+      }
+      return {
+        sessions: (sessions ?? []) as CalendarSession[],
+        load: load ?? [],
+        fatigue,
+        vitals: vitals ?? [],
+        plannedWorkSteps,
+      };
+    },
+  });
+
+  // Zone profile for target resolution (Phase 3) — keyed by athlete, not
+  // range, so switching months doesn't refetch it.
+  const { data: zoneProfile } = useQuery({
+    queryKey: ["zone-profile-for-targets", selectedAthleteId],
+    enabled: !!selectedAthleteId,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("athlete_zone_profiles")
+        .select("*")
+        .eq("athlete_id", selectedAthleteId)
+        .maybeSingle();
+      return data;
     },
   });
 
@@ -271,10 +308,19 @@ function CalendarPage() {
       const effBySession: Record<string, number> = {};
       for (const [sid, v] of effSum) effBySession[sid] = v.sum / v.n;
 
+      // First work step per planned session (rows arrive ordered by
+      // step_order, so first-in wins).
+      const firstWorkStep = new Map<string, any>();
+      for (const ws of bundle.plannedWorkSteps ?? []) {
+        if (!firstWorkStep.has(ws.session_id)) firstWorkStep.set(ws.session_id, ws);
+      }
+
       for (const s of bundle.sessions) {
         const day = map.get(s.session_date);
         if (!day) continue;
-        day.sessions.push(s);
+        const step = !s.completed_at ? firstWorkStep.get(s.id) : null;
+        const targetLabel = step ? resolvedTargetShortLabel(step, zoneProfile) : null;
+        day.sessions.push(targetLabel ? { ...s, targetLabel } : s);
         day.efficiencyBySession = day.efficiencyBySession ?? {};
         if (effBySession[s.id] != null) day.efficiencyBySession[s.id] = effBySession[s.id];
       }
@@ -292,7 +338,7 @@ function CalendarPage() {
       }
     }
     return map;
-  }, [bundle, gridDays]);
+  }, [bundle, gridDays, zoneProfile]);
 
   // gridDays always starts on a Monday and is a whole number of weeks (both
   // the month grid's padding and the single-week view guarantee this), so a
@@ -791,6 +837,12 @@ function CalendarPage() {
                         <div className="text-xs text-muted-foreground truncate">
                           {sessionShortLabel(s)} · {sessionClassificationLabel(s)} ·{" "}
                           {s.completed_at ? "Completed" : "Planned"}
+                          {!s.completed_at && s.targetLabel && (
+                            <>
+                              {" · "}
+                              <span className="text-[var(--accent-red)]">{s.targetLabel}</span>
+                            </>
+                          )}
                         </div>
                       </div>
                     </Link>
