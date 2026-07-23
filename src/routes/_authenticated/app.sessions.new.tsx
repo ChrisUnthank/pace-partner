@@ -1518,7 +1518,11 @@ function StepsCard({
         </CardDescription>
       </CardHeader>
 
-      <CardContent className="grid lg:grid-cols-3 gap-4">
+      {/* items-start stops CSS Grid's default stretch behavior — without it,
+          a short step list (e.g. just Warmup) gets pulled down to match
+          whichever column is taller, leaving a large dead gap under the
+          actual cards. Each column now sizes to its own content. */}
+      <CardContent className="grid lg:grid-cols-3 gap-4 items-start">
         <div className="lg:col-span-2 space-y-3">
           {warmIdx.map((i, pos) => (
             <StepCard
@@ -1567,35 +1571,75 @@ function StepsCard({
         </div>
 
         <div className="lg:col-span-1">
-          <div className="grid grid-cols-1 gap-2 lg:sticky lg:top-4">
-            <Button variant="outline" className="h-auto py-3 justify-start" onClick={() => addStep("warmup")}>
-              <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("warmup")}`} />
-              <Plus className="h-3 w-3 mr-1" />
-              Warmup
+          {/* Buttons sized up (bigger padding, icon, label + short caption)
+              so the column reads as one deliberate block rather than five
+              thin rows with empty space beneath — no more forced stretch to
+              match the step list's height (see items-start above), so this
+              needs to look complete on its own. */}
+          <div className="grid grid-cols-1 gap-2.5 lg:sticky lg:top-4">
+            <Button
+              variant="outline"
+              className="h-auto py-4 px-4 justify-start items-center gap-3"
+              onClick={() => addStep("warmup")}
+            >
+              <span className={`inline-block h-3 w-3 rounded-full shrink-0 ${stepKindBarClass("warmup")}`} />
+              <span className="flex-1 text-left">
+                <span className="block text-sm font-medium">Warmup</span>
+                <span className="block text-xs text-muted-foreground font-normal">Easy time or distance to start</span>
+              </span>
+              <Plus className="h-4 w-4 shrink-0" />
             </Button>
 
-            <Button variant="outline" className="h-auto py-3 justify-start" onClick={() => addStep("work")}>
-              <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("work")}`} />
-              <Plus className="h-3 w-3 mr-1" />
-              Work block
+            <Button
+              variant="outline"
+              className="h-auto py-4 px-4 justify-start items-center gap-3"
+              onClick={() => addStep("work")}
+            >
+              <span className={`inline-block h-3 w-3 rounded-full shrink-0 ${stepKindBarClass("work")}`} />
+              <span className="flex-1 text-left">
+                <span className="block text-sm font-medium">Work block</span>
+                <span className="block text-xs text-muted-foreground font-normal">Reps, target, recovery between</span>
+              </span>
+              <Plus className="h-4 w-4 shrink-0" />
             </Button>
 
-            <Button variant="outline" className="h-auto py-3 justify-start" onClick={() => addStep("recovery")}>
-              <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("recovery")}`} />
-              <Plus className="h-3 w-3 mr-1" />
-              Recovery between blocks
+            <Button
+              variant="outline"
+              className="h-auto py-4 px-4 justify-start items-center gap-3"
+              onClick={() => addStep("recovery")}
+            >
+              <span className={`inline-block h-3 w-3 rounded-full shrink-0 ${stepKindBarClass("recovery")}`} />
+              <span className="flex-1 text-left">
+                <span className="block text-sm font-medium">Recovery between blocks</span>
+                <span className="block text-xs text-muted-foreground font-normal">Standalone rest between work blocks</span>
+              </span>
+              <Plus className="h-4 w-4 shrink-0" />
             </Button>
 
-            <Button variant="outline" className="h-auto py-3 justify-start" onClick={() => addStep("cooldown")}>
-              <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("cooldown")}`} />
-              <Plus className="h-3 w-3 mr-1" />
-              Cooldown
+            <Button
+              variant="outline"
+              className="h-auto py-4 px-4 justify-start items-center gap-3"
+              onClick={() => addStep("cooldown")}
+            >
+              <span className={`inline-block h-3 w-3 rounded-full shrink-0 ${stepKindBarClass("cooldown")}`} />
+              <span className="flex-1 text-left">
+                <span className="block text-sm font-medium">Cooldown</span>
+                <span className="block text-xs text-muted-foreground font-normal">Easy time or distance to finish</span>
+              </span>
+              <Plus className="h-4 w-4 shrink-0" />
             </Button>
 
-            <Button variant="outline" className="h-auto py-3 justify-start" onClick={() => addStep("strides")}>
-              <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass("strides")}`} />
-              <Plus className="h-3 w-3 mr-1" />
-              Strides / Run-throughs
+            <Button
+              variant="outline"
+              className="h-auto py-4 px-4 justify-start items-center gap-3"
+              onClick={() => addStep("strides")}
+            >
+              <span className={`inline-block h-3 w-3 rounded-full shrink-0 ${stepKindBarClass("strides")}`} />
+              <span className="flex-1 text-left">
+                <span className="block text-sm font-medium">Strides / Run-throughs</span>
+                <span className="block text-xs text-muted-foreground font-normal">Short pickups, e.g. 6×100m</span>
+              </span>
+              <Plus className="h-4 w-4 shrink-0" />
             </Button>
           </div>
         </div>
