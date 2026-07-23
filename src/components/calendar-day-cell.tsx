@@ -19,6 +19,11 @@ export type CalendarSession = {
   total_distance_m?: number | null;
   total_time_seconds?: number | null;
   total_moving_time_seconds?: number | null;
+  // Resolved workout target for PLANNED sessions (Phase 3), e.g.
+  // "95% thr · 4:07–4:20/km" — computed by the calendar page from the
+  // session's first work step + the athlete's zone profile. Null/absent
+  // for completed sessions (they show actuals instead) and Open targets.
+  targetLabel?: string | null;
 };
 
 export type DayData = {
@@ -306,6 +311,9 @@ function SessionPill({
           {isFuturePlanned && <span className="text-muted-foreground font-normal"> · planned</span>}
         </span>
         <span className="block text-[10px] leading-tight text-muted-foreground truncate">{s.title}</span>
+        {isFuturePlanned && s.targetLabel && (
+          <span className="block text-[10px] leading-tight text-[var(--accent-red)] truncate">{s.targetLabel}</span>
+        )}
         {!isFuturePlanned && (distanceM || timeS) && (
           <span className="block text-[10px] leading-tight text-muted-foreground tabular-nums">
             {distanceM ? metersFmt(distanceM) : null}
