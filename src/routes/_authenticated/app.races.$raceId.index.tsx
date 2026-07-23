@@ -53,6 +53,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { computeStrideLengthM, formatStride } from "@/lib/session-metrics";
 import { resolvedTargetShortLabel } from "@/lib/target-resolution";
+import { WorkTargetEditor } from "@/components/work-target-editor";
 
 export const Route = createFileRoute("/_authenticated/app/races/$raceId/")({
   component: SessionDetail,
@@ -1573,6 +1574,16 @@ function StepBlock({
                 <SelectItem value="strides">Strides</SelectItem>
               </SelectContent>
             </Select>
+            {/* Same post-hoc target editor as the session detail page — set
+                or fix a target regardless of how this session was created
+                (template apply, plan assignment, or a builder save that
+                skipped it). Only while planned. */}
+            {(isWork || isStrides) && !session.completed_at && (
+              <WorkTargetEditor
+                step={step}
+                onSaved={() => qc.invalidateQueries({ queryKey: ["steps", session.id] })}
+              />
+            )}
             {isWork && (
               <Button
                 size="sm"
