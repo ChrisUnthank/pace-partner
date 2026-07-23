@@ -18,6 +18,7 @@ import { listPosts } from "@/lib/noticeboard.functions";
 import { listMessageContacts } from "@/lib/messages.functions";
 import { ActivityIcon } from "@/lib/activity-icon";
 import { AthleteSummaryPanel } from "@/components/athlete-summary-panel";
+import { YearlyLoadStrip } from "@/components/yearly-load-strip";
 import { useState } from "react";
 
 export const Route = createFileRoute("/_authenticated/app/")({
@@ -445,6 +446,17 @@ function AthleteHome({ athleteId }: { athleteId: string }) {
 
   return (
     <div className="space-y-4">
+      {/* Year-at-a-glance weekly training strip (compact) — the full
+          interactive version lives at the top of Analytics; this one links
+          through to it. */}
+      <div>
+        <YearlyLoadStrip athleteId={athleteId} compact />
+        <div className="flex justify-end mt-1">
+          <Link to="/app/analytics" className="text-xs text-muted-foreground hover:text-foreground underline">
+            Open in Analytics →
+          </Link>
+        </div>
+      </div>
       <Card>
         <CardHeader>
           <CardTitle>Today</CardTitle>
