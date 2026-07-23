@@ -20,6 +20,7 @@ import { TIMEZONE_OPTIONS, guessLocalTimezone } from "@/lib/timezones";
 import { ZoneBoundariesCard } from "@/components/zone-boundaries-card";
 import { GoalsCard } from "@/components/goals-card";
 import { AthleteIdentityCard } from "@/components/athlete-identity-card";
+import { ContactDetailsCard } from "@/components/contact-details-card";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 export const Route = createFileRoute("/_authenticated/app/profile")({
@@ -88,6 +89,9 @@ function Profile() {
           {/* Left column: athlete details up top, roles underneath, AI fills the gap */}
           <div className="space-y-6">
             {athlete && <AthleteIdentityCard athlete={athlete} athleteId={athlete.id} canEdit={true} />}
+            {/* Self-service contact details — feeds the coach's address book.
+                Shown to every signed-in user (athlete or parent alike). */}
+            {user && <ContactDetailsCard userId={user.id} />}
             {user && <RolesCard userId={user.id} roles={roles} email={user.email ?? ""} />}
             {user && (
               <AiAccessCard
