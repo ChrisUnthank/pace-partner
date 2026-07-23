@@ -19,6 +19,11 @@ const EFFORT_TO_INTENT: Record<string, string | null> = {
   rest: null,
 };
 
+// Phase 4: the same five target fields Phase 1 added to `steps` /
+// `template_steps`, now also carried by a plan day's own recipe steps (set
+// by the Plan Builder's manual step editor in app.plans.tsx). A step with
+// none of these set — or target_mode "open" — still saves as an untargeted
+// Open step, exactly like the session builder.
 type StepRecipe = {
   kind: "warmup" | "work" | "recovery" | "cooldown" | "strides";
   reps?: number;
@@ -26,6 +31,12 @@ type StepRecipe = {
   target_kind: "distance" | "time";
   target_distance_m?: number | null;
   target_time_seconds?: number | null;
+  target_mode?: "pace" | "threshold_pace_pct" | "threshold_hr_pct" | "zone" | "rpe" | "open" | null;
+  target_pace_sec_per_km?: number | null;
+  target_threshold_pace_pct?: number | null;
+  target_threshold_hr_pct?: number | null;
+  target_zone?: string | null;
+  target_rpe?: number | null;
   recovery_between_reps_seconds?: number | null;
   recovery_between_reps_target_kind?: "distance" | "time" | null;
   recovery_between_reps_mode?: string | null;
@@ -35,6 +46,13 @@ type StepRecipe = {
 // Full column set carried across from a linked library template's own
 // steps — template_steps mirrors `steps` (minus session_id/computed
 // fields), so this is close to a direct copy rather than a re-derivation.
+//
+// Phase 4 fix: this previously copied target_pace_sec_per_km but silently
+// dropped target_mode/target_threshold_pace_pct/target_threshold_hr_pct/
+// target_zone/target_rpe — the same class of bug as the recipe path below,
+// just on the library-linked path instead of the manual one. A plan day
+// built by attaching a real Templates-page template (the more common path)
+// was losing every non-pace target the moment the plan was assigned.
 function stepInsertFromTemplateStep(sessionId: string, stepOrder: number, ts: any) {
   return {
     session_id: sessionId,
@@ -45,7 +63,12 @@ function stepInsertFromTemplateStep(sessionId: string, stepOrder: number, ts: an
     target_kind: ts.target_kind ?? null,
     target_distance_m: ts.target_distance_m ?? null,
     target_time_seconds: ts.target_time_seconds ?? null,
+    target_mode: ts.target_mode ?? null,
     target_pace_sec_per_km: ts.target_pace_sec_per_km ?? null,
+    target_threshold_pace_pct: ts.target_threshold_pace_pct ?? null,
+    target_threshold_hr_pct: ts.target_threshold_hr_pct ?? null,
+    target_zone: ts.target_zone ?? null,
+    target_rpe: ts.target_rpe ?? null,
     is_ladder: ts.is_ladder ?? false,
     counts_toward_distance: ts.counts_toward_distance ?? true,
     recovery_between_reps_seconds: ts.recovery_between_reps_seconds ?? null,
@@ -61,6 +84,11 @@ function stepInsertFromTemplateStep(sessionId: string, stepOrder: number, ts: an
   };
 }
 
+// Phase 4 fix: same gap as above, on the manual-recipe path — this is the
+// original bug report (assignPlanToAthlete / stepInsertFromRecipe drops
+// target_pace_sec_per_km and all Phase 1 target fields). Now carries all
+// five through, matching what the Plan Builder's manual step editor
+// collects.
 function stepInsertFromRecipe(sessionId: string, stepOrder: number, s: StepRecipe) {
   return {
     session_id: sessionId,
@@ -71,6 +99,12 @@ function stepInsertFromRecipe(sessionId: string, stepOrder: number, s: StepRecip
     target_kind: s.target_kind,
     target_distance_m: s.target_distance_m ?? null,
     target_time_seconds: s.target_time_seconds ?? null,
+    target_mode: s.target_mode ?? null,
+    target_pace_sec_per_km: s.target_pace_sec_per_km ?? null,
+    target_threshold_pace_pct: s.target_threshold_pace_pct ?? null,
+    target_threshold_hr_pct: s.target_threshold_hr_pct ?? null,
+    target_zone: s.target_zone ?? null,
+    target_rpe: s.target_rpe ?? null,
     recovery_between_reps_seconds: s.recovery_between_reps_seconds ?? null,
     recovery_between_reps_target_kind: s.recovery_between_reps_target_kind ?? null,
     recovery_between_reps_mode: s.recovery_between_reps_mode ?? null,
