@@ -2092,3 +2092,4 @@ function formatWorkoutStructure(step: any): string | null {
 
   return recoveryPart ? `${repsPart} + ${recoveryPart}` : repsPart;
 }
+
