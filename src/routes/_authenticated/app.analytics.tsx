@@ -31,6 +31,7 @@ import {
 } from "recharts";
 import { ArrowUpRight, ArrowDownRight, ArrowRight, AlertTriangle } from "lucide-react";
 import { AthleteSubnav } from "@/components/athlete-subnav";
+import { YearlyLoadStrip } from "@/components/yearly-load-strip";
 
 const RANGES = {
   "4w": { days: 28, label: "4 weeks" },
@@ -776,6 +777,11 @@ function AthleteAnalytics({
       </div>
 
       {showBack && <AthleteSubnav athleteId={athleteId} active="analytics" />}
+
+      {/* Year-at-a-glance weekly training strip — Coros-style. Clicking a
+          week zooms every chart below to that week via the existing
+          custom-range mechanism (same one the range picker uses). */}
+      <YearlyLoadStrip athleteId={athleteId} onWeekClick={(from, to) => onCustomRange(from, to)} />
 
       {/* Fitness / Fatigue / Form chart */}
       <Card>
