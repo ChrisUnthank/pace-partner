@@ -80,6 +80,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { computeStrideLengthM, formatStride } from "@/lib/session-metrics";
 import { resolveStepTarget, resolvedTargetShortLabel } from "@/lib/target-resolution";
+import { WorkTargetEditor } from "@/components/work-target-editor";
 
 export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/")({
   component: SessionDetail,
@@ -2295,6 +2296,17 @@ function StepBlock({
                 <SelectItem value="strides">Strides</SelectItem>
               </SelectContent>
             </Select>
+            {/* Set/fix a target here regardless of how this session landed on
+                the calendar (template apply, plan assignment, or a builder
+                save that skipped it) — the one place every creation path
+                converges. Only while planned; a completed step's block is
+                for actuals, not the prescription. */}
+            {(isWork || isStrides) && !session.completed_at && (
+              <WorkTargetEditor
+                step={step}
+                onSaved={() => qc.invalidateQueries({ queryKey: ["steps", session.id] })}
+              />
+            )}
             {isWork && (
               <Button
                 size="sm"
