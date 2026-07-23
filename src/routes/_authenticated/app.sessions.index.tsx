@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { metersFmt, secToClock } from "@/lib/format";
 import { sessionClassificationLabel, SESSION_INTENTS, INTENT_LABEL, DAY_TYPE_LABEL } from "@/lib/session-categories";
-import { Plus, CalendarDays, Upload, Users } from "lucide-react";
+import { Plus, CalendarDays, Upload, Users, Search } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { ActivityIcon } from "@/lib/activity-icon";
 import { useState, useMemo, useEffect } from "react";
 import { BulkFitUpload } from "@/components/bulk-fit-upload";
@@ -83,6 +84,16 @@ function SessionsList() {
   }, [search.athleteId]);
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterIntent, setFilterIntent] = useState<string>("all");
+  // Coros-style additions: date range + keyword search. The keyword is
+  // debounced so the list doesn't refetch on every keystroke.
+  const [filterFrom, setFilterFrom] = useState<string>("");
+  const [filterTo, setFilterTo] = useState<string>("");
+  const [keywordInput, setKeywordInput] = useState<string>("");
+  const [filterKeyword, setFilterKeyword] = useState<string>("");
+  useEffect(() => {
+    const t = setTimeout(() => setFilterKeyword(keywordInput.trim()), 300);
+    return () => clearTimeout(t);
+  }, [keywordInput]);
 
   const { data: athleteIds, isLoading: athleteIdsLoading } = useQuery({
     queryKey: ["visible-athlete-ids", user?.id, isCoach, isManager, athlete?.id],
@@ -187,7 +198,16 @@ function SessionsList() {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery({
-    queryKey: ["sessions-list", (athleteIds ?? []).join(","), filterAthlete, filterStatus, filterIntent],
+    queryKey: [
+      "sessions-list",
+      (athleteIds ?? []).join(","),
+      filterAthlete,
+      filterStatus,
+      filterIntent,
+      filterFrom,
+      filterTo,
+      filterKeyword,
+    ],
     enabled: identityReady && !!athleteIds && athleteIds.length > 0,
     initialPageParam: 0,
     queryFn: async ({ pageParam }) => {
@@ -207,6 +227,16 @@ function SessionsList() {
         const [kind, value] = filterIntent.split(":");
         if (kind === "intent") q = q.eq("intent", value);
         else if (kind === "daytype") q = q.eq("day_type", value);
+      }
+      if (filterFrom) q = q.gte("session_date", filterFrom);
+      if (filterTo) q = q.lte("session_date", filterTo);
+      if (filterKeyword) {
+        // Matches title or location. PostgREST's .or() takes a comma-
+        // separated filter string, so strip characters that would break
+        // its syntax out of the user's input rather than trying to escape
+        // them.
+        const kw = filterKeyword.replace(/[,()%]/g, " ").trim();
+        if (kw) q = q.or(`title.ilike.%${kw}%,location.ilike.%${kw}%`);
       }
       const { data, error, count } = await q;
       if (error) throw error;
@@ -367,27 +397,29 @@ function SessionsList() {
             </Card>
           )}
 
-          {(isCoach || athlete) && athleteOptions.length > 1 && (
+          {(isCoach || athlete) && (
             <Card className="mt-3 border-[var(--accent-red)]/40">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-1.5">
-                  <Users className="h-3.5 w-3.5 text-[var(--accent-red)]" /> Athlete
+                  <Users className="h-3.5 w-3.5 text-[var(--accent-red)]" /> Filters
                 </CardTitle>
               </CardHeader>
               <CardContent className="flex flex-col gap-3">
-                <Select value={filterAthlete} onValueChange={setFilterAthlete}>
-                  <SelectTrigger className="h-9 w-full">
-                    <SelectValue placeholder="All athletes" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All athletes</SelectItem>
-                    {athleteOptions.map(([id, name]) => (
-                      <SelectItem key={id} value={id}>
-                        {name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {athleteOptions.length > 1 && (
+                  <Select value={filterAthlete} onValueChange={setFilterAthlete}>
+                    <SelectTrigger className="h-9 w-full">
+                      <SelectValue placeholder="All athletes" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All athletes</SelectItem>
+                      {athleteOptions.map(([id, name]) => (
+                        <SelectItem key={id} value={id}>
+                          {name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
                 <div>
                   <Label className="text-xs text-muted-foreground mb-1 block">Status</Label>
                   <Select value={filterStatus} onValueChange={setFilterStatus}>
@@ -428,15 +460,68 @@ function SessionsList() {
                     </SelectContent>
                   </Select>
                 </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-1 block">Date range</Label>
+                  <div className="flex items-center gap-1.5">
+                    <Input
+                      type="date"
+                      className="h-9"
+                      value={filterFrom}
+                      max={filterTo || undefined}
+                      onChange={(e) => setFilterFrom(e.target.value)}
+                    />
+                    <span className="text-muted-foreground text-xs">–</span>
+                    <Input
+                      type="date"
+                      className="h-9"
+                      value={filterTo}
+                      min={filterFrom || undefined}
+                      onChange={(e) => setFilterTo(e.target.value)}
+                    />
+                  </div>
+                </div>
+                {(filterStatus !== "all" || filterIntent !== "all" || filterFrom || filterTo || keywordInput) && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="self-start h-7 px-2 text-xs text-muted-foreground"
+                    onClick={() => {
+                      setFilterStatus("all");
+                      setFilterIntent("all");
+                      setFilterFrom("");
+                      setFilterTo("");
+                      setKeywordInput("");
+                    }}
+                  >
+                    Clear filters
+                  </Button>
+                )}
               </CardContent>
             </Card>
           )}
         </div>
 
         <div className="order-2 lg:order-1 lg:col-span-3 space-y-3">
+          {/* Keyword search — matches session title and location, debounced. */}
+          <div className="relative">
+            <Search className="h-4 w-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={keywordInput}
+              onChange={(e) => setKeywordInput(e.target.value)}
+              placeholder="Search by name or location…"
+              className="pl-8"
+            />
+          </div>
           <Card>
             <CardHeader>
-              <CardTitle>Recent</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle>Recent</CardTitle>
+                {!loading && (
+                  <span className="text-xs text-muted-foreground">
+                    {totalCount} session{totalCount === 1 ? "" : "s"}
+                  </span>
+                )}
+              </div>
             </CardHeader>
             <CardContent className="p-0">
               {loading ? (
