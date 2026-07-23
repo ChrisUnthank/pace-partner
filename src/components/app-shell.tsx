@@ -180,8 +180,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       label: "Performances",
       icon: Trophy,
       children: [
-        { to: "/app/races", label: "Races", icon: Trophy, show: isAthlete },
-        { to: "/app/race-tactics", label: "Race Tactics", icon: Flag, show: isAthlete },
+        // Coach-visible too: both index pages are already fully coach-aware
+        // (all-athletes listing, per-athlete filter, AthleteSubnav when
+        // filtered) — these were show: isAthlete only, which is why coaches
+        // had no sidebar path to Races/Race Tactics at all.
+        { to: "/app/races", label: "Races", icon: Trophy, show: isCoachOrAthlete },
+        { to: "/app/race-tactics", label: "Race Tactics", icon: Flag, show: isCoachOrAthlete },
       ],
     },
     {
