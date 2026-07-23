@@ -5,7 +5,7 @@ import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { BucketTabStrip } from "@/components/bucket-tab-strip";
-import { BookmarkCheck, CalendarRange, LayoutGrid } from "lucide-react";
+import { BookmarkCheck, CalendarRange, LayoutGrid, Plus } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/app/coaching-hub")({
   component: CoachingHubOverview,
@@ -62,9 +62,19 @@ function CoachingHubOverview() {
   return (
     <AppShell>
       <div className="space-y-4 max-w-4xl">
-        <div>
-          <h1 className="text-2xl font-bold">Coaching Hub</h1>
-          <p className="text-sm text-muted-foreground">Session templates, training plans, and everything you reuse across your roster.</p>
+        <div className="flex items-start justify-between flex-wrap gap-2">
+          <div>
+            <h1 className="text-2xl font-bold">Coaching Hub</h1>
+            <p className="text-sm text-muted-foreground">Session templates, training plans, and everything you reuse across your roster.</p>
+          </div>
+          {/* Direct path into the session builder from the planning hub —
+              same destination as the Home header's New session button. */}
+          <Button asChild size="sm">
+            <Link to="/app/sessions/new">
+              <Plus className="h-4 w-4 mr-1" />
+              Add Session
+            </Link>
+          </Button>
         </div>
 
         <BucketTabStrip items={HUB_TABS} active="/app/coaching-hub" />
