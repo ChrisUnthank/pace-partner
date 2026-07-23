@@ -12,11 +12,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { CoachAthletePicker } from "@/components/coach-athlete-picker";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { CalendarRange, ChevronDown, ChevronUp } from "lucide-react";
-import { metersFmt } from "@/lib/format";
+import { CalendarRange, ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
+import { metersFmt, clockToSec, secToClock } from "@/lib/format";
 import { assignPlanToAthlete, cancelAthletePlan } from "@/lib/plan.functions";
 import { useAuthUser } from "@/lib/use-auth";
 import { BucketTabStrip, COACHING_HUB_TABS } from "@/components/bucket-tab-strip";
+import { inferWorkoutTargetMode, type WorkoutTargetMode } from "@/lib/workout-target-modes";
 
 export const Route = createFileRoute("/_authenticated/app/plans")({
   component: PlansPage,
@@ -77,7 +78,9 @@ function distanceFocusLabel(v: string | null) {
 // Most template steps are time-based ("40 min easy"), not distance-based —
 // same convention every manually-planned session in this app already uses,
 // pace intent lives on the session/effort type rather than a per-step pace
-// column. To show a useful "km/week" figure for browsing, distance is
+// column.
+
+// To show a useful "km/week" figure for browsing, distance is
 // estimated from a representative pace per effort type. This is
 // deliberately approximate (real pace varies a lot by athlete) — it's a
 // browsing aid for comparing templates against each other, not a precise
@@ -158,36 +161,29 @@ function PlansPage() {
     },
   });
 
-  // Fetched once for every template up front (not just the expanded one) —
-  // needed to estimate each template's weekly volume for the list/filter,
-  // not just the preview.
   const { data: allTemplateSessions } = useQuery({
     queryKey: ["all-plan-template-sessions"],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("plan_template_sessions")
-        .select("plan_template_id, week_number, effort_type, steps");
+      const { data } = await supabase.from("plan_template_sessions").select("*");
       return (data ?? []) as any[];
     },
   });
 
   const weeklyVolumeByTemplate = new Map<string, number>();
   for (const t of templates ?? []) {
-    const sessions = (allTemplateSessions ?? []).filter((s) => s.plan_template_id === t.id);
-    weeklyVolumeByTemplate.set(t.id, estimateAvgWeeklyDistanceM(sessions));
+    const sessionsForTemplate = (allTemplateSessions ?? []).filter((s) => s.plan_template_id === t.id);
+    weeklyVolumeByTemplate.set(t.id, estimateAvgWeeklyDistanceM(sessionsForTemplate as any));
   }
 
-  const filtered = (templates ?? []).filter((t) => {
+  const filteredTemplates = (templates ?? []).filter((t) => {
     if (daysFilter !== "all" && String(t.days_per_week) !== daysFilter) return false;
     if (distanceFilter !== "all" && (t.distance_focus ?? "generic") !== distanceFilter) return false;
-    if (levelFilter !== "all" && t.level !== levelFilter) return false;
+    if (levelFilter !== "all" && (t.level ?? "intermediate") !== levelFilter) return false;
     if (volumeFilter !== "all") {
       const km = (weeklyVolumeByTemplate.get(t.id) ?? 0) / 1000;
-      if (volumeFilter === "70to90" && (km < 70 || km >= 90)) return false;
-      if (volumeFilter === "90to110" && (km < 90 || km >= 110)) return false;
-      if (volumeFilter === "110to130" && (km < 110 || km >= 130)) return false;
-      if (volumeFilter === "130to150" && (km < 130 || km >= 150)) return false;
-      if (volumeFilter === "150plus" && km < 150) return false;
+      if (volumeFilter === "low" && km >= 40) return false;
+      if (volumeFilter === "mid" && (km < 40 || km >= 80)) return false;
+      if (volumeFilter === "high" && km < 80) return false;
     }
     return true;
   });
@@ -195,32 +191,28 @@ function PlansPage() {
   if (view === "builder") {
     return (
       <AppShell>
-        <div className="space-y-6 max-w-5xl">
-          <BucketTabStrip items={COACHING_HUB_TABS} active="/app/plans" />
-          <PlanBuilder
-            templateId={builderTemplateId}
-            onBack={() => {
-              setView("browse");
-              setBuilderTemplateId(null);
-            }}
-          />
-        </div>
+        <PlanBuilder
+          templateId={builderTemplateId}
+          onBack={() => {
+            setView("browse");
+            setBuilderTemplateId(null);
+          }}
+        />
       </AppShell>
     );
   }
 
   return (
     <AppShell>
-      <div className="space-y-6 max-w-5xl">
-        <BucketTabStrip items={COACHING_HUB_TABS} active="/app/plans" />
-        <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="space-y-4">
+        <BucketTabStrip tabs={COACHING_HUB_TABS} />
+
+        <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <CalendarRange className="h-6 w-6 text-[var(--accent-red)]" /> Training Plans
+            <h1 className="text-xl font-bold flex items-center gap-2">
+              <CalendarRange className="h-5 w-5" /> Training Plans
             </h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Base templates you can assign straight to an athlete — generates real, editable sessions on their calendar.
-            </p>
+            <p className="text-sm text-muted-foreground">Browse plan templates, or build your own for your roster.</p>
           </div>
           <Button
             onClick={() => {
@@ -228,101 +220,87 @@ function PlansPage() {
               setView("builder");
             }}
           >
-            + Build your own
+            New template
           </Button>
         </div>
 
-        <ActivePlans />
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Filters</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-3">
+            <Select value={daysFilter} onValueChange={setDaysFilter}>
+              <SelectTrigger className="w-36">
+                <SelectValue placeholder="Days/week" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Any days/week</SelectItem>
+                {[3, 4, 5, 6, 7].map((n) => (
+                  <SelectItem key={n} value={String(n)}>
+                    {n} days/week
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={distanceFilter} onValueChange={setDistanceFilter}>
+              <SelectTrigger className="w-44">
+                <SelectValue placeholder="Distance focus" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Any distance</SelectItem>
+                <SelectItem value="generic">Generic base</SelectItem>
+                <SelectItem value="5k">5K</SelectItem>
+                <SelectItem value="10k">10K</SelectItem>
+                <SelectItem value="half_marathon">Half Marathon</SelectItem>
+                <SelectItem value="marathon">Marathon</SelectItem>
+                <SelectItem value="track_middle_distance">Track (800m–5000m)</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={levelFilter} onValueChange={setLevelFilter}>
+              <SelectTrigger className="w-36">
+                <SelectValue placeholder="Level" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Any level</SelectItem>
+                <SelectItem value="beginner">Beginner</SelectItem>
+                <SelectItem value="intermediate">Intermediate</SelectItem>
+                <SelectItem value="advanced">Advanced</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={volumeFilter} onValueChange={setVolumeFilter}>
+              <SelectTrigger className="w-40">
+                <SelectValue placeholder="Weekly volume" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Any volume</SelectItem>
+                <SelectItem value="low">Under 40km/wk</SelectItem>
+                <SelectItem value="mid">40–80km/wk</SelectItem>
+                <SelectItem value="high">80km+/wk</SelectItem>
+              </SelectContent>
+            </Select>
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle>Plan templates</CardTitle>
-            <CardDescription>
-              Filter by weekly frequency, race focus, level, or estimated weekly volume, then assign to an athlete.
-              Weekly volume is estimated from typical pace per session type — a browsing guide, not a per-athlete prediction.
-            </CardDescription>
+            <CardTitle className="text-base">
+              {filteredTemplates.length} template{filteredTemplates.length === 1 ? "" : "s"}
+            </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex gap-3 flex-wrap">
-              <div>
-                <Label className="text-xs">Days per week</Label>
-                <Select value={daysFilter} onValueChange={setDaysFilter}>
-                  <SelectTrigger className="w-40 mt-1">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Any</SelectItem>
-                    {[3, 4, 5, 6, 7].map((d) => (
-                      <SelectItem key={d} value={String(d)}>
-                        {d} days/week
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-xs">Focus</Label>
-                <Select value={distanceFilter} onValueChange={setDistanceFilter}>
-                  <SelectTrigger className="w-48 mt-1">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Any</SelectItem>
-                    <SelectItem value="generic">Generic base</SelectItem>
-                    <SelectItem value="5k">5K</SelectItem>
-                    <SelectItem value="10k">10K</SelectItem>
-                    <SelectItem value="half_marathon">Half Marathon</SelectItem>
-                    <SelectItem value="marathon">Marathon</SelectItem>
-                    <SelectItem value="track_middle_distance">Track (800m–5000m)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-xs">Level</Label>
-                <Select value={levelFilter} onValueChange={setLevelFilter}>
-                  <SelectTrigger className="w-40 mt-1">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Any</SelectItem>
-                    <SelectItem value="beginner">Beginner</SelectItem>
-                    <SelectItem value="intermediate">Intermediate</SelectItem>
-                    <SelectItem value="advanced">Advanced</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-xs">Weekly volume</Label>
-                <Select value={volumeFilter} onValueChange={setVolumeFilter}>
-                  <SelectTrigger className="w-48 mt-1">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Any</SelectItem>
-                    <SelectItem value="70to90">70–90 km/wk</SelectItem>
-                    <SelectItem value="90to110">90–110 km/wk</SelectItem>
-                    <SelectItem value="110to130">110–130 km/wk</SelectItem>
-                    <SelectItem value="130to150">130–150 km/wk</SelectItem>
-                    <SelectItem value="150plus">150+ km/wk</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            {filtered.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-4">No templates match those filters.</p>
+          <CardContent className="p-0">
+            {filteredTemplates.length === 0 ? (
+              <p className="text-sm text-muted-foreground p-6">No templates match these filters.</p>
             ) : (
-              <div className="space-y-3">
-                {filtered.map((t) => (
-                  <div key={t.id} className="rounded-md border">
-                    <div className="flex items-center justify-between gap-3 p-4">
-                      <div className="min-w-0">
+              <div className="divide-y">
+                {filteredTemplates.map((t) => (
+                  <div key={t.id}>
+                    <div className="flex items-start justify-between p-4">
+                      <div>
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-semibold">{t.name}</span>
-                          <Badge variant="outline">{t.days_per_week} days/wk</Badge>
-                          <Badge variant="outline">{t.duration_weeks} wks</Badge>
-                          <Badge variant="secondary">{distanceFocusLabel(t.distance_focus)}</Badge>
-                          {t.level && <Badge variant="outline" className="capitalize">{t.level}</Badge>}
+                          <Badge variant="outline">{t.days_per_week}d/wk</Badge>
+                          <Badge variant="outline">{distanceFocusLabel(t.distance_focus)}</Badge>
+                          <Badge variant="outline">{t.level ?? "intermediate"}</Badge>
                           {(weeklyVolumeByTemplate.get(t.id) ?? 0) > 0 && (
                             <Badge variant="outline">~{metersFmt(weeklyVolumeByTemplate.get(t.id) ?? 0)}/wk avg</Badge>
                           )}
@@ -500,11 +478,11 @@ function AssignPlanDialog({ template, onClose }: { template: PlanTemplate; onClo
         },
       });
       toast.success(`Plan assigned — ${result.sessionsCreated} sessions created`);
-      qc.invalidateQueries({ queryKey: ["active-athlete-plans"] });
-      qc.invalidateQueries({ queryKey: ["athlete-sessions-7d"] });
+      qc.invalidateQueries({ queryKey: ["athlete-plans"] });
+      qc.invalidateQueries({ queryKey: ["calendar-sessions"] });
       onClose();
-    } catch (e: any) {
-      toast.error(e?.message ?? "Failed to assign plan");
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to assign plan");
     } finally {
       setAssigning(false);
     }
@@ -516,23 +494,23 @@ function AssignPlanDialog({ template, onClose }: { template: PlanTemplate; onClo
         <DialogHeader>
           <DialogTitle>Assign "{template.name}"</DialogTitle>
           <DialogDescription>
-            Creates {template.duration_weeks} weeks of real sessions on the athlete's calendar, starting the Monday you pick.
+            Generates real sessions on the athlete's calendar starting the week you pick.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
           <div>
             <Label className="text-xs">Athlete</Label>
-            <div className="mt-1">
-              <CoachAthletePicker roster={roster ?? []} value={athleteId} onChange={setAthleteId} />
-            </div>
+            <CoachAthletePicker
+              athletes={roster ?? []}
+              value={athleteId}
+              onChange={setAthleteId}
+            />
           </div>
-
           <div>
             <Label className="text-xs">Start date (Monday of week 1)</Label>
             <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
           </div>
-
           {athleteId && (
             <div>
               <Label className="text-xs">Link to a goal (optional)</Label>
@@ -541,7 +519,7 @@ function AssignPlanDialog({ template, onClose }: { template: PlanTemplate; onClo
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">No linked goal</SelectItem>
+                  <SelectItem value="none">No goal</SelectItem>
                   {(athleteGoals ?? []).map((g: any) => (
                     <SelectItem key={g.id} value={g.id}>
                       {g.title}
@@ -694,35 +672,27 @@ function PlanBuilder({ templateId, onBack }: { templateId: string | null; onBack
   }
 
   return (
-    <div className="space-y-6">
-      <Button variant="ghost" size="sm" onClick={onBack} className="-ml-2">
-        ← Back to templates
-      </Button>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <Button variant="ghost" onClick={onBack}>
+          &larr; Back to templates
+        </Button>
+      </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>{savedId ? "Edit template" : "New template"}</CardTitle>
-          <CardDescription>
-            {savedId
-              ? "Update the basics any time — changes apply to future assignments, not plans already assigned."
-              : "Save the basics first, then build out each week below."}
-          </CardDescription>
+          <CardTitle className="text-base">Template details</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div>
             <Label className="text-xs">Name</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. My 5-Day 10K Build" />
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. 12-Week Half Marathon" />
           </div>
           <div>
             <Label className="text-xs">Description</Label>
-            <textarea
-              className="w-full min-h-16 rounded-md border bg-background px-3 py-2 text-sm"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="What is this for, and who's it a good fit for?"
-            />
+            <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional" />
           </div>
-          <div className="grid sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <Label className="text-xs">Days per week</Label>
               <Select value={String(daysPerWeek)} onValueChange={(v) => setDaysPerWeek(Number(v))}>
@@ -730,9 +700,9 @@ function PlanBuilder({ templateId, onBack }: { templateId: string | null; onBack
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {[3, 4, 5, 6, 7].map((d) => (
-                    <SelectItem key={d} value={String(d)}>
-                      {d}
+                  {[3, 4, 5, 6, 7].map((n) => (
+                    <SelectItem key={n} value={String(n)}>
+                      {n}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -742,8 +712,10 @@ function PlanBuilder({ templateId, onBack }: { templateId: string | null; onBack
               <Label className="text-xs">Duration (weeks)</Label>
               <Input type="number" min={1} value={durationWeeks} onChange={(e) => setDurationWeeks(Number(e.target.value))} />
             </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label className="text-xs">Focus</Label>
+              <Label className="text-xs">Distance focus</Label>
               <Select value={distanceFocus} onValueChange={setDistanceFocus}>
                 <SelectTrigger className="mt-1">
                   <SelectValue />
@@ -772,7 +744,7 @@ function PlanBuilder({ templateId, onBack }: { templateId: string | null; onBack
               </Select>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
             <Button onClick={saveMeta} disabled={saving}>
               {saving ? "Saving..." : savedId ? "Save changes" : "Create & continue"}
             </Button>
@@ -842,14 +814,27 @@ function PlanBuilder({ templateId, onBack }: { templateId: string | null; onBack
   );
 }
 
+// Phase 4: manual step recipe now carries the same five target fields as
+// `steps`/`template_steps`, set via the same target-mode selector pattern
+// used in the session builder and the WorkTargetEditor. `value`/`reps` keep
+// their existing meaning (meters or minutes, converted on save) — only the
+// target payload is new.
 type ManualStep = {
   kind: "warmup" | "work" | "recovery" | "cooldown" | "strides";
   target_kind: "distance" | "time";
   value: number; // meters for distance, minutes for time (converted on save)
   reps: number;
+  target_mode?: WorkoutTargetMode;
+  target_pace_sec_per_km?: number | null;
+  target_threshold_pace_pct?: number | null;
+  target_threshold_hr_pct?: number | null;
+  target_zone?: string | null;
+  target_rpe?: number | null;
   recovery_between_reps_seconds?: number;
   recovery_between_reps_mode?: string;
 };
+
+const ZONE_OPTIONS = ["z1", "z2", "z3", "z4", "z5"];
 
 function DayEditorDialog({
   planTemplateId,
@@ -877,6 +862,12 @@ function DayEditorDialog({
       target_kind: s.target_kind,
       value: s.target_kind === "time" ? Math.round((s.target_time_seconds ?? 0) / 60) : (s.target_distance_m ?? 0),
       reps: s.reps ?? 1,
+      target_mode: (s.target_mode ?? inferWorkoutTargetMode(s)) as WorkoutTargetMode,
+      target_pace_sec_per_km: s.target_pace_sec_per_km ?? null,
+      target_threshold_pace_pct: s.target_threshold_pace_pct ?? null,
+      target_threshold_hr_pct: s.target_threshold_hr_pct ?? null,
+      target_zone: s.target_zone ?? null,
+      target_rpe: s.target_rpe ?? null,
       recovery_between_reps_seconds: s.recovery_between_reps_seconds ?? undefined,
       recovery_between_reps_mode: s.recovery_between_reps_mode ?? undefined,
     }));
@@ -893,11 +884,26 @@ function DayEditorDialog({
   });
 
   function addStep() {
-    setManualSteps((s) => [...s, { kind: "work", target_kind: "time", value: 20, reps: 1 }]);
+    setManualSteps((s) => [...s, { kind: "work", target_kind: "time", value: 20, reps: 1, target_mode: "open" }]);
   }
 
   function updateStep(i: number, patch: Partial<ManualStep>) {
     setManualSteps((s) => s.map((step, idx) => (idx === i ? { ...step, ...patch } : step)));
+  }
+
+  // Switching target mode clears the other modes' payload fields so a step
+  // never saves with more than one target set at once — same
+  // payload-exclusivity rule the DB's CHECK constraint enforces, kept
+  // consistent here so a save never trips it.
+  function setStepTargetMode(i: number, newMode: WorkoutTargetMode) {
+    updateStep(i, {
+      target_mode: newMode,
+      target_pace_sec_per_km: newMode === "pace" ? manualSteps[i].target_pace_sec_per_km : null,
+      target_threshold_pace_pct: newMode === "threshold_pace_pct" ? manualSteps[i].target_threshold_pace_pct : null,
+      target_threshold_hr_pct: newMode === "threshold_hr_pct" ? manualSteps[i].target_threshold_hr_pct : null,
+      target_zone: newMode === "zone" ? manualSteps[i].target_zone : null,
+      target_rpe: newMode === "rpe" ? manualSteps[i].target_rpe : null,
+    });
   }
 
   function removeStep(i: number) {
@@ -924,6 +930,12 @@ function DayEditorDialog({
             target_kind: s.target_kind,
             target_distance_m: s.target_kind === "distance" ? s.value : null,
             target_time_seconds: s.target_kind === "time" ? s.value * 60 : null,
+            target_mode: s.target_mode && s.target_mode !== "open" ? s.target_mode : null,
+            target_pace_sec_per_km: s.target_pace_sec_per_km ?? null,
+            target_threshold_pace_pct: s.target_threshold_pace_pct ?? null,
+            target_threshold_hr_pct: s.target_threshold_hr_pct ?? null,
+            target_zone: s.target_zone ?? null,
+            target_rpe: s.target_rpe ?? null,
             recovery_between_reps_seconds: s.recovery_between_reps_seconds ?? null,
             recovery_between_reps_target_kind: s.recovery_between_reps_seconds ? "time" : null,
             recovery_between_reps_mode: s.recovery_between_reps_mode ?? null,
@@ -1012,21 +1024,21 @@ function DayEditorDialog({
                   Manual steps
                 </Button>
                 <Button size="sm" variant={mode === "library" ? "default" : "outline"} onClick={() => setMode("library")}>
-                  From my library
+                  Link a library template
                 </Button>
               </div>
 
               {mode === "library" ? (
                 <div>
-                  <Label className="text-xs">Session template</Label>
+                  <Label className="text-xs">Template</Label>
                   <Select value={libraryTemplateId} onValueChange={setLibraryTemplateId}>
                     <SelectTrigger className="mt-1">
-                      <SelectValue placeholder="Choose from your Templates library" />
+                      <SelectValue placeholder="Choose a template" />
                     </SelectTrigger>
                     <SelectContent>
-                      {(libraryTemplates ?? []).map((lt: any) => (
-                        <SelectItem key={lt.id} value={lt.id}>
-                          {lt.title}
+                      {(libraryTemplates ?? []).map((t: any) => (
+                        <SelectItem key={t.id} value={t.id}>
+                          {t.title}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1037,7 +1049,8 @@ function DayEditorDialog({
                     </p>
                   )}
                   <p className="text-xs text-muted-foreground mt-1">
-                    Resolved fresh at assignment time — editing this library template later updates any plan built from it since.
+                    Resolved fresh at assignment time — editing this library template later updates any plan built from it
+                    since.
                   </p>
                 </div>
               ) : (
@@ -1071,37 +1084,181 @@ function DayEditorDialog({
                           </SelectContent>
                         </Select>
                       </div>
+
                       <div className="grid grid-cols-3 gap-2 items-end">
                         <div>
                           <Label className="text-[10px]">{s.target_kind === "time" ? "Minutes" : "Meters"}</Label>
                           <Input
                             type="number"
+                            min={0}
                             value={s.value}
                             onChange={(e) => updateStep(i, { value: Number(e.target.value) })}
                           />
                         </div>
                         <div>
                           <Label className="text-[10px]">Reps</Label>
-                          <Input type="number" min={1} value={s.reps} onChange={(e) => updateStep(i, { reps: Number(e.target.value) })} />
-                        </div>
-                        <Button size="sm" variant="ghost" className="text-destructive" onClick={() => removeStep(i)}>
-                          Remove
-                        </Button>
-                      </div>
-                      {s.reps > 1 && (
-                        <div>
-                          <Label className="text-[10px]">Recovery between reps (seconds)</Label>
                           <Input
                             type="number"
-                            value={s.recovery_between_reps_seconds ?? ""}
-                            onChange={(e) => updateStep(i, { recovery_between_reps_seconds: Number(e.target.value) })}
+                            min={1}
+                            value={s.reps}
+                            onChange={(e) => updateStep(i, { reps: Number(e.target.value) })}
                           />
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-destructive"
+                          onClick={() => removeStep(i)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+
+                      {/* Target mode + its value field side by side, matching the same
+                          layout polish applied to the session builder and Targets
+                          editor — only shown for work/strides steps, since warmup/
+                          recovery/cooldown steps are never targeted. */}
+                      {(s.kind === "work" || s.kind === "strides") && (
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <Label className="text-[10px]">Target mode</Label>
+                            <Select
+                              value={s.target_mode ?? "open"}
+                              onValueChange={(v) => setStepTargetMode(i, v as WorkoutTargetMode)}
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="open">Open (no target)</SelectItem>
+                                <SelectItem value="pace">Pace</SelectItem>
+                                <SelectItem value="threshold_pace_pct">% threshold pace</SelectItem>
+                                <SelectItem value="threshold_hr_pct">% threshold HR</SelectItem>
+                                <SelectItem value="zone">Zone</SelectItem>
+                                <SelectItem value="rpe">RPE</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            {s.target_mode === "pace" && (
+                              <>
+                                <Label className="text-[10px]">Pace (/km)</Label>
+                                <Input
+                                  placeholder="mm:ss"
+                                  value={s.target_pace_sec_per_km != null ? secToClock(s.target_pace_sec_per_km) : ""}
+                                  onChange={(e) =>
+                                    updateStep(i, { target_pace_sec_per_km: e.target.value ? clockToSec(e.target.value) : null })
+                                  }
+                                />
+                              </>
+                            )}
+                            {s.target_mode === "threshold_pace_pct" && (
+                              <>
+                                <Label className="text-[10px]">% of threshold pace</Label>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  max={200}
+                                  value={s.target_threshold_pace_pct ?? ""}
+                                  onChange={(e) =>
+                                    updateStep(i, {
+                                      target_threshold_pace_pct: e.target.value ? Number(e.target.value) : null,
+                                    })
+                                  }
+                                />
+                              </>
+                            )}
+                            {s.target_mode === "threshold_hr_pct" && (
+                              <>
+                                <Label className="text-[10px]">% of threshold HR</Label>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  max={200}
+                                  value={s.target_threshold_hr_pct ?? ""}
+                                  onChange={(e) =>
+                                    updateStep(i, {
+                                      target_threshold_hr_pct: e.target.value ? Number(e.target.value) : null,
+                                    })
+                                  }
+                                />
+                              </>
+                            )}
+                            {s.target_mode === "zone" && (
+                              <>
+                                <Label className="text-[10px]">Zone</Label>
+                                <Select
+                                  value={s.target_zone ?? ""}
+                                  onValueChange={(v) => updateStep(i, { target_zone: v })}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Choose zone" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {ZONE_OPTIONS.map((z) => (
+                                      <SelectItem key={z} value={z}>
+                                        {z.toUpperCase()}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </>
+                            )}
+                            {s.target_mode === "rpe" && (
+                              <>
+                                <Label className="text-[10px]">RPE (1–10)</Label>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  max={10}
+                                  value={s.target_rpe ?? ""}
+                                  onChange={(e) =>
+                                    updateStep(i, { target_rpe: e.target.value ? Number(e.target.value) : null })
+                                  }
+                                />
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {s.kind === "work" && s.reps > 1 && (
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <Label className="text-[10px]">Recovery between reps (sec)</Label>
+                            <Input
+                              type="number"
+                              min={0}
+                              value={s.recovery_between_reps_seconds ?? ""}
+                              onChange={(e) =>
+                                updateStep(i, {
+                                  recovery_between_reps_seconds: e.target.value ? Number(e.target.value) : undefined,
+                                })
+                              }
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-[10px]">Recovery mode</Label>
+                            <Select
+                              value={s.recovery_between_reps_mode ?? "jog"}
+                              onValueChange={(v) => updateStep(i, { recovery_between_reps_mode: v })}
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="jog">Jog</SelectItem>
+                                <SelectItem value="walk">Walk</SelectItem>
+                                <SelectItem value="stand">Stand</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
                         </div>
                       )}
                     </div>
                   ))}
                   <Button size="sm" variant="outline" onClick={addStep}>
-                    + Add step
+                    <Plus className="h-4 w-4 mr-1" /> Add step
                   </Button>
                 </div>
               )}
@@ -1110,12 +1267,10 @@ function DayEditorDialog({
         </div>
 
         <DialogFooter className="flex items-center justify-between sm:justify-between">
-          {existing ? (
+          {existing && (
             <Button variant="ghost" className="text-destructive" onClick={removeDay}>
               Clear day
             </Button>
-          ) : (
-            <span />
           )}
           <div className="flex gap-2">
             <Button variant="outline" onClick={onClose}>
@@ -1128,130 +1283,5 @@ function DayEditorDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function ActivePlans() {
-  const qc = useQueryClient();
-  const [expandedPlanId, setExpandedPlanId] = useState<string | null>(null);
-
-  const { data: plans } = useQuery({
-    queryKey: ["active-athlete-plans"],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("athlete_plans")
-        .select("*, athletes(id, name)")
-        .eq("status", "active")
-        .order("start_date", { ascending: false });
-      return (data ?? []) as any[];
-    },
-  });
-
-  async function cancel(planId: string) {
-    const deleteFuture = window.confirm(
-      "Also remove this plan's future, not-yet-completed sessions from the calendar? (Cancel to just stop tracking it, keeping all its sessions.)",
-    );
-    try {
-      await cancelAthletePlan({ data: { athletePlanId: planId, deleteFutureSessions: deleteFuture } });
-      toast.success("Plan cancelled");
-      qc.invalidateQueries({ queryKey: ["active-athlete-plans"] });
-    } catch (e: any) {
-      toast.error(e?.message ?? "Failed to cancel");
-    }
-  }
-
-  if (!plans || plans.length === 0) return null;
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Active plans</CardTitle>
-      </CardHeader>
-      <CardContent className="p-0">
-        <div className="divide-y">
-          {plans.map((p) => {
-            const weeksElapsed = Math.floor((Date.now() - new Date(p.start_date).getTime()) / (7 * 86400000)) + 1;
-            const currentWeek = Math.min(Math.max(weeksElapsed, 1), p.duration_weeks);
-
-            return (
-              <div key={p.id}>
-                <div className="flex items-center justify-between px-4 py-3 text-sm gap-2">
-                  <div className="min-w-0">
-                    <span className="font-medium">{p.athletes?.name}</span>
-                    <span className="text-muted-foreground"> · {p.name}</span>
-                    <span className="text-muted-foreground"> · Week {currentWeek} of {p.duration_weeks}</span>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setExpandedPlanId(expandedPlanId === p.id ? null : p.id)}
-                    >
-                      {expandedPlanId === p.id ? "Hide sessions" : "View sessions"}
-                    </Button>
-                    {p.athletes?.id && (
-                      <Button asChild size="sm" variant="ghost">
-                        <Link to="/app/sessions/calendar" search={{ athleteId: p.athletes.id } as any}>
-                          Calendar
-                        </Link>
-                      </Button>
-                    )}
-                    <Button size="sm" variant="ghost" onClick={() => cancel(p.id)}>
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-                {expandedPlanId === p.id && <PlanSessionsList athletePlanId={p.id} />}
-              </div>
-            );
-          })}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function PlanSessionsList({ athletePlanId }: { athletePlanId: string }) {
-  const { data: rows } = useQuery({
-    queryKey: ["athlete-plan-sessions", athletePlanId],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("athlete_plan_sessions")
-        .select("week_number, sessions(id, session_date, title, completed_at)")
-        .eq("athlete_plan_id", athletePlanId)
-        .order("week_number");
-      return (data ?? []) as any[];
-    },
-  });
-
-  if (!rows) return null;
-
-  if (rows.length === 0) {
-    return (
-      <div className="px-4 pb-3 text-xs text-muted-foreground">
-        No sessions were created for this plan — if this looks wrong, the assignment likely failed partway through.
-        Cancel it and try assigning again.
-      </div>
-    );
-  }
-
-  return (
-    <div className="px-4 pb-3">
-      <div className="border rounded divide-y">
-        {rows.map((r: any, i: number) => (
-          <Link
-            key={r.sessions?.id ?? i}
-            to="/app/sessions/$sessionId"
-            params={{ sessionId: r.sessions?.id }}
-            className="flex justify-between px-3 py-1.5 text-xs hover:bg-accent/40"
-          >
-            <span>
-              Week {r.week_number} · {r.sessions?.session_date} · {r.sessions?.title}
-            </span>
-            <span className="text-muted-foreground">{r.sessions?.completed_at ? "Done" : "Planned"}</span>
-          </Link>
-        ))}
-      </div>
-    </div>
   );
 }
