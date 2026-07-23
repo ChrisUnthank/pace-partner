@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -52,6 +52,7 @@ import {
 } from "@/lib/session-files.functions";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { computeStrideLengthM, formatStride } from "@/lib/session-metrics";
+import { resolvedTargetShortLabel } from "@/lib/target-resolution";
 
 export const Route = createFileRoute("/_authenticated/app/races/$raceId/")({
   component: SessionDetail,
@@ -107,6 +108,13 @@ function SessionDetail() {
   // ✅ FIT upload setup
   const uploadFile = useServerFn(uploadAndParseSessionFile);
   const [uploading, setUploading] = useState(false);
+  // "2 of 4" while a multi-file batch is in flight; empty for single files.
+  const [uploadProgress, setUploadProgress] = useState("");
+  // Triggers the hidden file input via .click() — a <label> wrapping a
+  // shadcn Button (a real <button>) doesn't reliably forward clicks to an
+  // associated file input, since the click lands on the button itself
+  // rather than the label. Same fix already applied on the session page.
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const {
     data: session,
@@ -174,6 +182,22 @@ function SessionDetail() {
         .maybeSingle();
 
       if (error) throw error;
+      return data;
+    },
+  });
+
+  // Zone profile for target resolution (Phase 3) — same as the session
+  // detail page, so a planned race's "95% threshold" prescription shows
+  // as this athlete's concrete pace range.
+  const { data: zoneProfile } = useQuery({
+    queryKey: ["zone-profile-for-targets", session?.athlete_id],
+    enabled: !!session?.athlete_id,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("athlete_zone_profiles")
+        .select("*")
+        .eq("athlete_id", session!.athlete_id)
+        .maybeSingle();
       return data;
     },
   });
@@ -356,21 +380,46 @@ function SessionDetail() {
     },
   });
 
+  // Reads one file into the base64 payload shape the server fn expects.
+  function fileToBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => {
+        const s = String(r.result || "");
+        const idx = s.indexOf(",");
+        resolve(idx >= 0 ? s.slice(idx + 1) : s);
+      };
+      r.onerror = () => reject(r.error ?? new Error("Could not read file"));
+      r.readAsDataURL(file);
+    });
+  }
+
+  // Multi-file upload onto this session. Files are uploaded strictly one at
+  // a time — each upload triggers rebuildSessionFromAllFiles on the server,
+  // and firing several in parallel would have those rebuilds racing each
+  // other over the same session's derived rows. Order of selection doesn't
+  // matter: the rebuild merges by each file's own recorded timestamps.
+  // A failure on one file (e.g. the duplicate-detection check) shows a
+  // per-file toast and the loop carries on with the rest.
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files ?? []);
+    // Reset immediately so re-selecting the same filename(s) fires onChange again.
+    e.target.value = "";
+    if (!files.length || !session) return;
 
     setUploading(true);
 
-    const reader = new FileReader();
-
-    reader.onload = async () => {
-      const base64 = String(reader.result || "").split(",")[1];
+    let okCount = 0;
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      setUploadProgress(files.length > 1 ? `${i + 1} of ${files.length}` : "");
 
       try {
+        const base64 = await fileToBase64(file);
+
         const res: any = await uploadFile({
           data: {
-            athleteId: session!.athlete_id,
+            athleteId: session.athlete_id,
             sessionId: sessionId,
             filename: file.name,
             kind: file.name.toLowerCase().endsWith(".gpx") ? "gpx" : "fit",
@@ -382,23 +431,28 @@ function SessionDetail() {
           throw new Error(res.error);
         }
 
-        toast.success("File uploaded and session updated");
-        await clearReviewDismissed();
-
-        qc.invalidateQueries({ queryKey: ["session", sessionId] });
-        qc.invalidateQueries({ queryKey: ["steps", sessionId] });
-        qc.invalidateQueries({ queryKey: ["results", sessionId] });
-        qc.invalidateQueries({ queryKey: ["raw-points", sessionId] });
-        qc.invalidateQueries({ queryKey: ["session-file-count", sessionId] });
+        okCount++;
       } catch (err: any) {
         console.error("FIT upload error:", err);
-        toast.error(err.message);
+        toast.error(`${file.name}: ${err?.message ?? "Upload failed"}`);
       }
+    }
 
-      setUploading(false);
-    };
+    if (okCount > 0) {
+      toast.success(
+        okCount === 1 ? "File uploaded and session updated" : `${okCount} files uploaded and merged into this session`,
+      );
+      await clearReviewDismissed();
 
-    reader.readAsDataURL(file);
+      qc.invalidateQueries({ queryKey: ["session", sessionId] });
+      qc.invalidateQueries({ queryKey: ["steps", sessionId] });
+      qc.invalidateQueries({ queryKey: ["results", sessionId] });
+      qc.invalidateQueries({ queryKey: ["raw-points", sessionId] });
+      qc.invalidateQueries({ queryKey: ["session-file-count", sessionId] });
+    }
+
+    setUploading(false);
+    setUploadProgress("");
   }
 
   async function toggleRaceStatus() {
@@ -719,18 +773,23 @@ function SessionDetail() {
                     Save as template
                   </Button>
                 )}
-                <label className="cursor-pointer">
-                  <Button size="sm" variant="outline" disabled={uploading}>
-                    {uploading ? "Uploading…" : "Upload activity"}
-                  </Button>
-                  <input
-                    type="file"
-                    accept=".fit,.gpx"
-                    className="hidden"
-                    disabled={uploading}
-                    onChange={handleFileUpload}
-                  />
-                </label>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={uploading}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {uploading ? (uploadProgress ? `Uploading ${uploadProgress}…` : "Uploading…") : "Upload activity"}
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".fit,.gpx"
+                  multiple
+                  className="hidden"
+                  disabled={uploading}
+                  onChange={handleFileUpload}
+                />
                 <Button
                   size="sm"
                   variant={session.day_type === "race" ? "destructive" : "outline"}
@@ -858,7 +917,14 @@ function SessionDetail() {
             {workStep && formatWorkoutStructure(workStep) && (
               <div className="border rounded-lg px-3 py-2">
                 <div className="text-xs text-muted-foreground">Workout</div>
-                <div className="text-lg font-semibold">{formatWorkoutStructure(workStep)}</div>
+                <div className="text-lg font-semibold">
+                  {formatWorkoutStructure(workStep)}
+                  {resolvedTargetShortLabel(workStep, zoneProfile) && (
+                    <span className="ml-2 text-sm font-normal text-[var(--accent-red)]">
+                      {resolvedTargetShortLabel(workStep, zoneProfile)}
+                    </span>
+                  )}
+                </div>
               </div>
             )}
 
