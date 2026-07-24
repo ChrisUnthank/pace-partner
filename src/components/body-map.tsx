@@ -92,18 +92,24 @@ function BodySilhouette() {
 
 // Small static icon for list views (InjuryCard etc.) — same figure,
 // scaled down, with just the one region's dot(s) highlighted and no
-// interaction. Renders nothing if there's no region to show, so callers
-// can render it unconditionally.
-export function BodyMapIcon({ region, className }: { region: string | null | undefined; className?: string }) {
-  if (!region) return null;
-  const def = BODY_REGIONS.find((r) => r.key === region);
-  if (!def) return null;
+// interaction. Renders a plain outline with no highlight when there's no
+// region set, rather than nothing, so the list keeps a consistent shape.
+export function BodyMapIcon({
+  region,
+  className,
+  size = "sm",
+}: {
+  region: string | null | undefined;
+  className?: string;
+  size?: "sm" | "lg";
+}) {
+  const def = region ? BODY_REGIONS.find((r) => r.key === region) : undefined;
   return (
-    <svg viewBox="0 0 200 370" className={cn("h-8 w-5 shrink-0", className)} aria-label={def.label}>
+    <svg viewBox="0 0 200 370" className={cn(size === "lg" ? "h-16 w-10" : "h-8 w-5", "shrink-0", className)} aria-label={def?.label ?? "Body region not set"}>
       <g className="fill-muted stroke-border" strokeWidth="2">
         <BodySilhouette />
       </g>
-      {def.dots.map((d, i) => (
+      {def?.dots.map((d, i) => (
         <circle key={i} cx={d.x} cy={d.y} r="11" className="fill-[var(--accent-red)]" />
       ))}
     </svg>
