@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { todayISO } from "@/lib/format";
 import { toast } from "sonner";
-import { Plus, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, ChevronDown, ChevronUp, Archive, ArchiveRestore, Trash2 } from "lucide-react";
 import { BucketTabStrip, HEALTH_TABS } from "@/components/bucket-tab-strip";
 import { BodyMapPicker, BodyMapIcon, regionLabel } from "@/components/body-map";
 
@@ -148,6 +148,7 @@ const STATUS_VARIANT: Record<string, "destructive" | "secondary" | "outline"> = 
 };
 
 function InjuryList({ athleteId }: { athleteId: string }) {
+  const [showArchive, setShowArchive] = useState(false);
   const { data: injuries } = useQuery({
     queryKey: ["injuries", athleteId],
     queryFn: async () => {
@@ -163,12 +164,17 @@ function InjuryList({ athleteId }: { athleteId: string }) {
 
   if (!injuries) return null;
 
-  const active = injuries.filter((i) => i.status !== "resolved");
-  const resolved = injuries.filter((i) => i.status === "resolved");
+  // Archived is independent of status — a resolved injury someone wants
+  // out of sight goes here, but so could an old active one if it's just
+  // cluttering the list. Filtered out of both the main lists below either
+  // way, so nothing ever shows in two places at once.
+  const archived = injuries.filter((i) => i.archived);
+  const active = injuries.filter((i) => i.status !== "resolved" && !i.archived);
+  const resolved = injuries.filter((i) => i.status === "resolved" && !i.archived);
 
   return (
     <div className="space-y-4">
-      {active.length === 0 && resolved.length === 0 && (
+      {active.length === 0 && resolved.length === 0 && archived.length === 0 && (
         <Card>
           <CardContent className="p-6 text-sm text-muted-foreground text-center">
             No injuries logged — nothing to see here, keep it that way!
@@ -186,6 +192,26 @@ function InjuryList({ athleteId }: { athleteId: string }) {
               <InjuryCard key={i.id} injury={i} athleteId={athleteId} />
             ))}
           </div>
+        </div>
+      )}
+      {archived.length > 0 && (
+        <div className="border-t pt-3">
+          <button
+            type="button"
+            onClick={() => setShowArchive((v) => !v)}
+            className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2"
+          >
+            <Archive className="h-3.5 w-3.5" />
+            Filing cabinet ({archived.length})
+            {showArchive ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          </button>
+          {showArchive && (
+            <div className="space-y-2">
+              {archived.map((i) => (
+                <InjuryCard key={i.id} injury={i} athleteId={athleteId} />
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -210,15 +236,16 @@ function InjuryCard({ injury, athleteId, defaultOpen }: { injury: any; athleteId
   const [eOnsetDate, setEOnsetDate] = useState<string>(injury.onset_date ?? todayISO());
   const [eNotes, setENotes] = useState<string>(injury.notes ?? "");
 
-  // Healthcare provider tracking — who, and when the next appointment is.
-  // Seeded from the injury row, saved independently of the details edit
-  // above since this changes far more often (a new appointment gets
-  // booked) than the original details do.
+  // Healthcare provider tracking — whether the athlete is currently seeing
+  // someone, plus a full appointment history (upcoming and past), not just
+  // a single "next appointment" — a real injury usually means more than
+  // one visit.
   const [seeingHcp, setSeeingHcp] = useState<boolean>(!!injury.seeing_hcp);
-  const [hcpName, setHcpName] = useState<string>(injury.hcp_name ?? "");
-  const [nextApptAt, setNextApptAt] = useState<string>(injury.next_appt_at ? String(injury.next_appt_at).slice(0, 16) : "");
-  const [savingHcp, setSavingHcp] = useState(false);
-  const [addingToDiary, setAddingToDiary] = useState(false);
+  const [showApptForm, setShowApptForm] = useState(false);
+  const [apptHcpName, setApptHcpName] = useState("");
+  const [apptAt, setApptAt] = useState("");
+  const [apptNotes, setApptNotes] = useState("");
+  const [savingAppt, setSavingAppt] = useState(false);
 
   const { data: updates } = useQuery({
     queryKey: ["injury-updates", injury.id],
@@ -234,25 +261,28 @@ function InjuryCard({ injury, athleteId, defaultOpen }: { injury: any; athleteId
     },
   });
 
-  // Whether this injury already has a diary entry linked to it — checked
-  // via the injury_id back-reference on athlete_personal_calendar_entries,
-  // not a local flag, so it stays correct even after navigating away and
-  // back (and reflects an entry created from the diary side too — see
-  // PersonalEntryDialog's "Related injury" field there).
-  const { data: linkedAppt } = useQuery({
-    queryKey: ["injury-linked-appt", injury.id],
+  // Every appointment ever logged for this injury, newest first — split
+  // below into Upcoming (soonest first) and History (most recent past
+  // first). calendar_entry_id (set once "Add to diary" is used, or when
+  // the appointment was created from the diary side in the first place)
+  // is what drives the "already on your diary" state per row.
+  const { data: appointments } = useQuery({
+    queryKey: ["injury-appointments", injury.id],
     enabled: open,
     queryFn: async () => {
-      const { data } = await supabase
-        .from("athlete_personal_calendar_entries" as any)
-        .select("id, specific_date, start_time")
+      const { data, error } = await supabase
+        .from("injury_appointments" as any)
+        .select("*")
         .eq("injury_id", injury.id)
-        .order("specific_date", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      return (data as any) ?? null;
+        .order("appt_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as any[];
     },
   });
+  const nowMs = Date.now();
+  const upcomingAppts = [...(appointments ?? [])].filter((a) => new Date(a.appt_at).getTime() >= nowMs).reverse();
+  const pastAppts = (appointments ?? []).filter((a) => new Date(a.appt_at).getTime() < nowMs);
+
 
   async function setStatus(status: string) {
     const patch: any = { status };
@@ -267,6 +297,31 @@ function InjuryCard({ injury, athleteId, defaultOpen }: { injury: any; athleteId
       toast.error(error.message);
       return;
     }
+    qc.invalidateQueries({ queryKey: ["injuries", athleteId] });
+  }
+
+  async function toggleArchive() {
+    const { error } = await supabase.from("injuries").update({ archived: !injury.archived } as any).eq("id", injury.id);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(injury.archived ? "Moved out of the filing cabinet" : "Filed away");
+    qc.invalidateQueries({ queryKey: ["injuries", athleteId] });
+  }
+
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  async function deleteInjury() {
+    setDeleting(true);
+    const { error } = await supabase.from("injuries").delete().eq("id", injury.id);
+    setDeleting(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("Injury deleted");
     qc.invalidateQueries({ queryKey: ["injuries", athleteId] });
   }
 
@@ -295,54 +350,87 @@ function InjuryCard({ injury, athleteId, defaultOpen }: { injury: any; athleteId
     qc.invalidateQueries({ queryKey: ["injuries", athleteId] });
   }
 
-  async function saveHcp() {
-    setSavingHcp(true);
-    const { error } = await supabase
-      .from("injuries")
-      .update({
-        seeing_hcp: seeingHcp,
-        hcp_name: seeingHcp ? (hcpName || null) : null,
-        next_appt_at: seeingHcp && nextApptAt ? new Date(nextApptAt).toISOString() : null,
-      } as any)
-      .eq("id", injury.id);
-    setSavingHcp(false);
+  async function toggleSeeingHcp(next: boolean) {
+    setSeeingHcp(next);
+    const { error } = await supabase.from("injuries").update({ seeing_hcp: next } as any).eq("id", injury.id);
     if (error) {
       toast.error(error.message);
       return;
     }
-    toast.success("Saved");
     qc.invalidateQueries({ queryKey: ["injuries", athleteId] });
   }
 
-  // Creates a linked appointment on the athlete's own diary (My Schedule).
-  // The reverse direction — booking or editing an appointment there and
-  // tagging it with this injury — writes next_appt_at back onto this row
-  // from that side (see PersonalEntryDialog), so either surface can be
-  // the one someone actually uses.
-  async function addToDiary() {
-    if (!nextApptAt) {
-      toast.error("Set a next appointment date/time first");
+  async function addAppointment() {
+    if (!apptAt) {
+      toast.error("Pick a date and time first");
       return;
     }
-    setAddingToDiary(true);
-    const specificDate = nextApptAt.slice(0, 10);
-    const startTime = nextApptAt.slice(11, 16);
-    const { error } = await supabase.from("athlete_personal_calendar_entries" as any).insert({
-      athlete_id: athleteId,
-      category: "appointment",
-      title: `${hcpName || "Healthcare"} — ${injury.body_part}`,
-      specific_date: specificDate,
-      start_time: startTime,
-      notes: `Linked to injury: ${injury.body_part}`,
+    setSavingAppt(true);
+    const { error } = await supabase.from("injury_appointments" as any).insert({
       injury_id: injury.id,
+      athlete_id: athleteId,
+      hcp_name: apptHcpName || null,
+      appt_at: new Date(apptAt).toISOString(),
+      notes: apptNotes || null,
     } as any);
-    setAddingToDiary(false);
+    // Logging any appointment implies they're actively seeing someone —
+    // flip the toggle on rather than making it a separate step.
+    if (!error && !seeingHcp) {
+      await supabase.from("injuries").update({ seeing_hcp: true } as any).eq("id", injury.id);
+      setSeeingHcp(true);
+    }
+    setSavingAppt(false);
     if (error) {
       toast.error(error.message);
       return;
     }
+    toast.success("Appointment added");
+    setApptHcpName("");
+    setApptAt("");
+    setApptNotes("");
+    setShowApptForm(false);
+    qc.invalidateQueries({ queryKey: ["injury-appointments", injury.id] });
+    qc.invalidateQueries({ queryKey: ["injuries", athleteId] });
+  }
+
+  async function deleteAppointment(id: string) {
+    const { error } = await supabase.from("injury_appointments" as any).delete().eq("id", id);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    qc.invalidateQueries({ queryKey: ["injury-appointments", injury.id] });
+  }
+
+  // Creates a linked entry on the athlete's own diary (My Schedule) for
+  // one specific appointment. The reverse direction — booking or editing
+  // an appointment there and tagging it with this injury — writes/updates
+  // the matching injury_appointments row from that side too (see
+  // PersonalEntryDialog), so either surface can be the one someone
+  // actually uses and both stay in sync.
+  async function addApptToDiary(appt: any) {
+    const specificDate = String(appt.appt_at).slice(0, 10);
+    const startTime = String(appt.appt_at).slice(11, 16);
+    const { data, error } = await supabase
+      .from("athlete_personal_calendar_entries" as any)
+      .insert({
+        athlete_id: athleteId,
+        category: "appointment",
+        title: `${appt.hcp_name || "Healthcare"} — ${injury.body_part}`,
+        specific_date: specificDate,
+        start_time: startTime,
+        notes: appt.notes || `Linked to injury: ${injury.body_part}`,
+        injury_id: injury.id,
+      } as any)
+      .select("id")
+      .single();
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    await supabase.from("injury_appointments" as any).update({ calendar_entry_id: (data as any).id } as any).eq("id", appt.id);
     toast.success("Added to your diary");
-    qc.invalidateQueries({ queryKey: ["injury-linked-appt", injury.id] });
+    qc.invalidateQueries({ queryKey: ["injury-appointments", injury.id] });
   }
 
   async function saveUpdate() {
@@ -444,45 +532,112 @@ function InjuryCard({ injury, athleteId, defaultOpen }: { injury: any; athleteId
             </div>
           )}
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {(["active", "monitoring", "resolved"] as const).map((s) => (
               <Button key={s} size="sm" variant={injury.status === s ? "default" : "outline"} onClick={() => setStatus(s)}>
                 {STATUS_LABEL[s]}
               </Button>
             ))}
+            <Button size="sm" variant="outline" onClick={toggleArchive} className="ml-auto">
+              {injury.archived ? (
+                <><ArchiveRestore className="h-3.5 w-3.5 mr-1" /> Restore</>
+              ) : (
+                <><Archive className="h-3.5 w-3.5 mr-1" /> File away</>
+              )}
+            </Button>
+            {confirmingDelete ? (
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-muted-foreground">Delete permanently?</span>
+                <Button size="sm" variant="destructive" onClick={deleteInjury} disabled={deleting}>
+                  {deleting ? "Deleting…" : "Yes, delete"}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setConfirmingDelete(false)}>Cancel</Button>
+              </div>
+            ) : (
+              <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setConfirmingDelete(true)}>
+                <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete
+              </Button>
+            )}
           </div>
 
           <div className="border-t pt-3 space-y-2">
             <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Healthcare provider</div>
             <div className="flex items-center justify-between">
               <Label className="text-sm font-normal">Seeing a healthcare provider?</Label>
-              <Switch checked={seeingHcp} onCheckedChange={setSeeingHcp} />
+              <Switch checked={seeingHcp} onCheckedChange={toggleSeeingHcp} />
             </div>
-            {seeingHcp && (
-              <div className="space-y-2">
+
+            {upcomingAppts.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Upcoming</div>
+                {upcomingAppts.map((a: any) => (
+                  <div key={a.id} className="flex items-center justify-between gap-2 text-sm rounded-md border border-border px-2.5 py-1.5">
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{a.hcp_name || "Appointment"}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {new Date(a.appt_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                      </div>
+                      {a.notes && <div className="text-xs text-muted-foreground mt-0.5">{a.notes}</div>}
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {a.calendar_entry_id ? (
+                        <Link to="/app/my-schedule" className="text-xs text-muted-foreground underline">On diary</Link>
+                      ) : (
+                        <Button size="sm" variant="outline" onClick={() => addApptToDiary(a)}>Add to diary</Button>
+                      )}
+                      <Button size="sm" variant="ghost" onClick={() => deleteAppointment(a.id)} aria-label="Delete appointment">
+                        <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {pastAppts.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">History</div>
+                {pastAppts.map((a: any) => (
+                  <div key={a.id} className="flex items-center justify-between gap-2 text-sm rounded-md border border-border px-2.5 py-1.5">
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{a.hcp_name || "Appointment"}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {new Date(a.appt_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                      </div>
+                      {a.notes && <div className="text-xs text-muted-foreground mt-0.5">{a.notes}</div>}
+                    </div>
+                    <Button size="sm" variant="ghost" onClick={() => deleteAppointment(a.id)} aria-label="Delete appointment">
+                      <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {showApptForm ? (
+              <div className="space-y-2 border rounded-md p-2.5">
                 <div className="grid sm:grid-cols-2 gap-3">
                   <div>
                     <Label className="text-xs">Who</Label>
-                    <Input value={hcpName} onChange={(e) => setHcpName(e.target.value)} placeholder="e.g. Dr. Patel, sports physio" />
+                    <Input value={apptHcpName} onChange={(e) => setApptHcpName(e.target.value)} placeholder="e.g. Dr. Patel, sports physio" />
                   </div>
                   <div>
-                    <Label className="text-xs">Next appointment</Label>
-                    <Input type="datetime-local" value={nextApptAt} onChange={(e) => setNextApptAt(e.target.value)} />
+                    <Label className="text-xs">Date & time</Label>
+                    <Input type="datetime-local" value={apptAt} onChange={(e) => setApptAt(e.target.value)} />
                   </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button size="sm" onClick={saveHcp} disabled={savingHcp}>{savingHcp ? "Saving…" : "Save"}</Button>
-                  {linkedAppt ? (
-                    <span className="text-xs text-muted-foreground">Already on your diary →{" "}
-                      <Link to="/app/my-schedule" className="underline">View</Link>
-                    </span>
-                  ) : (
-                    <Button size="sm" variant="outline" onClick={addToDiary} disabled={addingToDiary || !nextApptAt}>
-                      {addingToDiary ? "Adding…" : "Add to diary"}
-                    </Button>
-                  )}
+                <Textarea placeholder="Notes (optional)" value={apptNotes} onChange={(e) => setApptNotes(e.target.value)} rows={2} />
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={addAppointment} disabled={savingAppt || !apptAt}>
+                    {savingAppt ? "Saving…" : "Save appointment"}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setShowApptForm(false)}>Cancel</Button>
                 </div>
               </div>
+            ) : (
+              <Button size="sm" variant="outline" onClick={() => setShowApptForm(true)}>
+                <Plus className="h-3 w-3 mr-1" /> Add appointment
+              </Button>
             )}
           </div>
 
