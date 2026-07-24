@@ -133,6 +133,7 @@ function VitalsSection({ athleteId, date }: { athleteId: string; date: string })
   const [injuryNotes, setInjuryNotes] = useState<string>(c?.injury_notes ?? "");
   const [injuryBodyPart, setInjuryBodyPart] = useState<string>("");
   const [injuryRegion, setInjuryRegion] = useState<string | null>(null);
+  const [injurySide, setInjurySide] = useState<string>("n/a");
   const [loggingInjury, setLoggingInjury] = useState(false);
 
   useEffect(() => {
@@ -214,7 +215,7 @@ function VitalsSection({ athleteId, date }: { athleteId: string; date: string })
       athlete_id: athleteId,
       body_part: injuryBodyPart.trim(),
       body_region: injuryRegion,
-      side: "n/a",
+      side: injurySide,
       status: "active",
       severity: null,
       onset_date: date,
@@ -277,7 +278,7 @@ function VitalsSection({ athleteId, date }: { athleteId: string; date: string })
             <div>
               <Label className="text-xs">Tap the general area (optional)</Label>
               <div className="mt-2">
-                <BodyMapPicker value={injuryRegion} onChange={setInjuryRegion} />
+                <BodyMapPicker value={injuryRegion ? { region: injuryRegion, side: injurySide as any } : null} onChange={(v) => { setInjuryRegion(v.region); setInjurySide(v.side); }} />
               </div>
             </div>
             <div>
