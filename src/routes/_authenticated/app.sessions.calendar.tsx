@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { ChevronLeft, ChevronRight, List as ListIcon, Upload, CalendarPlus, PencilLine, Trophy, HeartPulse } from "lucide-react";
 import {
   CalendarDayCell,
@@ -388,14 +388,15 @@ function CalendarPage() {
     navigate({ search: (p: any) => ({ ...p, view: v }) });
   }
 
-  // Straight copy-forward: no dialog, no progression, no review step —
-  // exactly what's currently on screen for this athlete, copied verbatim
-  // to the next equivalent period. Reuses the same buildCopyDraft/commit
-  // engine as the full Copy Period dialog (empty progression rules = an
-  // exact copy), just skipped straight to commit rather than going
-  // through setup/review. A plain confirm() guards it since there's no
-  // review step to catch a mistake before it writes.
-  async function quickCopyPeriod(kind: "week" | "month") {
+  // Straight copy-forward: no progression dialog, no review step — exactly
+  // what's currently on screen for this athlete, copied verbatim to the
+  // next equivalent period. Reuses the same buildCopyDraft/commit engine
+  // as the full Copy Period dialog (empty progression rules = an exact
+  // copy). Confirmation is a proper in-app dialog rather than
+  // window.confirm() — the native browser confirm renders with an ugly
+  // "an embedded page says" wrapper inside Lovable's preview iframe and
+  // wouldn't look right in production either.
+  function requestQuickCopy(kind: "week" | "month") {
     if (!selectedAthleteId) {
       toast.error("Select an athlete first");
       return;
@@ -418,8 +419,14 @@ function CalendarPage() {
       targetStart = toISO(new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1));
     }
 
-    if (!window.confirm(`Copy this ${kind} exactly as-is to the next ${kind}, starting ${targetStart}?`)) return;
+    setPendingQuickCopy({ kind, srcStart, srcEnd, targetStart });
+  }
 
+  async function confirmQuickCopy() {
+    if (!pendingQuickCopy || !selectedAthleteId) return;
+    const { kind, srcStart, srcEnd, targetStart } = pendingQuickCopy;
+
+    setPendingQuickCopy(null);
     setQuickCopying(kind);
     try {
       const { data: sourceSessions, error } = await supabase
@@ -503,6 +510,12 @@ function CalendarPage() {
   const [uploading, setUploading] = useState(false);
   const [copyPeriodOpen, setCopyPeriodOpen] = useState(false);
   const [quickCopying, setQuickCopying] = useState<"week" | "month" | null>(null);
+  const [pendingQuickCopy, setPendingQuickCopy] = useState<{
+    kind: "week" | "month";
+    srcStart: string;
+    srcEnd: string;
+    targetStart: string;
+  } | null>(null);
 
   // Retrospective vitals logging — closes the gap where an athlete who
   // forgot to log resting HR/sleep on a given day had no way to go back and
@@ -794,7 +807,7 @@ function CalendarPage() {
                   size="sm"
                   className="h-6 text-[11px] text-muted-foreground"
                   disabled={quickCopying === view}
-                  onClick={() => quickCopyPeriod(view)}
+                  onClick={() => requestQuickCopy(view)}
                 >
                   {quickCopying === view
                     ? "Copying..."
@@ -1179,6 +1192,24 @@ function CalendarPage() {
         initialSourceEnd={rangeEnd}
         initialAthleteId={selectedAthleteId || undefined}
       />
+
+      <Dialog open={!!pendingQuickCopy} onOpenChange={(o) => !o && setPendingQuickCopy(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Copy this {pendingQuickCopy?.kind}?</DialogTitle>
+            <DialogDescription>
+              Copies this {pendingQuickCopy?.kind} exactly as-is to the next {pendingQuickCopy?.kind}, starting{" "}
+              {pendingQuickCopy?.targetStart}. No progression is applied — this is an exact duplicate.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingQuickCopy(null)}>
+              Cancel
+            </Button>
+            <Button onClick={confirmQuickCopy}>Copy</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }
