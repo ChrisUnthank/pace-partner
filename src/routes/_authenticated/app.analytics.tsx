@@ -439,6 +439,27 @@ function AthleteAnalytics({
     },
   });
 
+  // session_training_load() (the Postgres function behind ctl/atl/tsb)
+  // silently substitutes a category-based RPE estimate whenever a session
+  // has none logged, so the chart keeps rendering either way — this just
+  // counts how many completed sessions in the visible range are running on
+  // that estimate rather than real effort data, so the chart can say so
+  // instead of quietly presenting a guess as fact.
+  const { data: estimatedLoadCount } = useQuery({
+    queryKey: ["analytics-estimated-rpe-count", athleteId, since],
+    queryFn: async () => {
+      const { count } = await supabase
+        .from("sessions")
+        .select("id", { count: "exact", head: true })
+        .eq("athlete_id", athleteId)
+        .gte("session_date", since)
+        .not("completed_at", "is", null)
+        .is("rpe", null)
+        .neq("day_type", "rest");
+      return count ?? 0;
+    },
+  });
+
   // Baseline-building window — the contiguous run of "insufficient"/"low"
   // confidence days at the very start of the loaded range (confidence is
   // already computed server-side from how many of the trailing 28 days have
@@ -790,6 +811,12 @@ function AthleteAnalytics({
           <CardDescription>
             Fitness, fatigue, and form over {RANGES[range].label.toLowerCase()}.
           </CardDescription>
+          {!!estimatedLoadCount && (
+            <p className="flex items-start gap-1.5 text-xs text-amber-600 pt-1">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              {estimatedLoadCount} session{estimatedLoadCount === 1 ? "" : "s"} in this range {estimatedLoadCount === 1 ? "has" : "have"} no logged RPE — {estimatedLoadCount === 1 ? "its" : "their"} contribution to these numbers is a category-based estimate, not real effort data.
+            </p>
+          )}
         </CardHeader>
         <CardContent>
           {!load || load.length < 3 ? (
