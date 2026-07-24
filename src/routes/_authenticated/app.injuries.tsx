@@ -98,9 +98,9 @@ function NewInjuryForm({ athleteId, onSaved }: { athleteId: string; onSaved: () 
       </CardHeader>
       <CardContent className="space-y-4">
         <div>
-          <Label className="text-xs">Tap the general area (optional — for the icon shown in your injury list)</Label>
+          <Label className="text-xs">Tap the general area — this sets side too (optional, still editable below)</Label>
           <div className="mt-2">
-            <BodyMapPicker value={region} onChange={setRegion} />
+            <BodyMapPicker value={region ? { region, side: side as any } : null} onChange={(v) => { setRegion(v.region); setSide(v.side); }} />
           </div>
         </div>
         <div className="grid sm:grid-cols-2 gap-3">
@@ -462,7 +462,7 @@ function InjuryCard({ injury, athleteId, defaultOpen }: { injury: any; athleteId
             ) : (
               <ChevronDown className="h-4 w-4 text-muted-foreground" />
             )}
-            <BodyMapIcon region={injury.body_region} size="lg" />
+            <BodyMapIcon region={injury.body_region} side={injury.side} size="lg" />
             <div>
               <CardTitle className="text-base capitalize">
                 {injury.body_part} {injury.side && injury.side !== "n/a" ? `(${injury.side})` : ""}
@@ -481,7 +481,7 @@ function InjuryCard({ injury, athleteId, defaultOpen }: { injury: any; athleteId
         <CardContent className="space-y-4">
           {editing ? (
             <div className="space-y-3 border rounded-md p-3">
-              <BodyMapPicker value={eRegion} onChange={setERegion} />
+              <BodyMapPicker value={eRegion ? { region: eRegion, side: eSide as any } : null} onChange={(v) => { setERegion(v.region); setESide(v.side); }} />
               <div className="grid sm:grid-cols-2 gap-3">
                 <div>
                   <Label className="text-xs">Body part</Label>
