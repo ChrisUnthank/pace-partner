@@ -718,9 +718,14 @@ function splitLapsByPaceContrast(
   // distance comfortably separates "one dominant continuous effort" from
   // legitimate rep-length variation (even a 2km rep among 1km reps is
   // nowhere near 5x a ~1km median).
-  const candidateDistances = candidates.map((l) => Number(l.total_distance ?? 0)).filter((d) => d > 0).sort((a, b) => a - b);
-  const medianDistance = candidateDistances.length > 0 ? candidateDistances[Math.floor(candidateDistances.length / 2)] : 0;
-  const outlierLaps = medianDistance > 0 ? candidates.filter((l) => Number(l.total_distance ?? 0) > medianDistance * 5) : [];
+  const candidateDistances = candidates
+    .map((l) => Number(l.total_distance ?? 0))
+    .filter((d) => d > 0)
+    .sort((a, b) => a - b);
+  const medianDistance =
+    candidateDistances.length > 0 ? candidateDistances[Math.floor(candidateDistances.length / 2)] : 0;
+  const outlierLaps =
+    medianDistance > 0 ? candidates.filter((l) => Number(l.total_distance ?? 0) > medianDistance * 5) : [];
   const clusteringCandidates =
     medianDistance > 0 ? candidates.filter((l) => Number(l.total_distance ?? 0) <= medianDistance * 5) : candidates;
 

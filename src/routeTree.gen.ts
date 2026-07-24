@@ -40,11 +40,13 @@ import { Route as AuthenticatedAppDailyLogRouteImport } from './routes/_authenti
 import { Route as AuthenticatedAppCredentialsRouteImport } from './routes/_authenticated/app.credentials'
 import { Route as AuthenticatedAppCompareRouteImport } from './routes/_authenticated/app.compare'
 import { Route as AuthenticatedAppCoachingHubRouteImport } from './routes/_authenticated/app.coaching-hub'
+import { Route as AuthenticatedAppCoachDiaryRouteImport } from './routes/_authenticated/app.coach-diary'
 import { Route as AuthenticatedAppCheckoutRouteImport } from './routes/_authenticated/app.checkout'
 import { Route as AuthenticatedAppCalculatorsRouteImport } from './routes/_authenticated/app.calculators'
 import { Route as AuthenticatedAppBicarbRouteImport } from './routes/_authenticated/app.bicarb'
 import { Route as AuthenticatedAppAthletesRouteImport } from './routes/_authenticated/app.athletes'
 import { Route as AuthenticatedAppAnalyticsRouteImport } from './routes/_authenticated/app.analytics'
+import { Route as AuthenticatedAppAddressBookRouteImport } from './routes/_authenticated/app.address-book'
 import { Route as AuthenticatedAppSessionsIndexRouteImport } from './routes/_authenticated/app.sessions.index'
 import { Route as AuthenticatedAppReportsIndexRouteImport } from './routes/_authenticated/app.reports.index'
 import { Route as AuthenticatedAppRacesIndexRouteImport } from './routes/_authenticated/app.races.index'
@@ -66,7 +68,6 @@ import { Route as AuthenticatedAppCalculatorsStartingfitnessRouteImport } from '
 import { Route as AuthenticatedAppCalculatorsPacepredictorRouteImport } from './routes/_authenticated/app.calculators.pacepredictor'
 import { Route as AuthenticatedAppAthletesAthleteIdRouteImport } from './routes/_authenticated/app.athletes.$athleteId'
 import { Route as AuthenticatedAppAthleteSlugRouteImport } from './routes/_authenticated/app.athlete.$slug'
-import { Route as AuthenticatedAppSessionsSessionIdIndexRouteImport } from './routes/_authenticated/app.sessions.$sessionId.index'
 import { Route as AuthenticatedAppRacesRaceIdIndexRouteImport } from './routes/_authenticated/app.races.$raceId.index'
 import { Route as AuthenticatedAppSessionsSessionIdAnalysisRouteImport } from './routes/_authenticated/app.sessions.$sessionId.analysis'
 import { Route as AuthenticatedAppReportsCoachWeeklyRouteImport } from './routes/_authenticated/app.reports.coach.weekly'
@@ -244,6 +245,12 @@ const AuthenticatedAppCoachingHubRoute =
     path: '/app/coaching-hub',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAppCoachDiaryRoute =
+  AuthenticatedAppCoachDiaryRouteImport.update({
+    id: '/app/coach-diary',
+    path: '/app/coach-diary',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAppCheckoutRoute =
   AuthenticatedAppCheckoutRouteImport.update({
     id: '/app/checkout',
@@ -271,6 +278,12 @@ const AuthenticatedAppAnalyticsRoute =
   AuthenticatedAppAnalyticsRouteImport.update({
     id: '/app/analytics',
     path: '/app/analytics',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppAddressBookRoute =
+  AuthenticatedAppAddressBookRouteImport.update({
+    id: '/app/address-book',
+    path: '/app/address-book',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedAppSessionsIndexRoute =
@@ -399,12 +412,6 @@ const AuthenticatedAppAthleteSlugRoute =
     path: '/app/athlete/$slug',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedAppSessionsSessionIdIndexRoute =
-  AuthenticatedAppSessionsSessionIdIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => AuthenticatedAppSessionsSessionIdRoute,
-  } as any)
 const AuthenticatedAppRacesRaceIdIndexRoute =
   AuthenticatedAppRacesRaceIdIndexRouteImport.update({
     id: '/',
@@ -460,11 +467,13 @@ export interface FileRoutesByFullPath {
   '/a/$slug': typeof ASlugRoute
   '/c/$slug': typeof CSlugRoute
   '/claim/$token': typeof ClaimTokenRoute
+  '/app/address-book': typeof AuthenticatedAppAddressBookRoute
   '/app/analytics': typeof AuthenticatedAppAnalyticsRoute
   '/app/athletes': typeof AuthenticatedAppAthletesRouteWithChildren
   '/app/bicarb': typeof AuthenticatedAppBicarbRoute
   '/app/calculators': typeof AuthenticatedAppCalculatorsRouteWithChildren
   '/app/checkout': typeof AuthenticatedAppCheckoutRoute
+  '/app/coach-diary': typeof AuthenticatedAppCoachDiaryRoute
   '/app/coaching-hub': typeof AuthenticatedAppCoachingHubRoute
   '/app/compare': typeof AuthenticatedAppCompareRoute
   '/app/credentials': typeof AuthenticatedAppCredentialsRoute
@@ -519,7 +528,6 @@ export interface FileRoutesByFullPath {
   '/app/reports/coach/weekly': typeof AuthenticatedAppReportsCoachWeeklyRoute
   '/app/sessions/$sessionId/analysis': typeof AuthenticatedAppSessionsSessionIdAnalysisRoute
   '/app/races/$raceId/': typeof AuthenticatedAppRacesRaceIdIndexRoute
-  '/app/sessions/$sessionId/': typeof AuthenticatedAppSessionsSessionIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -527,9 +535,11 @@ export interface FileRoutesByTo {
   '/a/$slug': typeof ASlugRoute
   '/c/$slug': typeof CSlugRoute
   '/claim/$token': typeof ClaimTokenRoute
+  '/app/address-book': typeof AuthenticatedAppAddressBookRoute
   '/app/analytics': typeof AuthenticatedAppAnalyticsRoute
   '/app/bicarb': typeof AuthenticatedAppBicarbRoute
   '/app/checkout': typeof AuthenticatedAppCheckoutRoute
+  '/app/coach-diary': typeof AuthenticatedAppCoachDiaryRoute
   '/app/coaching-hub': typeof AuthenticatedAppCoachingHubRoute
   '/app/compare': typeof AuthenticatedAppCompareRoute
   '/app/credentials': typeof AuthenticatedAppCredentialsRoute
@@ -560,6 +570,7 @@ export interface FileRoutesByTo {
   '/app/coach/$slug': typeof AuthenticatedAppCoachSlugRoute
   '/app/race-tactics/$planId': typeof AuthenticatedAppRaceTacticsPlanIdRoute
   '/app/race-tactics/new': typeof AuthenticatedAppRaceTacticsNewRoute
+  '/app/sessions/$sessionId': typeof AuthenticatedAppSessionsSessionIdRouteWithChildren
   '/app/sessions/calendar': typeof AuthenticatedAppSessionsCalendarRoute
   '/app/sessions/new': typeof AuthenticatedAppSessionsNewRoute
   '/api/public/hooks/dispatch-push': typeof ApiPublicHooksDispatchPushRoute
@@ -580,7 +591,6 @@ export interface FileRoutesByTo {
   '/app/reports/coach/weekly': typeof AuthenticatedAppReportsCoachWeeklyRoute
   '/app/sessions/$sessionId/analysis': typeof AuthenticatedAppSessionsSessionIdAnalysisRoute
   '/app/races/$raceId': typeof AuthenticatedAppRacesRaceIdIndexRoute
-  '/app/sessions/$sessionId': typeof AuthenticatedAppSessionsSessionIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -590,11 +600,13 @@ export interface FileRoutesById {
   '/a/$slug': typeof ASlugRoute
   '/c/$slug': typeof CSlugRoute
   '/claim/$token': typeof ClaimTokenRoute
+  '/_authenticated/app/address-book': typeof AuthenticatedAppAddressBookRoute
   '/_authenticated/app/analytics': typeof AuthenticatedAppAnalyticsRoute
   '/_authenticated/app/athletes': typeof AuthenticatedAppAthletesRouteWithChildren
   '/_authenticated/app/bicarb': typeof AuthenticatedAppBicarbRoute
   '/_authenticated/app/calculators': typeof AuthenticatedAppCalculatorsRouteWithChildren
   '/_authenticated/app/checkout': typeof AuthenticatedAppCheckoutRoute
+  '/_authenticated/app/coach-diary': typeof AuthenticatedAppCoachDiaryRoute
   '/_authenticated/app/coaching-hub': typeof AuthenticatedAppCoachingHubRoute
   '/_authenticated/app/compare': typeof AuthenticatedAppCompareRoute
   '/_authenticated/app/credentials': typeof AuthenticatedAppCredentialsRoute
@@ -649,7 +661,6 @@ export interface FileRoutesById {
   '/_authenticated/app/reports/coach/weekly': typeof AuthenticatedAppReportsCoachWeeklyRoute
   '/_authenticated/app/sessions/$sessionId/analysis': typeof AuthenticatedAppSessionsSessionIdAnalysisRoute
   '/_authenticated/app/races/$raceId/': typeof AuthenticatedAppRacesRaceIdIndexRoute
-  '/_authenticated/app/sessions/$sessionId/': typeof AuthenticatedAppSessionsSessionIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -659,11 +670,13 @@ export interface FileRouteTypes {
     | '/a/$slug'
     | '/c/$slug'
     | '/claim/$token'
+    | '/app/address-book'
     | '/app/analytics'
     | '/app/athletes'
     | '/app/bicarb'
     | '/app/calculators'
     | '/app/checkout'
+    | '/app/coach-diary'
     | '/app/coaching-hub'
     | '/app/compare'
     | '/app/credentials'
@@ -718,7 +731,6 @@ export interface FileRouteTypes {
     | '/app/reports/coach/weekly'
     | '/app/sessions/$sessionId/analysis'
     | '/app/races/$raceId/'
-    | '/app/sessions/$sessionId/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -726,9 +738,11 @@ export interface FileRouteTypes {
     | '/a/$slug'
     | '/c/$slug'
     | '/claim/$token'
+    | '/app/address-book'
     | '/app/analytics'
     | '/app/bicarb'
     | '/app/checkout'
+    | '/app/coach-diary'
     | '/app/coaching-hub'
     | '/app/compare'
     | '/app/credentials'
@@ -759,6 +773,7 @@ export interface FileRouteTypes {
     | '/app/coach/$slug'
     | '/app/race-tactics/$planId'
     | '/app/race-tactics/new'
+    | '/app/sessions/$sessionId'
     | '/app/sessions/calendar'
     | '/app/sessions/new'
     | '/api/public/hooks/dispatch-push'
@@ -779,7 +794,6 @@ export interface FileRouteTypes {
     | '/app/reports/coach/weekly'
     | '/app/sessions/$sessionId/analysis'
     | '/app/races/$raceId'
-    | '/app/sessions/$sessionId'
   id:
     | '__root__'
     | '/'
@@ -788,11 +802,13 @@ export interface FileRouteTypes {
     | '/a/$slug'
     | '/c/$slug'
     | '/claim/$token'
+    | '/_authenticated/app/address-book'
     | '/_authenticated/app/analytics'
     | '/_authenticated/app/athletes'
     | '/_authenticated/app/bicarb'
     | '/_authenticated/app/calculators'
     | '/_authenticated/app/checkout'
+    | '/_authenticated/app/coach-diary'
     | '/_authenticated/app/coaching-hub'
     | '/_authenticated/app/compare'
     | '/_authenticated/app/credentials'
@@ -847,7 +863,6 @@ export interface FileRouteTypes {
     | '/_authenticated/app/reports/coach/weekly'
     | '/_authenticated/app/sessions/$sessionId/analysis'
     | '/_authenticated/app/races/$raceId/'
-    | '/_authenticated/app/sessions/$sessionId/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -1080,6 +1095,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppCoachingHubRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/app/coach-diary': {
+      id: '/_authenticated/app/coach-diary'
+      path: '/app/coach-diary'
+      fullPath: '/app/coach-diary'
+      preLoaderRoute: typeof AuthenticatedAppCoachDiaryRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/app/checkout': {
       id: '/_authenticated/app/checkout'
       path: '/app/checkout'
@@ -1113,6 +1135,13 @@ declare module '@tanstack/react-router' {
       path: '/app/analytics'
       fullPath: '/app/analytics'
       preLoaderRoute: typeof AuthenticatedAppAnalyticsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/address-book': {
+      id: '/_authenticated/app/address-book'
+      path: '/app/address-book'
+      fullPath: '/app/address-book'
+      preLoaderRoute: typeof AuthenticatedAppAddressBookRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/app/sessions/': {
@@ -1262,13 +1291,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppAthleteSlugRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/app/sessions/$sessionId/': {
-      id: '/_authenticated/app/sessions/$sessionId/'
-      path: '/'
-      fullPath: '/app/sessions/$sessionId/'
-      preLoaderRoute: typeof AuthenticatedAppSessionsSessionIdIndexRouteImport
-      parentRoute: typeof AuthenticatedAppSessionsSessionIdRoute
-    }
     '/_authenticated/app/races/$raceId/': {
       id: '/_authenticated/app/races/$raceId/'
       path: '/'
@@ -1408,15 +1430,12 @@ const AuthenticatedAppRacesRouteWithChildren =
 
 interface AuthenticatedAppSessionsSessionIdRouteChildren {
   AuthenticatedAppSessionsSessionIdAnalysisRoute: typeof AuthenticatedAppSessionsSessionIdAnalysisRoute
-  AuthenticatedAppSessionsSessionIdIndexRoute: typeof AuthenticatedAppSessionsSessionIdIndexRoute
 }
 
 const AuthenticatedAppSessionsSessionIdRouteChildren: AuthenticatedAppSessionsSessionIdRouteChildren =
   {
     AuthenticatedAppSessionsSessionIdAnalysisRoute:
       AuthenticatedAppSessionsSessionIdAnalysisRoute,
-    AuthenticatedAppSessionsSessionIdIndexRoute:
-      AuthenticatedAppSessionsSessionIdIndexRoute,
   }
 
 const AuthenticatedAppSessionsSessionIdRouteWithChildren =
@@ -1447,11 +1466,13 @@ const AuthenticatedAppSessionsRouteWithChildren =
   )
 
 interface AuthenticatedRouteRouteChildren {
+  AuthenticatedAppAddressBookRoute: typeof AuthenticatedAppAddressBookRoute
   AuthenticatedAppAnalyticsRoute: typeof AuthenticatedAppAnalyticsRoute
   AuthenticatedAppAthletesRoute: typeof AuthenticatedAppAthletesRouteWithChildren
   AuthenticatedAppBicarbRoute: typeof AuthenticatedAppBicarbRoute
   AuthenticatedAppCalculatorsRoute: typeof AuthenticatedAppCalculatorsRouteWithChildren
   AuthenticatedAppCheckoutRoute: typeof AuthenticatedAppCheckoutRoute
+  AuthenticatedAppCoachDiaryRoute: typeof AuthenticatedAppCoachDiaryRoute
   AuthenticatedAppCoachingHubRoute: typeof AuthenticatedAppCoachingHubRoute
   AuthenticatedAppCompareRoute: typeof AuthenticatedAppCompareRoute
   AuthenticatedAppCredentialsRoute: typeof AuthenticatedAppCredentialsRoute
@@ -1491,12 +1512,14 @@ interface AuthenticatedRouteRouteChildren {
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedAppAddressBookRoute: AuthenticatedAppAddressBookRoute,
   AuthenticatedAppAnalyticsRoute: AuthenticatedAppAnalyticsRoute,
   AuthenticatedAppAthletesRoute: AuthenticatedAppAthletesRouteWithChildren,
   AuthenticatedAppBicarbRoute: AuthenticatedAppBicarbRoute,
   AuthenticatedAppCalculatorsRoute:
     AuthenticatedAppCalculatorsRouteWithChildren,
   AuthenticatedAppCheckoutRoute: AuthenticatedAppCheckoutRoute,
+  AuthenticatedAppCoachDiaryRoute: AuthenticatedAppCoachDiaryRoute,
   AuthenticatedAppCoachingHubRoute: AuthenticatedAppCoachingHubRoute,
   AuthenticatedAppCompareRoute: AuthenticatedAppCompareRoute,
   AuthenticatedAppCredentialsRoute: AuthenticatedAppCredentialsRoute,
