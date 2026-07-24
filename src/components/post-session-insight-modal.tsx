@@ -8,6 +8,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { FeelFaces } from "@/components/feel-faces";
 
+// Only opens via the session detail page's fallback "Session feedback" card
+// (SessionSummary's onCompleted) — that card itself only renders when a
+// session isn't already complete, i.e. it wasn't logged through Daily Log.
+// Daily Log's own per-session blocks have these same fields inline and
+// never trigger this modal, so there's no case where both can fire for
+// the same completion.
 export function PostSessionInsightModal({
   open, onOpenChange, sessionId, athleteId, onSaved,
 }: {
