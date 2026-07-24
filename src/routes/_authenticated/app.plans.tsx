@@ -18,6 +18,7 @@ import { assignPlanToAthlete, cancelAthletePlan } from "@/lib/plan.functions";
 import { useAuthUser } from "@/lib/use-auth";
 import { BucketTabStrip, COACHING_HUB_TABS } from "@/components/bucket-tab-strip";
 import { inferWorkoutTargetMode, type WorkoutTargetMode } from "@/lib/workout-target-modes";
+import { CopyPeriodDialog } from "@/components/copy-period-dialog";
 
 export const Route = createFileRoute("/_authenticated/app/plans")({
   component: PlansPage,
@@ -169,6 +170,7 @@ function PlansPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [assignTarget, setAssignTarget] = useState<PlanTemplate | null>(null);
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
+  const [copyPeriodOpen, setCopyPeriodOpen] = useState(false);
 
   const { data: templates } = useQuery({
     queryKey: ["plan-templates"],
@@ -298,14 +300,22 @@ function PlansPage() {
             </h1>
             <p className="text-sm text-muted-foreground">Browse plan templates, or build your own for your roster.</p>
           </div>
-          <Button
-            onClick={() => {
-              setBuilderTemplateId(null);
-              setView("builder");
-            }}
-          >
-            New template
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setCopyPeriodOpen(true)}
+            >
+              Copy period forward
+            </Button>
+            <Button
+              onClick={() => {
+                setBuilderTemplateId(null);
+                setView("builder");
+              }}
+            >
+              New template
+            </Button>
+          </div>
         </div>
 
         <div className="flex gap-2">
@@ -481,6 +491,8 @@ function PlansPage() {
         {assignTarget && (
           <AssignPlanDialog template={assignTarget} onClose={() => setAssignTarget(null)} />
         )}
+
+        <CopyPeriodDialog open={copyPeriodOpen} onClose={() => setCopyPeriodOpen(false)} />
       </div>
     </AppShell>
   );
