@@ -65,7 +65,7 @@ export function regionView(key: string | null | undefined): BodyView {
 // can serve both the static icon and the interactive picker.
 function BodySilhouette() {
   return (
-    <>
+    <g className="fill-muted/40 stroke-muted-foreground/25" strokeWidth="2">
       <circle cx="100" cy="25" r="18" />
       <rect x="92" y="42" width="16" height="10" rx="4" />
       <rect x="68" y="52" width="64" height="90" rx="18" />
@@ -86,7 +86,7 @@ function BodySilhouette() {
       <rect x="104" y="168" width="26" height="70" rx="12" />
       <rect x="106" y="254" width="22" height="70" rx="10" />
       <ellipse cx="117" cy="345" rx="16" ry="8" />
-    </>
+    </g>
   );
 }
 
@@ -106,9 +106,7 @@ export function BodyMapIcon({
   const def = region ? BODY_REGIONS.find((r) => r.key === region) : undefined;
   return (
     <svg viewBox="0 0 200 370" className={cn(size === "lg" ? "h-16 w-10" : "h-8 w-5", "shrink-0", className)} aria-label={def?.label ?? "Body region not set"}>
-      <g className="fill-muted stroke-border" strokeWidth="2">
-        <BodySilhouette />
-      </g>
+      <BodySilhouette />
       {def?.dots.map((d, i) => (
         <circle key={i} cx={d.x} cy={d.y} r="11" className="fill-[var(--accent-red)]" />
       ))}
@@ -154,9 +152,7 @@ export function BodyMapPicker({ value, onChange }: { value: string | null; onCha
         {value && <span className="text-xs text-muted-foreground">Selected: {regionLabel(value)}</span>}
       </div>
       <svg viewBox="0 0 200 370" className="w-full max-w-[220px] mx-auto block">
-        <g className="fill-muted stroke-border" strokeWidth="2">
-          <BodySilhouette />
-        </g>
+        <BodySilhouette />
         {regions.map((r) =>
           r.dots.map((d, i) => {
             const selected = value === r.key;
