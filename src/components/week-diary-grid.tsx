@@ -134,7 +134,7 @@ function DayColumn({
     <div
       ref={setNodeRef}
       className={cn(
-        "flex flex-col min-w-[168px] w-[168px] shrink-0 rounded-lg border bg-card transition-colors",
+        "flex flex-col w-full min-w-0 rounded-lg border bg-card transition-colors",
         isToday && "border-[var(--accent-red)]",
         isOver && "bg-accent/40",
       )}
@@ -223,19 +223,18 @@ export function WeekDiaryGrid({
       </div>
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <div className="flex gap-2 overflow-x-auto pb-2 snap-x snap-mandatory sm:snap-none">
+        <div className="grid grid-cols-7 gap-2">
           {days.map((day) => (
-            <div key={day.date} className="snap-start">
-              <DayColumn
-                date={day.date}
-                isToday={day.date === todayISO}
-                day={day}
-                renderTraining={renderTraining}
-                renderPersonal={renderPersonal}
-                isPersonalDraggable={isPersonalDraggable}
-                onAddClick={onAddClick}
-              />
-            </div>
+            <DayColumn
+              key={day.date}
+              date={day.date}
+              isToday={day.date === todayISO}
+              day={day}
+              renderTraining={renderTraining}
+              renderPersonal={renderPersonal}
+              isPersonalDraggable={isPersonalDraggable}
+              onAddClick={onAddClick}
+            />
           ))}
         </div>
       </DndContext>
