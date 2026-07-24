@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { AthleteSubnav } from "@/components/athlete-subnav";
-import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
+import { useQuery, useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyAthlete, useMyRoles, useMyRawRoles, useAuthUser } from "@/lib/use-auth";
@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { metersFmt, secToClock } from "@/lib/format";
 import { sessionClassificationLabel, SESSION_INTENTS, INTENT_LABEL, DAY_TYPE_LABEL } from "@/lib/session-categories";
-import { Plus, Upload, Users, Search } from "lucide-react";
+import { Plus, Upload, Users, Search, Eye, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ActivityIcon } from "@/lib/activity-icon";
 import { useState, useMemo, useEffect } from "react";
@@ -26,7 +26,9 @@ import {
   DialogTitle,
   DialogDescription,
   DialogTrigger,
+  DialogFooter,
 } from "@/components/ui/dialog";
+import { toast } from "sonner";
 import { ReadinessBadge } from "@/components/readiness-badge";
 import { BucketTabStrip, TRAINING_TABS } from "@/components/bucket-tab-strip";
 
@@ -68,6 +70,7 @@ function formatLocalTime(iso: string, timezone?: string | null): string {
 function SessionsList() {
   const search = Route.useSearch();
   const { user } = useAuthUser();
+  const qc = useQueryClient();
   const { data: roles = [], isLoading: rolesLoading } = useMyRoles();
   const isAthlete = roles.includes("athlete");
   const { data: rawRoles = [], isLoading: rawRolesLoading } = useMyRawRoles();
@@ -298,6 +301,54 @@ function SessionsList() {
   }, [sessions, sessionStartTimes]);
 
   const loading = !identityReady || athleteIdsLoading || (athleteIds && athleteIds.length > 0 && sessionsLoading);
+
+  // Delete confirmation is a proper in-app dialog, not window.confirm() —
+  // same reasoning as the Calendar page's copy-forward confirm: the
+  // native browser dialog looks wrong (and, in Lovable's preview, shows
+  // an "embedded page says" wrapper) compared to the rest of the app.
+  const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  // Mirrors the cleanup order cancelAthletePlan already uses for deleting
+  // a generated session — interval_results (by step_id) and steps don't
+  // cascade automatically, so they're removed explicitly in that order
+  // before the session row itself. session_files rows are cleaned up the
+  // same way. Note: this only removes the DB rows — any raw FIT/GPX file
+  // object actually sitting in storage isn't touched here, since the
+  // storage bucket/path convention for uploaded files wasn't confirmed
+  // before writing this, and guessing at a storage path felt like the
+  // wrong place to guess.
+  async function confirmDeleteSession() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const { data: steps } = await supabase.from("steps").select("id").eq("session_id", deleteTarget.id);
+      const stepIds = (steps ?? []).map((s: any) => s.id);
+
+      if (stepIds.length > 0) {
+        const { error: irErr } = await supabase.from("interval_results").delete().in("step_id", stepIds);
+        if (irErr) throw irErr;
+      }
+
+      const { error: sfErr } = await supabase.from("session_files").delete().eq("session_id", deleteTarget.id);
+      if (sfErr) throw sfErr;
+
+      const { error: stepsErr } = await supabase.from("steps").delete().eq("session_id", deleteTarget.id);
+      if (stepsErr) throw stepsErr;
+
+      const { error: sessErr } = await supabase.from("sessions").delete().eq("id", deleteTarget.id);
+      if (sessErr) throw sessErr;
+
+      toast.success("Session deleted");
+      qc.invalidateQueries({ queryKey: ["sessions-list"] });
+      qc.invalidateQueries({ queryKey: ["sessions-week-summary"] });
+      setDeleteTarget(null);
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to delete session");
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   return (
     <AppShell>
@@ -538,14 +589,16 @@ function SessionsList() {
                       const startedAt = sessionStartTimes?.get(s.id);
                       const localTime = startedAt ? formatLocalTime(startedAt, s.athletes?.timezone) : null;
                       return (
-                        <Link
+                        <div
                           key={s.id}
-                          to="/app/sessions/$sessionId"
-                          params={{ sessionId: s.id }}
                           className="flex items-stretch gap-3 hover:bg-accent/40 overflow-hidden"
                         >
                           <span className={cn("w-1.5 shrink-0", sessionColorClass(s))} />
-                          <div className="flex-1 flex items-center justify-between gap-2 py-3 pr-4 min-w-0">
+                          <Link
+                            to="/app/sessions/$sessionId"
+                            params={{ sessionId: s.id }}
+                            className="flex-1 flex items-center justify-between gap-2 py-3 min-w-0"
+                          >
                             <div className="flex items-center gap-2 min-w-0">
                               <ActivityIcon session={s} size={18} className="text-muted-foreground shrink-0" />
                               <div className="min-w-0">
@@ -580,8 +633,24 @@ function SessionsList() {
                                 {s.completed_at ? "Done" : "Planned"}
                               </Badge>
                             </div>
+                          </Link>
+                          <div className="flex items-center gap-1 pr-3 shrink-0">
+                            <Button asChild size="icon" variant="ghost" className="h-8 w-8" title="View session">
+                              <Link to="/app/sessions/$sessionId" params={{ sessionId: s.id }}>
+                                <Eye className="h-4 w-4" />
+                              </Link>
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8 text-destructive hover:text-destructive"
+                              title="Delete session"
+                              onClick={() => setDeleteTarget(s)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
                           </div>
-                        </Link>
+                        </div>
                       );
                     })}
                   </div>
@@ -602,6 +671,27 @@ function SessionsList() {
           </Card>
         </div>
       </div>
+
+      <Dialog open={!!deleteTarget} onOpenChange={(o) => !o && !deleting && setDeleteTarget(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete "{deleteTarget?.title}"?</DialogTitle>
+            <DialogDescription>
+              {deleteTarget?.completed_at
+                ? "This session has recorded data (distance, time, uploaded file history) — deleting it removes that permanently, not just the plan."
+                : "This removes the planned session and its steps. This can't be undone."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteSession} disabled={deleting}>
+              {deleting ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }
