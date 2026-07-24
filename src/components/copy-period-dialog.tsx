@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { Trash2, Repeat2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { commitCopyDrafts } from "@/lib/calendar-copy.functions";
 import {
   COPY_BUCKETS,
@@ -18,6 +19,7 @@ import {
   emptyProgressionRules,
   offsetDaysBetween,
   buildCopyDraft,
+  bucketForSession,
   estimateTotalDistanceM,
   type ProgressionRules,
   type DraftSession,
@@ -142,6 +144,19 @@ export function CopyPeriodDialog({
 
   const currentTotalM = sourceData ? estimateTotalDistanceM(sourceData.sessions, sourceData.stepsBySession) : 0;
   const currentTotalKm = currentTotalM / 1000;
+
+  // Session count per bucket for the currently selected range/scope — the
+  // whole reason "Apply to all buckets" can look confusing without this:
+  // a bucket with zero sessions in range still shows whatever % you typed,
+  // but that number has nothing to actually scale, so it's a harmless
+  // no-op rather than a mistake. Surfacing the count makes that visible
+  // instead of leaving it to guesswork.
+  const bucketCounts: Record<string, number> = {};
+  for (const b of COPY_BUCKETS) bucketCounts[b] = 0;
+  for (const s of sourceData?.sessions ?? []) {
+    const b = bucketForSession(s);
+    if (b) bucketCounts[b] = (bucketCounts[b] ?? 0) + 1;
+  }
 
   function applyQuickTarget() {
     const targetKm = Number(quickTargetKm);
@@ -416,27 +431,37 @@ export function CopyPeriodDialog({
             <div>
               <Label className="text-xs">Progression (optional — leave at 0 for an exact copy)</Label>
               <div className="mt-1.5 space-y-2">
-                {COPY_BUCKETS.map((b) => (
-                  <div key={b} className="grid grid-cols-3 gap-2 items-center">
-                    <span className="text-xs text-muted-foreground">{COPY_BUCKET_LABELS[b]}</span>
-                    <div>
-                      <Input
-                        type="number"
-                        placeholder="Volume %"
-                        value={rules[b]?.volumePct ?? 0}
-                        onChange={(e) => updateRule(b, { volumePct: Number(e.target.value) })}
-                      />
+                {COPY_BUCKETS.map((b) => {
+                  const count = bucketCounts[b] ?? 0;
+                  return (
+                    <div key={b} className={cn("grid grid-cols-3 gap-2 items-center", count === 0 && "opacity-50")}>
+                      <span className="text-xs text-muted-foreground">
+                        {COPY_BUCKET_LABELS[b]}
+                        <span className="ml-1">
+                          {count > 0 ? `(${count} session${count === 1 ? "" : "s"})` : "(none in range)"}
+                        </span>
+                      </span>
+                      <div>
+                        <Input
+                          type="number"
+                          placeholder="Volume %"
+                          disabled={count === 0}
+                          value={rules[b]?.volumePct ?? 0}
+                          onChange={(e) => updateRule(b, { volumePct: Number(e.target.value) })}
+                        />
+                      </div>
+                      <div>
+                        <Input
+                          type="number"
+                          placeholder="Intensity %"
+                          disabled={count === 0}
+                          value={rules[b]?.intensityPct ?? 0}
+                          onChange={(e) => updateRule(b, { intensityPct: Number(e.target.value) })}
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <Input
-                        type="number"
-                        placeholder="Intensity %"
-                        value={rules[b]?.intensityPct ?? 0}
-                        onChange={(e) => updateRule(b, { intensityPct: Number(e.target.value) })}
-                      />
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
               <p className="text-xs text-muted-foreground mt-1.5">
                 Volume scales work-step distance/time. Intensity tightens pace or threshold-% targets. Zone/RPE targets
@@ -621,4 +646,4 @@ function EditDraftForm({
       </DialogFooter>
     </div>
   );
-} 
+}
