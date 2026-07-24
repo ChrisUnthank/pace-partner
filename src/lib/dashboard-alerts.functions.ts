@@ -14,6 +14,7 @@ export type AlertType =
   | "consecutive_rest"
   | "tsb_positive"
   | "no_session_today"
+  | "rpe_missing"
   | "moderate_feel"
   | "active_injury"
   | "gear_retirement"
@@ -60,7 +61,7 @@ export const listDashboardAlerts = createServerFn({ method: "GET" })
     const [loadRes, ckRes, sessRes, insRes, dismRes, injuriesRes, gearRes, eventsRes, credsRes] = await Promise.all([
       sb.from("athlete_load_daily").select("athlete_id, load_date, atl, tsb, load_ratio").in("athlete_id", ids).gte("load_date", since28).order("load_date", { ascending: false }),
       sb.from("daily_checkins").select("athlete_id, checkin_date, sleep_quality, soreness, injury_flag, injury_notes").in("athlete_id", ids).gte("checkin_date", since28).order("checkin_date", { ascending: false }),
-      sb.from("sessions").select("id, athlete_id, session_date, title, day_type, intent, completed_at").in("athlete_id", ids).gte("session_date", since28).order("session_date", { ascending: false }),
+      sb.from("sessions").select("id, athlete_id, session_date, title, day_type, intent, rpe, completed_at").in("athlete_id", ids).gte("session_date", since28).order("session_date", { ascending: false }),
       sb.from("session_insights").select("athlete_id, session_id, feel_score, created_at").in("athlete_id", ids).order("created_at", { ascending: false }).limit(200),
       sb.from("alert_dismissals").select("athlete_id, alert_type").eq("coach_user_id", context.userId).eq("dismissed_date", today),
       // Health & Vitals / Locker additions — open injuries regardless of
@@ -281,6 +282,30 @@ export const listDashboardAlerts = createServerFn({ method: "GET" })
           guidance: "No session has been logged today and a session was planned. Check whether it was completed or skipped.",
           actions: [
             { label: "View session", kind: "link", target: "/app/sessions/" + todaysPlanned[0].id },
+            { label: "Message", kind: "link", target: "/app/messages" },
+          ],
+        });
+      }
+      // session_training_load() silently falls back to a category-based
+      // estimate (e.g. threshold ≈ 7, easy ≈ 3) whenever rpe is null, so
+      // Fitness/Fatigue/Form numbers stay populated either way — this is
+      // the nudge that surfaces the gap instead of letting it go unnoticed.
+      // Scoped to the last 3 days so it stays actionable rather than
+      // dredging up old sessions nobody's going back to fix.
+      const missingRpe = sess.filter(
+        (s: any) => s.completed_at && s.rpe == null && s.day_type !== "rest" && s.session_date >= daysAgo(3),
+      );
+      if (missingRpe.length > 0) {
+        push({
+          alert_type: "rpe_missing", severity: "info",
+          athlete_id: athId, athlete_name: name, athlete_image_url: img,
+          title: missingRpe.length === 1 ? "Session missing RPE" : missingRpe.length + " sessions missing RPE",
+          trigger: missingRpe.length === 1
+            ? "No effort logged for \"" + (missingRpe[0].title ?? "a session") + "\" on " + missingRpe[0].session_date
+            : "No effort logged on " + missingRpe.length + " sessions in the last 3 days",
+          guidance: "Training load for these is currently a category-based estimate, not real effort data. Chase down RPE from the athlete via Daily Log before reading Fitness/Fatigue/Form too precisely.",
+          actions: [
+            { label: "View session", kind: "link", target: "/app/sessions/" + missingRpe[0].id },
             { label: "Message", kind: "link", target: "/app/messages" },
           ],
         });
