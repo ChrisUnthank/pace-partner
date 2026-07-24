@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { AthleteSubnav } from "@/components/athlete-subnav";
 import { useQuery, useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyAthlete, useMyRoles, useMyRawRoles, useAuthUser } from "@/lib/use-auth";
@@ -10,8 +11,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { metersFmt, secToClock } from "@/lib/format";
 import { sessionClassificationLabel, SESSION_INTENTS, INTENT_LABEL, DAY_TYPE_LABEL } from "@/lib/session-categories";
-import { Plus, Upload, Users, Search, Eye, Trash2 } from "lucide-react";
+import { Plus, Upload, Users, Search, Eye, Trash2, Download, RefreshCw, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ActivityIcon } from "@/lib/activity-icon";
 import { useState, useMemo, useEffect } from "react";
 import { BulkFitUpload } from "@/components/bulk-fit-upload";
@@ -31,6 +33,8 @@ import {
 import { toast } from "sonner";
 import { ReadinessBadge } from "@/components/readiness-badge";
 import { BucketTabStrip, TRAINING_TABS } from "@/components/bucket-tab-strip";
+import { deleteSession, rebuildSessionClassification, getSessionFilesForExport } from "@/lib/session-files.functions";
+import JSZip from "jszip";
 
 const searchSchema = z.object({
   athleteId: z.string().optional(),
@@ -309,44 +313,167 @@ function SessionsList() {
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  // Mirrors the cleanup order cancelAthletePlan already uses for deleting
-  // a generated session — interval_results (by step_id) and steps don't
-  // cascade automatically, so they're removed explicitly in that order
-  // before the session row itself. session_files rows are cleaned up the
-  // same way. Note: this only removes the DB rows — any raw FIT/GPX file
-  // object actually sitting in storage isn't touched here, since the
-  // storage bucket/path convention for uploaded files wasn't confirmed
-  // before writing this, and guessing at a storage path felt like the
-  // wrong place to guess.
+  const deleteSessionFn = useServerFn(deleteSession);
+  const rebuildClassificationFn = useServerFn(rebuildSessionClassification);
+  const exportFilesFn = useServerFn(getSessionFilesForExport);
+
+  // Switched from the page's own hand-rolled cleanup to the shared
+  // deleteSession server function — it clears the same steps/
+  // interval_results rows this used to, but also session_fatigue,
+  // session_zone_time, session_insights, and the actual storage files,
+  // none of which the old inline version here ever touched. Same function
+  // bulk delete below uses, so single and bulk delete can't drift apart.
   async function confirmDeleteSession() {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      const { data: steps } = await supabase.from("steps").select("id").eq("session_id", deleteTarget.id);
-      const stepIds = (steps ?? []).map((s: any) => s.id);
-
-      if (stepIds.length > 0) {
-        const { error: irErr } = await supabase.from("interval_results").delete().in("step_id", stepIds);
-        if (irErr) throw irErr;
-      }
-
-      const { error: sfErr } = await supabase.from("session_files").delete().eq("session_id", deleteTarget.id);
-      if (sfErr) throw sfErr;
-
-      const { error: stepsErr } = await supabase.from("steps").delete().eq("session_id", deleteTarget.id);
-      if (stepsErr) throw stepsErr;
-
-      const { error: sessErr } = await supabase.from("sessions").delete().eq("id", deleteTarget.id);
-      if (sessErr) throw sessErr;
-
+      await deleteSessionFn({ data: { sessionId: deleteTarget.id } });
       toast.success("Session deleted");
       qc.invalidateQueries({ queryKey: ["sessions-list"] });
       qc.invalidateQueries({ queryKey: ["sessions-week-summary"] });
       setDeleteTarget(null);
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(deleteTarget.id);
+        return next;
+      });
     } catch (err: any) {
       toast.error(err?.message ?? "Failed to delete session");
     } finally {
       setDeleting(false);
+    }
+  }
+
+  // ---- Bulk select / delete / recompute / export ----------------------
+  // Selection only ever covers sessions actually loaded so far (pagination
+  // is real, server-side "Show 10 more" — there's no full list sitting in
+  // memory to select against). "Select all" below is honest about that:
+  // it selects what's loaded and says so.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkRecomputing, setBulkRecomputing] = useState(false);
+  const [bulkExporting, setBulkExporting] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const allLoadedSelected = sortedSessions.length > 0 && sortedSessions.every((s: any) => selectedIds.has(s.id));
+  function toggleSelectAllLoaded() {
+    setSelectedIds((prev) => {
+      if (allLoadedSelected) return new Set();
+      return new Set(sortedSessions.map((s: any) => s.id));
+    });
+  }
+
+  async function bulkDelete() {
+    setBulkDeleting(true);
+    const ids = Array.from(selectedIds);
+    setBulkProgress({ done: 0, total: ids.length });
+    const failed: string[] = [];
+    for (let i = 0; i < ids.length; i++) {
+      try {
+        await deleteSessionFn({ data: { sessionId: ids[i] } });
+      } catch {
+        failed.push(ids[i]);
+      }
+      setBulkProgress({ done: i + 1, total: ids.length });
+    }
+    setBulkDeleting(false);
+    setBulkDeleteOpen(false);
+    setBulkProgress(null);
+    setSelectedIds(new Set());
+    qc.invalidateQueries({ queryKey: ["sessions-list"] });
+    qc.invalidateQueries({ queryKey: ["sessions-week-summary"] });
+    if (failed.length > 0) {
+      toast.error(`Deleted ${ids.length - failed.length} of ${ids.length} — ${failed.length} failed`);
+    } else {
+      toast.success(`Deleted ${ids.length} session${ids.length === 1 ? "" : "s"}`);
+    }
+  }
+
+  // Sequential, not parallel — same reasoning as the daily-log multi-file
+  // upload: each rebuild re-derives a session's steps/interval_results
+  // from scratch, and there's no cross-session contention to worry about,
+  // but running many rebuilds at once against the same Supabase project
+  // is still worth throttling rather than firing them all simultaneously.
+  async function bulkRecompute(ids: string[]) {
+    setBulkRecomputing(true);
+    setBulkProgress({ done: 0, total: ids.length });
+    const failed: string[] = [];
+    for (let i = 0; i < ids.length; i++) {
+      try {
+        await rebuildClassificationFn({ data: { sessionId: ids[i] } });
+      } catch {
+        failed.push(ids[i]);
+      }
+      setBulkProgress({ done: i + 1, total: ids.length });
+    }
+    setBulkRecomputing(false);
+    setBulkProgress(null);
+    qc.invalidateQueries({ queryKey: ["sessions-list"] });
+    if (failed.length > 0) {
+      toast.error(`Recomputed ${ids.length - failed.length} of ${ids.length} — ${failed.length} failed`);
+    } else {
+      toast.success(`Recomputed classification for ${ids.length} session${ids.length === 1 ? "" : "s"}`);
+    }
+  }
+
+  // Downloads every original FIT/GPX attached to the given sessions.
+  // Zips only when there's more than one file — a single file downloads
+  // directly rather than wrapping one file in a zip for no reason.
+  async function exportSessions(ids: string[]) {
+    setBulkExporting(true);
+    try {
+      const res = await exportFilesFn({ data: { sessionIds: ids } });
+      const files = res?.files ?? [];
+      if (files.length === 0) {
+        toast.error("No uploaded files found for the selected session(s).");
+        return;
+      }
+      if (files.length === 1) {
+        const f = files[0];
+        const bytes = Uint8Array.from(atob(f.base64), (c) => c.charCodeAt(0));
+        const blob = new Blob([bytes], { type: "application/octet-stream" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = f.name;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        const zip = new JSZip();
+        // Filenames aren't guaranteed unique across different sessions (a
+        // watch can reuse the same export name) — prefix duplicates so
+        // nothing silently overwrites another file inside the zip.
+        const seen = new Map<string, number>();
+        for (const f of files) {
+          let name = f.name;
+          const count = seen.get(name) ?? 0;
+          if (count > 0) name = `${count}-${name}`;
+          seen.set(f.name, count + 1);
+          zip.file(name, f.base64, { base64: true });
+        }
+        const blob = await zip.generateAsync({ type: "blob" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `sessions-export-${new Date().toISOString().slice(0, 10)}.zip`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+      toast.success(`Exported ${files.length} file${files.length === 1 ? "" : "s"}`);
+    } catch (err: any) {
+      toast.error(err?.message ?? "Export failed");
+    } finally {
+      setBulkExporting(false);
     }
   }
 
@@ -568,14 +695,71 @@ function SessionsList() {
           </div>
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle>Recent</CardTitle>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-2">
+                  {sortedSessions.length > 0 && (
+                    <Checkbox
+                      checked={allLoadedSelected}
+                      onCheckedChange={toggleSelectAllLoaded}
+                      aria-label="Select all loaded sessions"
+                    />
+                  )}
+                  <CardTitle>Recent</CardTitle>
+                </div>
                 {!loading && (
                   <span className="text-xs text-muted-foreground">
                     {totalCount} session{totalCount === 1 ? "" : "s"}
                   </span>
                 )}
               </div>
+              {/* Bulk action bar — only ever covers what's actually loaded
+                  (see selection note above), so the count here is exact,
+                  never an approximation of a filtered total that hasn't
+                  all been fetched yet. */}
+              {selectedIds.size > 0 && (
+                <div className="flex items-center gap-2 flex-wrap mt-2 p-2 rounded-md border border-[var(--accent-red)]/40 bg-[var(--accent-red)]/5">
+                  <span className="text-xs font-medium">
+                    {selectedIds.size} selected
+                    {bulkProgress && ` · ${bulkProgress.done}/${bulkProgress.total}`}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={bulkExporting || bulkDeleting || bulkRecomputing}
+                    onClick={() => exportSessions(Array.from(selectedIds))}
+                  >
+                    <Download className="h-3.5 w-3.5 mr-1" />
+                    {bulkExporting ? "Exporting…" : "Export"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={bulkExporting || bulkDeleting || bulkRecomputing}
+                    onClick={() => bulkRecompute(Array.from(selectedIds))}
+                  >
+                    <RefreshCw className="h-3.5 w-3.5 mr-1" />
+                    {bulkRecomputing ? "Recomputing…" : "Recompute classification"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    disabled={bulkExporting || bulkDeleting || bulkRecomputing}
+                    onClick={() => setBulkDeleteOpen(true)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-1" />
+                    Delete
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="ml-auto"
+                    disabled={bulkExporting || bulkDeleting || bulkRecomputing}
+                    onClick={() => setSelectedIds(new Set())}
+                  >
+                    <X className="h-3.5 w-3.5 mr-1" /> Clear
+                  </Button>
+                </div>
+              )}
             </CardHeader>
             <CardContent className="p-0">
               {loading ? (
@@ -594,6 +778,13 @@ function SessionsList() {
                           className="flex items-stretch gap-3 hover:bg-accent/40 overflow-hidden"
                         >
                           <span className={cn("w-1.5 shrink-0", sessionColorClass(s))} />
+                          <div className="flex items-center pl-2 shrink-0">
+                            <Checkbox
+                              checked={selectedIds.has(s.id)}
+                              onCheckedChange={() => toggleSelect(s.id)}
+                              aria-label={`Select ${s.title}`}
+                            />
+                          </div>
                           <Link
                             to="/app/sessions/$sessionId"
                             params={{ sessionId: s.id }}
@@ -643,6 +834,16 @@ function SessionsList() {
                             <Button
                               size="icon"
                               variant="ghost"
+                              className="h-8 w-8"
+                              title="Export original file(s)"
+                              disabled={bulkExporting}
+                              onClick={() => exportSessions([s.id])}
+                            >
+                              <Download className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
                               className="h-8 w-8 text-destructive hover:text-destructive"
                               title="Delete session"
                               onClick={() => setDeleteTarget(s)}
@@ -688,6 +889,25 @@ function SessionsList() {
             </Button>
             <Button variant="destructive" onClick={confirmDeleteSession} disabled={deleting}>
               {deleting ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bulkDeleteOpen} onOpenChange={(o) => !o && !bulkDeleting && setBulkDeleteOpen(false)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete {selectedIds.size} session{selectedIds.size === 1 ? "" : "s"}?</DialogTitle>
+            <DialogDescription>
+              This removes each session's recorded data, uploaded files, and steps permanently. This can't be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkDeleteOpen(false)} disabled={bulkDeleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={bulkDelete} disabled={bulkDeleting}>
+              {bulkDeleting && bulkProgress ? `Deleting… ${bulkProgress.done}/${bulkProgress.total}` : bulkDeleting ? "Deleting..." : "Delete all"}
             </Button>
           </DialogFooter>
         </DialogContent>
