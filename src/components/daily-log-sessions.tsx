@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FeelFaces } from "@/components/feel-faces";
 import { uploadAndParseSessionFile } from "@/lib/session-files.functions";
 import { Loader2, Plus, Trash2, Upload, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { todayISO } from "@/lib/format";
@@ -21,7 +22,14 @@ type Block = {
   uid: string;
   sessionId: string | null;
   activity: ActivityType;
-  feel: number;
+  // RPE (effort, 1–10) and feel (subjective, FeelFaces) are two different
+  // things that used to share one slider value — RPE drives training load
+  // (session_training_load() reads sessions.rpe directly), feel is just
+  // "how did it feel" and lives on session_insights. Both start null, not
+  // defaulted, so an unset value is genuinely distinguishable from a real
+  // answer of e.g. 5 — the Save gate below depends on that distinction.
+  rpe: number | null;
+  feel: number | null;
   wentWell: string;
   wasDifficult: string;
   niggles: string;
@@ -41,7 +49,8 @@ function newBlock(): Block {
     uid: crypto.randomUUID(),
     sessionId: null,
     activity: "run",
-    feel: 7,
+    rpe: null,
+    feel: null,
     wentWell: "",
     wasDifficult: "",
     niggles: "",
@@ -66,7 +75,7 @@ export function DailyLogSessions({ athleteId }: { athleteId: string }) {
     queryKey: ["daily-log-sessions", athleteId, today],
     queryFn: async () => {
       const { data } = await supabase.from("sessions")
-        .select("id, title, activity_type, total_distance_m, total_time_seconds, completed_at")
+        .select("id, title, activity_type, total_distance_m, total_time_seconds, rpe, completed_at")
         .eq("athlete_id", athleteId).eq("session_date", today)
         .order("created_at");
       return data ?? [];
@@ -137,9 +146,13 @@ export function DailyLogSessions({ athleteId }: { athleteId: string }) {
   }
 
   async function saveBlock(b: Block) {
+    if (b.rpe == null) {
+      toast.error("RPE is required before saving — how hard did it feel, 1–10?");
+      return;
+    }
     try {
       const sessionId = await ensureSession(b, `${labelFor(b.activity)} session`);
-      const sessionPatch: any = { rpe: b.feel };
+      const sessionPatch: any = { rpe: b.rpe };
       if (b.activity === "gym") {
         sessionPatch.total_time_seconds = b.gymDuration * 60;
         sessionPatch.gym_category = b.gymCategory || null;
@@ -158,7 +171,6 @@ export function DailyLogSessions({ athleteId }: { athleteId: string }) {
         went_well: b.wentWell || null,
         was_difficult: b.wasDifficult || null,
         niggles: b.niggles || null,
-        end_of_day_note: null,
       } as any, { onConflict: "session_id" } as any);
       updateBlock(b.uid, { saved: true });
       toast.success("Session saved");
@@ -182,7 +194,7 @@ export function DailyLogSessions({ athleteId }: { athleteId: string }) {
     <div className="space-y-4">
       {existing.length > 0 && (
         <div className="text-xs text-muted-foreground">
-          Already logged today: {existing.map((s: any) => `${labelFor((s.activity_type ?? "run") as ActivityType)}${s.completed_at ? " ✓" : ""}`).join(" · ")}
+          Already logged today: {existing.map((s: any) => `${labelFor((s.activity_type ?? "run") as ActivityType)}${s.completed_at ? " ✓" : ""}${s.completed_at && s.rpe == null ? " (RPE missing)" : ""}`).join(" · ")}
         </div>
       )}
       {blocks.map((b, idx) => {
@@ -288,17 +300,42 @@ export function DailyLogSessions({ athleteId }: { athleteId: string }) {
                 </div>
               )}
 
+              {/* RPE drives training load directly (session_training_load()
+                  reads sessions.rpe) — required before this block can be
+                  saved, not just a nice-to-have slider. */}
               <div>
-                <Label className="text-xs">How did it feel? ({b.feel}/10)</Label>
-                <Slider min={1} max={10} step={1} value={[b.feel]} onValueChange={(v) => updateBlock(b.uid, { feel: v[0] })} className="mt-2" />
+                <Label className="text-xs">
+                  RPE — how hard did it feel? {b.rpe != null ? `(${b.rpe}/10)` : <span className="text-amber-600">(required)</span>}
+                </Label>
+                <Slider min={1} max={10} step={1} value={[b.rpe ?? 5]} onValueChange={(v) => updateBlock(b.uid, { rpe: v[0] })} className="mt-2" />
               </div>
+
+              {/* Feel is the separate, subjective "how did you feel" read —
+                  same FeelFaces picker the session detail page uses, so an
+                  athlete answering here or there never sees two different
+                  scales for what's supposed to be one concept. Optional —
+                  RPE alone is enough to drive training load. */}
+              <div>
+                <Label className="text-xs">How did you feel? (optional)</Label>
+                <div className="mt-2">
+                  <FeelFaces value={b.feel} onChange={(v) => updateBlock(b.uid, { feel: v })} size="sm" />
+                </div>
+              </div>
+
               <Textarea placeholder="What went well? (optional)" value={b.wentWell} onChange={(e) => updateBlock(b.uid, { wentWell: e.target.value })} />
               <Textarea placeholder="What was difficult? (optional)" value={b.wasDifficult} onChange={(e) => updateBlock(b.uid, { wasDifficult: e.target.value })} />
               <Textarea placeholder="Any niggles or discomfort? (optional)" value={b.niggles} onChange={(e) => updateBlock(b.uid, { niggles: e.target.value })} />
-              <Textarea placeholder="Session note (optional)" value={b.note} onChange={(e) => updateBlock(b.uid, { note: e.target.value })} />
 
-              <Button onClick={() => saveBlock(b)} className="w-full">
-                {b.saved ? <><CheckCircle2 className="h-4 w-4 mr-1" /> Saved · update</> : "Save session"}
+              {/* Single description field for this session — nothing else
+                  in the app writes to sessions.notes, so there's exactly
+                  one place this ever gets entered. */}
+              <div>
+                <Label className="text-xs">Description (optional)</Label>
+                <Textarea placeholder="Anything worth noting about this session" value={b.note} onChange={(e) => updateBlock(b.uid, { note: e.target.value })} className="mt-1" />
+              </div>
+
+              <Button onClick={() => saveBlock(b)} className="w-full" disabled={b.rpe == null}>
+                {b.saved ? <><CheckCircle2 className="h-4 w-4 mr-1" /> Saved · update</> : b.rpe == null ? "Enter RPE to save" : "Save session"}
               </Button>
             </CardContent>
           </Card>
