@@ -34,6 +34,8 @@ import { toast } from "sonner";
 import { AthleteSubnav } from "@/components/athlete-subnav";
 import { BucketTabStrip, TRAINING_TABS } from "@/components/bucket-tab-strip";
 import { CopyPeriodDialog } from "@/components/copy-period-dialog";
+import { emptyProgressionRules, offsetDaysBetween, buildCopyDraft } from "@/lib/calendar-copy";
+import { commitCopyDrafts } from "@/lib/calendar-copy.functions";
 
 const searchSchema = z.object({
   athleteId: z.string().optional(),
@@ -386,6 +388,96 @@ function CalendarPage() {
     navigate({ search: (p: any) => ({ ...p, view: v }) });
   }
 
+  // Straight copy-forward: no dialog, no progression, no review step —
+  // exactly what's currently on screen for this athlete, copied verbatim
+  // to the next equivalent period. Reuses the same buildCopyDraft/commit
+  // engine as the full Copy Period dialog (empty progression rules = an
+  // exact copy), just skipped straight to commit rather than going
+  // through setup/review. A plain confirm() guards it since there's no
+  // review step to catch a mistake before it writes.
+  async function quickCopyPeriod(kind: "week" | "month") {
+    if (!selectedAthleteId) {
+      toast.error("Select an athlete first");
+      return;
+    }
+
+    let srcStart: string;
+    let srcEnd: string;
+    let targetStart: string;
+
+    if (kind === "week") {
+      const ws = startOfWeek(anchor);
+      srcStart = toISO(ws);
+      srcEnd = toISO(addDays(ws, 6));
+      targetStart = toISO(addDays(ws, 7));
+    } else {
+      const mStart = startOfMonth(anchor);
+      const mEnd = endOfMonth(anchor);
+      srcStart = toISO(mStart);
+      srcEnd = toISO(mEnd);
+      targetStart = toISO(new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1));
+    }
+
+    if (!window.confirm(`Copy this ${kind} exactly as-is to the next ${kind}, starting ${targetStart}?`)) return;
+
+    setQuickCopying(kind);
+    try {
+      const { data: sourceSessions, error } = await supabase
+        .from("sessions")
+        .select("*")
+        .eq("athlete_id", selectedAthleteId)
+        .gte("session_date", srcStart)
+        .lte("session_date", srcEnd)
+        .order("session_date");
+      if (error) throw error;
+
+      if (!sourceSessions || sourceSessions.length === 0) {
+        toast.error(`No sessions found in this ${kind}`);
+        return;
+      }
+
+      const sessionIds = sourceSessions.map((s: any) => s.id);
+      const { data: allSteps, error: stepsErr } = await supabase
+        .from("steps")
+        .select("*")
+        .in("session_id", sessionIds)
+        .order("step_order");
+      if (stepsErr) throw stepsErr;
+
+      const stepsBySession = new Map<string, any[]>();
+      for (const s of allSteps ?? []) {
+        const list = stepsBySession.get(s.session_id) ?? [];
+        list.push(s);
+        stepsBySession.set(s.session_id, list);
+      }
+
+      const offsetDays = offsetDaysBetween(srcStart, targetStart);
+      const rules = emptyProgressionRules(); // all 0/0 volume+intensity — exact copy, no scaling
+      const drafts = sourceSessions.map((s: any) =>
+        buildCopyDraft(s, stepsBySession.get(s.id) ?? [], offsetDays, rules),
+      );
+
+      const payload = drafts.map((d) => ({
+        athlete_id: d.athlete_id,
+        session_date: d.session_date,
+        title: d.title,
+        day_type: d.day_type,
+        intent: d.intent,
+        structure: d.structure,
+        is_long_run: d.is_long_run,
+        steps: d.steps,
+      }));
+
+      const result = await commitCopyDrafts({ data: { drafts: payload } });
+      toast.success(`${result.created} session${result.created === 1 ? "" : "s"} copied to next ${kind}`);
+      qc.invalidateQueries({ queryKey: ["calendar"] });
+    } catch (err: any) {
+      toast.error(err?.message ?? `Failed to copy ${kind}`);
+    } finally {
+      setQuickCopying(null);
+    }
+  }
+
   // Scroll-to-navigate: scrolling down over the grid moves forward a month/week,
   // scrolling up moves back — in addition to the arrow buttons and Today, not a
   // replacement for them. Throttled with a cooldown rather than accumulating
@@ -410,6 +502,7 @@ function CalendarPage() {
   const [uploadDate, setUploadDate] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [copyPeriodOpen, setCopyPeriodOpen] = useState(false);
+  const [quickCopying, setQuickCopying] = useState<"week" | "month" | null>(null);
 
   // Retrospective vitals logging — closes the gap where an athlete who
   // forgot to log resting HR/sleep on a given day had no way to go back and
@@ -680,19 +773,36 @@ function CalendarPage() {
                 )}
               </div>
             )}
-            <div className="inline-flex rounded-md border overflow-hidden">
-              <button
-                onClick={() => setView("month")}
-                className={cn("px-3 py-1.5 text-xs", view === "month" ? "bg-accent" : "bg-background")}
-              >
-                Month
-              </button>
-              <button
-                onClick={() => setView("week")}
-                className={cn("px-3 py-1.5 text-xs border-l", view === "week" ? "bg-accent" : "bg-background")}
-              >
-                Week
-              </button>
+            <div className="flex flex-col items-end gap-1">
+              <div className="inline-flex rounded-md border overflow-hidden">
+                <button
+                  onClick={() => setView("month")}
+                  className={cn("px-3 py-1.5 text-xs", view === "month" ? "bg-accent" : "bg-background")}
+                >
+                  Month
+                </button>
+                <button
+                  onClick={() => setView("week")}
+                  className={cn("px-3 py-1.5 text-xs border-l", view === "week" ? "bg-accent" : "bg-background")}
+                >
+                  Week
+                </button>
+              </div>
+              {isCoach && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-[11px] text-muted-foreground"
+                  disabled={quickCopying === view}
+                  onClick={() => quickCopyPeriod(view)}
+                >
+                  {quickCopying === view
+                    ? "Copying..."
+                    : view === "month"
+                      ? "Copy this month → next month"
+                      : "Copy this week → next week"}
+                </Button>
+              )}
             </div>
           </div>
         </div>
