@@ -33,6 +33,7 @@ import { uploadAndParseSessionFile } from "@/lib/session-files.functions";
 import { toast } from "sonner";
 import { AthleteSubnav } from "@/components/athlete-subnav";
 import { BucketTabStrip, TRAINING_TABS } from "@/components/bucket-tab-strip";
+import { CopyPeriodDialog } from "@/components/copy-period-dialog";
 
 const searchSchema = z.object({
   athleteId: z.string().optional(),
@@ -408,6 +409,7 @@ function CalendarPage() {
   const [addMenuDate, setAddMenuDate] = useState<string | null>(null);
   const [uploadDate, setUploadDate] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [copyPeriodOpen, setCopyPeriodOpen] = useState(false);
 
   // Retrospective vitals logging — closes the gap where an athlete who
   // forgot to log resting HR/sleep on a given day had no way to go back and
@@ -577,6 +579,11 @@ function CalendarPage() {
             <p className="text-xs text-muted-foreground">Sessions by date · color = intent / day type</p>
           </div>
           <div className="flex items-center gap-2">
+            {isCoach && (
+              <Button variant="outline" size="sm" onClick={() => setCopyPeriodOpen(true)}>
+                Copy period forward
+              </Button>
+            )}
             {canEdit && (
               <Button asChild variant="outline" size="sm">
                 <Link
@@ -1050,6 +1057,18 @@ function CalendarPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Pre-filled with whatever range/athlete the grid is currently
+          showing — the coach can still change any of it once the dialog's
+          open (e.g. switch to a whole group instead of just this athlete),
+          this just saves re-entering the obvious starting point. */}
+      <CopyPeriodDialog
+        open={copyPeriodOpen}
+        onClose={() => setCopyPeriodOpen(false)}
+        initialSourceStart={rangeStart}
+        initialSourceEnd={rangeEnd}
+        initialAthleteId={selectedAthleteId || undefined}
+      />
     </AppShell>
   );
 }
