@@ -119,6 +119,23 @@ function baseDraftStep(step: any): DraftStep {
   };
 }
 
+// Rounds a scaled (or even unscaled) distance to a number a coach would
+// actually write in a plan, not an arithmetic artifact of a percentage
+// multiplier (5437m instead of 5400m). Finer-grained for interval-length
+// distances, coarser for continuous/long-run distances — a judgment call
+// on granularity, not a confirmed product spec; easy to change the two
+// thresholds below if a different rounding feels more natural.
+function roundDistanceM(m: number): number {
+  const step = m < 3000 ? 50 : 100;
+  return Math.round(m / step) * step;
+}
+
+// Same reasoning, for time-based work steps — rounds to the nearest
+// minute rather than leaving an odd number of seconds after scaling.
+function roundTimeSeconds(s: number): number {
+  return Math.round(s / 60) * 60;
+}
+
 /**
  * Applies one bucket's progression rule to one step. Only work/strides
  * steps scale — warmup, cooldown, and recovery blocks copy across
@@ -126,26 +143,35 @@ function baseDraftStep(step: any): DraftStep {
  * Returns `flagged: true` when an intensity change was requested but the
  * step's target mode isn't numerically scalable (zone/RPE) — those need
  * a coach's judgment call, not a guessed number.
+ *
+ * Note on what this never touches: `step` here is always the SOURCE
+ * step's own prescription (target_kind/target_distance_m/etc) — the
+ * `steps` table only ever holds the planned target in the first place,
+ * never actual recorded results (those live in `interval_results`,
+ * a separate table this never reads). A copy is a copy of the plan, not
+ * of what was actually run, whether or not the source session was
+ * itself completed.
  */
 export function scaleStep(step: any, rule: ProgressionRule | undefined): { step: DraftStep; flagged: boolean } {
   const base = baseDraftStep(step);
+  const isWorkLike = step.kind === "work" || step.kind === "strides";
 
-  if (!rule || (step.kind !== "work" && step.kind !== "strides")) {
+  if (!isWorkLike) {
     return { step: base, flagged: false };
   }
 
   let flagged = false;
 
-  if (rule.volumePct) {
+  if (rule?.volumePct) {
     const mult = 1 + rule.volumePct / 100;
     if (base.target_kind === "distance" && base.target_distance_m != null) {
-      base.target_distance_m = Math.round(base.target_distance_m * mult);
+      base.target_distance_m = base.target_distance_m * mult;
     } else if (base.target_kind === "time" && base.target_time_seconds != null) {
-      base.target_time_seconds = Math.round(base.target_time_seconds * mult);
+      base.target_time_seconds = base.target_time_seconds * mult;
     }
   }
 
-  if (rule.intensityPct) {
+  if (rule?.intensityPct) {
     if (base.target_mode === "pace" && base.target_pace_sec_per_km != null) {
       // Positive intensity % = faster = fewer seconds per km.
       base.target_pace_sec_per_km = Math.round(base.target_pace_sec_per_km * (1 - rule.intensityPct / 100));
@@ -156,6 +182,15 @@ export function scaleStep(step: any, rule: ProgressionRule | undefined): { step:
     } else if (base.target_mode === "zone" || base.target_mode === "rpe") {
       flagged = true;
     }
+  }
+
+  // Always rounds to a plan-friendly number — applies even with no
+  // progression at all (an exact copy), not just a side effect of
+  // scaling, since prescribed distances should read like a plan either way.
+  if (base.target_kind === "distance" && base.target_distance_m != null) {
+    base.target_distance_m = roundDistanceM(base.target_distance_m);
+  } else if (base.target_kind === "time" && base.target_time_seconds != null) {
+    base.target_time_seconds = roundTimeSeconds(base.target_time_seconds);
   }
 
   return { step: base, flagged };
