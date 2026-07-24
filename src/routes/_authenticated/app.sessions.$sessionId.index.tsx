@@ -42,6 +42,7 @@ import {
   ChevronRight,
   Flame,
   Droplet,
+  AlertTriangle,
 } from "lucide-react";
 import {
   DndContext,
@@ -1456,12 +1457,20 @@ function SessionDetail() {
             )}
           </div>
         </div>
-        <SessionSummary
-          session={session}
-          results={results ?? []}
-          onSaved={() => invalidateSession(qc, sessionId, session.athlete_id)}
-          onCompleted={() => setInsightOpen(true)}
-        />
+        {/* Daily Log is the primary place feedback (RPE, feel, reflection) gets
+            entered now — this editable card is only a fallback for sessions
+            completed directly from here (a coach logging on an athlete's
+            behalf, or a planned session with no Daily Log entry at all).
+            Once a session is complete, the read-only card below takes over
+            so there's exactly one place to edit, not two live copies. */}
+        {!session.completed_at && (
+          <SessionSummary
+            session={session}
+            results={results ?? []}
+            onSaved={() => invalidateSession(qc, sessionId, session.athlete_id)}
+            onCompleted={() => setInsightOpen(true)}
+          />
+        )}
 
         {isCoach && (
           <AttendanceCard
@@ -1470,36 +1479,56 @@ function SessionDetail() {
             athleteName={session.athletes?.name ?? "Athlete"}
           />
         )}
-        {insight && (
+        {session.completed_at && (
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Athlete reflection</CardTitle>
-              <CardDescription>How the session felt afterwards.</CardDescription>
+              <CardTitle className="text-base">Session feedback</CardTitle>
+              <CardDescription>Effort and reflection — edit from Daily Log.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-muted-foreground uppercase tracking-wider">Feel</span>
-                <span className="font-display text-2xl font-extrabold tabular-nums">
-                  {insight.feel_score ?? "—"}
-                  <span className="text-sm font-normal text-muted-foreground">/10</span>
-                </span>
+              <div className="flex items-center gap-6 flex-wrap">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-muted-foreground uppercase tracking-wider">RPE</span>
+                  <span className="font-display text-2xl font-extrabold tabular-nums">
+                    {session.rpe ?? "—"}
+                    <span className="text-sm font-normal text-muted-foreground">/10</span>
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-muted-foreground uppercase tracking-wider">Feel</span>
+                  <span className="font-display text-2xl font-extrabold tabular-nums">
+                    {insight?.feel_score ?? "—"}
+                    <span className="text-sm font-normal text-muted-foreground">/10</span>
+                  </span>
+                </div>
               </div>
-              {insight.went_well && (
+              {insight?.went_well && (
                 <p>
                   <span className="text-xs text-muted-foreground uppercase tracking-wider mr-2">Went well</span>
                   {insight.went_well}
                 </p>
               )}
-              {insight.was_difficult && (
+              {insight?.was_difficult && (
                 <p>
                   <span className="text-xs text-muted-foreground uppercase tracking-wider mr-2">Difficult</span>
                   {insight.was_difficult}
                 </p>
               )}
-              {insight.niggles && (
+              {insight?.niggles && (
                 <p className="text-amber-500">
                   <span className="text-xs text-muted-foreground uppercase tracking-wider mr-2">Niggles</span>
                   {insight.niggles}
+                </p>
+              )}
+              {/* Same "estimated, not real" transparency the Analytics chart
+                  and dashboard alert now carry — this is the session-level
+                  version of that same signal. session_training_load() falls
+                  back to a category-based estimate when rpe is null, so
+                  training load numbers are still populated, just not real. */}
+              {session.rpe == null && (
+                <p className="flex items-center gap-1.5 text-xs text-amber-600 pt-1">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  No RPE logged yet — training load for this session is currently an estimate based on session type, not actual effort. Log it from Daily Log.
                 </p>
               )}
             </CardContent>
