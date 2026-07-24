@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { todayISO } from "@/lib/format";
 import { toast } from "sonner";
 import { DailyLogSessions } from "@/components/daily-log-sessions";
+import { BodyMapPicker } from "@/components/body-map";
 import { ChevronLeft, ChevronRight, ArrowRight } from "lucide-react";
 import { BucketTabStrip, HEALTH_TABS } from "@/components/bucket-tab-strip";
 
@@ -26,7 +27,7 @@ export const Route = createFileRoute("/_authenticated/app/daily-log")({
 // tapped here now inserts directly into recovery_sessions (the Recovery
 // tab's own table), so this list has to stay literally in sync, not just
 // vocabulary-similar the way it was before.
-const MODALITIES = ["physio", "massage", "sauna", "compression", "ice_bath", "other"] as const;
+const MODALITIES = ["physio", "massage", "sauna", "compression", "ice_bath", "active_recovery", "foam_rolling", "percussion_therapy", "stretching", "other"] as const;
 
 function DailyLog() {
   const { data: athlete, isLoading } = useMyAthlete();
@@ -131,6 +132,7 @@ function VitalsSection({ athleteId, date }: { athleteId: string; date: string })
   const [injury, setInjury] = useState<boolean>(c?.injury_flag ?? false);
   const [injuryNotes, setInjuryNotes] = useState<string>(c?.injury_notes ?? "");
   const [injuryBodyPart, setInjuryBodyPart] = useState<string>("");
+  const [injuryRegion, setInjuryRegion] = useState<string | null>(null);
   const [loggingInjury, setLoggingInjury] = useState(false);
 
   useEffect(() => {
@@ -211,6 +213,7 @@ function VitalsSection({ athleteId, date }: { athleteId: string; date: string })
     const { error } = await supabase.from("injuries").insert({
       athlete_id: athleteId,
       body_part: injuryBodyPart.trim(),
+      body_region: injuryRegion,
       side: "n/a",
       status: "active",
       severity: null,
@@ -272,6 +275,12 @@ function VitalsSection({ athleteId, date }: { athleteId: string; date: string })
         {injury && (
           <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3">
             <div>
+              <Label className="text-xs">Tap the general area (optional)</Label>
+              <div className="mt-2">
+                <BodyMapPicker value={injuryRegion} onChange={setInjuryRegion} />
+              </div>
+            </div>
+            <div>
               <Label className="text-xs">Body part</Label>
               <Input value={injuryBodyPart} onChange={(e) => setInjuryBodyPart(e.target.value)} placeholder="e.g. Achilles, calf, hamstring" />
             </div>
@@ -316,12 +325,15 @@ function SessionsSection({ athleteId }: { athleteId: string }) {
 
 function EndOfDaySection({ athleteId, date }: { athleteId: string; date: string }) {
   const qc = useQueryClient();
-  // Lives on daily_checkins now (day_note), not attached to "whichever
-  // session_insights row was most recently created today" — that guess
-  // broke as soon as a day had more than one session, since which
-  // session's row silently absorbed the note depended on save order.
-  // This is a genuinely day-level fact, so it belongs on the day-level
-  // table.
+  // Lives on daily_checkins.notes — an existing column from the original
+  // schema that was never actually wired up to anything. Correcting a
+  // mistake from last round: I added a new day_note column via migration
+  // when this one was already sitting there unused. Not attached to
+  // "whichever session_insights row was most recently created today"
+  // anymore either way — that guess broke as soon as a day had more than
+  // one session, since which session's row silently absorbed the note
+  // depended on save order. This is a genuinely day-level fact, so it
+  // belongs on the day-level table, on the column that already existed for it.
   const { data: c } = useQuery({
     queryKey: ["dl-checkin", athleteId, date],
     queryFn: async () => {
@@ -330,11 +342,11 @@ function EndOfDaySection({ athleteId, date }: { athleteId: string; date: string 
     },
   });
   const [note, setNote] = useState<string>("");
-  useEffect(() => { setNote(c?.day_note ?? ""); }, [date, c]);
+  useEffect(() => { setNote(c?.notes ?? ""); }, [date, c]);
   async function save() {
     const { error } = await supabase
       .from("daily_checkins")
-      .upsert({ athlete_id: athleteId, checkin_date: date, day_note: note } as any, { onConflict: "athlete_id,checkin_date" });
+      .upsert({ athlete_id: athleteId, checkin_date: date, notes: note } as any, { onConflict: "athlete_id,checkin_date" });
     if (error) { toast.error(error.message); return; }
     toast.success("End-of-day note saved");
     qc.invalidateQueries({ queryKey: ["dl-checkin", athleteId, date] });
