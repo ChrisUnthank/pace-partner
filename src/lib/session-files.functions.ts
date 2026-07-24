@@ -2560,6 +2560,57 @@ export const deleteSession = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+// Encodes an ArrayBuffer to base64 without relying on Node's Buffer —
+// matches the atob() used to decode uploads elsewhere in this file, so
+// both directions stay on the same browser-safe API rather than mixing
+// Buffer and atob/btoa depending on which function you're reading.
+// Chunked to avoid blowing the call stack on String.fromCharCode for a
+// large FIT file.
+function arrayBufferToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+// Bulk (or single) export — downloads every original FIT/GPX file
+// attached to the given sessions and returns them base64-encoded for the
+// client to zip and download. RLS on session_files (athlete self / coach
+// read) already scopes which files a given caller can actually pull back,
+// same as every other read in this file — no extra authorization check
+// needed here.
+export const getSessionFilesForExport = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { sessionIds: string[] }) => d)
+  .handler(async ({ data, context }) => {
+    const sb = context.supabase;
+    const { sessionIds } = data;
+    if (!sessionIds.length) return { files: [] };
+
+    const { data: fileRows, error } = await sb
+      .from("session_files")
+      .select("id, session_id, storage_path, original_filename, file_kind")
+      .in("session_id", sessionIds);
+    if (error) throw error;
+
+    const out: { name: string; base64: string }[] = [];
+    for (const f of fileRows ?? []) {
+      const { data: blob, error: dlErr } = await sb.storage.from("session-files").download(f.storage_path);
+      // Skip individual files that fail to download rather than failing
+      // the whole export — one missing/corrupt storage object shouldn't
+      // block everything else that was selected.
+      if (dlErr || !blob) continue;
+      const buf = await blob.arrayBuffer();
+      const name = f.original_filename || f.storage_path.split("/").pop() || `${f.id}.${f.file_kind}`;
+      out.push({ name, base64: arrayBufferToBase64(buf) });
+    }
+
+    return { files: out };
+  });
+
 export const submitCheckout = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator(
