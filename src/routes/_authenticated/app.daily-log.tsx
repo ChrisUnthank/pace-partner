@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -15,13 +15,17 @@ import { Badge } from "@/components/ui/badge";
 import { todayISO } from "@/lib/format";
 import { toast } from "sonner";
 import { DailyLogSessions } from "@/components/daily-log-sessions";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, ArrowRight } from "lucide-react";
 import { BucketTabStrip, HEALTH_TABS } from "@/components/bucket-tab-strip";
 
 export const Route = createFileRoute("/_authenticated/app/daily-log")({
   component: DailyLog,
 });
 
+// Same modality set the Recovery tab's own Type dropdown uses — a tag
+// tapped here now inserts directly into recovery_sessions (the Recovery
+// tab's own table), so this list has to stay literally in sync, not just
+// vocabulary-similar the way it was before.
 const MODALITIES = ["physio", "massage", "sauna", "compression", "ice_bath", "other"] as const;
 
 function DailyLog() {
@@ -88,6 +92,7 @@ function DateNav({ date, onChange }: { date: string; onChange: (d: string) => vo
 
 function VitalsSection({ athleteId, date }: { athleteId: string; date: string }) {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const { data: v } = useQuery({
     queryKey: ["dl-vitals", athleteId, date],
     queryFn: async () => {
@@ -102,6 +107,18 @@ function VitalsSection({ athleteId, date }: { athleteId: string; date: string })
       return (data as any) ?? null;
     },
   });
+  // Which recovery modalities already have a recovery_sessions row logged
+  // today — reads the Recovery tab's own table directly rather than a
+  // separate array on daily_checkins, so there's exactly one place this
+  // data lives, not two that can drift apart.
+  const { data: todayRecovery } = useQuery({
+    queryKey: ["dl-recovery-today", athleteId, date],
+    queryFn: async () => {
+      const { data } = await supabase.from("recovery_sessions").select("id, modality").eq("athlete_id", athleteId).eq("session_date", date);
+      return (data ?? []) as any[];
+    },
+  });
+  const loggedModalities = new Set((todayRecovery ?? []).map((r: any) => r.modality));
 
   const [sleepHours, setSleepHours] = useState<string>(v?.sleep_hours ?? "");
   const [sleepQ, setSleepQ] = useState<number>(c?.sleep_quality ?? 3);
@@ -111,16 +128,16 @@ function VitalsSection({ athleteId, date }: { athleteId: string; date: string })
   const [soreness, setSoreness] = useState<number>(c?.soreness ?? 2);
   const [stress, setStress] = useState<number>(c?.stress ?? 2);
   const [motivation, setMotivation] = useState<number>(c?.motivation ?? 3);
-  const [modalities, setModalities] = useState<string[]>(v?.recovery_modalities ?? []);
   const [injury, setInjury] = useState<boolean>(c?.injury_flag ?? false);
   const [injuryNotes, setInjuryNotes] = useState<string>(c?.injury_notes ?? "");
+  const [injuryBodyPart, setInjuryBodyPart] = useState<string>("");
+  const [loggingInjury, setLoggingInjury] = useState(false);
 
   useEffect(() => {
     setSleepHours(v?.sleep_hours != null ? String(v.sleep_hours) : "");
     setRestingHr(v?.resting_hr != null ? String(v.resting_hr) : "");
     setWeight(v?.weight_kg != null ? String(v.weight_kg) : "");
     setHydration(v?.hydration ?? 3);
-    setModalities(Array.isArray(v?.recovery_modalities) ? v.recovery_modalities : []);
   }, [date, v]);
   useEffect(() => {
     setSleepQ(c?.sleep_quality ?? 3);
@@ -139,7 +156,6 @@ function VitalsSection({ athleteId, date }: { athleteId: string; date: string })
       resting_hr: restingHr === "" ? null : Number(restingHr),
       weight_kg: weight === "" ? null : Number(weight),
       hydration,
-      recovery_modalities: modalities,
     };
     const checkinPayload = {
       athlete_id: athleteId, checkin_date: date,
@@ -150,14 +166,61 @@ function VitalsSection({ athleteId, date }: { athleteId: string; date: string })
       supabase.from("daily_vitals").upsert(vitalsPayload as any, { onConflict: "athlete_id,vitals_date" }),
       supabase.from("daily_checkins").upsert(checkinPayload as any, { onConflict: "athlete_id,checkin_date" }),
     ]);
-    if (v1.error || c1.error) { toast.error(v1.error?.message ?? c1.error?.message ?? "Save failed"); return; }
+    if (v1.error || c1.error) { toast.error(v1.error?.message ?? c1.error?.message ?? "Save failed"); return false; }
     toast.success("Vitals saved");
     qc.invalidateQueries({ queryKey: ["dl-vitals", athleteId, date] });
     qc.invalidateQueries({ queryKey: ["dl-checkin", athleteId, date] });
+    return true;
   }
 
-  function toggleMod(m: string) {
-    setModalities((prev) => prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]);
+  // Recovery modality tags now write straight into recovery_sessions (the
+  // Recovery tab's own table) instead of a disconnected array on
+  // daily_checkins — a tap here shows up as a real entry on that tab, not
+  // a second data point that only ever agreed with it by coincidence of
+  // shared wording. Deliberately add-only: once a modality shows as logged
+  // today, tapping it again does nothing — removing or editing the entry
+  // happens on the Recovery tab itself, so a stray tap here can't silently
+  // delete a detailed entry (duration/provider/notes) logged there.
+  async function logModality(m: string) {
+    if (loggedModalities.has(m)) return;
+    const { error } = await supabase.from("recovery_sessions").insert({
+      athlete_id: athleteId,
+      session_date: date,
+      modality: m,
+    } as any);
+    if (error) { toast.error(error.message); return; }
+    toast.success(`${m.replace("_", " ")} logged`);
+    qc.invalidateQueries({ queryKey: ["dl-recovery-today", athleteId, date] });
+  }
+
+  // "Yes" on the injury toggle now does something real: save whatever's
+  // already in this form first (so flipping the switch and navigating away
+  // can never strand unsaved sleep/soreness/etc — the exact concern this
+  // was built to address), then create an actual injuries row, then hand
+  // off to Injury Management to fill in the rest. Body part is required
+  // there too, so it's asked for here rather than inserting a vague
+  // placeholder row that would sit mislabeled until someone noticed.
+  async function logInjuryAndGo() {
+    if (!injuryBodyPart.trim()) {
+      toast.error("Body part is required — e.g. Achilles, calf, hamstring");
+      return;
+    }
+    setLoggingInjury(true);
+    const savedOk = await save();
+    if (!savedOk) { setLoggingInjury(false); return; }
+    const { error } = await supabase.from("injuries").insert({
+      athlete_id: athleteId,
+      body_part: injuryBodyPart.trim(),
+      side: "n/a",
+      status: "active",
+      severity: null,
+      onset_date: date,
+      notes: injuryNotes || null,
+    } as any);
+    setLoggingInjury(false);
+    if (error) { toast.error(error.message); return; }
+    toast.success("Injury logged");
+    navigate({ to: "/app/injuries" });
   }
 
   const isToday = date === todayISO();
@@ -183,16 +246,44 @@ function VitalsSection({ athleteId, date }: { athleteId: string; date: string })
         <div>
           <Label className="text-xs">Recovery modalities used today</Label>
           <div className="flex flex-wrap gap-1.5 mt-2">
-            {MODALITIES.map((m) => (
-              <button key={m} type="button" onClick={() => toggleMod(m)}
-                className={`px-2.5 py-1 text-xs rounded-md border capitalize ${modalities.includes(m) ? "bg-[var(--accent-red)] text-white border-[var(--accent-red)]" : "border-border text-muted-foreground hover:text-foreground"}`}>
-                {m.replace("_", " ")}
-              </button>
-            ))}
+            {MODALITIES.map((m) => {
+              const logged = loggedModalities.has(m);
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => logModality(m)}
+                  disabled={logged}
+                  title={logged ? "Already logged today — edit or remove from the Recovery tab" : `Log ${m.replace("_", " ")}`}
+                  className={`px-2.5 py-1 text-xs rounded-md border capitalize ${logged ? "bg-[var(--accent-red)] text-white border-[var(--accent-red)] cursor-default" : "border-border text-muted-foreground hover:text-foreground"}`}
+                >
+                  {m.replace("_", " ")}
+                </button>
+              );
+            })}
           </div>
+          {loggedModalities.size > 0 && (
+            <Link to="/app/recovery" className="text-xs text-muted-foreground underline mt-1.5 inline-block">
+              View or add detail on the Recovery tab →
+            </Link>
+          )}
         </div>
         <div className="flex items-center justify-between"><Label>Injury concern?</Label><Switch checked={injury} onCheckedChange={setInjury} /></div>
-        {injury && <Textarea placeholder="Describe what's bothering you" value={injuryNotes} onChange={(e) => setInjuryNotes(e.target.value)} />}
+        {injury && (
+          <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3">
+            <div>
+              <Label className="text-xs">Body part</Label>
+              <Input value={injuryBodyPart} onChange={(e) => setInjuryBodyPart(e.target.value)} placeholder="e.g. Achilles, calf, hamstring" />
+            </div>
+            <Textarea placeholder="Describe what's bothering you" value={injuryNotes} onChange={(e) => setInjuryNotes(e.target.value)} />
+            <Button size="sm" onClick={logInjuryAndGo} disabled={loggingInjury || !injuryBodyPart.trim()}>
+              {loggingInjury ? "Saving…" : <>Log this injury <ArrowRight className="h-3.5 w-3.5 ml-1" /></>}
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              This saves your vitals below first, then opens the injury in Injury Management to add more detail.
+            </p>
+          </div>
+        )}
         <Button onClick={save} className="w-full">Save vitals</Button>
       </CardContent>
     </Card>
@@ -214,7 +305,7 @@ function SessionsSection({ athleteId }: { athleteId: string }) {
     <Card>
       <CardHeader>
         <CardTitle>Today's sessions</CardTitle>
-        <CardDescription>Add a block per session. Bulk-upload multiple files per block — files more than 90 min apart should go in separate blocks.</CardDescription>
+        <CardDescription>Add a block per session — RPE, feel, and any reflection all live here now, not on the session page itself. Bulk-upload multiple files per block; files more than 90 min apart should go in separate blocks.</CardDescription>
       </CardHeader>
       <CardContent>
         <DailyLogSessions athleteId={athleteId} />
@@ -225,37 +316,35 @@ function SessionsSection({ athleteId }: { athleteId: string }) {
 
 function EndOfDaySection({ athleteId, date }: { athleteId: string; date: string }) {
   const qc = useQueryClient();
-  const { data: anyInsight } = useQuery({
-    queryKey: ["dl-eod", athleteId, date],
+  // Lives on daily_checkins now (day_note), not attached to "whichever
+  // session_insights row was most recently created today" — that guess
+  // broke as soon as a day had more than one session, since which
+  // session's row silently absorbed the note depended on save order.
+  // This is a genuinely day-level fact, so it belongs on the day-level
+  // table.
+  const { data: c } = useQuery({
+    queryKey: ["dl-checkin", athleteId, date],
     queryFn: async () => {
-      const { data } = await supabase.from("session_insights")
-        .select("id, session_id, end_of_day_note, sessions!inner(session_date, athlete_id)")
-        .eq("sessions.athlete_id", athleteId).eq("sessions.session_date", date)
-        .not("end_of_day_note", "is", null)
-        .limit(1).maybeSingle();
-      return data as any;
+      const { data } = await supabase.from("daily_checkins").select("*").eq("athlete_id", athleteId).eq("checkin_date", date).maybeSingle();
+      return (data as any) ?? null;
     },
   });
   const [note, setNote] = useState<string>("");
-  useEffect(() => { setNote(anyInsight?.end_of_day_note ?? ""); }, [date, anyInsight]);
+  useEffect(() => { setNote(c?.day_note ?? ""); }, [date, c]);
   async function save() {
-    // attach to the most recent session_insight for today; create a placeholder if none
-    const { data: latest } = await supabase.from("session_insights")
-      .select("id, sessions!inner(session_date, athlete_id)")
-      .eq("sessions.athlete_id", athleteId).eq("sessions.session_date", date)
-      .order("created_at", { ascending: false }).limit(1).maybeSingle();
-    if (!latest) { toast.error("Save at least one session on this day first."); return; }
-    const { error } = await supabase.from("session_insights").update({ end_of_day_note: note }).eq("id", (latest as any).id);
+    const { error } = await supabase
+      .from("daily_checkins")
+      .upsert({ athlete_id: athleteId, checkin_date: date, day_note: note } as any, { onConflict: "athlete_id,checkin_date" });
     if (error) { toast.error(error.message); return; }
     toast.success("End-of-day note saved");
-    qc.invalidateQueries({ queryKey: ["dl-eod", athleteId, date] });
+    qc.invalidateQueries({ queryKey: ["dl-checkin", athleteId, date] });
   }
   const isToday = date === todayISO();
   return (
     <Card>
       <CardHeader>
         <CardTitle>{isToday ? "End of day note" : "Day note"}</CardTitle>
-        <CardDescription>Visible to you and your coach.</CardDescription>
+        <CardDescription>Visible to you and your coach — a day-level note, separate from any one session's own description.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <Textarea placeholder={isToday ? "Anything else worth noting about today?" : "Anything else worth noting about this day?"} value={note} onChange={(e) => setNote(e.target.value)} />
