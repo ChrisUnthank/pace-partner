@@ -329,7 +329,7 @@ export function YearlyLoadStrip({
                   {data.map((d) => (
                     <Cell
                       key={d.week}
-                      fill={d.week === currentWeekStart ? "hsl(var(--primary))" : "#38bdf8"}
+                      fill={d.week === currentWeekStart ? "var(--accent-red)" : "#38bdf8"}
                       fillOpacity={d.week === currentWeekStart ? 1 : d.isFuture ? 0.3 : 0.75}
                       stroke={d.isFuture ? "#38bdf8" : undefined}
                       strokeDasharray={d.isFuture ? "3 2" : undefined}
