@@ -1,3184 +1,2680 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState, useMemo, useRef } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import { AppShell } from "@/components/app-shell";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Slider } from "@/components/ui/slider";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import { secToClock, clockToSec, metersFmt, roundDistanceForDisplay, roundRecoverySeconds } from "@/lib/format";
-import { sessionClassificationLabel } from "@/lib/session-categories";
-import { stepKindBarClass, stepKindTextClass } from "@/lib/step-kind-colors";
-import { saveSessionAsTemplate } from "@/lib/templates";
-import { useAuthUser, useMyRoles } from "@/lib/use-auth";
-import { AthleteSubnav } from "@/components/athlete-subnav";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { toast } from "sonner";
-import {
-  CheckCircle2,
-  Apple,
-  BookmarkPlus,
-  LineChart,
-  Sparkles,
-  MapPin,
-  Mountain,
-  Thermometer,
-  Wind,
-  GripVertical,
-  Plus,
-  Trash2,
-  ChevronLeft,
-  ChevronRight,
-  Flame,
-  Droplet,
-  AlertTriangle,
-} from "lucide-react";
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import { PostSessionInsightModal } from "@/components/post-session-insight-modal";
-import { FeelFaces } from "@/components/feel-faces";
-import { useServerFn } from "@tanstack/react-start";
-import { getLatestAthleteNote, generateSessionNote, getAiAccessStatus } from "@/lib/ai.functions";
-import ReactMarkdown from "react-markdown";
-import { markAttendance } from "@/lib/messages.functions";
-import { Switch } from "@/components/ui/switch";
-import { UserAvatar } from "@/components/user-avatar";
-import { ActivityIcon } from "@/lib/activity-icon";
-import { reconstructTrack } from "@/lib/gps-reconstruction";
-import { invalidateSession } from "@/lib/session-invalidation";
-import {
-  deleteSession,
-  uploadAndParseSessionFile,
-  mergeSessionIntoAnother,
-  rebuildSessionClassification,
-} from "@/lib/session-files.functions";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { computeStrideLengthM, formatStride } from "@/lib/session-metrics";
-import { resolveStepTarget, resolvedTargetShortLabel } from "@/lib/target-resolution";
-import { WorkTargetEditor } from "@/components/work-target-editor";
+import { createServerFn } from "@tanstack/react-start";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/")({
-  component: SessionDetail,
-});
+async function fetchWeather(lat: number, lon: number, timestamp: string) {
+  try {
+    const date = new Date(timestamp);
+    const target = date.getTime();
+    const day = date.toISOString().slice(0, 10);
 
-function SessionDetail() {
-  const { sessionId } = Route.useParams();
-  const qc = useQueryClient();
-  const removeSession = useServerFn(deleteSession);
-  const mergeSession = useServerFn(mergeSessionIntoAnother);
-  const rebuildClassification = useServerFn(rebuildSessionClassification);
-  const [rebuilding, setRebuilding] = useState(false);
-  const { user } = useAuthUser();
-  const { data: roles = [] } = useMyRoles();
-  const isCoach = roles.includes("coach");
-  const [saveTplOpen, setSaveTplOpen] = useState(false);
-  const [tplName, setTplName] = useState("");
-  const [insightOpen, setInsightOpen] = useState(false);
-  const [editingTitle, setEditingTitle] = useState(false);
-  const [titleValue, setTitleValue] = useState("");
-  const [savingTitle, setSavingTitle] = useState(false);
-  const [allOpen, setAllOpen] = useState(false);
-  const [distanceInput, setDistanceInput] = useState("");
-  // Toggles the Workout structure card between its normal read/edit-reps
-  // view and a drag-and-drop reorder view (warmup/work/recovery/cooldown
-  // blocks can all move relative to each other — no anchoring). Scoped
-  // to block order only; rep editing still happens in the normal view.
-  const [structureEditMode, setStructureEditMode] = useState(false);
+    const daysAgo = (Date.now() - target) / 86_400_000;
+    const base =
+      daysAgo > 5 ? "https://archive-api.open-meteo.com/v1/archive" : "https://api.open-meteo.com/v1/forecast";
 
-  // ✅ FIT upload setup
-  const uploadFile = useServerFn(uploadAndParseSessionFile);
-  const [uploading, setUploading] = useState(false);
-  // "2 of 4" while a multi-file batch is in flight; empty for single files.
-  const [uploadProgress, setUploadProgress] = useState("");
-  // Triggers the hidden file input below via .click() — a <label> wrapping
-  // a shadcn Button (a real <button>) doesn't reliably forward clicks to
-  // an associated file input, since the click lands on the button itself
-  // rather than the label. A ref + explicit .click() is the reliable way
-  // to have a styled button open the native file picker.
-  const fileInputRef = useRef<HTMLInputElement>(null);
+    const url = `${base}?latitude=${lat}&longitude=${lon}&hourly=temperature_2m,wind_speed_10m&start_date=${day}&end_date=${day}&timezone=UTC`;
 
-  const {
-    data: session,
-    isLoading,
-    error,
-  } = useQuery({
-    queryKey: ["session", sessionId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("sessions")
-
-        .select(
-          `
-  id,
-  location,
-  terrain,
-  average_temp_c,
-  wind_kph,
-  *,
-  athletes(name, profile_image_url, timezone)
-`,
-        )
-
-        .eq("id", sessionId)
-        .single();
-
-      if (error) {
-        console.error("session error:", error);
-        return null;
-      }
-
-      return data;
-    },
-    retry: false,
-  });
-
-  const {
-    data: race,
-    isLoading: raceLoading,
-    error: raceError,
-  } = useQuery({
-    queryKey: ["race-by-session", sessionId],
-    enabled: !!sessionId,
-    queryFn: async () => {
-      const { data, error } = await supabase.from("performances").select("*").eq("session_id", sessionId).maybeSingle();
-
-      if (error) throw error;
-      return data;
-    },
-  });
-
-  // Real clock start-time for the header, e.g. "6:42 PM" next to the date.
-  // `sessions.session_date` is date-only — the actual recorded start
-  // instant lives on session_files (earliest of however many files this
-  // session merged). Manually-created sessions with no uploaded file have
-  // no time to show, which is correct — nothing was actually recorded.
-  const { data: earliestFileStart } = useQuery({
-    queryKey: ["session-start-time", sessionId],
-    enabled: !!sessionId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("session_files")
-        .select("started_at")
-        .eq("session_id", sessionId)
-        .not("started_at", "is", null)
-        .order("started_at", { ascending: true })
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      return data?.started_at ?? null;
-    },
-  });
-
-  // Previous/next session for this athlete, ordered by date then id as a
-  // tiebreak for same-day sessions — powers the < > navigation in the
-  // header so a coach can step through an athlete's history without
-  // returning to the calendar between each one. Two separate small queries
-  // rather than one clever one: keeps each side's ordering/limit trivial to
-  // read, and both are cheap (indexed on athlete_id + session_date).
-  const { data: adjacentSessions } = useQuery({
-    queryKey: ["session-adjacent", sessionId, session?.athlete_id, session?.session_date],
-    enabled: !!session?.athlete_id && !!session?.session_date,
-    queryFn: async () => {
-      const athleteId = (session as any).athlete_id;
-      const date = session!.session_date;
-
-      const [{ data: prevRows, error: prevErr }, { data: nextRows, error: nextErr }] = await Promise.all([
-        supabase
-          .from("sessions")
-          .select("id, session_date, title")
-          .eq("athlete_id", athleteId)
-          .or(`session_date.lt.${date},and(session_date.eq.${date},id.lt.${sessionId})`)
-          .order("session_date", { ascending: false })
-          .order("id", { ascending: false })
-          .limit(1),
-        supabase
-          .from("sessions")
-          .select("id, session_date, title")
-          .eq("athlete_id", athleteId)
-          .or(`session_date.gt.${date},and(session_date.eq.${date},id.gt.${sessionId})`)
-          .order("session_date", { ascending: true })
-          .order("id", { ascending: true })
-          .limit(1),
-      ]);
-      if (prevErr) throw prevErr;
-      if (nextErr) throw nextErr;
-
-      return {
-        prev: prevRows?.[0] ?? null,
-        next: nextRows?.[0] ?? null,
-      };
-    },
-  });
-
-
-  // "8 × 1km + 90s jog recovery". Fetches every work step, not just the
-  // first — a session can legitimately have more than one (e.g. a 2km
-  // opener followed by 5 x 1km reps produces two separate work steps, one
-  // per distinct rep distance), and showing only the first used to
-  // silently drop the rest of the workout from this summary.
-  const { data: workSteps } = useQuery({
-    queryKey: ["overview-work-steps", sessionId],
-    enabled: !!sessionId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("steps")
-        .select("*")
-        .eq("session_id", sessionId)
-        .eq("kind", "work")
-        .order("step_order");
-
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
-
-  // Zone profile for target resolution (Phase 3) — turns "95% threshold
-  // pace" / "Z3" prescriptions into this athlete's concrete pace/HR ranges.
-  const { data: zoneProfile } = useQuery({
-    queryKey: ["zone-profile-for-targets", session?.athlete_id],
-    enabled: !!session?.athlete_id,
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("athlete_zone_profiles")
-        .select("*")
-        .eq("athlete_id", session!.athlete_id)
-        .maybeSingle();
-      return data;
-    },
-  });
-
-  // Computed once here rather than inline in JSX — formatWorkoutStructure
-  // now returns {main, recovery} per step so the recovery portion can be
-  // styled smaller than the main "N × distance" part. Each entry also
-  // carries the step's resolved target (null for Open) for display.
-  const workoutStructures = useMemo(
-    () =>
-      (workSteps ?? [])
-        .map((s) => {
-          const f = formatWorkoutStructure(s);
-          return f ? { ...f, target: resolvedTargetShortLabel(s, zoneProfile) } : null;
-        })
-        .filter((x): x is { main: string; recovery: string | null; target: string | null } => !!x),
-    [workSteps, zoneProfile],
-  );
-
-  // Raw points + GPS reconstruction, purely to decide whether the manual
-  // "Split corrections" UI needs to be shown at all. If reconstruction ran
-  // clean (no dropouts/spikes detected), there's nothing for a coach to
-  // second-guess — the automatic correction can be trusted. Only surface
-  // the manual override when reconstruction actually had to flag something.
-  const { data: rawPointsForConfidence = [] } = useQuery({
-    queryKey: ["overview-raw-points", sessionId],
-    enabled: !!sessionId,
-    queryFn: async () => {
-      const PAGE_SIZE = 1000;
-      const all: any[] = [];
-      let from = 0;
-      while (true) {
-        const { data, error } = await supabase
-          .from("raw_session_points")
-          .select("elapsed_s, distance_m")
-          .eq("session_id", sessionId)
-          .order("elapsed_s")
-          .range(from, from + PAGE_SIZE - 1);
-        if (error || !data || data.length === 0) break;
-        all.push(...data);
-        if (data.length < PAGE_SIZE) break;
-        from += PAGE_SIZE;
-      }
-      return all;
-    },
-  });
-
-  const splitReconstruction = useMemo(() => {
-    if (!rawPointsForConfidence.length) return null;
-    const officialDistance = session?.day_type === "race" ? (race?.distance_m ?? null) : null;
-    return reconstructTrack(rawPointsForConfidence as any, officialDistance);
-  }, [rawPointsForConfidence, session?.day_type, race?.distance_m]);
-
-  // Reconstruction found nothing to flag -> automatic correction is
-  // trustworthy -> manual overrides aren't needed for this session.
-  const needsManualSplitCorrection = (splitReconstruction?.anomalies.length ?? 0) > 0;
-
-  useEffect(() => {
-    if (race?.distance_m != null) {
-      setDistanceInput(String(race.distance_m));
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.error("Weather fetch failed:", res.status);
+      return { temp: null, wind: null };
     }
-  }, [race?.distance_m]);
+    const data = await res.json();
 
-  // Other sessions for this athlete on the same calendar day — likely
-  // candidates for merging, e.g. a cooldown that split off into its own
-  // session because it was uploaded before the race got marked, so the
-  // tighter same-session gap threshold applied at the time.
-  //
-  // Restricted to auto-uploaded (source = 'fit_import') sessions on both
-  // sides — a manually-created planned session, strength session, or
-  // cross-training day is NOT a candidate for "this looks like a split-off
-  // warmup/cooldown of an upload", and merging into/from one would silently
-  // destroy a real, unrelated session. Also excludes other races, since two
-  // distinct races never belong merged together.
-  const isFitImportSession = (session as any)?.source === "fit_import";
-  const { data: sameDaySessions } = useQuery({
-    queryKey: ["same-day-sessions", session?.athlete_id, session?.session_date, sessionId],
-    enabled: !!session?.athlete_id && !!session?.session_date && isFitImportSession,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("sessions")
-        .select("id, title, total_distance_m, total_time_seconds, day_type, source")
-        .eq("athlete_id", session!.athlete_id)
-        .eq("session_date", session!.session_date)
-        .eq("source", "fit_import")
-        .neq("day_type", "race")
-        .neq("id", sessionId);
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
+    const times: string[] = data?.hourly?.time ?? [];
+    const temps: (number | null)[] = data?.hourly?.temperature_2m ?? [];
+    const winds: (number | null)[] = data?.hourly?.wind_speed_10m ?? [];
+    if (!times.length) return { temp: null, wind: null };
 
-  const [mergeTarget, setMergeTarget] = useState<{ id: string; title: string } | null>(null);
-  const [merging, setMerging] = useState(false);
-  const [ignoringId, setIgnoringId] = useState<string | null>(null);
-
-  // Same-day sessions the coach/athlete has already confirmed are a
-  // legitimate double day (not a split-off upload) get filtered out of the
-  // banner here, rather than in the query itself — keeps the query simple
-  // and means the banner updates the instant the ["session", sessionId]
-  // query refetches after an ignore, with no extra invalidation to coordinate.
-  const visibleSameDaySessions = (sameDaySessions ?? []).filter(
-    (s: any) => !((session as any)?.same_day_ignored_ids ?? []).includes(s.id),
-  );
-
-  async function handleIgnoreSameDay(otherSessionId: string) {
-    setIgnoringId(otherSessionId);
-    try {
-      const mine = new Set<string>((session as any)?.same_day_ignored_ids ?? []);
-      mine.add(otherSessionId);
-
-      const { data: otherRow, error: otherFetchErr } = await supabase
-        .from("sessions")
-        .select("same_day_ignored_ids")
-        .eq("id", otherSessionId)
-        .single();
-      if (otherFetchErr) throw otherFetchErr;
-      const theirs = new Set<string>((otherRow as any)?.same_day_ignored_ids ?? []);
-      theirs.add(sessionId);
-
-      const [{ error: err1 }, { error: err2 }] = await Promise.all([
-        supabase.from("sessions").update({ same_day_ignored_ids: Array.from(mine) } as any).eq("id", sessionId),
-        supabase.from("sessions").update({ same_day_ignored_ids: Array.from(theirs) } as any).eq("id", otherSessionId),
-      ]);
-      if (err1) throw err1;
-      if (err2) throw err2;
-
-      toast.success("Won't flag this pair again");
-      qc.invalidateQueries({ queryKey: ["session", sessionId] });
-    } catch (err: any) {
-      toast.error(err?.message ?? "Couldn't save");
-    }
-    setIgnoringId(null);
-  }
-
-
-  async function clearReviewDismissed() {
-    // Whenever composition changes (new file, merge, or a fresh classification
-    // run), a previously "reviewed" session may need a fresh look — clear the
-    // dismissed flag so the banner can reappear if still relevant.
-    await supabase
-      .from("sessions")
-      .update({ review_dismissed_at: null } as any)
-      .eq("id", sessionId);
-  }
-
-  async function handleMerge(otherSessionId: string) {
-    setMerging(true);
-    try {
-      await mergeSession({ data: { sourceSessionId: otherSessionId, targetSessionId: sessionId } });
-      await clearReviewDismissed();
-      toast.success("Sessions merged");
-      qc.invalidateQueries({ queryKey: ["session", sessionId] });
-      qc.invalidateQueries({ queryKey: ["steps", sessionId] });
-      qc.invalidateQueries({ queryKey: ["results", sessionId] });
-      qc.invalidateQueries({ queryKey: ["raw-points", sessionId] });
-      qc.invalidateQueries({ queryKey: ["same-day-sessions"] });
-      qc.invalidateQueries({ queryKey: ["session-file-count", sessionId] });
-    } catch (err: any) {
-      toast.error(err?.message ?? "Merge failed");
-    }
-    setMerging(false);
-    setMergeTarget(null);
-  }
-
-  const { data: steps = [] } = useQuery({
-    queryKey: ["steps", sessionId],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("steps").select("*").eq("session_id", sessionId).order("step_order");
-
-      if (error) {
-        console.error("steps error:", error);
-        return [];
-      }
-
-      return data ?? [];
-    },
-  });
-
-  const { data: fileCount = 0 } = useQuery({
-    queryKey: ["session-file-count", sessionId],
-    queryFn: async () => {
-      const { count, error } = await supabase
-        .from("session_files")
-        .select("id", { count: "exact", head: true })
-        .eq("session_id", sessionId);
-      if (error) return 0;
-      return count ?? 0;
-    },
-  });
-
-  const stepIds = steps?.map((s) => s.id) ?? [];
-  const { data: results = [], isFetching: resultsLoading } = useQuery({
-    queryKey: ["results", sessionId, stepIds.join(",")],
-    enabled: stepIds.length > 0,
-    queryFn: async () => {
-      if (!stepIds.length) return [];
-
-      const { data, error } = await supabase
-        .from("interval_results")
-        .select("*")
-        .in("step_id", stepIds)
-        .order("set_number")
-        .order("rep_number");
-
-      if (error) {
-        console.error("results error:", error);
-        return [];
-      }
-
-      return data ?? [];
-    },
-  });
-
-  const { data: fuelEvents } = useQuery({
-    queryKey: ["fuel-events", sessionId],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("session_fuel_events")
-        .select("*")
-        .eq("session_id", sessionId)
-        .order("created_at");
-      return data ?? [];
-    },
-  });
-
-  const { data: insight } = useQuery({
-    queryKey: ["session_insights", sessionId],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("session_insights" as any)
-        .select("*")
-        .eq("session_id", sessionId)
-        .maybeSingle();
-      return data as any;
-    },
-  });
-
-  // Reads one file into the base64 payload shape the server fn expects.
-  function fileToBase64(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const r = new FileReader();
-      r.onload = () => {
-        const s = String(r.result || "");
-        const idx = s.indexOf(",");
-        resolve(idx >= 0 ? s.slice(idx + 1) : s);
-      };
-      r.onerror = () => reject(r.error ?? new Error("Could not read file"));
-      r.readAsDataURL(file);
-    });
-  }
-
-  // Multi-file upload onto this session. Files are uploaded strictly one at
-  // a time — each upload triggers rebuildSessionFromAllFiles on the server,
-  // and firing several in parallel would have those rebuilds racing each
-  // other over the same session's derived rows. Order of selection doesn't
-  // matter: the rebuild merges by each file's own recorded timestamps.
-  // A failure on one file (e.g. the duplicate-detection check) shows a
-  // per-file toast and the loop carries on with the rest.
-  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? []);
-    // Reset immediately so re-selecting the same filename(s) fires onChange again.
-    e.target.value = "";
-    if (!files.length || !session) return;
-
-    setUploading(true);
-
-    let okCount = 0;
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      setUploadProgress(files.length > 1 ? `${i + 1} of ${files.length}` : "");
-
-      try {
-        const base64 = await fileToBase64(file);
-
-        const res: any = await uploadFile({
-          data: {
-            athleteId: session.athlete_id,
-            sessionId: sessionId,
-            filename: file.name,
-            kind: file.name.toLowerCase().endsWith(".gpx") ? "gpx" : "fit",
-            fileBase64: base64,
-          },
-        });
-
-        if (res?.error) {
-          throw new Error(res.error);
-        }
-
-        okCount++;
-      } catch (err: any) {
-        console.error("FIT upload error:", err);
-        toast.error(`${file.name}: ${err?.message ?? "Upload failed"}`);
+    let bestIdx = 0;
+    let bestDelta = Infinity;
+    for (let i = 0; i < times.length; i++) {
+      const d = Math.abs(new Date(times[i] + "Z").getTime() - target); // <-- append Z
+      if (d < bestDelta) {
+        bestDelta = d;
+        bestIdx = i;
       }
     }
 
-    if (okCount > 0) {
-      toast.success(
-        okCount === 1 ? "File uploaded and session updated" : `${okCount} files uploaded and merged into this session`,
+    // Some hours in the archive/forecast data can have a gap in one
+    // variable but not the other (rare, but seen in practice — e.g. temp
+    // present, wind null for that exact hour). Rather than silently
+    // returning null for that one field, check adjacent hours for a usable
+    // reading — close enough for a session summary, and better than a
+    // blank field when the info was available a few hours either side.
+    // Wind fields in particular tend to have wider gaps than temperature
+    // in both the archive and forecast datasets, so give wind a longer
+    // leash (up to 6h either side) rather than the 2h used for temp.
+    const nearestNonNull = (arr: (number | null)[], maxOffset: number): number | null => {
+      for (let offset = 0; offset <= maxOffset; offset++) {
+        if (arr[bestIdx + offset] != null) return arr[bestIdx + offset];
+        if (offset > 0 && arr[bestIdx - offset] != null) return arr[bestIdx - offset];
+      }
+      return null;
+    };
+
+    const resolvedTemp = nearestNonNull(temps, 2);
+    let resolvedWind = nearestNonNull(winds, 6);
+
+    if (resolvedWind == null) {
+      // Wind still unresolved even with the wider window - log the raw
+      // window we searched so a real provider gap (vs. a bug here) can be
+      // confirmed from server logs instead of guessing after the fact.
+      console.error(
+        "fetchWeather: no usable wind_speed_10m reading",
+        JSON.stringify({
+          lat,
+          lon,
+          day,
+          bestIdx,
+          nearbyWinds: winds.slice(Math.max(0, bestIdx - 6), bestIdx + 7),
+        }),
       );
-      await clearReviewDismissed();
-
-      qc.invalidateQueries({ queryKey: ["session", sessionId] });
-      qc.invalidateQueries({ queryKey: ["steps", sessionId] });
-      qc.invalidateQueries({ queryKey: ["results", sessionId] });
-      qc.invalidateQueries({ queryKey: ["raw-points", sessionId] });
-      qc.invalidateQueries({ queryKey: ["session-file-count", sessionId] });
     }
 
-    setUploading(false);
-    setUploadProgress("");
+    return { temp: resolvedTemp, wind: resolvedWind };
+  } catch (err) {
+    console.error("Weather fetch failed", err);
+    return { temp: null, wind: null };
   }
+}
 
-  // Creates the performances row for this race-marked session, using
-  // work-only distance/time where available (excludes any attached
-  // warmup/cooldown — using the whole session's totals here was what
-  // previously produced wildly inflated "Official Distance" values, e.g.
-  // 14km instead of 7.4km). Shared by the "Mark as race" toggle below and
-  // the "Recreate race record" recovery action on the Official Distance
-  // card — a race-marked session can end up with no performances row at
-  // all if a previous creation attempt errored, was interrupted, or predates
-  // this fix, which is exactly the state that leaves Official Distance stuck
-  // showing the full GPS total (uneditable) and the Race analysis button
-  // unable to find anything to open.
-  async function createPerformanceRecord() {
-    if (!session) return false;
+async function fetchLocationName(lat: number, lon: number) {
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`;
 
-    if (!(session.completed_at && session.total_time_seconds && session.total_distance_m)) {
-      toast("Add totals to create race");
-      return false;
+    const res = await fetch(url, {
+      headers: {
+        // Nominatim's usage policy requires a real identifying User-Agent - no key needed, just this.
+        "User-Agent": "PacePartner/1.0 (chris@unthank.me)",
+      },
+    });
+
+    if (!res.ok) {
+      console.error("Location fetch failed:", res.status);
+      return null;
     }
 
-    const { data: existing } = await (supabase.from("performances") as any)
-      .select("id")
-      .eq("session_id", sessionId)
-      .maybeSingle();
+    const data = await res.json();
 
-    if (existing) {
-      toast("Race already exists");
-      qc.invalidateQueries({ queryKey: ["race-by-session", sessionId] });
-      return true;
-    }
-
-    const payload = {
-      athlete_id: session.athlete_id,
-      performance_date: session.session_date,
-      distance_m: Math.round(Number((session as any).work_distance_m ?? session.total_distance_m)),
-      time_seconds: Number((session as any).work_time_s ?? session.total_time_seconds),
-      event_name: session.title || null,
-      notes: session.notes || null,
-      session_id: sessionId, // ✅ critical
-      is_pb: false,
-      context: "race",
-    };
-
-    const { error: perfError } = await (supabase.from("performances") as any).insert(payload);
-
-    if (perfError) {
-      toast.error(perfError.message);
-      return false;
-    }
-
-    toast.success("Race record created ✅");
-
-    qc.invalidateQueries({ queryKey: ["session", sessionId] });
-    qc.invalidateQueries({ queryKey: ["races", session.athlete_id] });
-    qc.invalidateQueries({ queryKey: ["my-pbs", session.athlete_id] });
-    qc.invalidateQueries({ queryKey: ["race-by-session", sessionId] });
-    return true;
-  }
-
-  async function toggleRaceStatus() {
-    if (!session) return;
-
-    const isCurrentlyRace = session.day_type === "race";
-
-    // ✅ REMOVE RACE
-    if (isCurrentlyRace) {
-      const { data: updatedSession, error } = await supabase
-        .from("sessions")
-        .update({ day_type: "training" })
-        .eq("id", sessionId)
-        .select()
-        .single();
-
-      if (error) {
-        toast.error(error.message);
-        return;
-      }
-
-      // ✅ delete linked race
-      await (supabase.from("performances") as any).delete().eq("session_id", sessionId);
-
-      // ✅ IMPORTANT: update React Query cache
-      qc.setQueryData(["session", sessionId], updatedSession);
-
-      toast("Race removed ✅");
-
-      qc.invalidateQueries({ queryKey: ["races", session.athlete_id] });
-
-      return;
-    }
-
-    // ✅ Now handle race creation — switch to race first
-    const { data: updatedSession, error: updateError } = await supabase
-      .from("sessions")
-      .update({ day_type: "race" })
-      .eq("id", sessionId)
-      .select()
-      .single();
-
-    if (updateError) {
-      toast.error(updateError.message);
-      return;
-    }
-
-    qc.setQueryData(["session", sessionId], updatedSession);
-
-    await createPerformanceRecord();
-  }
-
-  async function saveTitle() {
-    if (!session?.id) return;
-
-    // ✅ start saving
-    setSavingTitle(true);
-
-    const { error } = await supabase.from("sessions").update({ title: titleValue }).eq("id", session.id);
-
-    // ✅ stop saving
-    setSavingTitle(false);
-
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-
-    setEditingTitle(false);
-
-    qc.invalidateQueries({ queryKey: ["session", sessionId] });
-  }
-
-  useEffect(() => {
-    if (session?.title) {
-      setTitleValue(session.title);
-    }
-  }, [session?.title]);
-
-  if (isLoading)
     return (
-      <AppShell>
-        <p>Loading…</p>
-      </AppShell>
+      data?.address?.city ||
+      data?.address?.town ||
+      data?.address?.suburb ||
+      data?.address?.village ||
+      data?.address?.county ||
+      data?.address?.state ||
+      (data?.display_name ? data.display_name.split(",")[0] : "Unknown location")
     );
-  if (error || !session) {
-    return (
-      <AppShell>
-        <div className="space-y-3 max-w-lg">
-          <h1 className="text-lg font-semibold">Session not found</h1>
-          <p className="text-sm text-muted-foreground">
-            This session may have been deleted, or you may not have access to it.
-            {error ? (
-              <>
-                {" "}
-                <span className="block mt-1 text-xs">({(error as any).message})</span>
-              </>
-            ) : null}
-          </p>
-          <div className="flex items-center gap-2">
-            <Button asChild variant="outline" size="sm">
-              <Link to="/app/sessions">← Back to sessions</Link>
-            </Button>
-            <Button asChild variant="outline" size="sm">
-              <Link to="/app/sessions/calendar">Calendar</Link>
-            </Button>
-          </div>
-        </div>
-      </AppShell>
-    );
+  } catch (err) {
+    console.error("Location fetch failed", err);
+    return null;
   }
+}
 
-  const canSaveAsTemplate = isCoach && (session as any).day_type === "training";
+function mapFitSport(sport: string | null | undefined): string {
+  const s = (sport ?? "").toLowerCase();
+  if (s.includes("swim")) return "swim";
+  if (s.includes("cycling") || s.includes("biking") || s.includes("bike") || s.includes("cycle")) return "ride";
+  if (s.includes("training") || s.includes("gym") || s.includes("strength")) return "gym";
+  if (s.includes("track")) return "track";
+  return "run";
+}
 
-  // "Monday, 26 May 2026" - parsed as a plain calendar date (no timezone shift)
-  const formattedDate = session.session_date
-    ? new Date(`${session.session_date}T00:00:00`).toLocaleDateString("en-AU", {
-        weekday: "long",
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-      })
-    : null;
+function normalizeCadence(cad?: number): number | null {
+  if (!cad || cad <= 0) return null;
+  if (cad > 260) return null;
+  if (cad < 120) return cad * 2;
+  return cad;
+}
 
-  // "6:42 PM" — converted via the athlete's own timezone, falling back to
-  // UTC to match the same fallback session-files.functions.ts uses server
-  // side, so this display can never disagree with how the session's own
-  // Morning/Afternoon/Evening title got picked.
-  const localTime = earliestFileStart
-    ? (() => {
-        try {
-          return new Intl.DateTimeFormat("en-AU", {
-            hour: "numeric",
-            minute: "2-digit",
-            hour12: true,
-            timeZone: (session.athletes as any)?.timezone || "UTC",
-          }).format(new Date(earliestFileStart));
-        } catch {
-          return null;
-        }
-      })()
-    : null;
+function safeParseJson(value: any) {
+  if (!value) return null;
+  if (typeof value === "object") return value;
+  if (typeof value !== "string") return null;
 
-  return (
-    <AppShell>
-      <div className="space-y-6 max-w-5xl mx-auto">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-3">
-            <Link to="/app/sessions" className="text-sm text-muted-foreground underline">
-              ← Sessions
-            </Link>
-            <span className="text-muted-foreground/40">·</span>
-            <Link to="/app/sessions/calendar" className="text-sm text-muted-foreground underline">
-              Calendar
-            </Link>
-          </div>
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
 
-          <div className="flex items-center gap-1">
-            <Button
-              asChild={!!adjacentSessions?.prev}
-              size="sm"
-              variant="outline"
-              disabled={!adjacentSessions?.prev}
-              title={adjacentSessions?.prev ? adjacentSessions.prev.title ?? "Previous session" : "No earlier session"}
-            >
-              {adjacentSessions?.prev ? (
-                <Link to="/app/sessions/$sessionId" params={{ sessionId: adjacentSessions.prev.id }}>
-                  <ChevronLeft className="h-4 w-4" />
-                </Link>
-              ) : (
-                <span>
-                  <ChevronLeft className="h-4 w-4" />
-                </span>
-              )}
-            </Button>
-            <Button
-              asChild={!!adjacentSessions?.next}
-              size="sm"
-              variant="outline"
-              disabled={!adjacentSessions?.next}
-              title={adjacentSessions?.next ? adjacentSessions.next.title ?? "Next session" : "No later session"}
-            >
-              {adjacentSessions?.next ? (
-                <Link to="/app/sessions/$sessionId" params={{ sessionId: adjacentSessions.next.id }}>
-                  <ChevronRight className="h-4 w-4" />
-                </Link>
-              ) : (
-                <span>
-                  <ChevronRight className="h-4 w-4" />
-                </span>
-              )}
-            </Button>
-          </div>
-        </div>
-
-        {isCoach && session.athlete_id && <AthleteSubnav athleteId={session.athlete_id} active="sessions" />}
-
-        {/* ───────────────── Header card: who / what / when + primary actions ───────────────── */}
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-start justify-between gap-4 flex-wrap">
-              <div className="flex items-start gap-3 min-w-0">
-                <UserAvatar
-                  name={session.athletes?.name}
-                  imageUrl={(session.athletes as any)?.profile_image_url}
-                  size="lg"
-                />
-
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <ActivityIcon session={session as any} size={22} className="text-muted-foreground shrink-0" />
-
-                    {editingTitle ? (
-                      <input
-                        value={titleValue}
-                        onChange={(e) => setTitleValue(e.target.value)}
-                        onBlur={saveTitle}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.currentTarget.blur();
-                          }
-                        }}
-                        className="text-2xl font-bold bg-transparent outline-none w-full"
-                        autoFocus
-                      />
-                    ) : (
-                      <h1
-                        className="text-2xl font-bold cursor-pointer"
-                        onClick={() => setEditingTitle(true)}
-                        title="Click to rename"
-                      >
-                        {session.title}
-                        {savingTitle && <span className="text-xs font-normal text-muted-foreground ml-2">Saving…</span>}
-                      </h1>
-                    )}
-
-                    <Select
-                      value={session.terrain || ""}
-                      onValueChange={async (value) => {
-                        await supabase.from("sessions").update({ terrain: value }).eq("id", session.id);
-                        qc.invalidateQueries({ queryKey: ["session", sessionId] });
-                      }}
-                    >
-                      <SelectTrigger className="w-[110px] h-7 text-xs">
-                        <SelectValue placeholder="Surface" />
-                      </SelectTrigger>
-
-                      <SelectContent>
-                        <SelectItem value="track">Track</SelectItem>
-                        <SelectItem value="road">Road</SelectItem>
-                        <SelectItem value="trail">Trail</SelectItem>
-                        <SelectItem value="path">Path</SelectItem>
-                        <SelectItem value="grass">Grass</SelectItem>
-                        <SelectItem value="treadmill">Treadmill</SelectItem>
-                        <SelectItem value="mixed">Mixed</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Day, date, athlete, classification, and status badges */}
-                  <div className="flex items-center gap-2 flex-wrap text-sm text-muted-foreground mt-1">
-                    <span className="font-medium text-foreground">{formattedDate ?? session.session_date}</span>
-                    {localTime && (
-                      <>
-                        <span>·</span>
-                        <span>{localTime}</span>
-                      </>
-                    )}
-                    <span>·</span>
-                    <span>{session.athletes?.name}</span>
-                    <span>·</span>
-                    <span>{sessionClassificationLabel(session as any)}</span>
-
-                    {(session as any).applied_from_template_id && (
-                      <Badge variant="outline" className="font-normal">
-                        From template
-                      </Badge>
-                    )}
-
-                    {session.completed_at && (
-                      <Badge className="bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/15 font-normal gap-1">
-                        <CheckCircle2 className="h-3 w-3" />
-                        Completed
-                      </Badge>
-                    )}
-                    {session.day_type === "race" && session.completed_at && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={async () => {
-                          const { data, error } = await (supabase as any)
-                            .from("performances")
-                            .select("id")
-                            .eq("session_id", sessionId)
-                            .maybeSingle();
-
-                          if (error) {
-                            toast.error(`Couldn't open race analysis: ${error.message}`);
-                            return;
-                          }
-
-                          if (!data?.id) {
-                            toast.error(
-                              "No race record found for this session — use \"Recreate race record\" on the Official Distance card below to fix it.",
-                            );
-                            return;
-                          }
-
-                          window.location.href = `/app/races/${data.id}/analysis`;
-                        }}
-                      >
-                        🏁 Race analysis
-                      </Button>
-                    )}
-                    {session.completed_at && session.rpe != null && (
-                      <Badge variant="outline" className="font-normal">
-                        RPE {session.rpe}/10
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Actions, grouped together on the right */}
-              <div className="flex items-center gap-2 flex-wrap justify-end">
-                {canSaveAsTemplate && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      setTplName(session.title ?? "");
-                      setSaveTplOpen(true);
-                    }}
-                  >
-                    <BookmarkPlus className="h-4 w-4 mr-1" />
-                    Save as template
-                  </Button>
-                )}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={uploading}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  {uploading ? (uploadProgress ? `Uploading ${uploadProgress}…` : "Uploading…") : "Upload activity"}
-                </Button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".fit,.gpx"
-                  multiple
-                  className="hidden"
-                  disabled={uploading}
-                  onChange={handleFileUpload}
-                />
-                <Button
-                  size="sm"
-                  variant={session.day_type === "race" ? "destructive" : "outline"}
-                  onClick={toggleRaceStatus}
-                >
-                  {session.day_type === "race" ? "Remove race" : "Mark as race"}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={rebuilding}
-                  onClick={async () => {
-                    setRebuilding(true);
-                    try {
-                      await rebuildClassification({ data: { sessionId } });
-                      toast.success("Classification rebuilt from source files");
-                      await clearReviewDismissed();
-                      qc.invalidateQueries({ queryKey: ["session", sessionId] });
-                      qc.invalidateQueries({ queryKey: ["steps", sessionId] });
-                      qc.invalidateQueries({ queryKey: ["results", sessionId] });
-                      qc.invalidateQueries({ queryKey: ["raw-points", sessionId] });
-                    } catch (err: any) {
-                      toast.error(err?.message ?? "Rebuild failed");
-                    }
-                    setRebuilding(false);
-                  }}
-                >
-                  {rebuilding ? "Rebuilding…" : "↻ Recompute classification"}
-                </Button>
-                {session.completed_at && (
-                  <Button asChild size="sm" variant="outline">
-                    <Link to="/app/sessions/$sessionId/analysis" params={{ sessionId }}>
-                      <LineChart className="h-4 w-4 mr-1" />
-                      View analysis
-                    </Link>
-                  </Button>
-                )}
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  onClick={() => {
-                    if (!confirm("Delete this session? This cannot be undone.")) return;
-
-                    removeSession({ data: { sessionId } }).then(() => {
-                      window.location.href = "/app/sessions";
-                    });
-                  }}
-                >
-                  Delete
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {visibleSameDaySessions.length > 0 && (
-          <Card className="border-amber-500/40 bg-amber-500/5">
-            <CardContent className="py-3 space-y-2">
-              <p className="text-sm font-medium">
-                {visibleSameDaySessions.length === 1
-                  ? "Another uploaded session"
-                  : `${visibleSameDaySessions.length} other uploaded sessions`}{" "}
-                found for this athlete on the same day — could be a split-off warmup or cooldown from this same upload,
-                or a genuine double day (e.g. separate AM/PM runs).
-              </p>
-              {visibleSameDaySessions.map((s: any) => (
-                <div key={s.id} className="flex items-center justify-between gap-3 text-sm border rounded-md px-3 py-2">
-                  <div className="min-w-0">
-                    <span className="font-medium">{s.title ?? "Untitled session"}</span>
-                    <span className="text-muted-foreground ml-2">
-                      {s.total_distance_m ? metersFmt(s.total_distance_m) : "—"}
-                      {s.total_time_seconds ? ` · ${secToClock(s.total_time_seconds)}` : ""}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={ignoringId === s.id}
-                      onClick={() => handleIgnoreSameDay(s.id)}
-                      title="This is a genuine double day, not a split-off upload — don't flag this pair again"
-                    >
-                      {ignoringId === s.id ? "Saving…" : "Ignore (double day)"}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={merging}
-                      onClick={() => setMergeTarget({ id: s.id, title: s.title ?? "Untitled session" })}
-                    >
-                      Merge into this session
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* ───────────────── Overview card: the four headline numbers + context ───────────────── */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle>Overview</CardTitle>
-          </CardHeader>
-
-          <CardContent className="space-y-3">
-            {(session.location || session.terrain || session.average_temp_c != null || session.wind_kph != null) && (
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-                {session.location && (
-                  <span className="flex items-center gap-1">
-                    <MapPin className="h-3.5 w-3.5 text-sky-400" />
-                    {session.location}
-                  </span>
-                )}
-                {session.terrain && (
-                  <span className="flex items-center gap-1">
-                    <Mountain className="h-3.5 w-3.5 text-emerald-500" />
-                    {session.terrain.charAt(0).toUpperCase() + session.terrain.slice(1)}
-                  </span>
-                )}
-                {session.average_temp_c != null && (
-                  <span className="flex items-center gap-1">
-                    <Thermometer className="h-3.5 w-3.5 text-orange-400" />
-                    {session.average_temp_c}°C
-                  </span>
-                )}
-                {session.wind_kph != null && (
-                  <span className="flex items-center gap-1">
-                    <Wind className="h-3.5 w-3.5 text-cyan-400" />
-                    Wind {session.wind_kph} km/h
-                  </span>
-                )}
-              </div>
-            )}
-
-            {/* Workout structure — one line per work step, e.g.
-                "2 km" then "5 × 1km" + smaller "1 min Recovery (standing)"
-                for a session with more than one distinct rep distance. */}
-            {workoutStructures.length > 0 && (
-              <div className="border rounded-lg px-3 py-2">
-                <div className="text-xs text-muted-foreground">Workout</div>
-                <div className="space-y-0.5">
-                  {workoutStructures.map((ws, i) => (
-                    <div key={i} className="text-lg font-semibold">
-                      {ws.main}
-                      {ws.recovery && (
-                        <span className="text-sm font-normal text-muted-foreground"> + {ws.recovery}</span>
-                      )}
-                      {ws.target && (
-                        <span className="ml-2 text-sm font-normal text-[var(--accent-red)]">{ws.target}</span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* ✅ METRICS GRID */}
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-                {/* Time */}
-                <div className="border rounded-lg px-3 py-2">
-                  <div className="text-xs text-muted-foreground">Total Time</div>
-                  <div className="text-lg font-semibold tabular-nums">
-                    {secToClock(session.total_time_seconds || 0)}
-                  </div>
-                  {(() => {
-                    // Only worth a second line when there was a real stop —
-                    // ordinary GPS/lap-boundary noise (a couple of seconds)
-                    // shouldn't clutter every session with two near-identical
-                    // numbers. 15s threshold keeps this to genuine pauses.
-                    const movingS = (session as any).total_moving_time_seconds;
-                    const totalS = session.total_time_seconds;
-                    const hasRealStop = movingS != null && totalS != null && totalS - movingS >= 15;
-                    return hasRealStop ? (
-                      <div className="text-xs text-muted-foreground mt-0.5">Moving: {secToClock(movingS)}</div>
-                    ) : null;
-                  })()}
-                </div>
-
-                {/* Distance */}
-                <div className="border rounded-lg px-3 py-2">
-                  <div className="text-xs text-muted-foreground">
-                    {session.day_type === "race" ? "Official Distance (editable)" : "GPS Distance"}
-                  </div>
-
-                  {/* ✅ MAIN VALUE */}
-                  <div className="text-lg font-semibold tabular-nums">
-                    {session.day_type === "race" && race ? (
-                      <Input
-                        type="number"
-                        value={distanceInput}
-                        className="h-7 text-sm"
-                        onChange={(e) => {
-                          setDistanceInput(e.target.value); // ✅ this makes it editable
-                        }}
-                        onBlur={async () => {
-                          const val = Number(distanceInput) || 0;
-
-                          await supabase.from("performances").update({ distance_m: val }).eq("id", race.id);
-
-                          qc.invalidateQueries({ queryKey: ["race-by-session", sessionId] });
-                        }}
-                      />
-                    ) : (
-                      metersFmt(session.total_distance_m ?? 0)
-                    )}
-                  </div>
-
-                  {/* No performances row for a race-marked session — this is
-                      exactly the state that leaves this field stuck showing
-                      the uneditable full GPS total (a previous creation
-                      attempt errored, was interrupted, or predates the
-                      work-only-distance fix). Surfaced clearly instead of
-                      silently falling back, with a one-click way to fix it. */}
-                  {session.day_type === "race" && !raceLoading && !race && (
-                    <div className="text-xs text-amber-600 mt-1 space-y-1">
-                      <div>
-                        {raceError ? `Couldn't load race record: ${raceError.message}` : "No race record found for this session."}
-                      </div>
-                      <Button size="sm" variant="outline" className="h-6 text-xs" onClick={createPerformanceRecord}>
-                        Recreate race record
-                      </Button>
-                    </div>
-                  )}
-
-                  {/* ✅ ✅ GPS REFERENCE LINE (THIS IS THE FIX) */}
-                  {session.day_type === "race" && (
-                    <div className="text-xs text-muted-foreground mt-1">
-                      GPS: {metersFmt(session.total_distance_m ?? 0)}
-                    </div>
-                  )}
-                </div>
-
-                {/* Pace */}
-                <div className="border rounded-lg px-3 py-2">
-                  <div className="text-xs text-muted-foreground">Total Avg Pace</div>
-                  <div className="text-lg font-semibold tabular-nums">
-                    {(() => {
-                      // Prefer moving time (elapsed minus detected stops) so a
-                      // mid-run pause doesn't inflate the displayed pace — falls
-                      // back to raw elapsed time for sessions uploaded before
-                      // this was tracked, which haven't been recomputed yet.
-                      const timeForPace = (session as any).total_moving_time_seconds ?? session.total_time_seconds;
-                      return timeForPace && (session.total_distance_m ?? 0) > 0
-                        ? secToClock((timeForPace / (session.total_distance_m ?? 0)) * 1000)
-                        : "—";
-                    })()}
-                  </div>
-                </div>
-
-                {/* RPE */}
-                <div className="border rounded-lg px-3 py-2">
-                  <div className="text-xs text-muted-foreground">RPE</div>
-                  <div className="text-lg font-semibold tabular-nums">{session.rpe ?? "—"}</div>
-                </div>
-              </div>
-
-              {/* Split pace — overall (above) can blend warmup/cooldown/work
-                  paces together into something misleading. Shown only when
-                  there's a real warmup/cooldown to distinguish from work. */}
-              {((session as any).work_avg_pace_sec_per_km != null ||
-                (session as any).easy_avg_pace_sec_per_km != null) && (
-                <div className="grid grid-cols-2 gap-3 border-t pt-3">
-                  {(session as any).work_avg_pace_sec_per_km != null && (
-                    <div className="border rounded-lg px-3 py-2">
-                      <div className="text-xs text-muted-foreground">Work pace</div>
-                      <div className="text-lg font-semibold tabular-nums">
-                        {secToClock((session as any).work_avg_pace_sec_per_km)}/km
-                      </div>
-                    </div>
-                  )}
-                  {(session as any).easy_avg_pace_sec_per_km != null && (
-                    <div className="border rounded-lg px-3 py-2">
-                      <div className="text-xs text-muted-foreground">Warm-up/Cool-down avg</div>
-                      <div className="text-lg font-semibold tabular-nums">
-                        {secToClock((session as any).easy_avg_pace_sec_per_km)}/km
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Split corrections — only surfaced when GPS reconstruction actually
-                  flagged something (dropout/spike) it couldn't confidently resolve
-                  on its own, or when this session already has saved corrections
-                  from before (so existing overrides are never hidden). */}
-              {(needsManualSplitCorrection || ((session.distance_adjustments as any[] | null) ?? []).length > 0) && (
-                <div className="border-t pt-3 space-y-2">
-                  <Label className="text-xs text-muted-foreground">Split corrections</Label>
-
-                  {needsManualSplitCorrection && (
-                    <p className="text-xs text-muted-foreground">
-                      GPS reconstruction detected a dropout or spike it couldn't fully resolve automatically — use these
-                      to manually adjust a specific split if needed.
-                    </p>
-                  )}
-
-                  {((session.distance_adjustments as any[] | null) ?? []).map((adj: any, i: number) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <Input
-                        type="number"
-                        value={adj.split_km}
-                        placeholder="Km"
-                        className="w-16"
-                        onChange={async (e) => {
-                          const updated = [...((session.distance_adjustments as any[] | null) ?? [])];
-                          updated[i].split_km = Number(e.target.value);
-
-                          await supabase
-                            .from("sessions")
-                            .update({ distance_adjustments: updated })
-                            .eq("id", session.id);
-
-                          qc.invalidateQueries({ queryKey: ["session", sessionId] });
-                        }}
-                      />
-
-                      <Input
-                        type="number"
-                        value={adj.meters}
-                        placeholder="+m"
-                        className="w-20"
-                        onChange={async (e) => {
-                          const updated = [...((session.distance_adjustments as any[] | null) ?? [])];
-                          updated[i].meters = Number(e.target.value);
-
-                          await supabase
-                            .from("sessions")
-                            .update({ distance_adjustments: updated })
-                            .eq("id", session.id);
-
-                          qc.invalidateQueries({ queryKey: ["session", sessionId] });
-                        }}
-                      />
-
-                      <span className="text-xs text-muted-foreground">m</span>
-
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={async () => {
-                          const updated = ((session.distance_adjustments as any[] | null) ?? []).filter(
-                            (_: any, idx: number) => idx !== i,
-                          );
-
-                          await supabase
-                            .from("sessions")
-                            .update({ distance_adjustments: updated })
-                            .eq("id", session.id);
-
-                          qc.invalidateQueries({ queryKey: ["session", sessionId] });
-                        }}
-                      >
-                        ✕
-                      </Button>
-                    </div>
-                  ))}
-
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={async () => {
-                      const updated = [
-                        ...((session.distance_adjustments as any[] | null) ?? []),
-                        { split_km: 1, meters: 50 },
-                      ];
-
-                      await supabase.from("sessions").update({ distance_adjustments: updated }).eq("id", session.id);
-
-                      qc.invalidateQueries({ queryKey: ["session", sessionId] });
-                    }}
-                  >
-                    + Add correction
-                  </Button>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-        {session.notes && (
-          <Card>
-            <CardContent className="pt-4 text-sm">{session.notes}</CardContent>
-          </Card>
-        )}
-
-        {(fileCount >= 3 || (session.day_type === "race" && !(session as any).race_step_id)) &&
-          !(session as any).review_dismissed_at && (
-            <Card className="border-blue-500/40 bg-blue-500/5">
-              <CardContent className="py-3 text-sm flex items-start justify-between gap-3">
-                <div>
-                  <span className="font-medium">Review recommended: </span>
-                  {fileCount >= 3
-                    ? `This session combines ${fileCount} uploaded files — please check the Workout structure below to confirm warmup/work/cooldown are correctly assigned.`
-                    : "This session is marked as a race but no block has been confirmed as the race yet."}{" "}
-                  Use the dropdown on each block to fix any mislabeled segment, and{" "}
-                  {session.day_type === "race" ? '"Mark as race" on the correct block, ' : ""}
-                  then "↻ Recompute classification" above if you want the auto-split re-run from scratch.
-                </div>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="shrink-0"
-                  onClick={async () => {
-                    const { error } = await supabase
-                      .from("sessions")
-                      .update({ review_dismissed_at: new Date().toISOString() } as any)
-                      .eq("id", sessionId);
-                    if (error) {
-                      toast.error(error.message);
-                      return;
-                    }
-                    toast.success("Marked as reviewed");
-                    qc.invalidateQueries({ queryKey: ["session", sessionId] });
-                  }}
-                >
-                  ✓ Reviewed
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-lg font-semibold">Workout structure</h2>
-            <div className="flex items-center gap-2">
-              {!structureEditMode && (
-                <Button size="sm" variant="ghost" onClick={() => setAllOpen((v) => !v)}>
-                  {allOpen ? "Collapse all" : "Expand all"}
-                </Button>
-              )}
-              <Button
-                size="sm"
-                variant={structureEditMode ? "default" : "outline"}
-                disabled={(steps ?? []).length < 2}
-                onClick={() => setStructureEditMode((v) => !v)}
-              >
-                {structureEditMode ? "Done reordering" : "Reorder blocks"}
-              </Button>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            {stepIds.length > 0 && resultsLoading && !results ? (
-              <Card>
-                <CardContent className="pt-4 text-sm text-muted-foreground">Loading session data…</CardContent>
-              </Card>
-            ) : structureEditMode ? (
-              <WorkoutStructureOrderEditor session={session} steps={steps ?? []} qc={qc} />
-            ) : (
-              (steps ?? []).map((step: any) => (
-                <StepBlock
-                  key={step.id}
-                  session={session}
-                  step={step}
-                  zoneProfile={zoneProfile}
-                  results={(results ?? []).filter((r: any) => r.step_id === step.id)}
-                  fuelEvents={(fuelEvents ?? []).filter((f: any) => f.step_id === step.id)}
-                  forceOpen={allOpen}
-                />
-              ))
-            )}
-          </div>
-        </div>
-        {/* Daily Log is the primary place feedback (RPE, feel, reflection) gets
-            entered now — this editable card is only a fallback for sessions
-            completed directly from here (a coach logging on an athlete's
-            behalf, or a planned session with no Daily Log entry at all).
-            Once a session is complete, the read-only card below takes over
-            so there's exactly one place to edit, not two live copies. */}
-        {!session.completed_at && (
-          <SessionSummary
-            session={session}
-            results={results ?? []}
-            onSaved={() => invalidateSession(qc, sessionId, session.athlete_id)}
-            onCompleted={() => setInsightOpen(true)}
-          />
-        )}
-
-        {isCoach && (
-          <AttendanceCard
-            sessionId={sessionId}
-            athleteId={session.athlete_id}
-            athleteName={session.athletes?.name ?? "Athlete"}
-          />
-        )}
-        {session.completed_at && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Session feedback</CardTitle>
-              <CardDescription>Effort and reflection — edit from Daily Log.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <div className="flex items-center gap-6 flex-wrap">
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-muted-foreground uppercase tracking-wider">RPE</span>
-                  <span className="font-display text-2xl font-extrabold tabular-nums">
-                    {session.rpe ?? "—"}
-                    <span className="text-sm font-normal text-muted-foreground">/10</span>
-                  </span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-muted-foreground uppercase tracking-wider">Feel</span>
-                  <span className="font-display text-2xl font-extrabold tabular-nums">
-                    {insight?.feel_score ?? "—"}
-                    <span className="text-sm font-normal text-muted-foreground">/10</span>
-                  </span>
-                </div>
-              </div>
-              {insight?.went_well && (
-                <p>
-                  <span className="text-xs text-muted-foreground uppercase tracking-wider mr-2">Went well</span>
-                  {insight.went_well}
-                </p>
-              )}
-              {insight?.was_difficult && (
-                <p>
-                  <span className="text-xs text-muted-foreground uppercase tracking-wider mr-2">Difficult</span>
-                  {insight.was_difficult}
-                </p>
-              )}
-              {insight?.niggles && (
-                <p className="text-amber-500">
-                  <span className="text-xs text-muted-foreground uppercase tracking-wider mr-2">Niggles</span>
-                  {insight.niggles}
-                </p>
-              )}
-              {/* Same "estimated, not real" transparency the Analytics chart
-                  and dashboard alert now carry — this is the session-level
-                  version of that same signal. session_training_load() falls
-                  back to a category-based estimate when rpe is null, so
-                  training load numbers are still populated, just not real. */}
-              {session.rpe == null && (
-                <p className="flex items-center gap-1.5 text-xs text-amber-600 pt-1">
-                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                  No RPE logged yet — training load for this session is currently an estimate based on session type, not actual effort. Log it from Daily Log.
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        <FuelingPanel session={session} />
-        <GearPanel session={session} />
-      </div>
-
-      <Dialog open={!!mergeTarget} onOpenChange={(open) => !open && setMergeTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Merge "{mergeTarget?.title}" into this session?</DialogTitle>
-            <DialogDescription>
-              This permanently deletes "{mergeTarget?.title}" — its GPS trace, steps, results, insights, and any race
-              record — and moves its files into this session instead. This cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setMergeTarget(null)}>
-              Cancel
-            </Button>
-            <Button variant="destructive" disabled={merging} onClick={() => mergeTarget && handleMerge(mergeTarget.id)}>
-              {merging ? "Merging…" : "Yes, merge and delete the other session"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={saveTplOpen} onOpenChange={setSaveTplOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Save session as template</DialogTitle>
-            <DialogDescription>
-              Saves the structure (steps, sets, reps, targets, recovery) — not athlete, date, or results.
-            </DialogDescription>
-          </DialogHeader>
-          <div>
-            <Label>Template name</Label>
-            <Input
-              className="mt-1"
-              value={tplName}
-              onChange={(e) => setTplName(e.target.value)}
-              placeholder="e.g. Tuesday threshold — 6x800m"
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSaveTplOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={async () => {
-                if (!tplName.trim()) {
-                  toast.error("Name required");
-                  return;
-                }
-                const res = await saveSessionAsTemplate({ sessionId, ownerUserId: user!.id, name: tplName.trim() });
-                if (!res.ok) {
-                  toast.error(res.error);
-                  return;
-                }
-                toast.success("Template saved");
-                setSaveTplOpen(false);
-                qc.invalidateQueries({ queryKey: ["templates"] });
-              }}
-            >
-              Save
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <PostSessionInsightModal
-        open={insightOpen}
-        onOpenChange={setInsightOpen}
-        sessionId={sessionId}
-        athleteId={session.athlete_id}
-        onSaved={() => qc.invalidateQueries({ queryKey: ["session_insights", sessionId] })}
-      />
-      <div className="max-w-4xl mt-4">
-        <SessionAINote sessionId={sessionId} athleteId={session.athlete_id} />
-      </div>
-    </AppShell>
+function stepIsLadder(step: any): boolean {
+  const meta = safeParseJson(step?.metadata);
+  return Boolean(
+    step?.is_ladder ?? step?.ladder ?? step?.variable_reps ?? meta?.is_ladder ?? meta?.ladder ?? meta?.variable_reps,
   );
 }
 
-function AttendanceCard({
-  sessionId,
-  athleteId,
-  athleteName,
-}: {
-  sessionId: string;
-  athleteId: string;
-  athleteName: string;
-}) {
-  const qc = useQueryClient();
-  const markFn = useServerFn(markAttendance);
-  const { data: attended } = useQuery({
-    queryKey: ["attendance", sessionId, athleteId],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("session_attendance")
-        .select("id")
-        .eq("session_id", sessionId)
-        .eq("athlete_id", athleteId)
-        .maybeSingle();
-      return !!data;
-    },
-  });
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">Attendance</CardTitle>
-        <CardDescription>Mark whether {athleteName} attended this session.</CardDescription>
-      </CardHeader>
-      <CardContent className="flex items-center gap-3">
-        <Switch
-          checked={!!attended}
-          onCheckedChange={async (v) => {
-            await markFn({ data: { sessionId, athleteId, attended: v } });
-            qc.invalidateQueries({ queryKey: ["attendance", sessionId, athleteId] });
-            toast.success(v ? "Marked attended" : "Marked absent");
-          }}
-        />
-        <span className="text-sm text-muted-foreground">{attended ? "Attended" : "Not marked"}</span>
-      </CardContent>
-    </Card>
-  );
+// Planned "effort" blocks that get matched against classified work/recovery
+// lap pairs from an uploaded file. Includes both "work" and "strides" —
+// both represent a real effort block the athlete ran, just at different
+// intensities/distances; only "warmup"/"cooldown"/"recovery" are structural
+// rather than effort blocks. Excluding "strides" here left any planned
+// Strides block (e.g. "4×75m") with zero interval_results after a real FIT
+// upload — its target showed correctly (it came straight from the plan),
+// but nothing ever matched laps to it, so every rep row stayed empty.
+function getPlannedWorkSteps(plannedSteps: any[]) {
+  return [...plannedSteps]
+    .filter((s) => s.kind === "work" || s.kind === "strides")
+    .sort((a, b) => Number(a.step_order ?? 0) - Number(b.step_order ?? 0));
 }
 
-function SessionAINote({ sessionId, athleteId }: { sessionId: string; athleteId: string }) {
-  const getNote = useServerFn(getLatestAthleteNote);
-  const gen = useServerFn(generateSessionNote);
-  const access = useServerFn(getAiAccessStatus);
-  const { data: ai } = useQuery({ queryKey: ["ai-access"], queryFn: () => access() });
-  const { data: note, refetch } = useQuery({
-    queryKey: ["ai-session-note", sessionId],
-    queryFn: () => getNote({ data: { athleteId, kind: "session", sessionId } }),
-  });
-  if (ai && !ai.allowed) return null;
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-[var(--accent-red)]" /> AI session reflection
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-2">
-        {note?.content ? (
-          <div className="text-sm prose prose-sm max-w-none dark:prose-invert">
-            <ReactMarkdown>{note.content}</ReactMarkdown>
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">No AI reflection yet.</p>
-        )}
-        <Button size="sm" variant="outline" onClick={() => gen({ data: { sessionId } }).then(() => refetch())}>
-          {note?.content ? "Regenerate" : "Generate"}
-        </Button>
-      </CardContent>
-    </Card>
-  );
+function getPlannedBlockRecoverySteps(plannedSteps: any[]) {
+  return [...plannedSteps]
+    .filter((s) => s.kind === "recovery")
+    .sort((a, b) => Number(a.step_order ?? 0) - Number(b.step_order ?? 0));
 }
 
-// Default field values for a newly-added block, mirroring defaultStep() in
-// sessions.new.tsx — kept in sync manually since this page builds one row
-// directly (via insert) rather than staging drafts client-side like the
-// New Session builder does.
-function defaultFieldsForKind(kind: string) {
-  if (kind === "recovery") {
-    return { reps: 1, set_count: 1, recovery_mode: "jog", recovery_target_kind: "time", recovery_target_seconds: 90 };
-  }
-  if (kind === "work") {
-    return {
-      reps: 6,
-      set_count: 1,
-      target_kind: "distance",
-      target_distance_m: 400,
-      recovery_between_reps_seconds: 90,
-      recovery_between_reps_mode: "jog",
-      recovery_between_reps_target_kind: "time",
-      recovery_between_sets_seconds: 180,
-      recovery_between_sets_mode: "walk",
-      recovery_between_sets_target_kind: "time",
-    };
-  }
-  if (kind === "strides") {
-    return { reps: 4, set_count: 1, target_kind: "distance", target_distance_m: 80 };
-  }
-  // warmup / cooldown
-  return { reps: 1, set_count: 1, target_kind: "time", target_time_seconds: 600 };
-}
-
-// Builds a full `steps` insert row for a newly-added block, matching the
-// exact column shape sessions.new.tsx writes on session creation — so a
-// manually-added block on an existing session satisfies the same
-// constraints as one created through the builder.
-function buildNewStepRow(sessionId: string, kind: string, stepOrder: number) {
-  const d: any = defaultFieldsForKind(kind);
-  const setCount = kind === "work" ? Math.max(1, d.set_count ?? 1) : 1;
-  return {
-    session_id: sessionId,
-    step_order: stepOrder,
-    kind,
-    reps: d.reps,
-    set_count: setCount,
-    target_kind: d.target_kind ?? null,
-    target_distance_m: d.target_distance_m ?? null,
-    target_time_seconds: d.target_time_seconds ?? null,
-    target_pace_sec_per_km: null,
-    is_ladder: false,
-    counts_toward_distance: true,
-    recovery_between_reps_seconds: kind === "work" ? (d.recovery_between_reps_seconds ?? null) : null,
-    recovery_between_reps_mode: kind === "work" ? (d.recovery_between_reps_mode ?? null) : null,
-    recovery_between_reps_target_kind: kind === "work" ? (d.recovery_between_reps_target_kind ?? "time") : "time",
-    recovery_between_reps_distance_m: kind === "work" ? (d.recovery_between_reps_distance_m ?? null) : null,
-    recovery_between_sets_seconds: kind === "work" && setCount > 1 ? (d.recovery_between_sets_seconds ?? null) : null,
-    recovery_between_sets_mode: kind === "work" && setCount > 1 ? (d.recovery_between_sets_mode ?? null) : null,
-    recovery_between_sets_target_kind:
-      kind === "work" && setCount > 1 ? (d.recovery_between_sets_target_kind ?? "time") : "time",
-    recovery_between_sets_distance_m: kind === "work" && setCount > 1 ? (d.recovery_between_sets_distance_m ?? null) : null,
-    recovery_mode: d.recovery_mode ?? null,
-    recovery_target_kind: d.recovery_target_kind ?? null,
-    recovery_target_seconds: d.recovery_target_seconds ?? null,
-    recovery_target_distance_m: d.recovery_target_distance_m ?? null,
-    notes: null,
-  };
-}
-
-const BLOCK_KIND_LABEL: Record<string, string> = {
-  warmup: "Warmup",
-  work: "Work block",
-  recovery: "Recovery",
-  cooldown: "Cooldown",
-  strides: "Strides / Run-throughs",
+type ParsedPoint = {
+  timestamp: string | null;
+  elapsed_s: number;
+  distance_m?: number | null;
+  lat?: number | null;
+  lng?: number | null;
+  elevation_m?: number | null;
+  hr?: number | null;
+  cadence?: number | null;
+  pace_sec_per_km?: number | null;
+  stride_length_m?: number | null;
+  vertical_oscillation_cm?: number | null;
+  ground_contact_time_ms?: number | null;
+  temperature_c?: number | null;
 };
 
-// Drag-and-drop editing of the whole Workout structure — warmup, work,
-// recovery, and cooldown blocks can all move relative to each other (unlike
-// the New Session builder, which anchors warmup/cooldown in place; a coach
-// editing an already-uploaded/parsed session may need to fix a genuinely
-// mislabeled or misordered block, e.g. a cooldown that got split off and
-// merged back in the wrong spot). Also supports adding a new block, deleting
-// one, and reassigning a block's kind (e.g. turning a work block into
-// Strides) — all from this same view, so a coach doesn't need to bounce
-// between a reorder mode and the normal expanded view for structural edits.
-// Reordering/reassigning only ever rewrites `step_order`/`kind` — never
-// results — so the rest of the Overview (pace/distance aggregates, Workout
-// summary) simply re-reads once the steps query is invalidated; nothing
-// needs recomputing there. Adding/deleting a block is the one case that can
-// change aggregates (a deleted block's results go with it), so both call
-// the same session-level query invalidations the rest of the page uses.
-function WorkoutStructureOrderEditor({ session, steps, qc }: { session: any; steps: any[]; qc: ReturnType<typeof useQueryClient> }) {
-  const [localSteps, setLocalSteps] = useState(steps);
-  const [saving, setSaving] = useState(false);
-  const [blockToDelete, setBlockToDelete] = useState<any | null>(null);
+type ParsedLap = {
+  index: number;
+  startMs: number | null;
+  endMs: number | null;
+  intensity: string | null;
+  total_distance: number;
+  total_elapsed_time: number;
+  avg_heart_rate: number | null;
+  max_heart_rate: number | null;
+  avg_cadence: number | null;
+  kind?: "warmup" | "work" | "recovery" | "cooldown";
+  sourceFileIndex?: number;
+};
 
-  useEffect(() => {
-    setLocalSteps(steps);
-  }, [steps]);
+type ParsedFile = {
+  points: ParsedPoint[];
+  laps: ParsedLap[];
+  totalDistanceM: number;
+  totalTimeS: number;
+  startedAt: string | null;
+  sport: string | null;
+};
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
+type WorkRecoveryPair = {
+  work: ParsedLap;
+  recovery: ParsedLap | null;
+};
 
-  function invalidateStructure() {
-    qc.invalidateQueries({ queryKey: ["steps", session.id] });
-    qc.invalidateQueries({ queryKey: ["overview-work-steps", session.id] });
-    // Prefix match — "results" queries are keyed with a dynamic step-id
-    // join, so this invalidates all of them for this session regardless
-    // of which exact step-id set was last fetched.
-    qc.invalidateQueries({ queryKey: ["results", session.id] });
+type MergedPoint = ParsedPoint & {
+  file_id: string;
+};
+
+/** Parse a GPX XML string into normalized samples. */
+function parseGPX(xml: string): ParsedFile {
+  const trkpts: {
+    lat: number;
+    lng: number;
+    ele?: number;
+    time?: string;
+    hr?: number;
+    cad?: number;
+  }[] = [];
+
+  const ptRe = /<trkpt\s+lat="([^"]+)"\s+lon="([^"]+)"[^>]*>([\s\S]*?)<\/trkpt>/g;
+  let m: RegExpExecArray | null;
+  while ((m = ptRe.exec(xml))) {
+    const inner = m[3];
+    const ele = /<ele>([^<]+)<\/ele>/.exec(inner);
+    const time = /<time>([^<]+)<\/time>/.exec(inner);
+    const hr = /<(?:gpxtpx:)?hr>([^<]+)<\/(?:gpxtpx:)?hr>/.exec(inner);
+    const cad = /<(?:gpxtpx:)?cad>([^<]+)<\/(?:gpxtpx:)?cad>/.exec(inner);
+
+    trkpts.push({
+      lat: parseFloat(m[1]),
+      lng: parseFloat(m[2]),
+      ele: ele ? parseFloat(ele[1]) : undefined,
+      time: time?.[1],
+      hr: hr ? parseInt(hr[1], 10) : undefined,
+      cad: cad ? parseInt(cad[1], 10) : undefined,
+    });
   }
 
-  async function persistOrder(next: any[]) {
-    setSaving(true);
-    const results = await Promise.all(
-      next.map((s, i) => supabase.from("steps").update({ step_order: i + 1 }).eq("id", s.id)),
-    );
-    const failed = results.find((r) => r.error);
-    if (failed?.error) {
-      toast.error(failed.error.message);
-      setLocalSteps(steps); // revert to last known-good order
-    } else {
-      invalidateStructure();
-      toast.success("Workout order updated");
+  if (trkpts.length === 0) {
+    return { points: [], laps: [], totalDistanceM: 0, totalTimeS: 0, startedAt: null, sport: null };
+  }
+
+  const t0 = trkpts[0].time ? new Date(trkpts[0].time).getTime() : 0;
+  let totalDist = 0;
+
+  const points: ParsedPoint[] = trkpts.map((p, i) => {
+    if (i > 0) {
+      const prev = trkpts[i - 1];
+      const R = 6371000;
+      const dLat = ((p.lat - prev.lat) * Math.PI) / 180;
+      const dLng = ((p.lng - prev.lng) * Math.PI) / 180;
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos((prev.lat * Math.PI) / 180) * Math.cos((p.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+      totalDist += 2 * R * Math.asin(Math.sqrt(a));
     }
-    setSaving(false);
-  }
 
-  function handleDragEnd(ev: DragEndEvent) {
-    const { active, over } = ev;
-    if (!over || active.id === over.id) return;
-    const ids = localSteps.map((s) => s.id);
-    const from = ids.indexOf(String(active.id));
-    const to = ids.indexOf(String(over.id));
-    if (from === -1 || to === -1) return;
-    const next = arrayMove(localSteps, from, to);
-    setLocalSteps(next);
-    persistOrder(next);
-  }
+    const elapsed = p.time ? (new Date(p.time).getTime() - t0) / 1000 : i;
+    const prev = i > 0 ? trkpts[i - 1] : null;
 
-  async function addBlock(kind: string) {
-    setSaving(true);
-    const nextOrder = localSteps.reduce((max, s) => Math.max(max, s.step_order ?? 0), 0) + 1;
-    const row = buildNewStepRow(session.id, kind, nextOrder);
-    const { error } = await supabase.from("steps").insert(row as any);
-    setSaving(false);
-    if (error) {
-      toast.error(error.message);
-      return;
+    let pace: number | undefined;
+    if (prev?.time && p.time) {
+      const R = 6371000;
+      const dLat = ((p.lat - prev.lat) * Math.PI) / 180;
+      const dLng = ((p.lng - prev.lng) * Math.PI) / 180;
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos((prev.lat * Math.PI) / 180) * Math.cos((p.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+      const d = 2 * R * Math.asin(Math.sqrt(a));
+      const dt = (new Date(p.time).getTime() - new Date(prev.time).getTime()) / 1000;
+      if (d > 1 && dt > 0) pace = (dt / d) * 1000;
     }
-    toast.success(`${BLOCK_KIND_LABEL[kind]} added at the end — drag it into position, then set its reps/targets below`);
-    invalidateStructure();
-  }
 
-  async function reassignKind(step: any, newKind: string) {
-    if (newKind === step.kind) return;
-    setSaving(true);
-    const { error } = await supabase.from("steps").update({ kind: newKind } as any).eq("id", step.id);
-    setSaving(false);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    toast.success(`Reassigned to ${BLOCK_KIND_LABEL[newKind] ?? newKind}`);
-    invalidateStructure();
-  }
-
-  async function confirmDelete() {
-    if (!blockToDelete) return;
-    setSaving(true);
-    // Results are children of the step — clear them first so the delete
-    // never fails on a foreign-key reference, regardless of whether the
-    // DB itself cascades.
-    const { error: resultsErr } = await supabase.from("interval_results").delete().eq("step_id", blockToDelete.id);
-    if (resultsErr) {
-      toast.error(resultsErr.message);
-      setSaving(false);
-      return;
-    }
-    const { error } = await supabase.from("steps").delete().eq("id", blockToDelete.id);
-    setSaving(false);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    toast.success("Block deleted");
-    setBlockToDelete(null);
-    invalidateStructure();
-  }
-
-  return (
-    <div className="space-y-2">
-      <p className="text-xs text-muted-foreground">
-        Drag any block — warmup, work, recovery, or cooldown — to reorder the session. Use the dropdown to change a
-        block's type, or the buttons below to add or remove a block. Changes save immediately.
-      </p>
-
-      <div className="flex flex-wrap gap-2 pb-1 border-b">
-        {(["warmup", "strides", "work", "recovery", "cooldown"] as const).map((kind) => (
-          <Button key={kind} variant="outline" size="sm" disabled={saving} onClick={() => addBlock(kind)}>
-            <span className={`inline-block h-2 w-2 rounded-full mr-1.5 ${stepKindBarClass(kind)}`} />
-            <Plus className="h-3 w-3 mr-1" />
-            {BLOCK_KIND_LABEL[kind]}
-          </Button>
-        ))}
-      </div>
-
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <SortableContext items={localSteps.map((s) => s.id)} strategy={verticalListSortingStrategy}>
-          {localSteps.map((step, i) => (
-            <SortableStructureRow
-              key={step.id}
-              id={step.id}
-              step={step}
-              position={i + 1}
-              disabled={saving}
-              onReassignKind={(newKind) => reassignKind(step, newKind)}
-              onRequestDelete={() => setBlockToDelete(step)}
-            />
-          ))}
-        </SortableContext>
-      </DndContext>
-
-      <Dialog open={!!blockToDelete} onOpenChange={(open) => !open && setBlockToDelete(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete this block?</DialogTitle>
-            <DialogDescription>
-              This permanently deletes the "{blockToDelete ? BLOCK_KIND_LABEL[blockToDelete.kind] : ""}" block and any
-              recorded reps/results for it. This cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setBlockToDelete(null)}>
-              Cancel
-            </Button>
-            <Button variant="destructive" disabled={saving} onClick={confirmDelete}>
-              {saving ? "Deleting…" : "Yes, delete this block"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
-function SortableStructureRow({
-  id,
-  step,
-  position,
-  disabled,
-  onReassignKind,
-  onRequestDelete,
-}: {
-  id: string;
-  step: any;
-  position: number;
-  disabled?: boolean;
-  onReassignKind: (newKind: string) => void;
-  onRequestDelete: () => void;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled });
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  };
-  return (
-    <div ref={setNodeRef} style={style} className="flex items-stretch gap-3 border rounded-md bg-background overflow-hidden">
-      <div className={`w-1.5 shrink-0 ${stepKindBarClass(step.kind)}`} />
-      <div className="flex-1 min-w-0 px-3 py-2.5 flex items-center gap-3">
-        <button
-          type="button"
-          className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-          disabled={disabled}
-          {...attributes}
-          {...listeners}
-          aria-label="Drag to reorder"
-        >
-          <GripVertical className="h-4 w-4" />
-        </button>
-        <span className="text-sm text-muted-foreground w-5 shrink-0 tabular-nums">{position}.</span>
-        <span className={`text-sm font-medium flex-1 ${stepKindTextClass(step.kind)}`}>{stepStructureSummary(step)}</span>
-
-        <Select value={step.kind} onValueChange={onReassignKind}>
-          <SelectTrigger className="h-7 w-[110px] text-xs shrink-0" disabled={disabled}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="warmup">Warmup</SelectItem>
-            <SelectItem value="work">Work</SelectItem>
-            <SelectItem value="recovery">Recovery</SelectItem>
-            <SelectItem value="cooldown">Cooldown</SelectItem>
-            <SelectItem value="strides">Strides</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Button size="sm" variant="ghost" className="shrink-0" disabled={disabled} onClick={onRequestDelete}>
-          <Trash2 className="h-4 w-4" />
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-// Short one-line label for a step in the reorder view, e.g.
-// "Work · 6×400m" or "Cooldown". Mirrors the summary already shown in
-// StepBlock's collapsed header, kept separate since the reorder row has
-// no expand/collapse state of its own.
-function stepStructureSummary(step: any): string {
-  const kindLabel = step.kind === "recovery" ? "Recovery" : step.kind.charAt(0).toUpperCase() + step.kind.slice(1);
-  const setCount = Math.max(1, step.set_count ?? 1);
-
-  if (step.kind === "work" && step.target_kind === "distance" && step.target_distance_m) {
-    return `${kindLabel} · ${setCount > 1 ? `${setCount}×` : ""}${step.reps}×${metersFmt(roundDistanceForDisplay(step.target_distance_m))}`;
-  }
-  if (step.kind === "work" && step.target_kind === "time" && step.target_time_seconds) {
-    return `${kindLabel} · ${step.reps}×${secToClock(step.target_time_seconds)}`;
-  }
-  // Strides intentionally show no "reps × distance" suffix here either —
-  // see the matching note in StepBlock's header above.
-  return kindLabel;
-}
-
-
-function StepBlock({
-  session,
-  step,
-  zoneProfile,
-  results,
-  fuelEvents,
-  forceOpen,
-}: {
-  session: any;
-  step: any;
-  zoneProfile?: any;
-  results: any[];
-  fuelEvents: any[];
-  forceOpen?: boolean;
-}) {
-  const qc = useQueryClient();
-
-  const isWork = step.kind === "work";
-  const isRecovery = step.kind === "recovery";
-  const isStrides = step.kind === "strides";
-
-  const setCount = Math.max(1, step.set_count ?? 1);
-
-  // ✅ START CLOSED (cleaner UX)
-  const [open, setOpen] = useState(!!forceOpen);
-  useEffect(() => {
-    setOpen(!!forceOpen);
-  }, [forceOpen]);
-
-  const reps = Array.from({ length: step.reps || 1 }, (_, i) => i + 1);
-  const sets = Array.from({ length: setCount }, (_, i) => i + 1);
-
-  const [openSets, setOpenSets] = useState<Record<number, boolean>>({
-    1: true,
+    return {
+      timestamp: p.time ?? null,
+      elapsed_s: elapsed,
+      distance_m: totalDist,
+      lat: p.lat,
+      lng: p.lng,
+      elevation_m: p.ele ?? null,
+      hr: p.hr ?? null,
+      cadence: normalizeCadence(p.cad),
+      pace_sec_per_km: pace ?? null,
+      vertical_oscillation_cm: null,
+      ground_contact_time_ms: null,
+      temperature_c: null,
+    };
   });
 
-  function toggleSet(setN: number) {
-    setOpenSets((prev) => ({
-      ...prev,
-      [setN]: !prev[setN],
-    }));
-  }
+  const totalTime =
+    trkpts[trkpts.length - 1].time && trkpts[0].time
+      ? (new Date(trkpts[trkpts.length - 1].time!).getTime() - t0) / 1000
+      : 0;
 
-  async function saveRep(setNumber: number, repNumber: number, patch: any) {
-    const row = { step_id: step.id, set_number: setNumber, rep_number: repNumber, ...patch };
+  return {
+    points,
+    laps: [],
+    totalDistanceM: totalDist,
+    totalTimeS: totalTime,
+    startedAt: trkpts[0].time ?? null,
+    sport: null,
+  };
+}
 
-    const { error } = await supabase
-      .from("interval_results")
-      .upsert(row, { onConflict: "step_id,set_number,rep_number" });
+async function parseFIT(buffer: ArrayBuffer): Promise<ParsedFile> {
+  const FitParser = (await import("fit-file-parser")).default as any;
+  const parser = new FitParser({
+    force: true,
+    speedUnit: "m/s",
+    lengthUnit: "m",
+    elapsedRecordField: true,
+  });
 
-    if (error) {
-      toast.error(`Save failed: ${error.message}`);
-      return;
+  return await new Promise<ParsedFile>((resolve, reject) => {
+    parser.parse(new Uint8Array(buffer), (err: any, data: any) => {
+      if (err) return reject(err);
+
+      const records: any[] = data?.records ?? [];
+      const laps: any[] = data?.laps ?? [];
+
+      if (!records.length) {
+        return resolve({
+          points: [],
+          laps: [],
+          totalDistanceM: 0,
+          totalTimeS: 0,
+          startedAt: null,
+          sport: data?.sport?.sport ?? null,
+        });
+      }
+
+      const t0 = records[0].timestamp ? new Date(records[0].timestamp).getTime() : 0;
+
+      const points: ParsedPoint[] = records.map((r: any) => {
+        const speed = r.enhanced_speed ?? r.speed ?? null;
+        const cadence = normalizeCadence(r.cadence);
+
+        return {
+          timestamp: r.timestamp ?? null,
+          elapsed_s: r.elapsed_time ?? (r.timestamp ? (new Date(r.timestamp).getTime() - t0) / 1000 : 0),
+          distance_m: r.distance ?? null,
+
+          lat: r.position_lat != null ? Number(r.position_lat) : null,
+          lng: r.position_long != null ? Number(r.position_long) : null,
+
+          elevation_m: r.enhanced_altitude ?? r.altitude ?? null,
+          hr: r.heart_rate ?? null,
+          cadence,
+          pace_sec_per_km: speed && speed > 0.1 ? 1000 / speed : null,
+          stride_length_m: speed && cadence ? speed / (cadence / 60) : null,
+          vertical_oscillation_cm: r.vertical_oscillation ?? r.vertical_oscillation_mm ?? null,
+          ground_contact_time_ms: r.stance_time ?? r.ground_contact_time ?? null,
+          temperature_c: r.temperature ?? null,
+        };
+      });
+
+      const normalizedLaps: ParsedLap[] = laps.map((lap: any, i: number, arr: any[]) => {
+        const start = lap.start_time ? new Date(lap.start_time).getTime() : null;
+        let end = lap.timestamp ? new Date(lap.timestamp).getTime() : null;
+
+        if (!end && start && lap.total_elapsed_time) {
+          end = start + Number(lap.total_elapsed_time) * 1000;
+        }
+
+        if (!end && arr[i + 1]?.start_time) {
+          end = new Date(arr[i + 1].start_time).getTime();
+        }
+
+        return {
+          index: i,
+          startMs: start,
+          endMs: end,
+          intensity: lap.intensity ?? null,
+          total_distance: Number(lap.total_distance ?? 0),
+          total_elapsed_time: Number(lap.total_elapsed_time ?? 0),
+          avg_heart_rate: lap.avg_heart_rate ?? null,
+          max_heart_rate: lap.max_heart_rate ?? null,
+          avg_cadence: normalizeCadence(lap.avg_running_cadence ?? lap.avg_cadence) ?? null,
+        };
+      });
+
+      const sess = data?.sessions?.[0];
+      resolve({
+        points,
+        laps: normalizedLaps,
+        totalDistanceM: Number(sess?.total_distance ?? 0),
+        totalTimeS: Number(sess?.total_timer_time ?? 0),
+        startedAt: records[0].timestamp ?? null,
+        sport: sess?.sport ?? data?.sport?.sport ?? null,
+      });
+    });
+  });
+}
+
+function paceSecPerKm(lap: ParsedLap) {
+  return lap.total_distance > 0 ? (lap.total_elapsed_time / lap.total_distance) * 1000 : null;
+}
+function median(nums: number[]) {
+  if (nums.length === 0) return null;
+  const sorted = [...nums].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+// A gap between consecutive recorded points beyond a normal GPS sampling
+// interval means the athlete actually stopped (road crossing, grabbing a
+// gel, a toilet break, etc) rather than just kept running slowly. 20s
+// matches the threshold already used elsewhere in this codebase's own
+// gap-handling reasoning for "this is a real stop, not just slow running".
+const STOP_GAP_THRESHOLD_S = 20;
+
+// Attributes each detected stop's duration to whichever lap's time window
+// it falls inside (by the gap's midpoint, so a gap that happens to straddle
+// a lap boundary isn't double-counted or misattributed to the wrong side).
+// This is ONLY used to correct a lap's pace for classification purposes —
+// a lap that absorbed a real stop has an inflated total_elapsed_time
+// relative to how far it actually covers, which otherwise makes it look
+// like a deliberate slow recovery lap and can flip an entire continuous
+// run into "intervals" (e.g. a 574s stop baked into one auto-lap producing
+// a lap that "paced" at 9:37/km, when the athlete was simply stationary
+// for most of it). Stored/displayed durations elsewhere are untouched —
+// this never changes what a lap's real total_elapsed_time actually was.
+function computeStoppedSecondsPerLap(laps: ParsedLap[], points: MergedPoint[]): Map<number, number> {
+  const stopped = new Map<number, number>();
+  if (points.length < 2 || laps.length === 0) return stopped;
+
+  const windows = laps
+    .map((l) => ({ index: l.index, start: l.startMs ?? null, end: getLapEndMs(l) }))
+    .filter((w): w is { index: number; start: number; end: number } => w.start != null && w.end != null);
+  if (windows.length === 0) return stopped;
+
+  const sorted = [...points].sort((a, b) => a.elapsed_s - b.elapsed_s);
+
+  let prev: MergedPoint | null = null;
+  for (const p of sorted) {
+    if (prev && p.timestamp && prev.timestamp) {
+      const prevMs = new Date(prev.timestamp).getTime();
+      const curMs = new Date(p.timestamp).getTime();
+      const gapS = (curMs - prevMs) / 1000;
+
+      if (gapS >= STOP_GAP_THRESHOLD_S) {
+        const midMs = (prevMs + curMs) / 2;
+        const win = windows.find((w) => midMs >= w.start && midMs <= w.end);
+        if (win) {
+          stopped.set(win.index, (stopped.get(win.index) ?? 0) + gapS);
+        }
+      }
     }
-
-    await recomputeSessionAggregatesFromReps();
-    await recomputeStepTargetFromReps();
-
-    invalidateSession(qc, session.id, session.athlete_id);
+    prev = p;
   }
+  return stopped;
+}
 
-  // Keeps this step's own target_distance_m/target_time_seconds — the
-  // numbers the block header ("Work · 5×1.60 Km") is built from — in sync
-  // with what was actually entered for its reps. Previously only the
-  // session-level aggregates got recomputed after a rep edit; the block
-  // header itself kept showing whatever the original plan/template said,
-  // so e.g. correcting a treadmill session's rep distances never updated
-  // the "5×1.60 Km" label above them. Only touches whichever target_kind
-  // the step already uses (distance vs time) — it never changes the kind
-  // itself, just keeps the displayed number honest. Uses the average of
-  // whatever reps have a value, so a single quick edit doesn't skew the
-  // label if only one rep out of several was corrected.
-  async function recomputeStepTargetFromReps() {
-    if (step.kind !== "work" && step.kind !== "strides") return;
-    if (step.target_kind !== "distance" && step.target_kind !== "time") return;
-
-    const { data: reps } = await supabase
-      .from("interval_results")
-      .select("actual_distance_m, actual_time_seconds")
-      .eq("step_id", step.id);
-
-    if (!reps || reps.length === 0) return;
-
-    if (step.target_kind === "distance") {
-      const values = reps.map((r: any) => Number(r.actual_distance_m)).filter((v: number) => Number.isFinite(v) && v > 0);
-      if (values.length === 0) return;
-      const avg = Math.round(values.reduce((a: number, b: number) => a + b, 0) / values.length);
-      if (avg === step.target_distance_m) return;
-      const { error } = await supabase.from("steps").update({ target_distance_m: avg } as any).eq("id", step.id);
-      if (error) console.error("Failed to recompute step target distance:", error.message);
-    } else {
-      const values = reps.map((r: any) => Number(r.actual_time_seconds)).filter((v: number) => Number.isFinite(v) && v > 0);
-      if (values.length === 0) return;
-      const avg = Math.round(values.reduce((a: number, b: number) => a + b, 0) / values.length);
-      if (avg === step.target_time_seconds) return;
-      const { error } = await supabase.from("steps").update({ target_time_seconds: avg } as any).eq("id", step.id);
-      if (error) console.error("Failed to recompute step target time:", error.message);
+// Same gap detection as computeStoppedSecondsPerLap, but summed across the
+// whole session rather than attributed to individual laps — used for the
+// session-level "moving time" that Total Avg Pace is based on. A session's
+// raw elapsed time (last point's timestamp minus first) always includes
+// every real-world stop by definition; moving time is what a coach
+// actually means by "pace" when scanning the calendar.
+function computeTotalStoppedSeconds(points: MergedPoint[]): number {
+  if (points.length < 2) return 0;
+  const sorted = [...points].sort((a, b) => a.elapsed_s - b.elapsed_s);
+  let total = 0;
+  let prev: MergedPoint | null = null;
+  for (const p of sorted) {
+    if (prev && p.timestamp && prev.timestamp) {
+      const gapS = (new Date(p.timestamp).getTime() - new Date(prev.timestamp).getTime()) / 1000;
+      if (gapS >= STOP_GAP_THRESHOLD_S) total += gapS;
     }
+    prev = p;
+  }
+  return total;
+}
+
+// Pace used specifically for work/recovery classification — subtracts any
+// known stopped time from this lap before computing sec/km, so a lap that
+// merely absorbed a real-world pause doesn't read as a slow recovery jog.
+// Falls back to the lap's raw pace when no stopped-time map is available
+// (e.g. callers that haven't been updated to pass one), which matches the
+// previous unconditional behavior exactly.
+function classificationPaceSecPerKm(lap: ParsedLap, stoppedSecondsByLapIndex?: Map<number, number>): number | null {
+  const stopped = stoppedSecondsByLapIndex?.get(lap.index) ?? 0;
+  const movingTime = Math.max(0, lap.total_elapsed_time - stopped);
+  return lap.total_distance > 0 && movingTime > 0 ? (movingTime / lap.total_distance) * 1000 : null;
+}
+
+function classifyLaps(
+  laps: ParsedLap[],
+  plannedSteps: any[] = [],
+  numFiles: number = 1,
+  isRace: boolean = false,
+  stoppedSecondsByLapIndex?: Map<number, number>,
+): ParsedLap[] {
+  if (!Array.isArray(laps) || laps.length === 0) return [];
+
+  const valid = laps.filter((l) => l.total_distance > 0 && l.total_elapsed_time > 0);
+  if (valid.length === 0) {
+    return laps.map((l) => ({ ...l, kind: "work" as const }));
   }
 
-  // Rolls up interval_results across every step in this session into the
-  // session-level fields the Overview card actually reads. Editing a rep's
-  // Time/Dist previously only touched interval_results — Work pace,
-  // Warm-up/Cool-down avg, and (for manually-created sessions) GPS
-  // Distance all read straight from the `sessions` row and never picked up
-  // a manual edit until this ran.
+  const workSteps = getPlannedWorkSteps(plannedSteps);
+  const hasPlannedWork = workSteps.length > 0;
+  const hasLadderPlan = workSteps.some(stepIsLadder);
+
+  // For a session marked as a race, protect the race distance/time from ever
+  // including warmup or cooldown. Distance alone isn't reliable here — a
+  // short race (e.g. 1500m) can easily be shorter than its own warmup or
+  // cooldown jog. Pace is what's actually reliable: race effort is always
+  // dramatically faster than warmup/cooldown jogging, regardless of how far
+  // the race itself covers. Whichever file has the fastest median pace is
+  // "the race" — anything recorded chronologically before it is warmup,
+  // anything after is cooldown.
   //
-  // GPS-derived total_distance_m/total_time_seconds are left untouched for
-  // real FIT/GPX uploads (source === 'fit_import') — those represent the
-  // actual recorded track, not a coach's manual entry, and a manual rep
-  // tweak should never silently overwrite real GPS data. For
-  // manually-created sessions (no GPS track at all) those totals are
-  // backfilled from the reps since there's no other source of truth.
-  async function recomputeSessionAggregatesFromReps() {
-    const { data: steps } = await supabase.from("steps").select("id, kind").eq("session_id", session.id);
-    if (!steps || steps.length === 0) return;
+  // One wrinkle: a warmup file that includes strides (short fast pickups)
+  // can easily be *faster per-km* than sustained race effort, despite being
+  // a totally different kind of effort. So pace alone isn't quite enough —
+  // a candidate also needs a substantial distance to be eligible, ruling out
+  // a brief burst of strides from ever outranking the real race.
+  if (isRace && numFiles >= 2) {
+    const fileDistances = new Map<number, number>();
+    const filePaces = new Map<number, number>();
+    const fileIndexes = new Set(laps.map((l) => l.sourceFileIndex ?? 0));
 
-    const stepIds = steps.map((s: any) => s.id);
-    const kindByStepId = new Map(steps.map((s: any) => [s.id, s.kind]));
+    for (const idx of fileIndexes) {
+      const fileLaps = laps.filter(
+        (l) => (l.sourceFileIndex ?? 0) === idx && l.total_distance > 50 && l.total_elapsed_time > 10,
+      );
+      const totalDist = fileLaps.reduce((sum, l) => sum + (l.total_distance ?? 0), 0);
+      const pace = median(fileLaps.map(paceSecPerKm).filter((p): p is number => p != null));
+      fileDistances.set(idx, totalDist);
+      if (pace != null) filePaces.set(idx, pace);
+    }
 
-    const { data: allResults } = await supabase
-      .from("interval_results")
-      .select("step_id, actual_distance_m, actual_time_seconds")
-      .in("step_id", stepIds);
+    const maxDistance = Math.max(0, ...fileDistances.values());
+    // A candidate needs at least 1km, and at least a third of the longest
+    // file's distance — enough to rule out a short stride set, without
+    // requiring it to literally be the longest file (a short race can still
+    // be shorter than its own warmup/cooldown).
+    const minCandidateDistance = Math.max(1000, maxDistance * 0.3);
 
-    let workDistance = 0;
-    let workTime = 0;
-    let easyDistance = 0;
-    let easyTime = 0;
-    let totalDistance = 0;
-    let totalTime = 0;
+    const eligibleIndexes = [...filePaces.keys()].filter(
+      (idx) => (fileDistances.get(idx) ?? 0) >= minCandidateDistance,
+    );
 
-    for (const r of allResults ?? []) {
-      const kind = kindByStepId.get((r as any).step_id);
-      const d = Number((r as any).actual_distance_m) || 0;
-      const t = Number((r as any).actual_time_seconds) || 0;
-      totalDistance += d;
-      totalTime += t;
-      if (kind === "work" || kind === "strides") {
-        workDistance += d;
-        workTime += t;
-      } else if (kind === "warmup" || kind === "cooldown") {
-        easyDistance += d;
-        easyTime += t;
+    if (eligibleIndexes.length > 0) {
+      let raceFileIndex = eligibleIndexes[0];
+      let fastestPace = filePaces.get(raceFileIndex) ?? Infinity;
+      for (const idx of eligibleIndexes) {
+        const pace = filePaces.get(idx)!;
+        if (pace < fastestPace) {
+          fastestPace = pace;
+          raceFileIndex = idx;
+        }
+      }
+      return laps.map((lap) => {
+        const idx = lap.sourceFileIndex ?? 0;
+        if (idx === raceFileIndex) return { ...lap, kind: "work" as const };
+        if (idx < raceFileIndex) return { ...lap, kind: "warmup" as const };
+        return { ...lap, kind: "cooldown" as const };
+      });
+    }
+  }
+
+  if (hasPlannedWork) {
+    // The loose "distance >= 150m OR time >= 60s" floor below was meant to
+    // just weed out obvious lap-button blips, but real recovery jogs
+    // between reps routinely run 150-300m over 60-165s — comfortably past
+    // both thresholds — so they were getting swept into "work" wholesale.
+    // Use the same pace-contrast split as the no-plan path first; only fall
+    // back to the loose floor if there's no genuine work/recovery pace
+    // contrast to find (e.g. a single continuous planned tempo effort with
+    // no recovery laps at all, where "contrast" is meaningless).
+    const nonRestCandidates = laps.filter(
+      (l) => l.intensity !== "rest" && l.total_distance > 50 && l.total_elapsed_time > 10,
+    );
+    const { workIndices, isGenuine } = splitLapsByPaceContrast(nonRestCandidates, stoppedSecondsByLapIndex);
+
+    let classified: ParsedLap[] = laps.map((lap) => {
+      if (lap.intensity === "rest") {
+        return { ...lap, kind: "recovery" as const };
+      }
+
+      const isWork = isGenuine ? workIndices.has(lap.index) : lap.total_distance >= 150 || lap.total_elapsed_time >= 60;
+
+      return { ...lap, kind: isWork ? ("work" as const) : ("recovery" as const) };
+    });
+
+    const workIdxs = classified.map((l, i) => (l.kind === "work" ? i : -1)).filter((i) => i >= 0);
+
+    if (workIdxs.length > 0) {
+      const firstWork = workIdxs[0];
+      const lastWork = workIdxs[workIdxs.length - 1];
+
+      classified = classified.map((lap, idx) => {
+        if (lap.kind === "work") return lap;
+        if (idx < firstWork) return { ...lap, kind: "warmup" as const };
+        if (idx > lastWork) return { ...lap, kind: "cooldown" as const };
+        return lap;
+      });
+    }
+
+    // hasLadderPlan doesn't change classification behavior today — flagged
+    // here for whenever per-rep targets ship (see is_ladder checkbox in
+    // sessions.new.tsx), at which point a ladder plan should probably match
+    // each rep's recorded lap against its own planned distance instead of
+    // relying on pace contrast alone.
+    void hasLadderPlan;
+
+    return classified;
+  }
+
+  // When the athlete/coach uploaded multiple SEPARATE files (e.g. distinct
+  // Warm Up / Work / Cool Down / Strides recordings), the file boundary
+  // itself is a far more reliable signal than lap distance — a warmup jog
+  // can easily be a similar distance to a recovery jog between reps, which
+  // is exactly what caused a warmup lap to be misclassified as "recovery"
+  // and left stranded between work reps instead of tagged as "warmup".
+  // So: the earliest file's laps are always warmup, the latest file's laps
+  // are always cooldown, and only laps from files in between (or the single
+  // file, if there's only one) go through the distance-based heuristic.
+  if (numFiles >= 3) {
+    const firstFileLaps = laps.filter((l) => l.sourceFileIndex === 0);
+    const lastFileLaps = laps.filter((l) => l.sourceFileIndex === numFiles - 1);
+    const middleLaps = laps.filter((l) => l.sourceFileIndex !== 0 && l.sourceFileIndex !== numFiles - 1);
+
+    const classifiedMiddle = classifyLapsByDistance(middleLaps, stoppedSecondsByLapIndex);
+
+    return laps.map((lap) => {
+      if (lap.sourceFileIndex === 0) return { ...lap, kind: "warmup" as const };
+      if (lap.sourceFileIndex === numFiles - 1) return { ...lap, kind: "cooldown" as const };
+      const match = classifiedMiddle.find((c) => c.index === lap.index);
+      return match ?? { ...lap, kind: "work" as const };
+    });
+  }
+
+  // Exactly 2 files is genuinely ambiguous by file-position alone — it could
+  // be Work + Cool Down (no warmup ever uploaded) or Warm Up + Work (no
+  // cooldown uploaded), and those need opposite labeling. Pace resolves it:
+  // a cooldown is always meaningfully slower than the work that preceded it,
+  // and a warmup is always meaningfully slower than the work that follows
+  // it. If neither file is clearly slower than the other, don't force a
+  // label — fall through to the normal distance-based classification.
+  if (numFiles === 2) {
+    const file0Laps = laps.filter((l) => l.sourceFileIndex === 0 && l.total_distance > 50 && l.total_elapsed_time > 10);
+    const file1Laps = laps.filter((l) => l.sourceFileIndex === 1 && l.total_distance > 50 && l.total_elapsed_time > 10);
+
+    const pace0 = median(file0Laps.map(paceSecPerKm).filter((p): p is number => p != null));
+    const pace1 = median(file1Laps.map(paceSecPerKm).filter((p): p is number => p != null));
+
+    if (pace0 != null && pace1 != null) {
+      // Second file clearly slower (higher sec/km) than the first -> cooldown.
+      // The "work" file (file0) can still have its own internal work/recovery
+      // structure (e.g. "1 x 2km then 5 x 1km" with jogs between reps) — it
+      // still needs to go through classifyLapsByDistance rather than being
+      // blanket-tagged "work", or every recovery jog inside it silently gets
+      // folded into the work total.
+      if (pace1 >= pace0 * 1.15) {
+        const workFileClassified = classifyLapsByDistance(
+          laps.filter((l) => l.sourceFileIndex === 0),
+          stoppedSecondsByLapIndex,
+        );
+        return laps.map((lap) => {
+          if (lap.sourceFileIndex === 1) return { ...lap, kind: "cooldown" as const };
+          const match = workFileClassified.find((c) => c.index === lap.index);
+          return match ?? { ...lap, kind: "work" as const };
+        });
+      }
+      // First file clearly slower than the second -> warmup. Same reasoning
+      // applied to file1 (the actual work file) here.
+      if (pace0 >= pace1 * 1.15) {
+        const workFileClassified = classifyLapsByDistance(
+          laps.filter((l) => l.sourceFileIndex === 1),
+          stoppedSecondsByLapIndex,
+        );
+        return laps.map((lap) => {
+          if (lap.sourceFileIndex === 0) return { ...lap, kind: "warmup" as const };
+          const match = workFileClassified.find((c) => c.index === lap.index);
+          return match ?? { ...lap, kind: "work" as const };
+        });
+      }
+    }
+  }
+
+  return classifyLapsByDistance(laps, stoppedSecondsByLapIndex);
+}
+
+// Splits a set of laps into a "fast" (work) cluster vs a "slow" (recovery)
+// cluster using pace contrast, not distance matching. A distance-matching
+// heuristic breaks down the moment a session mixes rep distances within one
+// recording — e.g. "1 x 2km then 5 x 1km" — because the 2km rep doesn't
+// match the "dominant" 1km bucket even though it's clearly real work.
+// Recovery laps are dramatically slower (sec/km) than work laps regardless
+// of how far either one covers, so pace is what actually distinguishes them.
+// Returns the set of lap indices judged to be "work", plus whether a
+// genuine two-cluster contrast was found at all (a real continuous run with
+// a couple of incidental pauses shouldn't be fragmented into fake reps).
+function splitLapsByPaceContrast(
+  candidates: ParsedLap[],
+  stoppedSecondsByLapIndex?: Map<number, number>,
+): { workIndices: Set<number>; isGenuine: boolean } {
+  // A lap whose distance dwarfs the rest of the candidate set — e.g. a
+  // multi-km continuous run merged into the same session as a short
+  // strides set uploaded afterward — isn't part of the same "which of
+  // these laps are the real reps" comparison. Left in, its in-between pace
+  // (faster than a recovery walk, slower than a genuine short rep) can
+  // become the anchor for the "biggest gap" split instead of the boundary
+  // that actually separates work from recovery, pulling the run itself
+  // into the work cluster while pushing genuine short reps out. Excluded
+  // from THIS clustering step only — 5x the candidate set's median
+  // distance comfortably separates "one dominant continuous effort" from
+  // legitimate rep-length variation (even a 2km rep among 1km reps is
+  // nowhere near 5x a ~1km median).
+  const candidateDistances = candidates.map((l) => Number(l.total_distance ?? 0)).filter((d) => d > 0).sort((a, b) => a - b);
+  const medianDistance = candidateDistances.length > 0 ? candidateDistances[Math.floor(candidateDistances.length / 2)] : 0;
+  const outlierLaps = medianDistance > 0 ? candidates.filter((l) => Number(l.total_distance ?? 0) > medianDistance * 5) : [];
+  const clusteringCandidates =
+    medianDistance > 0 ? candidates.filter((l) => Number(l.total_distance ?? 0) <= medianDistance * 5) : candidates;
+
+  const withPace = clusteringCandidates
+    .map((l) => ({ lap: l, pace: classificationPaceSecPerKm(l, stoppedSecondsByLapIndex) }))
+    .filter((x): x is { lap: ParsedLap; pace: number } => x.pace != null)
+    .sort((a, b) => a.pace - b.pace);
+
+  // Too few remaining candidates for a real contrast comparison (e.g. the
+  // whole set WAS the outlier, with nothing short left to compare it
+  // against). Falls through to isGenuine=false, whose caller already
+  // defaults every non-rest lap — outlier included — to "work", so the
+  // outlier lap is never lost here even without special-casing it.
+  if (withPace.length < 2) return { workIndices: new Set(), isGenuine: false };
+
+  // Find the largest proportional jump between consecutive paces (sorted
+  // fastest to slowest) — the natural boundary between a "work effort"
+  // cluster and a "recovery effort" cluster, if one exists.
+  let bestGapRatio = 1;
+  let splitAt = -1; // laps [0..splitAt] (inclusive) are the fast/work cluster
+
+  for (let i = 0; i < withPace.length - 1; i++) {
+    const ratio = withPace[i + 1].pace / withPace[i].pace;
+    if (ratio > bestGapRatio) {
+      bestGapRatio = ratio;
+      splitAt = i;
+    }
+  }
+
+  // Require genuine contrast (recovery clearly slower than work) — same
+  // 15% threshold used elsewhere in this file for the same judgment.
+  if (splitAt < 0 || bestGapRatio < 1.15) return { workIndices: new Set(), isGenuine: false };
+
+  // A genuine split WAS found among the clustering candidates — the
+  // outlier lap(s) excluded above need to be added back in explicitly here.
+  // Unlike the withPace.length < 2 case above, the caller checks
+  // workIndices.has(index) directly rather than defaulting everything to
+  // "work" — an outlier lap absent from workIndices would otherwise fall
+  // through to "recovery", misclassifying a genuine 45-minute continuous
+  // run as a rest period simply because it was excluded from a pace
+  // clustering it was never really part of.
+  const workIndices = new Set([
+    ...withPace
+      .slice(0, splitAt + 1)
+      // Guard against a brief lap-button blip computing a fluky fast pace
+      // over a couple of seconds — a real work rep is sustained. This was
+      // previously 20s, which is nowhere close to "a couple of seconds" and
+      // ended up excluding entirely genuine short reps — a fast 85-90m
+      // stride commonly finishes in 14-15s, well under 20 but nothing like
+      // an accidental blip. That left the actual stride laps thrown out of
+      // the work cluster while a much longer recovery-walk lap survived the
+      // filter and got miscategorized as the work instead (a 4-rep strides
+      // session showing as "1 x 150" — the one surviving recovery lap's
+      // own distance, not the strides at all). 5s comfortably still catches
+      // a genuine accidental double-tap of the lap button.
+      .filter((x) => x.lap.total_elapsed_time >= 5)
+      .map((x) => x.lap.index),
+    ...outlierLaps.map((l) => l.index),
+  ]);
+
+  return { workIndices, isGenuine: true };
+}
+
+// The original distance-bucket heuristic, used for a single continuous
+// recording (or the "work" portion once explicit warmup/cooldown files have
+// already been pulled out above) where there's no other signal available to
+// tell warmup/recovery/cooldown apart besides pace and distance patterns.
+function classifyLapsByDistance(laps: ParsedLap[], stoppedSecondsByLapIndex?: Map<number, number>): ParsedLap[] {
+  if (laps.length === 0) return [];
+
+  if (laps.length < 4) {
+    return laps.map((l) => ({ ...l, kind: "work" as const }));
+  }
+
+  const nonRestCandidates = laps.filter(
+    (l) => l.intensity !== "rest" && l.total_distance > 50 && l.total_elapsed_time > 10,
+  );
+
+  const { workIndices, isGenuine } = splitLapsByPaceContrast(nonRestCandidates, stoppedSecondsByLapIndex);
+
+  if (!isGenuine) {
+    return laps.map((l) => ({ ...l, kind: l.intensity === "rest" ? ("recovery" as const) : ("work" as const) }));
+  }
+
+  let classified: ParsedLap[] = laps.map((lap) => {
+    if (lap.intensity === "rest") {
+      return { ...lap, kind: "recovery" as const };
+    }
+    return { ...lap, kind: workIndices.has(lap.index) ? ("work" as const) : ("recovery" as const) };
+  });
+
+  const workIdxs = classified.map((l, i) => (l.kind === "work" ? i : -1)).filter((i) => i >= 0);
+
+  if (workIdxs.length > 0) {
+    const firstWork = workIdxs[0];
+    const lastWork = workIdxs[workIdxs.length - 1];
+
+    classified = classified.map((lap, idx) => {
+      if (lap.kind === "work") return lap;
+      if (idx < firstWork) return { ...lap, kind: "warmup" as const };
+      if (idx > lastWork) return { ...lap, kind: "cooldown" as const };
+      return lap;
+    });
+  }
+
+  return classified;
+}
+
+function findLapKindForPoint(timestamp: Date | string | null, laps: ParsedLap[]): string {
+  if (!timestamp) return "work";
+  const t = typeof timestamp === "string" ? new Date(timestamp).getTime() : timestamp.getTime();
+  for (const lap of laps) {
+    const start = lap.startMs ?? null;
+    const end = getLapEndMs(lap);
+    if (start != null && end != null && t >= start && t <= end) {
+      return lap.kind ?? "work";
+    }
+  }
+  return "work";
+}
+
+function buildWorkRecoveryPairs(classifiedLaps: ParsedLap[]): WorkRecoveryPair[] {
+  const pairs: WorkRecoveryPair[] = [];
+
+  for (let i = 0; i < classifiedLaps.length; i++) {
+    const lap = classifiedLaps[i];
+    if (lap.kind !== "work") continue;
+
+    let recovery: ParsedLap | null = null;
+
+    if (i + 1 < classifiedLaps.length) {
+      const next = classifiedLaps[i + 1];
+      if (next.kind === "recovery") {
+        recovery = next;
       }
     }
 
-    const sessionPatch: any = {
-      work_distance_m: workDistance || null,
-      work_time_s: workTime || null,
-      work_avg_pace_sec_per_km: workDistance > 0 && workTime > 0 ? (workTime / workDistance) * 1000 : null,
-      easy_avg_pace_sec_per_km: easyDistance > 0 && easyTime > 0 ? (easyTime / easyDistance) * 1000 : null,
-    };
+    pairs.push({
+      work: lap,
+      recovery,
+    });
+  }
 
-    if (session.source !== "fit_import") {
-      sessionPatch.total_distance_m = totalDistance || null;
-      sessionPatch.total_time_seconds = totalTime || null;
+  return pairs;
+}
+
+// Splits a work block into consecutive groups of similar-distance reps —
+// e.g. a "1 x 2km then 5 x 1km" workout — so each group can become its own
+// accurate step instead of one step whose target_distance_m is a flat
+// average across every rep regardless of length (which turned "1 x 2km,
+// 5 x 1km" into a meaningless "6 x 1.2km"). Grouping is sequential (in the
+// order reps actually happened), not a global sort — real structured
+// workouts run same-length reps back to back, so this also naturally
+// handles pyramids/ladders (e.g. 400/800/1200/1200/800/400) as multiple
+// groups without needing to assume there are only two distinct lengths.
+function splitBlockIntoDistanceGroups(blockPairs: WorkRecoveryPair[]): WorkRecoveryPair[][] {
+  if (blockPairs.length <= 1) return [blockPairs];
+
+  const DISTANCE_GROUP_TOLERANCE = 0.2; // reps within a group should be within ~20% of each other
+
+  const groups: WorkRecoveryPair[][] = [];
+  let current: WorkRecoveryPair[] = [blockPairs[0]];
+  let currentAvgDist = Number(blockPairs[0].work.total_distance ?? 0);
+
+  for (let i = 1; i < blockPairs.length; i++) {
+    const dist = Number(blockPairs[i].work.total_distance ?? 0);
+    const diffRatio = currentAvgDist > 0 ? Math.abs(dist - currentAvgDist) / currentAvgDist : 0;
+
+    if (diffRatio <= DISTANCE_GROUP_TOLERANCE) {
+      current.push(blockPairs[i]);
+      // Rolling average so the group's reference distance stays stable as
+      // more same-length reps join it, rather than drifting rep-to-rep.
+      currentAvgDist = current.reduce((s, p) => s + Number(p.work.total_distance ?? 0), 0) / current.length;
+    } else {
+      groups.push(current);
+      current = [blockPairs[i]];
+      currentAvgDist = dist;
     }
+  }
+  groups.push(current);
 
-    const { error: aggErr } = await supabase.from("sessions").update(sessionPatch).eq("id", session.id);
-    if (aggErr) {
-      console.error("Failed to recompute session aggregates from reps:", aggErr.message);
+  return groups;
+}
+
+function splitWorkPairsIntoBlocks(pairs: WorkRecoveryPair[], plannedSteps: any[]) {
+  const recoverySteps = getPlannedBlockRecoverySteps(plannedSteps);
+
+  if (recoverySteps.length === 0) {
+    return [pairs];
+  }
+
+  const recoveryStep = recoverySteps[0];
+  const plannedBlockRecoverySeconds = Number(
+    recoveryStep?.recovery_target_seconds ?? recoveryStep?.target_time_seconds ?? 0,
+  );
+
+  const recoveryDurations = pairs
+    .map((p) => Number(p.recovery?.total_elapsed_time ?? 0))
+    .filter((x) => x > 0)
+    .sort((a, b) => a - b);
+
+  const medianRecovery = recoveryDurations.length > 0 ? recoveryDurations[Math.floor(recoveryDurations.length / 2)] : 0;
+
+  const longRecoveryThreshold =
+    plannedBlockRecoverySeconds > 0
+      ? plannedBlockRecoverySeconds * 0.7
+      : medianRecovery > 0
+        ? medianRecovery * 1.75
+        : Infinity;
+
+  const blocks: WorkRecoveryPair[][] = [];
+  let currentBlock: WorkRecoveryPair[] = [];
+
+  for (const pair of pairs) {
+    currentBlock.push(pair);
+
+    const recDur = Number(pair.recovery?.total_elapsed_time ?? 0);
+    const isLongRecovery = recDur > 0 && recDur >= longRecoveryThreshold;
+
+    if (isLongRecovery) {
+      blocks.push(currentBlock);
+      currentBlock = [];
     }
   }
 
-  const isMarkedAsRace = session.race_step_id === step.id;
+  if (currentBlock.length > 0) blocks.push(currentBlock);
 
-  async function reassignKind(newKind: string) {
-    if (newKind === step.kind) return;
-    const { error } = await supabase
-      .from("steps")
-      .update({ kind: newKind } as any)
-      .eq("id", step.id);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    toast.success(`Reassigned to ${newKind}`);
-    invalidateSession(qc, session.id, session.athlete_id);
+  return blocks.length > 0 ? blocks : [pairs];
+}
+
+// Furthest any recorded point during this lap strayed from the lap's own
+// centroid, in metres — i.e. how far the runner actually *ranged* from a
+// single spot, independent of how much cumulative GPS distance or cadence
+// was recorded getting there. A runner pacing/shuffling near the start
+// line between reps can rack up real distance and walk-range cadence
+// without ever actually going anywhere; a genuine "walk to a recovery
+// point" moves the centroid meaningfully. Returns null when there aren't
+// enough located points during the lap window to make the call, so the
+// caller can fall back to the distance/cadence heuristic.
+function computeRecoverySpatialExtentM(points: MergedPoint[], lap: ParsedLap): number | null {
+  if (!lap.startMs) return null;
+  const endMs = getLapEndMs(lap);
+  if (endMs == null) return null;
+
+  const lapPoints = points.filter((p) => {
+    if (!p.timestamp || typeof p.lat !== "number" || typeof p.lng !== "number") return false;
+    const t = new Date(p.timestamp).getTime();
+    return t >= lap.startMs! && t <= endMs;
+  });
+
+  if (lapPoints.length < 3) return null;
+
+  const centroidLat = lapPoints.reduce((s, p) => s + (p.lat as number), 0) / lapPoints.length;
+  const centroidLng = lapPoints.reduce((s, p) => s + (p.lng as number), 0) / lapPoints.length;
+
+  return lapPoints.reduce(
+    (max, p) => Math.max(max, haversineMeters(centroidLat, centroidLng, p.lat as number, p.lng as number)),
+    0,
+  );
+}
+
+function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function inferRecoveryMode(recoveryLap: ParsedLap | null, points: MergedPoint[] = []): string | null {
+  if (!recoveryLap) return null;
+
+  const dist = Number(recoveryLap.total_distance ?? 0);
+  const dur = Number(recoveryLap.total_elapsed_time ?? 0);
+
+  if (dur <= 0) return null;
+
+  if (dist < 10) return "rest";
+
+  // Spatial-extent check first: distance/cadence alone can't tell a
+  // deliberate "walk 100m" recovery from a runner pacing/shuffling in a
+  // tight area near the start line, waiting for the next rep — both can
+  // post real GPS distance and walk-range (or even higher, noisy) cadence.
+  // If every located point during this recovery stays within a small
+  // radius of the group's own centroid, the runner never actually left
+  // the spot, whatever the odometer says — that's standing, not a walk.
+  const spatialExtentM = computeRecoverySpatialExtentM(points, recoveryLap);
+  const STATIONARY_RADIUS_M = 15;
+  if (spatialExtentM != null && spatialExtentM <= STATIONARY_RADIUS_M) {
+    return "standing";
   }
 
-  async function markAsRace() {
-    // Build the race's actual distance/time from this step's own recorded
-    // reps, not the whole session — so a race with an attached warmup or
-    // cooldown never gets its distance/time diluted by them.
-    const totalDistance = results.reduce((sum, r) => sum + (Number(r.actual_distance_m) || 0), 0);
-    const totalTime = results.reduce((sum, r) => sum + (Number(r.actual_time_seconds) || 0), 0);
+  // A genuine "walk" recovery involves real ambulation — at least 100m
+  // covered over at least 30s. Below that (a brief shuffle, GPS jitter,
+  // or someone barely moving), calling it a "walk" overstates what
+  // actually happened; "standing" is the honest label.
+  const MIN_WALK_DISTANCE_M = 100;
+  const MIN_WALK_DURATION_S = 30;
+  const movedEnoughToCount = dist >= MIN_WALK_DISTANCE_M && dur >= MIN_WALK_DURATION_S;
 
-    if (totalDistance <= 0 || totalTime <= 0) {
-      toast.error("This block has no recorded distance/time yet — add results before marking it as the race.");
-      return;
-    }
+  // Cadence is a far more reliable jog-vs-walk signal than pace: genuine
+  // recovery jogging (especially straight after a hard rep) is very
+  // commonly just as slow as brisk walking pace-wise, but running gait
+  // keeps a flight phase and essentially never drops below ~140 total
+  // steps/min, while walking gait — however brisk — essentially never
+  // reaches it. Prefer cadence whenever the device recorded it; only fall
+  // back to the pace-based guess for files with no cadence sensor data.
+  const cadence = recoveryLap.avg_cadence;
+  if (cadence != null && cadence > 0) {
+    const JOG_CADENCE_FLOOR_SPM = 140;
+    if (cadence >= JOG_CADENCE_FLOOR_SPM) return "jog";
+    return movedEnoughToCount ? "walk" : "standing";
+  }
 
-    const { data: updatedSession, error: sessErr } = await supabase
-      .from("sessions")
-      .update({ day_type: "race", race_step_id: step.id } as any)
-      .eq("id", session.id)
-      .select()
-      .single();
+  const paceSecPerKm = dist > 0 ? (dur / dist) * 1000 : null;
 
-    if (sessErr) {
-      toast.error(sessErr.message);
-      return;
-    }
+  if (paceSecPerKm != null && paceSecPerKm > 700) {
+    return movedEnoughToCount ? "walk" : "standing";
+  }
 
-    qc.setQueryData(["session", session.id], updatedSession);
+  return "jog";
+}
 
-    // Replace any existing performance for this session with this step's data
-    await (supabase.from("performances") as any).delete().eq("session_id", session.id);
+function getLapEndMs(lap: ParsedLap | null): number | null {
+  if (!lap) return null;
+  if (lap.endMs != null) return lap.endMs;
+  if (lap.startMs != null && lap.total_elapsed_time > 0) {
+    return lap.startMs + lap.total_elapsed_time * 1000;
+  }
+  return null;
+}
 
-    const { error: perfErr } = await (supabase.from("performances") as any).insert({
-      athlete_id: session.athlete_id,
-      performance_date: session.session_date,
-      distance_m: Math.round(totalDistance),
-      time_seconds: totalTime,
-      event_name: session.title || null,
-      notes: session.notes || null,
-      session_id: session.id,
-      is_pb: false,
-      context: "race",
+function getEndHrForLap(points: MergedPoint[], lap: ParsedLap | null): number | null {
+  if (!lap) return null;
+
+  if (!lap.startMs || !getLapEndMs(lap)) {
+    return lap.max_heart_rate ?? lap.avg_heart_rate ?? null;
+  }
+
+  const endMs = getLapEndMs(lap)!;
+
+  const candidates = points
+    .filter((p) => {
+      if (!p.timestamp || p.hr == null) return false;
+      const t = new Date(p.timestamp).getTime();
+      return t >= lap.startMs! && t <= endMs;
+    })
+    .sort((a, b) => {
+      const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+      const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+      return ta - tb;
     });
 
-    if (perfErr) {
-      toast.error(perfErr.message);
-      return;
-    }
-
-    toast.success("Marked as the race 🏁");
-    qc.invalidateQueries({ queryKey: ["session", session.id] });
-    qc.invalidateQueries({ queryKey: ["race-by-session", session.id] });
-    qc.invalidateQueries({ queryKey: ["races", session.athlete_id] });
-    qc.invalidateQueries({ queryKey: ["my-pbs", session.athlete_id] });
+  if (candidates.length === 0) {
+    return lap.max_heart_rate ?? lap.avg_heart_rate ?? null;
   }
 
-  async function unmarkAsRace() {
-    const { data: updatedSession, error } = await supabase
-      .from("sessions")
-      .update({ day_type: "training", race_step_id: null } as any)
-      .eq("id", session.id)
-      .select()
-      .single();
-
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-
-    await (supabase.from("performances") as any).delete().eq("session_id", session.id);
-
-    qc.setQueryData(["session", session.id], updatedSession);
-    toast("Race unmarked");
-    qc.invalidateQueries({ queryKey: ["session", session.id] });
-    qc.invalidateQueries({ queryKey: ["race-by-session", session.id] });
-    qc.invalidateQueries({ queryKey: ["races", session.athlete_id] });
-  }
-
-  return (
-    <Card>
-      {/* ✅ HEADER */}
-      <CardHeader className="cursor-pointer" onClick={() => setOpen((v) => !v)}>
-        <div className="flex items-center justify-between bg-muted/40 rounded px-2 py-1">
-          <CardTitle className="text-base capitalize flex items-center gap-2">
-            {isMarkedAsRace && <span title="This block is marked as the race">🏁</span>}
-            {step.kind === "recovery" ? "Recovery" : step.kind}
-
-            {isWork &&
-              step.target_kind === "distance" &&
-              ` · ${setCount > 1 ? `${setCount}×` : ""}${step.reps}×${metersFmt(roundDistanceForDisplay(step.target_distance_m))}`}
-
-            {isWork && step.target_kind === "time" && ` · ${step.reps}×${secToClock(step.target_time_seconds)}`}
-
-            {/* Resolved workout target (Phase 3) — "95% thr · 4:07–4:20/km",
-                "Z3 · 4:30–5:00/km", "RPE 7/10". Open steps show nothing.
-                normal-case overrides the CardTitle's capitalize so labels
-                like "bpm" and "thr" don't get mangled. */}
-            {(() => {
-              const t = resolveStepTarget(step, zoneProfile);
-              if (t.mode === "open") return null;
-              return (
-                <span
-                  className="text-sm font-normal normal-case text-[var(--accent-red)]"
-                  title={t.detail ?? undefined}
-                >
-                  {t.label}
-                </span>
-              );
-            })()}
-
-            {/* Strides intentionally show no "reps × distance" suffix — unlike
-                a work block's reps, individual strides commonly vary in
-                distance from each other (a coach eyeballing 80-100m pickups,
-                not a fixed track distance), so a single uniform figure here
-                would misrepresent the block. */}
-          </CardTitle>
-
-          <div className="flex items-center gap-2">
-            <Select value={step.kind} onValueChange={reassignKind}>
-              <SelectTrigger className="h-7 w-[110px] text-xs" onClick={(e) => e.stopPropagation()}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="warmup">Warmup</SelectItem>
-                <SelectItem value="work">Work</SelectItem>
-                <SelectItem value="recovery">Recovery</SelectItem>
-                <SelectItem value="cooldown">Cooldown</SelectItem>
-                <SelectItem value="strides">Strides</SelectItem>
-              </SelectContent>
-            </Select>
-            {/* Set/fix a target here regardless of how this session landed on
-                the calendar (template apply, plan assignment, or a builder
-                save that skipped it) — the one place every creation path
-                converges. Only while planned; a completed step's block is
-                for actuals, not the prescription. */}
-            {(isWork || isStrides) && !session.completed_at && (
-              <WorkTargetEditor
-                step={step}
-                onSaved={() => qc.invalidateQueries({ queryKey: ["steps", session.id] })}
-              />
-            )}
-            {isWork && (
-              <Button
-                size="sm"
-                variant={isMarkedAsRace ? "destructive" : "outline"}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (isMarkedAsRace) {
-                    unmarkAsRace();
-                  } else {
-                    markAsRace();
-                  }
-                }}
-              >
-                {isMarkedAsRace ? "Unmark race" : "🏁 Mark as race"}
-              </Button>
-            )}
-            <div className="text-sm text-muted-foreground">{open ? "▼" : "▶"}</div>
-          </div>
-        </div>
-      </CardHeader>
-
-      {/* ✅ SMOOTH COLLAPSE */}
-      <div
-        className={`transition-all duration-300 overflow-hidden ${
-          open ? "max-h-[2000px] opacity-100" : "max-h-0 opacity-0"
-        }`}
-      >
-        <CardContent>
-          {(isWork || isStrides) && (
-            <div className="space-y-3">
-              {sets.map((setN) => {
-                const isOpen = openSets[setN];
-
-                return (
-                  <div key={setN} className="border rounded-lg p-2">
-                    {setCount > 1 && (
-                      <div
-                        className="flex items-center justify-between text-xs opacity-80 cursor-pointer"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleSet(setN);
-                        }}
-                      >
-                        <div>Set {setN}</div>
-                        <div>{isOpen ? "▼" : "▶"}</div>
-                      </div>
-                    )}
-
-                    {isOpen && (
-                      <div className="space-y-2 mt-2">
-                        {reps.map((rep) => {
-                          const r = results.find((x) => x.rep_number === rep && (x.set_number ?? 1) === setN);
-
-                          return (
-                            <div key={`${setN}-${rep}`}>
-                              <RepRow step={step} rep={rep} result={r} onSave={(p) => saveRep(setN, rep, p)} />
-                              {step.reps > 1 && rep < reps.length && <RecoveryBetweenReps step={step} session={session} />}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {isRecovery && (
-            <div className="space-y-2">
-              {reps.map((rep) => {
-                const r = results.find((x) => x.rep_number === rep);
-                return <RepRow key={rep} step={step} rep={rep} result={r} onSave={(p) => saveRep(1, rep, p)} />;
-              })}
-            </div>
-          )}
-
-          {(step.kind === "warmup" || step.kind === "cooldown") && (
-            <RepRow step={step} rep={1} result={results[0]} onSave={(p) => saveRep(1, 1, p)} />
-          )}
-
-          {(isWork || isStrides) && <LactateSummary results={results} />}
-          {isWork && <WorkFuelNote step={step} sessionId={session.id} />}
-        </CardContent>
-      </div>
-    </Card>
-  );
+  return candidates[candidates.length - 1].hr ?? lap.max_heart_rate ?? lap.avg_heart_rate ?? null;
 }
 
-function RepRow({ step, rep, result, onSave }: { step: any; rep: number; result?: any; onSave: (patch: any) => void }) {
-  const isRecovery = step.kind === "recovery";
-  const isWorkOrStride = step.kind === "work" || step.kind === "strides";
+function summarizeImportedPoints(points: ParsedPoint[]) {
+  const hrs = points.map((p) => p.hr).filter((x): x is number => typeof x === "number");
+  const paces = points
+    .map((p) => p.pace_sec_per_km)
+    .filter((x): x is number => typeof x === "number" && x > 0 && x <= 600);
+  const cads = points.map((p) => p.cadence).filter((x): x is number => typeof x === "number" && x > 0);
+  const temps = points.map((p) => p.temperature_c).filter((x): x is number => typeof x === "number");
 
-  const [time, setTime] = useState("");
-  const [dist, setDist] = useState<string | number>("");
-  const [hrEnd, setHrEnd] = useState<string | number>("");
-  const [hrRec, setHrRec] = useState<string | number>("");
-  const [hrAvg, setHrAvg] = useState<string | number>("");
-  const [cadence, setCadence] = useState<string | number>("");
-  const [stride, setStride] = useState<string | number>("");
+  const avgHr = hrs.length ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null;
+  const maxHr = hrs.length ? Math.max(...hrs) : null;
+  const avgPace = paces.length ? Math.round(paces.reduce((a, b) => a + b, 0) / paces.length) : null;
+  const avgCad = cads.length ? Math.round(cads.reduce((a, b) => a + b, 0) / cads.length) : null;
+  const avgTemp = temps.length ? Number((temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(1)) : null;
 
-  const [adjustmentNote, setAdjustmentNote] = useState<string>("");
-
-  const [lactateTaken, setLactateTaken] = useState<boolean>(false);
-  const [lactateMmol, setLactateMmol] = useState<string | number>("");
-  const [lactateTiming, setLactateTiming] = useState<string>("end_of_rep");
-
-  const [showNote, setShowNote] = useState(false);
-
-  // ✅ Derived stride
-  const distanceM = Number(dist);
-  const timeSec =
-    typeof time === "string" && time.includes(":")
-      ? time.split(":").reduce((acc, part, i) => acc + Number(part) * (i === 0 ? 60 : 1), 0)
-      : Number(time);
-
-  const computedStride =
-    distanceM > 0 && timeSec > 0 && Number(cadence) > 0 ? (distanceM / ((timeSec / 60) * Number(cadence))) * 100 : null;
-
-  const resultKey = result?.id ?? "none";
-
-  useEffect(() => {
-    setTime(result?.actual_time_seconds ? secToClock(result.actual_time_seconds) : "");
-    setDist(result?.actual_distance_m != null ? Math.round(Number(result.actual_distance_m)) : "");
-    setHrEnd(result?.hr_end ?? "");
-    setHrRec(result?.hr_end_recovery ?? "");
-    setHrAvg(result?.hr_avg ?? "");
-    setCadence(result?.cadence ?? "");
-    setStride(result?.stride_length_cm ?? "");
-    setAdjustmentNote(result?.adjustment_note ?? "");
-    setLactateTaken(!!result?.lactate_taken);
-    setLactateMmol(result?.lactate_mmol ?? "");
-    setLactateTiming(result?.lactate_timing ?? "end_of_rep");
-  }, [resultKey]);
-
-  function commit() {
-    const patch: any = {
-      actual_time_seconds: clockToSec(time as any),
-      actual_distance_m: dist === "" ? null : Math.round(Number(dist)),
-      hr_end: hrEnd === "" ? null : Number(hrEnd),
-      hr_end_recovery: hrRec === "" ? null : Number(hrRec),
-      hr_avg: hrAvg === "" ? null : Number(hrAvg),
-      cadence: cadence === "" ? null : Number(cadence),
-      stride_length_cm: stride === "" ? null : Number(stride),
-      adjustment_note: adjustmentNote.trim() || null,
-      lactate_taken: lactateTaken,
-      lactate_mmol: lactateMmol === "" ? null : Number(lactateMmol),
-      lactate_timing: lactateTaken ? lactateTiming : null,
-    };
-
-    if (patch.actual_time_seconds && patch.actual_distance_m) {
-      patch.actual_pace_sec_per_km = (patch.actual_time_seconds / patch.actual_distance_m) * 1000;
-    }
-
-    onSave(patch);
-  }
-
-  // ✅ ADD THIS RIGHT HERE
-  function getDropColor(drop: number) {
-    if (drop >= 20) {
-      return "h-9 flex items-center justify-center rounded border text-base font-semibold tabular-nums bg-emerald-500/15 text-emerald-700 border-emerald-300";
-    }
-    if (drop >= 10) {
-      return "h-9 flex items-center justify-center rounded border text-base font-semibold tabular-nums bg-amber-500/15 text-amber-700 border-amber-300";
-    }
-    return "h-9 flex items-center justify-center rounded border text-base font-semibold tabular-nums bg-red-500/15 text-red-700 border-red-300";
-  }
-
-  return (
-    <div className="space-y-2 border-l-2 pl-2">
-      <div className="text-xs text-muted-foreground">Rep {rep}</div>
-
-      {/* ✅ ROW 1 — CORE METRICS */}
-      <div className="grid grid-cols-8 gap-2 text-sm items-end">
-        <div>
-          <Label className="text-xs">Time</Label>
-          <Input value={time} onChange={(e) => setTime(e.target.value)} onBlur={commit} />
-        </div>
-
-        <div className="col-span-2">
-          <Label className="text-xs">Dist (m)</Label>
-
-          <Input type="number" step="1" value={dist} onChange={(e) => setDist(e.target.value)} onBlur={commit} />
-        </div>
-
-        {!isRecovery && (
-          <div>
-            <Label className="text-xs">HR avg</Label>
-
-            <Input
-              type="number"
-              className={Number(hrAvg) > 180 ? "border-red-400" : ""}
-              value={hrAvg}
-              onChange={(e) => setHrAvg(e.target.value)}
-              onBlur={commit}
-            />
-          </div>
-        )}
-
-        <div>
-          <Label className="text-xs">{isRecovery ? "HR rec" : "HR end"}</Label>
-          <Input
-            type="number"
-            value={isRecovery ? hrRec : hrEnd}
-            onChange={(e) => (isRecovery ? setHrRec(e.target.value) : setHrEnd(e.target.value))}
-            onBlur={commit}
-          />
-        </div>
-
-        {!isRecovery && Number(hrEnd) > 0 && Number(hrRec) >= 0 && (
-          <div>
-            <Label className="text-xs">Drop</Label>
-            <div className={getDropColor(Number(hrEnd) - Number(hrRec))}>{Number(hrEnd) - Number(hrRec)}</div>
-          </div>
-        )}
-
-        {!isRecovery && (
-          <>
-            <div>
-              <Label className="text-xs">Cad</Label>
-
-              <Input
-                type="number"
-                className={Number(cadence) < 165 ? "border-amber-400" : ""}
-                value={cadence}
-                onChange={(e) => setCadence(e.target.value)}
-                onBlur={commit}
-              />
-            </div>
-
-            <div className="col-span-1">
-              <Label className="text-xs">Stride</Label>
-              <Input
-                type="number"
-                value={stride !== "" ? stride : computedStride ? Math.round(computedStride) : ""}
-                onChange={(e) => setStride(e.target.value)}
-                onBlur={commit}
-              />
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* ✅ ROW 2 — TOGGLES */}
-      {isWorkOrStride && (
-        <div className="flex items-center gap-4 text-xs mt-1">
-          <button type="button" className="text-muted-foreground underline" onClick={() => setShowNote((v) => !v)}>
-            Note
-          </button>
-
-          <label className="flex items-center gap-1.5">
-            <Switch
-              checked={lactateTaken}
-              onCheckedChange={(v) => {
-                setLactateTaken(v);
-                setTimeout(commit, 0);
-              }}
-            />
-            <span className="text-muted-foreground">Lactate</span>
-          </label>
-        </div>
-      )}
-
-      {/* ✅ ROW 3 — EXPANDED DETAILS */}
-      {(showNote || lactateTaken) && (
-        <div className="flex flex-wrap gap-2 mt-2 text-xs">
-          {showNote && (
-            <Input
-              className="h-7 flex-1 min-w-[200px]"
-              placeholder="Adjustment note..."
-              value={adjustmentNote}
-              onChange={(e) => setAdjustmentNote(e.target.value)}
-              onBlur={commit}
-            />
-          )}
-
-          {lactateTaken && (
-            <>
-              <Input
-                className="h-7 w-20"
-                type="number"
-                step="0.1"
-                value={lactateMmol}
-                onChange={(e) => setLactateMmol(e.target.value)}
-                onBlur={commit}
-              />
-
-              <Select
-                value={lactateTiming}
-                onValueChange={(v) => {
-                  setLactateTiming(v);
-                  setTimeout(commit, 0);
-                }}
-              >
-                <SelectTrigger className="h-7 w-[150px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="end_of_rep">End of rep</SelectItem>
-                  <SelectItem value="end_of_recovery">End of recovery</SelectItem>
-                </SelectContent>
-              </Select>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
+  return { avgHr, maxHr, avgPace, avgCad, avgTemp };
 }
 
-// A small editable divider shown between reps in a work/strides step,
-// surfacing the "recovery between reps" target that previously only
-// appeared read-only in the collapsed header summary. This is a single
-// step-level target (recovery_between_reps_seconds/_distance_m/_mode),
-// not a per-rep result — editing any one instance updates the same
-// underlying value that applies to every recovery in this step, which is
-// why the same summary repeats between each pair of reps.
-function RecoveryBetweenReps({ step, session }: { step: any; session: any }) {
-  const qc = useQueryClient();
-  const isDistanceTarget = step.recovery_between_reps_target_kind === "distance";
+function summarizeLapsMetrics(
+  laps: ParsedLap[],
+  points: MergedPoint[],
+  stoppedSecondsByLapIndex?: Map<number, number>,
+) {
+  const totalDistance = laps.reduce((s, l) => s + Number(l.total_distance ?? 0), 0);
+  // Subtract any real-world stop time (traffic, a gel, a toilet break)
+  // that a lap absorbed into its own total_elapsed_time — otherwise a
+  // session's "work pace" (and everything downstream of it, including
+  // intent classification) reads as much slower than the athlete actually
+  // ran, purely because a stop happened to land inside a work-classified
+  // lap. This is the same stoppedSecondsByLapIndex map already computed
+  // once for classification purposes (computeStoppedSecondsPerLap) — reused
+  // here rather than detecting gaps a second time.
+  const totalTime = laps.reduce((s, l) => {
+    const stopped = stoppedSecondsByLapIndex?.get(l.index) ?? 0;
+    return s + Math.max(0, Number(l.total_elapsed_time ?? 0) - stopped);
+  }, 0);
 
-  const [editing, setEditing] = useState(false);
-  const [timeText, setTimeText] = useState(secToClock(step.recovery_between_reps_seconds || 0));
-  const [distanceText, setDistanceText] = useState<string | number>(step.recovery_between_reps_distance_m ?? "");
-  const [mode, setMode] = useState<string>(step.recovery_between_reps_mode ?? "standing");
+  const hrWeighted = laps.reduce((s, l) => {
+    if (l.avg_heart_rate == null) return s;
+    return s + Number(l.avg_heart_rate) * Number(l.total_elapsed_time ?? 0);
+  }, 0);
 
-  useEffect(() => {
-    setTimeText(secToClock(step.recovery_between_reps_seconds || 0));
-    setDistanceText(step.recovery_between_reps_distance_m ?? "");
-    setMode(step.recovery_between_reps_mode ?? "standing");
-  }, [step.id, step.recovery_between_reps_seconds, step.recovery_between_reps_distance_m, step.recovery_between_reps_mode]);
+  const hrTime = laps.reduce((s, l) => {
+    if (l.avg_heart_rate == null) return s;
+    return s + Number(l.total_elapsed_time ?? 0);
+  }, 0);
 
-  async function commit() {
-    const patch: any = { recovery_between_reps_mode: mode || null };
-    if (isDistanceTarget) {
-      patch.recovery_between_reps_distance_m = distanceText === "" ? null : Number(distanceText);
-    } else {
-      patch.recovery_between_reps_seconds = clockToSec(timeText as any) || null;
-    }
+  const avgHr = hrTime > 0 ? Math.round(hrWeighted / hrTime) : null;
+  const maxHr = laps.reduce((m, l) => Math.max(m, Number(l.max_heart_rate ?? 0)), 0) || null;
 
-    const { error } = await supabase.from("steps").update(patch).eq("id", step.id);
-    if (error) {
-      toast.error(`Recovery save failed: ${error.message}`);
-      return;
-    }
-    setEditing(false);
-    invalidateSession(qc, session.id, session.athlete_id);
-  }
+  const cadWeighted = laps.reduce((s, l) => {
+    if (l.avg_cadence == null) return s;
+    return s + Number(l.avg_cadence) * Number(l.total_elapsed_time ?? 0);
+  }, 0);
 
-  const summary =
-    isDistanceTarget && Number(distanceText) > 0
-      ? `${metersFmt(roundDistanceForDisplay(Number(distanceText)))} Recovery${mode ? ` (${mode})` : ""}`
-      : (clockToSec(timeText as any) ?? 0) > 0
-        ? `${formatRecoveryDuration(roundRecoverySeconds(clockToSec(timeText as any) ?? 0))} Recovery${mode ? ` (${mode})` : ""}`
-        : "Recovery (not set)";
+  const cadTime = laps.reduce((s, l) => {
+    if (l.avg_cadence == null) return s;
+    return s + Number(l.total_elapsed_time ?? 0);
+  }, 0);
 
-  if (!editing) {
-    return (
-      <button
-        type="button"
-        onClick={() => setEditing(true)}
-        className="w-full text-left text-xs italic text-muted-foreground px-2 py-1 my-0.5 rounded hover:bg-accent/40 hover:text-foreground"
-        title="Applies to every recovery between reps in this step — click to edit"
-      >
-        ↓ {summary}
-      </button>
-    );
-  }
+  const avgCad = cadTime > 0 ? Math.round(cadWeighted / cadTime) : null;
+  const endHr = laps.length > 0 ? getEndHrForLap(points, laps[laps.length - 1]) : null;
 
-  return (
-    <div className="flex items-end gap-2 px-2 py-1.5 my-0.5 bg-muted/30 rounded">
-      {isDistanceTarget ? (
-        <div>
-          <Label className="text-xs">Recovery dist (m)</Label>
-          <Input
-            type="number"
-            step="1"
-            className="h-7 w-24 text-xs"
-            value={distanceText}
-            onChange={(e) => setDistanceText(e.target.value)}
-          />
-        </div>
-      ) : (
-        <div>
-          <Label className="text-xs">Recovery (mm:ss)</Label>
-          <Input className="h-7 w-20 text-xs" value={timeText} onChange={(e) => setTimeText(e.target.value)} />
-        </div>
-      )}
-      <div>
-        <Label className="text-xs">Mode</Label>
-        <Input className="h-7 w-28 text-xs" value={mode} onChange={(e) => setMode(e.target.value)} />
-      </div>
-      <Button size="sm" className="h-7" onClick={commit}>
-        Save
-      </Button>
-      <Button size="sm" variant="ghost" className="h-7" onClick={() => setEditing(false)}>
-        Cancel
-      </Button>
-    </div>
-  );
+  return {
+    distance: totalDistance || null,
+    time: totalTime || null,
+    avgHr,
+    maxHr,
+    avgCad,
+    endHr,
+  };
 }
 
-function WorkFuelNote({ step, sessionId }: { step: any; sessionId: string }) {
-  const qc = useQueryClient();
-  const [note, setNote] = useState<string>(step.fuel_note ?? "");
-  useEffect(() => {
-    setNote(step.fuel_note ?? "");
-  }, [step.id, step.fuel_note]);
-  async function save() {
-    const { error } = await supabase
-      .from("steps")
-      .update({ fuel_note: note.trim() || null })
-      .eq("id", step.id);
-    if (error) {
-      toast.error(error.message);
-      return;
+function sortFilesForRebuild(files: any[]) {
+  return [...files].sort((a, b) => {
+    const ta = a.started_at ? new Date(a.started_at).getTime() : a.created_at ? new Date(a.created_at).getTime() : 0;
+
+    const tb = b.started_at ? new Date(b.started_at).getTime() : b.created_at ? new Date(b.created_at).getTime() : 0;
+
+    return ta - tb;
+  });
+}
+
+async function parseStoredFile(sb: any, file: { storage_path: string; file_kind: string }): Promise<ParsedFile | null> {
+  const { data: blob, error } = await sb.storage.from("session-files").download(file.storage_path);
+  if (error || !blob) return null;
+  const buf = await blob.arrayBuffer();
+
+  try {
+    if (file.file_kind === "gpx") {
+      return parseGPX(new TextDecoder().decode(new Uint8Array(buf)));
     }
-    qc.invalidateQueries({ queryKey: ["steps", sessionId] });
-    toast.success("Fueling note saved");
+    return await parseFIT(buf);
+  } catch {
+    return null;
   }
-  return (
-    <div className="mt-3 border-t pt-3 space-y-1.5">
-      <Label className="text-xs flex items-center gap-1">
-        <Apple className="h-3 w-3" /> Fueling note (this work block)
-      </Label>
-      <Textarea
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        placeholder="e.g. gel before rep 4, sips of water between sets"
-        className="text-sm"
-        rows={2}
-      />
-      <Button size="sm" variant="outline" onClick={save}>
-        Save fueling note
-      </Button>
-    </div>
-  );
 }
 
-function LactateSummary({ results }: { results: any[] }) {
-  const rows = results.filter((r) => r.lactate_taken && r.lactate_mmol != null);
-  if (rows.length === 0) return null;
-  return (
-    <div className="mt-3 border-t pt-3">
-      <div className="text-xs font-semibold text-muted-foreground mb-1.5">Lactate readings</div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-        {rows.map((r) => (
-          <div key={r.id} className="border rounded px-2 py-1 flex justify-between">
-            <span className="text-muted-foreground">
-              {(r.set_number ?? 1) > 1 ? `S${r.set_number} ` : ""}Rep {r.rep_number}
-              {r.lactate_timing === "end_of_recovery" ? " · rec" : ""}
-            </span>
-            <span className="tabular-nums font-medium">{Number(r.lactate_mmol).toFixed(1)} mmol</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+function buildIntervalRowsFromPlan(
+  workBlocks: WorkRecoveryPair[][],
+  plannedSteps: any[],
+  mergedPoints: MergedPoint[] = [],
+) {
+  const workSteps = getPlannedWorkSteps(plannedSteps);
+  const rows: any[] = [];
+  // Track rep/set counters per step_id so that when multiple work blocks
+  // fall back to the same planned step (blockIdx >= workSteps.length), we
+  // don't restart at set=1/rep=1 and collide with the earlier block's rows
+  // — the (step_id, set_number, rep_number) unique constraint would reject
+  // the whole insert.
+  const counters = new Map<string, { setNumber: number; repNumber: number; ladderIndex: number }>();
+
+  for (let blockIdx = 0; blockIdx < workBlocks.length; blockIdx++) {
+    const pairs = workBlocks[blockIdx] ?? [];
+    const workStep = workSteps[blockIdx] ?? workSteps[workSteps.length - 1];
+
+    if (!workStep || pairs.length === 0) continue;
+
+    const repsPerSet = Math.max(1, Number(workStep.reps ?? pairs.length));
+    const setCount = Math.max(1, Number(workStep.set_count ?? 1));
+    const ladder = stepIsLadder(workStep);
+
+    const c = counters.get(workStep.id) ?? { setNumber: 1, repNumber: 0, ladderIndex: 0 };
+
+    for (let i = 0; i < pairs.length; i++) {
+      c.repNumber += 1;
+      c.ladderIndex += 1;
+
+      if (!ladder && c.repNumber > repsPerSet) {
+        c.setNumber += 1;
+        c.repNumber = 1;
+      }
+
+      const pair = pairs[i];
+      const lap = pair.work;
+      const recovery = pair.recovery;
+
+      rows.push({
+        step_id: workStep.id,
+        set_number: Math.min(c.setNumber, setCount),
+        rep_number: ladder ? c.ladderIndex : c.repNumber,
+        actual_time_seconds: lap.total_elapsed_time || null,
+        actual_distance_m: lap.total_distance || null,
+        actual_pace_sec_per_km:
+          lap.total_distance > 0 && lap.total_elapsed_time > 0
+            ? (lap.total_elapsed_time / lap.total_distance) * 1000
+            : null,
+        hr_avg: lap.avg_heart_rate ?? null,
+        hr_max: lap.max_heart_rate ?? null,
+        hr_end: getEndHrForLap(mergedPoints, lap) ?? lap.max_heart_rate ?? lap.avg_heart_rate ?? null,
+        hr_end_recovery: getEndHrForLap(mergedPoints, recovery) ?? recovery?.avg_heart_rate ?? null,
+        cadence: lap.avg_cadence ?? null,
+      });
+    }
+
+    counters.set(workStep.id, c);
+  }
+
+  // Final safety net: if any duplicate (step_id, set_number, rep_number)
+  // survives — e.g. clamping to setCount collapsed two rows to the same
+  // slot — keep the last one so the insert doesn't hit the unique
+  // constraint.
+  const dedup = new Map<string, any>();
+  for (const r of rows) {
+    dedup.set(`${r.step_id}|${r.set_number}|${r.rep_number}`, r);
+  }
+  return Array.from(dedup.values());
 }
 
-function FuelingPanel({ session }: { session: any }) {
-  const qc = useQueryClient();
-  const [notes, setNotes] = useState(session.fueling_notes ?? "");
-  const [carbs, setCarbs] = useState<string>(session.fueling_carbs_g != null ? String(session.fueling_carbs_g) : "");
-  const [fluid, setFluid] = useState<string>(session.fueling_fluid_ml != null ? String(session.fueling_fluid_ml) : "");
-  const [sodium, setSodium] = useState<string>(session.fueling_sodium_mg != null ? String(session.fueling_sodium_mg) : "");
-  // Re-sync whenever the underlying session row changes — keyed on
-  // session.id (not just the individual fields) so this resets correctly
-  // even when navigating session-to-session via the < > links reuses this
-  // component instance instead of remounting it, same class of stale-
-  // state bug already fixed elsewhere on this page for that reason.
-  useEffect(() => {
-    setNotes(session.fueling_notes ?? "");
-    setCarbs(session.fueling_carbs_g != null ? String(session.fueling_carbs_g) : "");
-    setFluid(session.fueling_fluid_ml != null ? String(session.fueling_fluid_ml) : "");
-    setSodium(session.fueling_sodium_mg != null ? String(session.fueling_sodium_mg) : "");
-  }, [session.id, session.fueling_notes, session.fueling_carbs_g, session.fueling_fluid_ml, session.fueling_sodium_mg]);
+/**
+ * Rebuild entire FIT/GPX-derived session from all attached files.
+ * This is the single source of truth for raw_session_points / steps / interval_results.
+ */
+async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<void> {
+  const { data: sess, error: sessErr } = await sb.from("sessions").select("*").eq("id", sessionId).single();
 
-  async function save() {
-    const { error } = await supabase
+  if (sessErr || !sess) throw sessErr ?? new Error("Session not found for rebuild");
+
+  const { data: files } = await sb
+    .from("session_files")
+    .select("id, storage_path, file_kind, started_at, total_distance_m, total_time_s, created_at")
+    .eq("session_id", sessionId);
+
+  const safeFiles = sortFilesForRebuild(files ?? []);
+
+  await sb.from("session_zone_time").delete().eq("session_id", sessionId);
+  await sb.from("session_fatigue").delete().eq("session_id", sessionId);
+  await sb.from("raw_session_points").delete().eq("session_id", sessionId);
+
+  const { data: existingSteps } = await sb.from("steps").select("id").eq("session_id", sessionId);
+
+  const existingStepIds = (existingSteps ?? []).map((s: any) => s.id);
+
+  const { data: plannedStepsAll } = await sb.from("steps").select("*").eq("session_id", sessionId).order("step_order");
+
+  const safePlannedSteps = plannedStepsAll ?? [];
+  const hasManualPlan = Boolean(sess.is_planned) && safePlannedSteps.length > 0;
+
+  if (existingStepIds.length > 0) {
+    await sb.from("interval_results").delete().in("step_id", existingStepIds);
+  }
+
+  if (!hasManualPlan && existingStepIds.length > 0) {
+    await sb.from("steps").delete().eq("session_id", sessionId);
+  }
+
+  if (safeFiles.length === 0) {
+    await sb
       .from("sessions")
       .update({
-        fueling_notes: notes || null,
-        fueling_carbs_g: carbs === "" ? null : Number(carbs),
-        fueling_fluid_ml: fluid === "" ? null : Number(fluid),
-        fueling_sodium_mg: sodium === "" ? null : Number(sodium),
-      })
-      .eq("id", session.id);
-    if (error) toast.error(error.message);
-    else {
-      toast.success("Fueling saved");
-      qc.invalidateQueries({ queryKey: ["session", session.id] });
-    }
+        total_distance_m: null,
+        total_time_seconds: null,
+        work_distance_m: null,
+        work_time_s: null,
+        avg_hr: null,
+        max_hr: null,
+        average_temp_c: null,
+        work_avg_hr: null,
+        work_avg_pace_sec_per_km: null,
+        work_avg_cadence: null,
+        completion_pct: null,
+        structure: hasManualPlan ? sess.structure : "continuous",
+        needs_review: true,
+      } as any)
+      .eq("id", sessionId);
+
+    return;
   }
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">Fueling</CardTitle>
-      </CardHeader>
 
-      <CardContent className="space-y-3">
-        <div className="grid grid-cols-3 gap-2">
-          <div>
-            <Label className="text-xs flex items-center gap-1">
-              <Flame className="h-3 w-3" /> Carbs (g)
-            </Label>
-            <Input
-              type="number"
-              step="0.1"
-              value={carbs}
-              onChange={(e) => setCarbs(e.target.value)}
-              placeholder="60"
-              className="h-8 text-sm"
-            />
-          </div>
-          <div>
-            <Label className="text-xs flex items-center gap-1">
-              <Droplet className="h-3 w-3" /> Fluid (ml)
-            </Label>
-            <Input
-              type="number"
-              value={fluid}
-              onChange={(e) => setFluid(e.target.value)}
-              placeholder="500"
-              className="h-8 text-sm"
-            />
-          </div>
-          <div>
-            <Label className="text-xs">Sodium (mg)</Label>
-            <Input
-              type="number"
-              value={sodium}
-              onChange={(e) => setSodium(e.target.value)}
-              placeholder="300"
-              className="h-8 text-sm"
-            />
-          </div>
-        </div>
+  const parsedFiles: { file: any; parsed: ParsedFile }[] = [];
+  for (const f of safeFiles) {
+    const parsed = await parseStoredFile(sb, f);
+    if (parsed) parsedFiles.push({ file: f, parsed });
+  }
 
-        <Textarea
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder="e.g. gel before rep 4"
-          rows={2}
-          className="text-sm"
-        />
+  if (parsedFiles.length === 0) {
+    throw new Error("Rebuild failed: no attached file could be parsed");
+  }
 
-        <Button size="sm" variant="outline" onClick={save}>
-          Save
-        </Button>
-      </CardContent>
-    </Card>
+  const anchorMsList = parsedFiles
+    .map((p) => {
+      const rawStart = p.parsed.startedAt ?? p.file.started_at ?? p.file.created_at ?? null;
+      return rawStart ? new Date(rawStart).getTime() : null;
+    })
+    .filter((x): x is number => x !== null);
+
+  const anchorMs = anchorMsList.length > 0 ? Math.min(...anchorMsList) : 0;
+
+  const mergedPoints: MergedPoint[] = [];
+  let cumulativeDistanceOffset = 0;
+
+  for (const { file, parsed } of parsedFiles) {
+    const rawStart = parsed.startedAt ?? file.started_at ?? file.created_at ?? null;
+    const fileStartMs = rawStart ? new Date(rawStart).getTime() : anchorMs;
+    const offsetS = anchorMs > 0 ? (fileStartMs - anchorMs) / 1000 : 0;
+
+    let fileMaxDistance = 0;
+
+    for (const p of parsed.points) {
+      const pointDistance = Number(p.distance_m ?? 0);
+      if (pointDistance > fileMaxDistance) fileMaxDistance = pointDistance;
+
+      mergedPoints.push({
+        ...p,
+        elapsed_s: Number(p.elapsed_s ?? 0) + offsetS,
+        distance_m: p.distance_m != null ? Number(p.distance_m) + cumulativeDistanceOffset : null,
+        file_id: file.id,
+      });
+    }
+
+    cumulativeDistanceOffset += fileMaxDistance;
+  }
+
+  mergedPoints.sort((a, b) => a.elapsed_s - b.elapsed_s);
+
+  const mergedLaps: ParsedLap[] = [];
+  parsedFiles.forEach(({ parsed }, fileIdx) => {
+    for (const lap of parsed.laps) {
+      mergedLaps.push({ ...lap, sourceFileIndex: fileIdx });
+    }
+  });
+
+  mergedLaps.sort((a, b) => (a.startMs ?? 0) - (b.startMs ?? 0));
+  mergedLaps.forEach((l, i) => {
+    l.index = i;
+  });
+
+  // Cross-training FIT/GPX uploads (currently just 'ride' — swim FIT
+  // parsing isn't built yet, and gym has no file-upload path at all) skip
+  // the running-specific classification pipeline entirely from here on:
+  // lap classification, warmup/work/cooldown splitting, and pace-zone
+  // intent scoring are all calibrated to running and would produce
+  // nonsense against a bike ride (e.g. scoring a hard bike interval as a
+  // running "VO2" effort, or splitting a ride into "warmup"/"work" laps
+  // based on running pace contrast). Instead: keep the merged raw points
+  // (so the map/trace still renders on the analysis page), write simple
+  // whole-session totals, and skip laps/steps/interval_results entirely.
+  // HR zone time still gets populated separately, via
+  // recompute_session_zones()'s whole-session HR fallback for sessions
+  // with no interval_results to bucket (see
+  // migration_02_cross_training_hr_zones.sql) — triggered automatically
+  // by the sessions UPDATE below, same as it always has been.
+  if (sess.activity_type && sess.activity_type !== "run" && sess.activity_type !== "track") {
+    const totalStoppedS = computeTotalStoppedSeconds(mergedPoints);
+    const totalDistanceM =
+      mergedPoints.length > 0
+        ? Number(mergedPoints[mergedPoints.length - 1].distance_m ?? 0)
+        : parsedFiles.reduce((s, p) => s + Number(p.parsed.totalDistanceM ?? 0), 0);
+    const totalTimeS =
+      mergedPoints.length > 0
+        ? Number(mergedPoints[mergedPoints.length - 1].elapsed_s ?? 0)
+        : parsedFiles.reduce((s, p) => s + Number(p.parsed.totalTimeS ?? 0), 0);
+    const totalMovingTimeS = Math.max(0, totalTimeS - totalStoppedS);
+    const { avgHr, maxHr, avgTemp } = summarizeImportedPoints(mergedPoints);
+
+    if (mergedPoints.length > 0) {
+      const rows = mergedPoints.map((p) => ({
+        session_id: sessionId,
+        file_id: p.file_id,
+        segment_type: "work",
+        elapsed_s: p.elapsed_s,
+        distance_m: p.distance_m ?? null,
+        lat: p.lat ?? null,
+        lng: p.lng ?? null,
+        hr: p.hr ?? null,
+        pace_sec_per_km: p.pace_sec_per_km ?? null,
+        cadence: p.cadence ?? null,
+        elevation_m: p.elevation_m ?? null,
+        vertical_oscillation_cm: p.vertical_oscillation_cm ?? null,
+        ground_contact_time_ms: p.ground_contact_time_ms ?? null,
+        temperature_c: p.temperature_c ?? null,
+      }));
+
+      for (let i = 0; i < rows.length; i += 500) {
+        const { error } = await sb.from("raw_session_points").insert(rows.slice(i, i + 500) as any);
+        if (error) throw error;
+      }
+    }
+
+    await sb
+      .from("sessions")
+      .update({
+        total_distance_m: totalDistanceM || null,
+        total_time_seconds: totalTimeS || null,
+        total_moving_time_seconds: totalMovingTimeS || null,
+        work_distance_m: null,
+        work_time_s: null,
+        avg_hr: avgHr,
+        max_hr: maxHr,
+        average_temp_c: avgTemp,
+        work_avg_hr: null,
+        work_avg_pace_sec_per_km: null,
+        work_avg_cadence: null,
+        completion_pct: 100,
+        structure: "continuous",
+        needs_review: false,
+      } as any)
+      .eq("id", sessionId);
+
+    return;
+  }
+
+  // Real-world stops (traffic, a gel, a toilet break) get baked into
+  // whichever lap's total_elapsed_time they fell inside, inflating that
+  // lap's apparent pace enough to look like a deliberate slow recovery jog
+  // — this corrects for that before classification runs, without touching
+  // any stored/displayed duration.
+  const stoppedSecondsByLapIndex = computeStoppedSecondsPerLap(mergedLaps, mergedPoints);
+
+  const classifiedLaps = classifyLaps(
+    mergedLaps,
+    hasManualPlan ? safePlannedSteps : [],
+    parsedFiles.length,
+    sess.day_type === "race",
+    stoppedSecondsByLapIndex,
   );
-}
+  const pairs = buildWorkRecoveryPairs(classifiedLaps);
 
-// Assigns gear (shoes/bike/etc, from the Locker's Gear page) to this
-// session — the other half of "assign from the session page" alongside
-// the Gear page's own retroactive linker. Multi-select toggle buttons,
-// same interaction pattern the Daily Log's recovery-modalities tags
-// already use, since a session can reasonably have more than one item
-// linked (e.g. a treadmill run: both the treadmill and the shoes worn).
-function GearPanel({ session }: { session: any }) {
-  const qc = useQueryClient();
-  const athleteId = session.athlete_id as string;
-  const sessionId = session.id as string;
+  const workLaps = classifiedLaps.filter((l) => l.kind === "work");
+  const warmupLaps = classifiedLaps.filter((l) => l.kind === "warmup");
+  const cooldownLaps = classifiedLaps.filter((l) => l.kind === "cooldown");
 
-  const { data: gearItems } = useQuery({
-    queryKey: ["gear-items-for-session", athleteId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("gear_items")
-        .select("id, gear_type, shoe_category, is_spike, brand, model, nickname")
-        .eq("athlete_id", athleteId)
-        .eq("is_retired", false)
-        .order("gear_type")
-        .order("created_at", { ascending: false });
+  // Computed once here (not inside the hasManualPlan branch below) so these
+  // are in scope for the final sessions.update() — previously work_avg_pace_
+  // sec_per_km etc. fell back to the whole-session blended average because
+  // work-specific metrics were never computed outside that branch.
+  const warmupMetrics = summarizeLapsMetrics(warmupLaps, mergedPoints, stoppedSecondsByLapIndex);
+  const cooldownMetrics = summarizeLapsMetrics(cooldownLaps, mergedPoints, stoppedSecondsByLapIndex);
+  const workMetrics = summarizeLapsMetrics(workLaps, mergedPoints, stoppedSecondsByLapIndex);
+
+  // Same fix as isContinuous below: "intervals" means genuine recovery
+  // breaks occurred, not "more than one work lap exists". A watch
+  // auto-lapping a plain continuous run every ~1km produces many pairs
+  // with zero real recovery between them — `pairs.length > 1` alone can't
+  // tell that apart from an actual interval session, which is exactly what
+  // was mislabeling ordinary continuous runs as "intervals" (and flagging
+  // them needs_review) whenever a stop for traffic/a gel/etc happened to
+  // land on an auto-lap boundary.
+  const isIntervals = pairs.some((p) => p.recovery != null);
+
+  const totalDistanceM =
+    mergedPoints.length > 0
+      ? Number(mergedPoints[mergedPoints.length - 1].distance_m ?? 0)
+      : parsedFiles.reduce((s, p) => s + Number(p.parsed.totalDistanceM ?? 0), 0);
+
+  const totalTimeS =
+    mergedPoints.length > 0
+      ? Number(mergedPoints[mergedPoints.length - 1].elapsed_s ?? 0)
+      : parsedFiles.reduce((s, p) => s + Number(p.parsed.totalTimeS ?? 0), 0);
+
+  // "Total Time" (totalTimeS above) intentionally stays as true elapsed
+  // duration — how long the athlete was actually out there, stops
+  // included, which is its own useful number. "Total Avg Pace" on the
+  // Overview divides distance by time with no separate moving-time concept
+  // to fall back on, so a 574s stop for a mid-run break inflated the whole
+  // session's average pace by nearly a minute per km. total_moving_time_s
+  // gives that calculation something better to divide by, without changing
+  // what total_time_seconds itself means.
+  const totalStoppedS = computeTotalStoppedSeconds(mergedPoints);
+  const totalMovingTimeS = Math.max(0, totalTimeS - totalStoppedS);
+
+  const { avgHr, maxHr, avgPace, avgCad, avgTemp } = summarizeImportedPoints(mergedPoints);
+
+  if (mergedPoints.length > 0) {
+    const rows = mergedPoints.map((p) => ({
+      session_id: sessionId,
+      file_id: p.file_id,
+      segment_type: findLapKindForPoint(p.timestamp ?? null, classifiedLaps),
+      elapsed_s: p.elapsed_s,
+      distance_m: p.distance_m ?? null,
+      lat: p.lat ?? null,
+      lng: p.lng ?? null,
+      hr: p.hr ?? null,
+      pace_sec_per_km: p.pace_sec_per_km ?? null,
+      cadence: p.cadence ?? null,
+      elevation_m: p.elevation_m ?? null,
+      vertical_oscillation_cm: p.vertical_oscillation_cm ?? null,
+      ground_contact_time_ms: p.ground_contact_time_ms ?? null,
+      temperature_c: p.temperature_c ?? null,
+    }));
+
+    for (let i = 0; i < rows.length; i += 500) {
+      const { error } = await sb.from("raw_session_points").insert(rows.slice(i, i + 500) as any);
       if (error) throw error;
-      return (data ?? []) as any[];
-    },
-  });
-
-  const { data: linkedIds } = useQuery({
-    queryKey: ["session-gear-links", sessionId],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("session_gear").select("gear_id").eq("session_id", sessionId);
-      if (error) throw error;
-      return new Set((data ?? []).map((r: any) => r.gear_id as string));
-    },
-  });
-
-  const [selected, setSelected] = useState<Set<string> | null>(null);
-
-  // Re-sync from the DB whenever we land on a (possibly different)
-  // session or its links load/change — same stale-state guard used
-  // throughout this page for components that don't remount between
-  // sessions.
-  useEffect(() => {
-    if (linkedIds) setSelected(new Set(linkedIds));
-  }, [sessionId, linkedIds]);
-
-  function toggle(id: string) {
-    setSelected((prev) => {
-      const next = new Set(prev ?? []);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+    }
   }
 
-  async function save() {
-    if (!selected) return;
-    const before = linkedIds ?? new Set<string>();
-    const toAdd = [...selected].filter((id) => !before.has(id));
-    const toRemove = [...before].filter((id) => !selected.has(id));
+  if (hasManualPlan) {
+    const workBlocks = splitWorkPairsIntoBlocks(pairs, safePlannedSteps);
+    const intervalRows = buildIntervalRowsFromPlan(workBlocks, safePlannedSteps, mergedPoints);
 
-    if (toAdd.length > 0) {
-      const { error } = await supabase
-        .from("session_gear")
-        .insert(toAdd.map((gear_id) => ({ session_id: sessionId, gear_id, athlete_id: athleteId })) as any);
-      if (error) {
-        toast.error(error.message);
-        return;
-      }
+    if (intervalRows.length > 0) {
+      const { error } = await sb.from("interval_results").insert(intervalRows as any);
+      if (error) throw error;
     }
-    if (toRemove.length > 0) {
-      const { error } = await supabase.from("session_gear").delete().eq("session_id", sessionId).in("gear_id", toRemove);
-      if (error) {
-        toast.error(error.message);
-        return;
-      }
-    }
-    toast.success("Gear updated");
-    qc.invalidateQueries({ queryKey: ["session-gear-links", sessionId] });
-    qc.invalidateQueries({ queryKey: ["gear-usage", athleteId] });
-    qc.invalidateQueries({ queryKey: ["gear-links"] });
-  }
+  } else {
+    const stepsToInsert: any[] = [];
+    let stepOrder = 1;
 
-  if (!gearItems || gearItems.length === 0) {
-    return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">Gear</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">
-            No gear added yet — add shoes, a bike, or other kit on the{" "}
-            <Link to="/app/gear" className="underline">
-              Gear
-            </Link>{" "}
-            page first.
-          </p>
-        </CardContent>
-      </Card>
+    const hasWarmup = Number(warmupMetrics.time ?? 0) >= 120 || Number(warmupMetrics.distance ?? 0) >= 200;
+
+    const hasCooldown = Number(cooldownMetrics.time ?? 0) >= 120 || Number(cooldownMetrics.distance ?? 0) >= 200;
+
+    const recoveryDurations = pairs.map((p) => Number(p.recovery?.total_elapsed_time ?? 0)).filter((x) => x > 0);
+
+    const sortedRec = [...recoveryDurations].sort((a, b) => a - b);
+    const medianRec = sortedRec.length > 0 ? sortedRec[Math.floor(sortedRec.length / 2)] : 0;
+    const betweenSetThreshold = medianRec > 0 ? medianRec * 1.75 : Infinity;
+
+    const shortRecoveries = recoveryDurations.filter((x) => x > 0 && x < betweenSetThreshold);
+    const recoveryForAvg = shortRecoveries.length > 0 ? shortRecoveries : recoveryDurations;
+
+    const avgRecovery =
+      recoveryForAvg.length > 0 ? Math.round(recoveryForAvg.reduce((a, b) => a + b, 0) / recoveryForAvg.length) : null;
+
+    const recoveryMode = inferRecoveryMode(
+      pairs.find(
+        (p) =>
+          Number(p.recovery?.total_elapsed_time ?? 0) > 0 &&
+          Number(p.recovery?.total_elapsed_time ?? 0) < betweenSetThreshold,
+      )?.recovery ??
+        pairs[0]?.recovery ??
+        null,
+      mergedPoints,
     );
-  }
 
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">Gear used</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="flex flex-wrap gap-1.5">
-          {gearItems.map((g) => {
-            const isSelected = selected?.has(g.id) ?? false;
-            const label = g.nickname || `${g.brand} ${g.model}`;
-            return (
-              <button
-                key={g.id}
-                type="button"
-                onClick={() => toggle(g.id)}
-                className={`px-2.5 py-1 text-xs rounded-md border ${
-                  isSelected
-                    ? "bg-[var(--accent-red)] text-white border-[var(--accent-red)]"
-                    : "border-border text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
-        <Button size="sm" variant="outline" onClick={save}>
-          Save
-        </Button>
-      </CardContent>
-    </Card>
-  );
-}
+    const workBlocks: WorkRecoveryPair[][] = [];
+    let currentBlock: WorkRecoveryPair[] = [];
 
-function SessionSummary({
-  session,
-  results = [],
-  onSaved,
-  onCompleted,
-}: {
-  session: any;
-  results?: any[];
-  onSaved: () => void;
-  onCompleted?: () => void;
-}) {
-  const qc = useQueryClient();
-  const [rpe, setRpe] = useState<number>(5);
-  // Re-sync whenever the underlying session row changes (after server-side recompute).
-  useEffect(() => {
-    setRpe(session.rpe ?? 5);
-  }, [session.rpe]);
+    for (const pair of pairs) {
+      currentBlock.push(pair);
+      const recDur = Number(pair.recovery?.total_elapsed_time ?? 0);
 
-  // Feel (Very Weak..Very Strong faces) lives on session_insights, not
-  // sessions — same field the post-session reflection modal already saves
-  // to, so however an athlete answers "how did you feel" (here or in that
-  // popup) both write to and read from one place.
-  const { data: insightForFeel } = useQuery({
-    queryKey: ["session-feel", session.id],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("session_insights")
-        .select("feel_score")
-        .eq("session_id", session.id)
-        .maybeSingle();
-      return (data as any) ?? null;
-    },
-  });
-  const [feel, setFeel] = useState<number | null>(null);
-  // Keyed on session.id (not just the query result) so this resets correctly
-  // even when navigating session-to-session via the < > links reuses this
-  // component instance instead of remounting it — the same class of stale-
-  // state bug already fixed elsewhere for exactly this reason.
-  useEffect(() => {
-    setFeel(insightForFeel?.feel_score ?? null);
-  }, [session.id, insightForFeel]);
-
-  // Derived stride length: prefer an explicit per-rep value, else compute from
-  // session totals + average rep cadence. Returns null when not enough data.
-  const derivedStride = (() => {
-    const explicit = results.map((r: any) => Number(r?.stride_length_cm)).filter((n) => Number.isFinite(n) && n > 0);
-    if (explicit.length) {
-      const avgCm = explicit.reduce((a, b) => a + b, 0) / explicit.length;
-      return Number((avgCm / 100).toFixed(2));
+      if (recDur >= betweenSetThreshold) {
+        workBlocks.push(currentBlock);
+        currentBlock = [];
+      }
     }
-    const cads = results.map((r: any) => Number(r?.cadence)).filter((n) => Number.isFinite(n) && n > 0);
-    const avgCad = cads.length ? cads.reduce((a, b) => a + b, 0) / cads.length : null;
-    return computeStrideLengthM(session.total_distance_m, session.total_time_seconds, avgCad);
-  })();
+    if (currentBlock.length > 0) workBlocks.push(currentBlock);
 
-  async function complete() {
-    const wasAlreadyComplete = !!session.completed_at;
+    const haveBetweenSet = workBlocks.length > 1;
 
-    const [sessionRes, insightRes] = await Promise.all([
-      supabase
-        .from("sessions")
-        .update({
-          rpe,
-          ...(wasAlreadyComplete ? {} : { completed_at: new Date().toISOString() }),
-        })
-        .eq("id", session.id),
-      feel != null
-        ? supabase
-            .from("session_insights")
-            .upsert({ session_id: session.id, athlete_id: session.athlete_id, feel_score: feel } as any, {
-              onConflict: "session_id",
-            })
-        : Promise.resolve({ error: null }),
-    ]);
+    // "Continuous" means no genuine recovery break ever occurred — NOT "the
+    // file only had one lap". buildWorkRecoveryPairs() creates one pair per
+    // work-classified lap, so a normal watch auto-lapping every ~1km on a
+    // plain easy run produces many pairs even when every lap is "work" with
+    // zero real recovery between them (e.g. after classifyLapsByDistance
+    // correctly found no genuine work/recovery pace contrast at all). The
+    // old `pairs.length <= 1` check only caught a file with a single lap
+    // total, so a multi-auto-lap continuous run fell through to the
+    // block-splitting branch below and got fragmented into fake "N x
+    // distance" reps around ordinary GPS/lap-timing noise (e.g. a short lap
+    // left over from a brief real-world stop for traffic, a gel, etc).
+    // Reuses isIntervals (same underlying test, computed above) rather than
+    // a second copy of the same check, so the two can't drift apart again.
+    const isContinuous = !isIntervals && !hasWarmup && !hasCooldown;
 
-    if (sessionRes.error || insightRes.error) {
-      toast.error(sessionRes.error?.message ?? insightRes.error?.message ?? "Save failed");
+    if (isContinuous) {
+      stepsToInsert.push({
+        session_id: sessionId,
+        step_order: stepOrder++,
+        kind: "work",
+        reps: 1,
+        set_count: 1,
+        target_kind: totalDistanceM > 0 ? "distance" : "time",
+        target_distance_m: totalDistanceM > 0 ? totalDistanceM : null,
+        target_time_seconds: totalDistanceM > 0 ? null : totalTimeS > 0 ? totalTimeS : null,
+        counts_toward_distance: true,
+      });
     } else {
-      toast.success(wasAlreadyComplete ? "Session updated" : "Session marked complete");
-      qc.invalidateQueries({ queryKey: ["session-feel", session.id] });
-      onSaved();
-      if (!wasAlreadyComplete) onCompleted?.();
+      if (hasWarmup) {
+        stepsToInsert.push({
+          session_id: sessionId,
+          step_order: stepOrder++,
+          kind: "warmup",
+          reps: 1,
+          set_count: 1,
+          target_kind: warmupMetrics.distance && warmupMetrics.distance > 0 ? "distance" : "time",
+          target_distance_m: warmupMetrics.distance && warmupMetrics.distance > 0 ? warmupMetrics.distance : null,
+          target_time_seconds: warmupMetrics.time && warmupMetrics.time > 0 ? warmupMetrics.time : null,
+          counts_toward_distance: true,
+        });
+      }
+
+      const pushWorkStep = (blockPairs: WorkRecoveryPair[]) => {
+        const distanceGroups = splitBlockIntoDistanceGroups(blockPairs);
+
+        for (const groupPairs of distanceGroups) {
+          const groupWorkLaps = groupPairs.map((p) => p.work);
+          const groupDist = groupWorkLaps.reduce((s, l) => s + Number(l.total_distance ?? 0), 0);
+          const groupTime = groupWorkLaps.reduce((s, l) => s + Number(l.total_elapsed_time ?? 0), 0);
+
+          // Recovery stats scoped to THIS group's own reps — a group only
+          // has "between rep" recovery among its own members, not whatever
+          // recovery happened to come first across the whole block. A
+          // group's last member's `.recovery` is the transition into the
+          // NEXT group (or into cooldown) rather than a same-distance
+          // internal recovery, so it's naturally excluded here since only
+          // reps before the last one within a group have a same-group
+          // "next rep" to recover into.
+          const groupRecoveryPairs = groupPairs.slice(0, -1);
+          const groupRecoveryDurations = groupRecoveryPairs
+            .map((p) => Number(p.recovery?.total_elapsed_time ?? 0))
+            .filter((x) => x > 0);
+
+          const groupAvgRecovery =
+            groupRecoveryDurations.length > 0
+              ? Math.round(groupRecoveryDurations.reduce((a, b) => a + b, 0) / groupRecoveryDurations.length)
+              : null;
+
+          const groupRecoveryMode =
+            groupRecoveryPairs.length > 0
+              ? inferRecoveryMode(groupRecoveryPairs[0]?.recovery ?? null, mergedPoints)
+              : null;
+
+          stepsToInsert.push({
+            session_id: sessionId,
+            step_order: stepOrder++,
+            kind: "work",
+            reps: groupPairs.length,
+            set_count: 1,
+            target_kind: groupDist > 0 ? "distance" : "time",
+            target_distance_m: groupDist > 0 ? Math.round(groupDist / Math.max(1, groupPairs.length)) : null,
+            target_time_seconds: groupDist > 0 ? null : Math.round(groupTime / Math.max(1, groupPairs.length)),
+            counts_toward_distance: true,
+            recovery_between_reps_seconds: groupAvgRecovery ?? avgRecovery,
+            recovery_between_reps_target_kind: (groupAvgRecovery ?? avgRecovery) != null ? "time" : null,
+            recovery_between_reps_mode: groupRecoveryMode ?? recoveryMode,
+          });
+        }
+      };
+
+      if (pairs.length > 0) {
+        if (haveBetweenSet) {
+          for (let bi = 0; bi < workBlocks.length; bi++) {
+            pushWorkStep(workBlocks[bi]);
+
+            if (bi < workBlocks.length - 1) {
+              const blk = workBlocks[bi];
+              const recLap = blk[blk.length - 1]?.recovery;
+              const recDur = Number(recLap?.total_elapsed_time ?? 0);
+              const recDist = Number(recLap?.total_distance ?? 0);
+
+              stepsToInsert.push({
+                session_id: sessionId,
+                step_order: stepOrder++,
+                kind: "recovery",
+                reps: 1,
+                set_count: 1,
+                target_kind: recDist > 0 ? "distance" : "time",
+                target_distance_m: recDist > 0 ? recDist : null,
+                target_time_seconds: recDur > 0 ? recDur : null,
+                counts_toward_distance: false,
+              });
+            }
+          }
+        } else {
+          pushWorkStep(pairs);
+        }
+      } else if (workLaps.length > 0 || totalDistanceM > 0 || totalTimeS > 0) {
+        stepsToInsert.push({
+          session_id: sessionId,
+          step_order: stepOrder++,
+          kind: "work",
+          reps: 1,
+          set_count: 1,
+          target_kind: totalDistanceM > 0 ? "distance" : "time",
+          target_distance_m: totalDistanceM > 0 ? totalDistanceM : null,
+          target_time_seconds: totalDistanceM > 0 ? null : totalTimeS > 0 ? totalTimeS : null,
+          counts_toward_distance: true,
+        });
+      }
+
+      if (hasCooldown) {
+        stepsToInsert.push({
+          session_id: sessionId,
+          step_order: stepOrder++,
+          kind: "cooldown",
+          reps: 1,
+          set_count: 1,
+          target_kind: cooldownMetrics.distance && cooldownMetrics.distance > 0 ? "distance" : "time",
+          target_distance_m: cooldownMetrics.distance && cooldownMetrics.distance > 0 ? cooldownMetrics.distance : null,
+          target_time_seconds: cooldownMetrics.time && cooldownMetrics.time > 0 ? cooldownMetrics.time : null,
+          counts_toward_distance: true,
+        });
+      }
+    }
+
+    if (stepsToInsert.length === 0) {
+      throw new Error("Rebuild produced no steps from attached files");
+    }
+
+    const { data: insertedSteps, error: stepsErr } = await sb
+      .from("steps")
+      .insert(stepsToInsert as any)
+      .select();
+
+    if (stepsErr) throw stepsErr;
+    if (!insertedSteps?.length) {
+      throw new Error("No steps were inserted for uploaded session");
+    }
+
+    const workSteps = insertedSteps
+      .filter((s: any) => s.kind === "work")
+      .sort((a: any, b: any) => Number(a.step_order) - Number(b.step_order));
+
+    const warmupStep = insertedSteps.find((s: any) => s.kind === "warmup");
+    const cooldownStep = insertedSteps.find((s: any) => s.kind === "cooldown");
+    const recoverySteps = insertedSteps
+      .filter((s: any) => s.kind === "recovery")
+      .sort((a: any, b: any) => Number(a.step_order) - Number(b.step_order));
+
+    const intervalRows: any[] = [];
+
+    if (hasWarmup && warmupStep) {
+      intervalRows.push({
+        step_id: warmupStep.id,
+        set_number: 1,
+        rep_number: 1,
+        actual_time_seconds: warmupMetrics.time,
+        actual_distance_m: warmupMetrics.distance,
+        actual_pace_sec_per_km:
+          warmupMetrics.distance && warmupMetrics.time
+            ? (Number(warmupMetrics.time) / Number(warmupMetrics.distance)) * 1000
+            : null,
+        hr_avg: warmupMetrics.avgHr,
+        hr_max: warmupMetrics.maxHr,
+        hr_end: warmupMetrics.endHr,
+        hr_end_recovery: null,
+        cadence: warmupMetrics.avgCad,
+      });
+    }
+
+    // Must mirror the isContinuous gate used for the steps insert above,
+    // not just "were there any work-classified pairs" — isContinuous=true
+    // inserts exactly ONE work step (reps: 1) regardless of how many raw
+    // laps/pairs the watch recorded, but splitBlockIntoDistanceGroups()
+    // below has no idea isContinuous exists and will still happily carve
+    // those same laps into several distance groups. That produces more
+    // "groups" than there were actual inserted work steps, so groups past
+    // the first one fall back to reusing workSteps[0], stamping
+    // duplicate/overlapping (step_id, rep_number) rows for a single
+    // continuous run and leaving the session with no coherent rep data —
+    // empty Time/Distance/HR fields in the UI. A continuous session takes
+    // the single-row fallback below instead, the same one already used
+    // when there are zero pairs at all.
+    if (!isContinuous && pairs.length > 0) {
+      if (workSteps.length === 0) {
+        throw new Error("Uploaded session did not create a work step");
+      }
+
+      const blocksForReps = haveBetweenSet ? workBlocks : [pairs];
+
+      // `workSteps` is a flat list with one entry per distance group, in
+      // the exact order pushWorkStep created them: for each between-set
+      // block, one step per distance group inside it (see
+      // splitBlockIntoDistanceGroups). Previously this loop assigned reps
+      // using only the between-set block index (`workSteps[bi]`), which is
+      // correct when a block contains a single distance group but silently
+      // dumped every rep from a multi-distance-group block (e.g. a 2km
+      // opener + 5×1km reps with no long recovery between them, so
+      // haveBetweenSet is false and blocksForReps is just one block) onto
+      // workSteps[0] — the block's *first* step got every rep's results,
+      // and every subsequent distance-group step (the "5×1km" one) was
+      // created with the right target/reps but zero interval_results.
+      // Walking the same per-block distance-group split here keeps the
+      // step assignment and rep numbering in lockstep with how the steps
+      // themselves were created.
+      let workStepCursor = 0;
+
+      for (let bi = 0; bi < blocksForReps.length; bi++) {
+        const blk = blocksForReps[bi];
+        const distanceGroupsForBlock = splitBlockIntoDistanceGroups(blk);
+
+        for (const groupPairs of distanceGroupsForBlock) {
+          const ws = workSteps[workStepCursor] ?? workSteps[workSteps.length - 1];
+          workStepCursor++;
+
+          groupPairs.forEach((pair, idx) => {
+            const lap = pair.work;
+            const recovery = pair.recovery;
+
+            intervalRows.push({
+              step_id: ws.id,
+              set_number: 1,
+              rep_number: idx + 1,
+              actual_time_seconds: lap.total_elapsed_time || null,
+              actual_distance_m: lap.total_distance || null,
+              actual_pace_sec_per_km:
+                lap.total_distance > 0 && lap.total_elapsed_time > 0
+                  ? (lap.total_elapsed_time / lap.total_distance) * 1000
+                  : null,
+              hr_avg: lap.avg_heart_rate ?? null,
+              hr_max: lap.max_heart_rate ?? null,
+              hr_end: getEndHrForLap(mergedPoints, lap) ?? lap.max_heart_rate ?? lap.avg_heart_rate ?? null,
+              hr_end_recovery: getEndHrForLap(mergedPoints, recovery) ?? recovery?.avg_heart_rate ?? null,
+              cadence: lap.avg_cadence ?? null,
+            });
+          });
+        }
+
+        if (haveBetweenSet && bi < recoverySteps.length) {
+          const recLap = blk[blk.length - 1]?.recovery;
+          if (recLap) {
+            intervalRows.push({
+              step_id: recoverySteps[bi].id,
+              set_number: 1,
+              rep_number: 1,
+              actual_time_seconds: recLap.total_elapsed_time || null,
+              actual_distance_m: recLap.total_distance || null,
+              actual_pace_sec_per_km:
+                recLap.total_distance > 0 && recLap.total_elapsed_time > 0
+                  ? (recLap.total_elapsed_time / recLap.total_distance) * 1000
+                  : null,
+              hr_avg: recLap.avg_heart_rate ?? null,
+              hr_max: recLap.max_heart_rate ?? null,
+              hr_end: getEndHrForLap(mergedPoints, recLap) ?? recLap.max_heart_rate ?? recLap.avg_heart_rate ?? null,
+              hr_end_recovery: null,
+              cadence: recLap.avg_cadence ?? null,
+            });
+          }
+        }
+      }
+    } else if (workSteps.length > 0 && (totalDistanceM > 0 || totalTimeS > 0)) {
+      const actualPace = totalDistanceM > 0 && totalTimeS > 0 ? (totalTimeS / totalDistanceM) * 1000 : null;
+
+      intervalRows.push({
+        step_id: workSteps[0].id,
+        set_number: 1,
+        rep_number: 1,
+        actual_time_seconds: totalTimeS || null,
+        actual_distance_m: totalDistanceM || null,
+        actual_pace_sec_per_km: actualPace,
+        hr_avg: avgHr,
+        hr_max: maxHr,
+        hr_end: maxHr ?? avgHr,
+        hr_end_recovery: null,
+        cadence: avgCad,
+      });
+    }
+
+    if (hasCooldown && cooldownStep) {
+      intervalRows.push({
+        step_id: cooldownStep.id,
+        set_number: 1,
+        rep_number: 1,
+        actual_time_seconds: cooldownMetrics.time,
+        actual_distance_m: cooldownMetrics.distance,
+        actual_pace_sec_per_km:
+          cooldownMetrics.distance && cooldownMetrics.time
+            ? (Number(cooldownMetrics.time) / Number(cooldownMetrics.distance)) * 1000
+            : null,
+        hr_avg: cooldownMetrics.avgHr,
+        hr_max: cooldownMetrics.maxHr,
+        hr_end: cooldownMetrics.endHr,
+        hr_end_recovery: null,
+        cadence: cooldownMetrics.avgCad,
+      });
+    }
+
+    if (intervalRows.length > 0) {
+      const { error } = await sb.from("interval_results").insert(intervalRows as any);
+      if (error) throw error;
     }
   }
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Session feedback</CardTitle>
-      </CardHeader>
 
-      <CardContent className="space-y-4">
-        <div className="flex items-center gap-4">
-          <div className="flex-1">
-            <Label className="text-xs">RPE ({rpe})</Label>
+  const workDistance = isIntervals ? workLaps.reduce((s, l) => s + Number(l.total_distance ?? 0), 0) : totalDistanceM;
 
-            <Slider min={1} max={10} step={1} value={[rpe]} onValueChange={(v) => setRpe(v[0])} />
-          </div>
+  const workTime = isIntervals ? workLaps.reduce((s, l) => s + Number(l.total_elapsed_time ?? 0), 0) : totalTimeS;
+  let weatherTemp: number | null = null;
+  let weatherWind: number | null = null;
+  let locationName: string | null = null;
 
-          <Button onClick={complete} size="sm">
-            {session.completed_at ? "Update" : "Complete"}
-          </Button>
-        </div>
+  if (mergedPoints.length > 0) {
+    const withGps = mergedPoints.filter(
+      (p) =>
+        typeof p.lat === "number" &&
+        typeof p.lng === "number" &&
+        Math.abs(p.lat) > 0.001 && // reject null-island noise, not just exact 0
+        Math.abs(p.lng) > 0.001 &&
+        Math.abs(p.lat) <= 90 &&
+        Math.abs(p.lng) <= 180,
+    );
 
-        <div>
-          <Label className="text-xs">How did you feel?</Label>
-          <div className="mt-2">
-            <FeelFaces value={feel} onChange={setFeel} />
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
+    // prefer a fix from early in the activity, but fall back to anywhere
+    const earlyWindow = withGps.filter((p) => p.elapsed_s <= 300);
+    const candidates = earlyWindow.length > 0 ? earlyWindow : withGps;
+    const firstPoint = candidates.length > 0 ? candidates[Math.floor(candidates.length / 2)] : null;
 
-// Formats a work step's structure into a short human-readable summary for
-// the Overview card, e.g. "8 × 1km" + a separate "1 min Recovery
-// (standing)" part so the caller can render the recovery portion in
-// smaller text. Continuous work (reps <= 1) just has a main part — there's
-// no recovery to describe. Prefers whichever target (distance or time) the
-// step actually used, since FIT-derived steps and manually-planned steps
-// can differ.
-function formatWorkoutStructure(step: any): { main: string; recovery: string | null } | null {
-  if (!step) return null;
-
-  const unit =
-    step.target_kind === "distance" && step.target_distance_m
-      ? metersFmt(roundDistanceForDisplay(step.target_distance_m))
-      : step.target_kind === "time" && step.target_time_seconds
-        ? secToClock(step.target_time_seconds)
-        : null;
-
-  if (!unit) return null;
-  if (step.reps <= 1) return { main: unit, recovery: null };
-
-  const repsPart = `${step.reps} × ${unit}`;
-  const recoveryMode = step.recovery_between_reps_mode ? ` (${step.recovery_between_reps_mode})` : "";
-
-  const recoveryPart =
-    step.recovery_between_reps_target_kind === "distance" && step.recovery_between_reps_distance_m
-      ? `${metersFmt(roundDistanceForDisplay(step.recovery_between_reps_distance_m))} Recovery${recoveryMode}`
-      : step.recovery_between_reps_seconds
-        ? `${formatRecoveryDuration(roundRecoverySeconds(step.recovery_between_reps_seconds))} Recovery${recoveryMode}`
-        : null;
-
-  return { main: repsPart, recovery: recoveryPart };
-}
-
-// "1 min" for whole minutes (the common case for recovery), falling back
-// to clock format (e.g. "1:30") for anything that isn't a whole minute.
-function formatRecoveryDuration(seconds: number): string {
-  if (seconds > 0 && seconds % 60 === 0) {
-    const mins = seconds / 60;
-    return `${mins} min`;
+    // Use this point's OWN timestamp, not parsedFiles[0]'s start time — if
+    // the early window came up empty and we fell back to "anywhere in the
+    // merged session", that point could be from a much later file (e.g.
+    // the cooldown), and pairing its location with a much-earlier file's
+    // start time would ask the weather API for the wrong hour entirely.
+    if (firstPoint?.timestamp) {
+      const weather = await fetchWeather(firstPoint.lat!, firstPoint.lng!, firstPoint.timestamp);
+      weatherTemp = weather.temp;
+      weatherWind = weather.wind;
+      locationName = await fetchLocationName(firstPoint.lat!, firstPoint.lng!);
+    }
   }
-  return secToClock(seconds);
+
+  const workPaceSecPerKm =
+    workMetrics.distance && workMetrics.time ? (Number(workMetrics.time) / Number(workMetrics.distance)) * 1000 : null;
+
+  const easyDistance = (warmupMetrics.distance ?? 0) + (cooldownMetrics.distance ?? 0);
+  const easyTime = (warmupMetrics.time ?? 0) + (cooldownMetrics.time ?? 0);
+  const easyPaceSecPerKm = easyDistance > 0 && easyTime > 0 ? (easyTime / easyDistance) * 1000 : null;
+
+  // Derive the session's intent (easy/aerobic/tempo/threshold/vo2) from the
+  // WORK-ONLY pace against the athlete's own pace zones — the same
+  // threshold-first model the Zones page and recompute_session_zones (DB)
+  // already use, rather than a second copy of zone-percentage math living
+  // here. `intent` previously had no real classification at all: every
+  // FIT-derived session was hardcoded to "aerobic" at creation and nothing
+  // ever revisited it afterward, regardless of how fast the actual work
+  // was — an interval or threshold session on the calendar showed
+  // "Aerobic" purely because that placeholder was never replaced, not
+  // because of any warmup/cooldown dilution.
+  //
+  // Always applied when we have a derived value — this whole function
+  // (rebuildSessionFromAllFiles) only ever reaches this point when real
+  // recorded laps exist (it returns early above when a session has no
+  // files at all), so by the time derivedIntent is computed we already
+  // have actual pace data, not a guess. A previous version gated this on
+  // `is_planned === false`, intending to protect a coach's deliberately
+  // chosen intent on a file-less manual session — but a file-less session
+  // never reaches this code path in the first place, so that guard only
+  // ever did one thing in practice: permanently freezing intent at
+  // whatever a plan template's generic per-day effort_type happened to be
+  // (e.g. "threshold") even after real uploaded laps showed the athlete's
+  // actual hardest effort was faster (e.g. 5×1km reps at VO2 pace within
+  // a session whose planned label was just "threshold"). Real data should
+  // always win once it exists.
+  //
+  // Classifies by the FASTEST work lap, not a time-weighted average across
+  // every work lap — a session with a 2km tempo opener followed by 5×1km
+  // at VO2 pace is a VO2 session with a tempo opener, not "Tempo overall".
+  // Averaging blended those two genuinely different efforts into one
+  // misleading middle number that didn't represent either block's actual
+  // character. A coach describing this session by its hardest work is the
+  // same convention needs_review/structure already lean on elsewhere in
+  // this file (e.g. a race is whichever file has the fastest pace, not an
+  // average across warmup+race+cooldown).
+  // Which basis actually drives classification is per-athlete
+  // (preferred_zone_basis, set on the Zones card) — both HR and pace
+  // thresholds are always computed/stored regardless of which one is
+  // preferred, this just decides which one this session's intent is
+  // derived from. Defaults to pace if the profile predates this column or
+  // was never explicitly set (matches the column's own DB default).
+  let derivedIntent: string | null = null;
+  if (workLaps.length > 0) {
+    const { data: zoneProfile } = await sb
+      .from("athlete_zone_profiles")
+      .select(
+        "preferred_zone_basis, pace_z1_max_sec_per_km, pace_z2_max_sec_per_km, pace_z3_max_sec_per_km, pace_z4_max_sec_per_km, pace_z5_max_sec_per_km, hr_z1_max, hr_z2_max, hr_z3_max, hr_z4_max, hr_z5_max",
+      )
+      .eq("athlete_id", sess.athlete_id)
+      .maybeSingle();
+
+    const ZONE_RANK: Record<"z1" | "z2" | "z3" | "z4" | "z5" | "z6", number> = {
+      z1: 1,
+      z2: 2,
+      z3: 3,
+      z4: 4,
+      z5: 5,
+      z6: 6,
+    };
+    const RANK_TO_INTENT: Record<number, string> = {
+      1: "easy",
+      2: "aerobic",
+      3: "tempo",
+      4: "threshold",
+      5: "vo2",
+      6: "anaerobic",
+    };
+
+    const useHr = zoneProfile?.preferred_zone_basis === "hr";
+
+    if (useHr && zoneProfile?.hr_z1_max != null) {
+      let fastestRank = 0;
+      for (const lap of workLaps) {
+        const lapHr = lap.avg_heart_rate != null ? Number(lap.avg_heart_rate) : null;
+        if (lapHr == null) continue;
+
+        // Ascending "higher bpm = harder zone" bucketing, opposite
+        // direction from pace (where slower sec/km = easier) since HR and
+        // pace naturally run in opposite numeric directions — same
+        // convention recompute_session_zones uses in the DB for HR.
+        const zone: "z1" | "z2" | "z3" | "z4" | "z5" | "z6" =
+          lapHr <= zoneProfile.hr_z1_max
+            ? "z1"
+            : zoneProfile.hr_z2_max != null && lapHr <= zoneProfile.hr_z2_max
+              ? "z2"
+              : zoneProfile.hr_z3_max != null && lapHr <= zoneProfile.hr_z3_max
+                ? "z3"
+                : zoneProfile.hr_z4_max != null && lapHr <= zoneProfile.hr_z4_max
+                  ? "z4"
+                  : zoneProfile.hr_z5_max != null && lapHr <= zoneProfile.hr_z5_max
+                    ? "z5"
+                    : "z6";
+
+        fastestRank = Math.max(fastestRank, ZONE_RANK[zone]);
+      }
+      if (fastestRank > 0) {
+        derivedIntent = RANK_TO_INTENT[fastestRank];
+      }
+    } else if (!useHr && zoneProfile?.pace_z1_max_sec_per_km != null) {
+      let fastestRank = 0;
+      for (const lap of workLaps) {
+        const stopped = stoppedSecondsByLapIndex.get(lap.index) ?? 0;
+        const movingTime = Math.max(0, Number(lap.total_elapsed_time ?? 0) - stopped);
+        const lapDistance = Number(lap.total_distance ?? 0);
+        const lapPace = lapDistance > 0 && movingTime > 0 ? (movingTime / lapDistance) * 1000 : null;
+        if (lapPace == null) continue;
+
+        // Same ascending "slower sec/km = easier zone" bucketing as
+        // recompute_session_zones in the DB.
+        const zone: "z1" | "z2" | "z3" | "z4" | "z5" | "z6" =
+          lapPace >= zoneProfile.pace_z1_max_sec_per_km
+            ? "z1"
+            : zoneProfile.pace_z2_max_sec_per_km != null && lapPace >= zoneProfile.pace_z2_max_sec_per_km
+              ? "z2"
+              : zoneProfile.pace_z3_max_sec_per_km != null && lapPace >= zoneProfile.pace_z3_max_sec_per_km
+                ? "z3"
+                : zoneProfile.pace_z4_max_sec_per_km != null && lapPace >= zoneProfile.pace_z4_max_sec_per_km
+                  ? "z4"
+                  : zoneProfile.pace_z5_max_sec_per_km != null && lapPace >= zoneProfile.pace_z5_max_sec_per_km
+                    ? "z5"
+                    : "z6";
+
+        fastestRank = Math.max(fastestRank, ZONE_RANK[zone]);
+      }
+
+      if (fastestRank > 0) {
+        derivedIntent = RANK_TO_INTENT[fastestRank];
+      }
+    }
+  }
+  const shouldUpdateIntent = derivedIntent != null;
+
+  // Recompute the Morning/Afternoon/Evening title using the athlete's actual
+  // timezone. This runs on every rebuild (not just initial creation) since a
+  // session that started life as just a Warm Up file gets its title merged
+  // with Work/Cool Down files later — the original title-generation moment
+  // may have used the wrong hour, or predate the timezone fix entirely.
+  // Only touches titles that still match the auto-generated pattern, so a
+  // coach's manual rename is never overwritten.
+  const isAutoGeneratedTitle = /^(Morning|Afternoon|Evening) session$/.test(String(sess.title ?? ""));
+  let recomputedTitle: string | null = null;
+
+  if (isAutoGeneratedTitle && anchorMs > 0) {
+    const { data: athleteRow } = await sb.from("athletes").select("timezone").eq("id", sess.athlete_id).maybeSingle();
+    const athleteTimezone = athleteRow?.timezone || "UTC";
+    const { hour: localHour } = getLocalDateAndHour(new Date(anchorMs), athleteTimezone);
+    const timeLabel = localHour < 11 ? "Morning" : localHour < 16 ? "Afternoon" : "Evening";
+    recomputedTitle = `${timeLabel} session`;
+  }
+
+  const { error: updErr } = await sb
+    .from("sessions")
+    .update({
+      total_distance_m: totalDistanceM || null,
+      total_time_seconds: totalTimeS || null,
+      total_moving_time_seconds: totalMovingTimeS || null,
+      avg_hr: avgHr,
+      max_hr: maxHr,
+      average_temp_c: weatherTemp ?? avgTemp,
+      wind_kph: weatherWind ?? null,
+      location: locationName ?? null,
+      completion_pct: 100,
+      work_distance_m: workDistance || null,
+      work_time_s: workTime || null,
+      work_avg_hr: workMetrics.avgHr ?? avgHr,
+      work_avg_pace_sec_per_km: workPaceSecPerKm ?? avgPace,
+      work_avg_cadence: workMetrics.avgCad ?? avgCad,
+      easy_avg_pace_sec_per_km: easyPaceSecPerKm,
+      structure: isIntervals ? "intervals" : "continuous",
+      needs_review: isIntervals,
+      ...(shouldUpdateIntent ? { intent: derivedIntent } : {}),
+      ...(recomputedTitle ? { title: recomputedTitle } : {}),
+    } as any)
+    .eq("id", sessionId);
+
+  if (updErr) throw updErr;
 }
+
+// Max gap (in ms) between one file's estimated end and the next file's start
+// for them to be treated as parts of the SAME session (e.g. separate Warm Up /
+// Work / Cool Down / Strides files, or a device that paused/restarted
+// recording mid-session). Kept well under a typical between-session gap —
+// some athletes only have 1-2 hours between AM/PM doubles — so genuinely
+// separate sessions never get merged.
+const SAME_SESSION_MAX_GAP_MS = 90 * 60 * 1000; // 90 minutes
+
+// A much looser window once a session is already marked as a race — post-race
+// medal ceremony, food, results checking, and queues (for a toilet or
+// anything else) can easily create gaps far longer than a normal training
+// double, and a second genuine race the same day is exceedingly rare.
+const RACE_DAY_MAX_GAP_MS = 6 * 60 * 60 * 1000; // 6 hours
+
+// Finds an existing same-day fit_import session whose most recent attached
+// file ends within SAME_SESSION_MAX_GAP_MS of the new file's start time.
+// Falls back to creating a new session if no candidate is close enough in
+// time — this is what correctly keeps AM/PM doubles as separate sessions
+// while still merging split files (warmup/work/cooldown/strides) that were
+// recorded back-to-back.
+async function findMatchingSameDaySession(
+  sb: any,
+  athleteId: string,
+  sessionDate: string,
+  newFileStartMs: number | null,
+): Promise<any | null> {
+  const { data: candidates } = await sb
+    .from("sessions")
+    .select("id, session_date, day_type")
+    .eq("athlete_id", athleteId)
+    .eq("session_date", sessionDate)
+    .eq("source", "fit_import");
+
+  if (!candidates || candidates.length === 0) return null;
+
+  // If the new file has no parseable start time, fall back to the previous
+  // (looser) behavior of just using the first same-day session — we can't
+  // do a time-gap comparison without a timestamp.
+  if (newFileStartMs === null) return candidates[0];
+
+  let bestMatch: any = null;
+  let bestGap = Infinity;
+
+  for (const candidate of candidates) {
+    const { data: files } = await sb
+      .from("session_files")
+      .select("started_at, total_time_s")
+      .eq("session_id", candidate.id);
+
+    if (!files || files.length === 0) continue;
+
+    for (const f of files) {
+      if (!f.started_at) continue;
+      const fileStartMs = new Date(f.started_at).getTime();
+      const fileEndMs = fileStartMs + (Number(f.total_time_s) || 0) * 1000;
+
+      // Gap is measured from whichever file boundary is closer to the new
+      // file's start — handles both "new file comes after" and "new file
+      // comes before" (e.g. uploading Warm Up after Work was already added).
+      const gap = Math.min(Math.abs(newFileStartMs - fileEndMs), Math.abs(newFileStartMs - fileStartMs));
+
+      if (gap < bestGap) {
+        bestGap = gap;
+        bestMatch = candidate;
+      }
+    }
+  }
+
+  if (!bestMatch) return null;
+
+  // Race days routinely have long real-world gaps that aren't a sign of a
+  // separate activity — post-race medal collection, food, results, toilet
+  // queues can easily push a cooldown recording past the normal 90-minute
+  // same-session window. A second genuine race on the same day is
+  // exceedingly rare, so once a session is already marked as a race, treat
+  // anything else recorded that day as part of it.
+  const maxGap = bestMatch.day_type === "race" ? RACE_DAY_MAX_GAP_MS : SAME_SESSION_MAX_GAP_MS;
+
+  return bestGap <= maxGap ? bestMatch : null;
+}
+
+// Converts a UTC instant into the athlete's local calendar date and hour-of-day.
+// Using .toISOString()/.getHours() directly would resolve in the SERVER's
+// timezone (typically UTC in cloud environments) — for an athlete outside
+// UTC, an evening session can come out as "morning" and even land on the
+// wrong calendar date. This fixes both by resolving in the athlete's own
+// stored timezone (athletes.timezone).
+function getLocalDateAndHour(utcInstant: string | Date, timeZone: string): { date: string; hour: number } {
+  const d = typeof utcInstant === "string" ? new Date(utcInstant) : utcInstant;
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      hour12: false,
+    }).formatToParts(d);
+    const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+    const date = `${get("year")}-${get("month")}-${get("day")}`;
+    // "24" from hour12:false at midnight should read as 0
+    const hour = Number(get("hour")) % 24;
+    return { date, hour };
+  } catch {
+    // Invalid/unknown timezone string — fall back to UTC rather than throwing
+    return { date: d.toISOString().slice(0, 10), hour: d.getUTCHours() };
+  }
+}
+
+export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator(
+    (d: { athleteId: string; sessionId?: string; filename: string; kind: "fit" | "gpx"; fileBase64: string }) => d,
+  )
+  .handler(async ({ data, context }) => {
+    const sb = context.supabase;
+
+    const buf = Uint8Array.from(atob(data.fileBase64), (c) => c.charCodeAt(0));
+    const arrayBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+
+    let parsed: ParsedFile;
+    let parseError: string | null = null;
+
+    try {
+      parsed = data.kind === "gpx" ? parseGPX(new TextDecoder().decode(buf)) : await parseFIT(arrayBuffer);
+    } catch (e: any) {
+      parseError = String(e?.message ?? e);
+      parsed = { points: [], laps: [], totalDistanceM: 0, totalTimeS: 0, startedAt: null, sport: null };
+    }
+
+    const activityType = mapFitSport(parsed.sport ?? undefined);
+
+    const { data: athleteRow } = await sb.from("athletes").select("timezone").eq("id", data.athleteId).maybeSingle();
+    const athleteTimezone = athleteRow?.timezone || "UTC";
+
+    const { date: sessionDate, hour: localHour } = parsed.startedAt
+      ? getLocalDateAndHour(parsed.startedAt, athleteTimezone)
+      : getLocalDateAndHour(new Date(), athleteTimezone);
+
+    let sess: any;
+
+    if (data.sessionId) {
+      const { data: existing, error: fetchErr } = await sb
+        .from("sessions")
+        .select("*")
+        .eq("id", data.sessionId)
+        .single();
+
+      if (fetchErr || !existing) {
+        throw fetchErr ?? new Error("Session not found");
+      }
+
+      sess = existing;
+    } else {
+      const newFileStartMs = parsed.startedAt ? new Date(parsed.startedAt).getTime() : null;
+      const existingSameDay = await findMatchingSameDaySession(sb, data.athleteId, sessionDate, newFileStartMs);
+
+      if (existingSameDay) {
+        sess = existingSameDay;
+      } else {
+        const { data: inserted, error: sessError } = await sb
+          .from("sessions")
+          .insert({
+            athlete_id: data.athleteId,
+            created_by: context.userId,
+            session_date: sessionDate,
+            title: (() => {
+              const timeLabel = localHour < 11 ? "Morning" : localHour < 16 ? "Afternoon" : "Evening";
+              return `${timeLabel} session`;
+            })(),
+            day_type: "training",
+            intent: "aerobic",
+            structure: "continuous",
+            is_planned: false,
+            completed_at: new Date().toISOString(),
+            source: "fit_import",
+            data_source: data.kind === "fit" ? "fit_upload" : "gpx_upload",
+            activity_type: activityType,
+            needs_review: true,
+          } as any)
+          .select()
+          .single();
+
+        if (sessError || !inserted) {
+          throw sessError ?? new Error("Failed to create session");
+        }
+
+        sess = inserted;
+      }
+    }
+
+    // Detect duplicates by what was actually recorded, not the filename —
+    // a renamed/re-exported copy of the same activity (e.g. "file.1" vs
+    // "file.2") has a different filename but identical start time, distance,
+    // and duration, and should still be caught.
+    const { data: candidateFiles } = await sb
+      .from("session_files")
+      .select("id, started_at, total_distance_m, total_time_s, original_filename")
+      .eq("session_id", sess.id);
+
+    const newStartMs = parsed.startedAt ? new Date(parsed.startedAt).getTime() : null;
+    const duplicate = (candidateFiles ?? []).find((f: any) => {
+      if (!f.started_at || newStartMs == null) return false;
+      const startDiffS = Math.abs(new Date(f.started_at).getTime() - newStartMs) / 1000;
+      if (startDiffS > 5) return false; // different recordings won't start within 5s of each other
+
+      const distanceMatch =
+        parsed.totalDistanceM > 0 &&
+        Math.abs(Number(f.total_distance_m ?? 0) - parsed.totalDistanceM) <= Math.max(5, parsed.totalDistanceM * 0.01);
+      const timeMatch =
+        parsed.totalTimeS > 0 &&
+        Math.abs(Number(f.total_time_s ?? 0) - parsed.totalTimeS) <= Math.max(2, parsed.totalTimeS * 0.01);
+
+      return distanceMatch && timeMatch;
+    });
+
+    if (duplicate) {
+      throw new Error(
+        `This file appears to be a duplicate of "${duplicate.original_filename}" already attached to this session (same start time, distance, and duration) — skipped to avoid double-counting.`,
+      );
+    }
+
+    const storagePath = `${data.athleteId}/${Date.now()}-${data.filename}`;
+    const { error: upErr } = await sb.storage.from("session-files").upload(storagePath, buf, {
+      contentType: data.kind === "fit" ? "application/octet-stream" : "application/gpx+xml",
+    });
+
+    if (upErr) throw upErr;
+
+    const { data: fileRow, error: insErr } = await sb
+      .from("session_files")
+      .insert({
+        athlete_id: data.athleteId,
+        session_id: sess.id,
+        file_kind: data.kind,
+        storage_path: storagePath,
+        original_filename: data.filename,
+        started_at: parsed.startedAt,
+        total_distance_m: parsed.totalDistanceM,
+        total_time_s: parsed.totalTimeS,
+        parsed_at: parseError ? null : new Date().toISOString(),
+        parse_error: parseError,
+      })
+      .select()
+      .single();
+
+    if (insErr) throw insErr;
+
+    if (parseError) {
+      return { file: fileRow, points: 0, error: parseError };
+    }
+
+    try {
+      await rebuildSessionFromAllFiles(sb, sess.id);
+    } catch (rebuildErr) {
+      // Roll back the file row just inserted above — otherwise it sits
+      // there as an orphan that never actually finished attaching, and the
+      // duplicate-detection check further up (same start time, distance,
+      // duration) permanently flags any retry of this exact file as
+      // "already attached to this session", blocking re-upload until
+      // someone manually finds and deletes the stray row. Also clears any
+      // raw_session_points this file contributed before the failure, so a
+      // retry starts genuinely clean rather than layering on partial data.
+      await sb.from("raw_session_points").delete().eq("file_id", fileRow.id);
+      await sb.from("session_files").delete().eq("id", fileRow.id);
+      throw rebuildErr;
+    }
+
+    return {
+      file: fileRow,
+      points: parsed.points.length,
+      lapCount: parsed.laps.length,
+    };
+  });
+
+export const deleteSessionFileBlock = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { sessionFileId: string }) => d)
+  .handler(async ({ data, context }) => {
+    const sb = context.supabase;
+
+    const { data: fileRow, error: fileErr } = await sb
+      .from("session_files")
+      .select("*")
+      .eq("id", data.sessionFileId)
+      .single();
+
+    if (fileErr || !fileRow) {
+      throw fileErr ?? new Error("Session file not found");
+    }
+
+    const sessionId = fileRow.session_id;
+    if (!sessionId) throw new Error("Session file has no session_id");
+
+    await sb.from("raw_session_points").delete().eq("file_id", fileRow.id);
+
+    if (fileRow.storage_path) {
+      await sb.storage.from("session-files").remove([fileRow.storage_path]);
+    }
+
+    const { error: delErr } = await sb.from("session_files").delete().eq("id", fileRow.id);
+    if (delErr) throw delErr;
+
+    await rebuildSessionFromAllFiles(sb, sessionId);
+
+    const { count } = await sb
+      .from("session_files")
+      .select("id", { count: "exact", head: true })
+      .eq("session_id", sessionId);
+
+    return { ok: true, sessionId, remainingFiles: count ?? 0 };
+  });
+
+// Merges an orphaned session (e.g. a cooldown that split into its own
+// session because it was uploaded before the race was marked, so the
+// tighter same-session gap threshold applied) into another session for the
+// same athlete. Moves the actual files across, cleans up all derived data
+// on the source (steps/results/points/etc — these get regenerated fresh for
+// the target), then rebuilds the target from its now-combined file set.
+// Re-runs classification/rebuild on a session's already-attached files, with
+// no new upload needed. Useful after marking a session as a race (or fixing
+// its day_type), or after merging another session in — either of those
+// changes what the classification logic should produce, but only a rebuild
+// actually regroups the steps correctly from the source lap data.
+export const rebuildSessionClassification = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { sessionId: string }) => d)
+  .handler(async ({ data, context }) => {
+    const sb = context.supabase;
+    await rebuildSessionFromAllFiles(sb, data.sessionId);
+    return { ok: true };
+  });
+
+export const mergeSessionIntoAnother = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { sourceSessionId: string; targetSessionId: string }) => d)
+  .handler(async ({ data, context }) => {
+    const sb = context.supabase;
+    const { sourceSessionId, targetSessionId } = data;
+
+    if (sourceSessionId === targetSessionId) {
+      throw new Error("Cannot merge a session into itself.");
+    }
+
+    const { data: sourceSession, error: sourceErr } = await sb
+      .from("sessions")
+      .select("id, athlete_id, session_date")
+      .eq("id", sourceSessionId)
+      .single();
+    if (sourceErr || !sourceSession) throw sourceErr ?? new Error("Source session not found");
+
+    const { data: targetSession, error: targetErr } = await sb
+      .from("sessions")
+      .select("id, athlete_id, session_date")
+      .eq("id", targetSessionId)
+      .single();
+    if (targetErr || !targetSession) throw targetErr ?? new Error("Target session not found");
+
+    if (sourceSession.athlete_id !== targetSession.athlete_id) {
+      throw new Error("Both sessions must belong to the same athlete.");
+    }
+
+    // Move the actual recorded files across — these are the only thing worth
+    // keeping from the source session. Everything else on the source is
+    // derived data that gets regenerated fresh for the target below.
+    const { error: moveErr } = await sb
+      .from("session_files")
+      .update({ session_id: targetSessionId })
+      .eq("session_id", sourceSessionId);
+    if (moveErr) throw moveErr;
+
+    // Clean up the source session's derived data before deleting it, same
+    // set of tables deleteSession clears.
+    const { data: sourceSteps } = await sb.from("steps").select("id").eq("session_id", sourceSessionId);
+    const sourceStepIds = (sourceSteps ?? []).map((s: any) => s.id);
+    if (sourceStepIds.length > 0) {
+      await sb.from("interval_results").delete().in("step_id", sourceStepIds);
+    }
+    await sb.from("steps").delete().eq("session_id", sourceSessionId);
+    await sb.from("raw_session_points").delete().eq("session_id", sourceSessionId);
+    await sb.from("session_fatigue").delete().eq("session_id", sourceSessionId);
+    await sb.from("session_zone_time").delete().eq("session_id", sourceSessionId);
+    await sb.from("session_insights").delete().eq("session_id", sourceSessionId);
+    await sb.from("performances").delete().eq("session_id", sourceSessionId);
+
+    const { error: delErr } = await sb.from("sessions").delete().eq("id", sourceSessionId);
+    if (delErr) throw delErr;
+
+    // Rebuild the target from its now-combined set of files — this is what
+    // actually re-classifies warmup/work/cooldown correctly across all of
+    // them, including the newly-merged-in file.
+    await rebuildSessionFromAllFiles(sb, targetSessionId);
+
+    return { ok: true };
+  });
+
+export const deleteSession = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { sessionId: string }) => d)
+  .handler(async ({ data, context }) => {
+    const sb = context.supabase;
+    const { sessionId } = data;
+
+    const { data: steps } = await sb.from("steps").select("id").eq("session_id", sessionId);
+    const stepIds = (steps ?? []).map((s: any) => s.id);
+
+    if (stepIds.length > 0) {
+      await sb.from("interval_results").delete().in("step_id", stepIds);
+    }
+
+    await sb.from("steps").delete().eq("session_id", sessionId);
+    await sb.from("raw_session_points").delete().eq("session_id", sessionId);
+    await sb.from("session_fatigue").delete().eq("session_id", sessionId);
+    await sb.from("session_zone_time").delete().eq("session_id", sessionId);
+
+    const { data: files } = await sb.from("session_files").select("storage_path").eq("session_id", sessionId);
+    const paths = (files ?? []).map((f: any) => f.storage_path).filter(Boolean);
+
+    if (paths.length > 0) {
+      await sb.storage.from("session-files").remove(paths);
+    }
+
+    await sb.from("session_files").delete().eq("session_id", sessionId);
+    await sb.from("session_insights").delete().eq("session_id", sessionId);
+
+    const { error } = await sb.from("sessions").delete().eq("id", sessionId);
+    if (error) throw error;
+
+    return { ok: true };
+  });
+
+// Encodes an ArrayBuffer to base64 without relying on Node's Buffer —
+// matches the atob() used to decode uploads elsewhere in this file, so
+// both directions stay on the same browser-safe API rather than mixing
+// Buffer and atob/btoa depending on which function you're reading.
+// Chunked to avoid blowing the call stack on String.fromCharCode for a
+// large FIT file.
+function arrayBufferToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+// Bulk (or single) export — downloads every original FIT/GPX file
+// attached to the given sessions and returns them base64-encoded for the
+// client to zip and download. RLS on session_files (athlete self / coach
+// read) already scopes which files a given caller can actually pull back,
+// same as every other read in this file — no extra authorization check
+// needed here.
+export const getSessionFilesForExport = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { sessionIds: string[] }) => d)
+  .handler(async ({ data, context }) => {
+    const sb = context.supabase;
+    const { sessionIds } = data;
+    if (!sessionIds.length) return { files: [] };
+
+    const { data: fileRows, error } = await sb
+      .from("session_files")
+      .select("id, session_id, storage_path, original_filename, file_kind")
+      .in("session_id", sessionIds);
+    if (error) throw error;
+
+    const out: { name: string; base64: string }[] = [];
+    for (const f of fileRows ?? []) {
+      const { data: blob, error: dlErr } = await sb.storage.from("session-files").download(f.storage_path);
+      // Skip individual files that fail to download rather than failing
+      // the whole export — one missing/corrupt storage object shouldn't
+      // block everything else that was selected.
+      if (dlErr || !blob) continue;
+      const buf = await blob.arrayBuffer();
+      const name = f.original_filename || f.storage_path.split("/").pop() || `${f.id}.${f.file_kind}`;
+      out.push({ name, base64: arrayBufferToBase64(buf) });
+    }
+
+    return { files: out };
+  });
+
+export const submitCheckout = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator(
+    (d: {
+      athleteId: string;
+      sessionInsights: {
+        sessionId: string;
+        feel: number;
+        wentWell?: string;
+        wasDifficult?: string;
+        niggles?: string;
+      }[];
+      endOfDayNote?: string;
+    }) => d,
+  )
+  .handler(async ({ data, context }) => {
+    const sb = context.supabase;
+
+    for (const ins of data.sessionInsights) {
+      await sb.from("session_insights").upsert(
+        {
+          session_id: ins.sessionId,
+          athlete_id: data.athleteId,
+          feel_score: ins.feel,
+          went_well: ins.wentWell,
+          was_difficult: ins.wasDifficult,
+          niggles: ins.niggles,
+        } as any,
+        { onConflict: "session_id" } as any,
+      );
+    }
+
+    if (data.endOfDayNote) {
+      const today = new Date().toISOString().slice(0, 10);
+      await sb.from("daily_checkins").upsert(
+        {
+          athlete_id: data.athleteId,
+          date: today,
+          end_of_day_note: data.endOfDayNote,
+        } as any,
+        { onConflict: "athlete_id,date" } as any,
+      );
+    }
+
+    await sb.from("athletes").update({ last_checkout_at: new Date().toISOString() }).eq("id", data.athleteId);
+
+    return { ok: true };
+  });
+
+export const sendReminder = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { athleteId: string; kind: string; message?: string }) => d)
+  .handler(async ({ data, context }) => {
+    const { data: row, error } = await context.supabase
+      .from("pending_reminders")
+      .insert({
+        athlete_id: data.athleteId,
+        coach_id: context.userId,
+        kind: data.kind,
+        message: data.message,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return row;
+  });
