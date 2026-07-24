@@ -15,6 +15,7 @@ import { todayISO } from "@/lib/format";
 import { toast } from "sonner";
 import { Plus, ChevronDown, ChevronUp } from "lucide-react";
 import { BucketTabStrip, HEALTH_TABS } from "@/components/bucket-tab-strip";
+import { BodyMapPicker, BodyMapIcon } from "@/components/body-map";
 
 export const Route = createFileRoute("/_authenticated/app/injuries")({
   component: InjuriesPage,
@@ -59,6 +60,7 @@ function InjuriesPage() {
 function NewInjuryForm({ athleteId, onSaved }: { athleteId: string; onSaved: () => void }) {
   const qc = useQueryClient();
   const [bodyPart, setBodyPart] = useState("");
+  const [region, setRegion] = useState<string | null>(null);
   const [side, setSide] = useState<string>("n/a");
   const [severity, setSeverity] = useState("");
   const [onsetDate, setOnsetDate] = useState(todayISO());
@@ -72,6 +74,7 @@ function NewInjuryForm({ athleteId, onSaved }: { athleteId: string; onSaved: () 
     const { error } = await supabase.from("injuries").insert({
       athlete_id: athleteId,
       body_part: bodyPart.trim(),
+      body_region: region,
       side,
       status: "active",
       severity: severity === "" ? null : Number(severity),
@@ -92,7 +95,13 @@ function NewInjuryForm({ athleteId, onSaved }: { athleteId: string; onSaved: () 
       <CardHeader>
         <CardTitle className="text-base">New injury</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-4">
+        <div>
+          <Label className="text-xs">Tap the general area (optional — for the icon shown in your injury list)</Label>
+          <div className="mt-2">
+            <BodyMapPicker value={region} onChange={setRegion} />
+          </div>
+        </div>
         <div className="grid sm:grid-cols-2 gap-3">
           <div>
             <Label className="text-xs">Body part</Label>
@@ -248,6 +257,7 @@ function InjuryCard({ injury, athleteId, defaultOpen }: { injury: any; athleteId
             ) : (
               <ChevronDown className="h-4 w-4 text-muted-foreground" />
             )}
+            <BodyMapIcon region={injury.body_region} />
             <div>
               <CardTitle className="text-base capitalize">
                 {injury.body_part} {injury.side && injury.side !== "n/a" ? `(${injury.side})` : ""}
