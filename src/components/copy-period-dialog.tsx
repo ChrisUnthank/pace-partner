@@ -21,9 +21,13 @@ import {
   buildCopyDraft,
   bucketForSession,
   estimateTotalDistanceM,
+  estimateDraftDistanceM,
+  summarizeDraftSteps,
   type ProgressionRules,
   type DraftSession,
+  type DraftStep,
 } from "@/lib/calendar-copy";
+import { secToClock, clockToSec } from "@/lib/format";
 
 /**
  * Copy Week/Month Forward. Two-step flow inside one dialog:
@@ -226,22 +230,11 @@ export function CopyPeriodDialog({
     setDrafts((d) => d.filter((x) => x.tempId !== tempId));
   }
 
-  function applyEdit(tempId: string, patch: { reps?: number; recovery_between_reps_seconds?: number | null }) {
+  function applyEdit(tempId: string, stepIndex: number, patch: Partial<DraftStep>) {
     setDrafts((all) =>
       all.map((d) => {
         if (d.tempId !== tempId) return d;
-        const steps = d.steps.map((s) =>
-          s.kind === "work"
-            ? {
-                ...s,
-                reps: patch.reps ?? s.reps,
-                recovery_between_reps_seconds:
-                  patch.recovery_between_reps_seconds !== undefined
-                    ? patch.recovery_between_reps_seconds
-                    : s.recovery_between_reps_seconds,
-              }
-            : s,
-        );
+        const steps = d.steps.map((s, i) => (i === stepIndex ? { ...s, ...patch } : s));
         return { ...d, steps };
       }),
     );
@@ -478,35 +471,42 @@ export function CopyPeriodDialog({
               </div>
             )}
             <div className="space-y-1.5">
-              {drafts.map((d) => (
-                <div key={d.tempId} className="rounded border p-2 text-sm flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="font-medium truncate">{d.title}</span>
-                      {d.bucket && (
-                        <Badge variant="outline" className="text-[10px]">
-                          {COPY_BUCKET_LABELS[d.bucket]}
-                        </Badge>
-                      )}
-                      {d.needsReview && (
-                        <Badge className="text-[10px] bg-amber-100 text-amber-800 border-amber-200">Review target</Badge>
-                      )}
+              {drafts.map((d) => {
+                const distM = estimateDraftDistanceM(d);
+                return (
+                  <div key={d.tempId} className="rounded border p-2 text-sm flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-medium truncate">{d.title}</span>
+                        {d.bucket && (
+                          <Badge variant="outline" className="text-[10px]">
+                            {COPY_BUCKET_LABELS[d.bucket]}
+                          </Badge>
+                        )}
+                        {d.needsReview && (
+                          <Badge className="text-[10px] bg-amber-100 text-amber-800 border-amber-200">Review target</Badge>
+                        )}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {d.session_date}
+                        {distM > 0 && ` · ~${(distM / 1000).toFixed(1)}km`}
+                      </div>
+                      <div className="text-xs mt-0.5">{summarizeDraftSteps(d.steps)}</div>
                     </div>
-                    <div className="text-xs text-muted-foreground">{d.session_date}</div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Button size="sm" variant="ghost" onClick={() => setEditingDraft(d)}>
+                        Edit
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setSwapDraft(d)}>
+                        <Repeat2 className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button size="sm" variant="ghost" className="text-destructive" onClick={() => removeDraft(d.tempId)}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <Button size="sm" variant="ghost" onClick={() => setEditingDraft(d)}>
-                      Edit
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setSwapDraft(d)}>
-                      <Repeat2 className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button size="sm" variant="ghost" className="text-destructive" onClick={() => removeDraft(d.tempId)}>
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
               {drafts.length === 0 && (
                 <p className="text-sm text-muted-foreground p-4 text-center">
                   Every session was removed from this batch — nothing left to copy.
@@ -544,12 +544,12 @@ export function CopyPeriodDialog({
           <DialogContent className="sm:max-w-sm">
             <DialogHeader>
               <DialogTitle>Edit "{editingDraft.title}"</DialogTitle>
-              <DialogDescription>Adjust this one session's reps or recovery before it's created.</DialogDescription>
+              <DialogDescription>Adjust this one session's amount, target, reps, or recovery before it's created.</DialogDescription>
             </DialogHeader>
             <EditDraftForm
               draft={editingDraft}
-              onApply={(patch) => {
-                applyEdit(editingDraft.tempId, patch);
+              onApply={(stepIndex, patch) => {
+                applyEdit(editingDraft.tempId, stepIndex, patch);
                 setEditingDraft(null);
               }}
               onClose={() => setEditingDraft(null)}
@@ -597,12 +597,26 @@ function EditDraftForm({
   onClose,
 }: {
   draft: DraftSession;
-  onApply: (patch: { reps?: number; recovery_between_reps_seconds?: number | null }) => void;
+  onApply: (stepIndex: number, patch: Partial<DraftStep>) => void;
   onClose: () => void;
 }) {
-  const workStep = draft.steps.find((s) => s.kind === "work");
+  const stepIndex = draft.steps.findIndex((s) => s.kind === "work" || s.kind === "strides");
+  const workStep = stepIndex >= 0 ? draft.steps[stepIndex] : undefined;
+
   const [reps, setReps] = useState(workStep?.reps ?? 1);
   const [recoverySeconds, setRecoverySeconds] = useState<number | "">(workStep?.recovery_between_reps_seconds ?? "");
+  const [amount, setAmount] = useState<number | "">(
+    workStep?.target_kind === "time"
+      ? workStep?.target_time_seconds != null
+        ? Math.round(workStep.target_time_seconds / 60)
+        : ""
+      : workStep?.target_distance_m ?? "",
+  );
+  const [pace, setPace] = useState(workStep?.target_pace_sec_per_km != null ? secToClock(workStep.target_pace_sec_per_km) : "");
+  const [thrPacePct, setThrPacePct] = useState<number | "">(workStep?.target_threshold_pace_pct ?? "");
+  const [thrHrPct, setThrHrPct] = useState<number | "">(workStep?.target_threshold_hr_pct ?? "");
+  const [zone, setZone] = useState(workStep?.target_zone ?? "");
+  const [rpe, setRpe] = useState<number | "">(workStep?.target_rpe ?? "");
 
   if (!workStep) {
     return (
@@ -617,32 +631,94 @@ function EditDraftForm({
     );
   }
 
+  function apply() {
+    if (!workStep) return;
+    const patch: Partial<DraftStep> = {
+      reps,
+      recovery_between_reps_seconds: recoverySeconds === "" ? null : recoverySeconds,
+      target_distance_m: workStep.target_kind === "distance" ? (amount === "" ? null : Number(amount)) : workStep.target_distance_m,
+      target_time_seconds: workStep.target_kind === "time" ? (amount === "" ? null : Number(amount) * 60) : workStep.target_time_seconds,
+    };
+    if (workStep.target_mode === "pace") patch.target_pace_sec_per_km = pace ? clockToSec(pace) : null;
+    if (workStep.target_mode === "threshold_pace_pct") patch.target_threshold_pace_pct = thrPacePct === "" ? null : Number(thrPacePct);
+    if (workStep.target_mode === "threshold_hr_pct") patch.target_threshold_hr_pct = thrHrPct === "" ? null : Number(thrHrPct);
+    if (workStep.target_mode === "zone") patch.target_zone = zone || null;
+    if (workStep.target_mode === "rpe") patch.target_rpe = rpe === "" ? null : Number(rpe);
+    onApply(stepIndex, patch);
+  }
+
   return (
     <div className="space-y-3">
-      <div>
-        <Label className="text-xs">Reps</Label>
-        <Input type="number" min={1} value={reps} onChange={(e) => setReps(Number(e.target.value))} />
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs">{workStep.target_kind === "time" ? "Minutes" : "Meters"}</Label>
+          <Input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value ? Number(e.target.value) : "")} />
+        </div>
+        <div>
+          <Label className="text-xs">Reps</Label>
+          <Input type="number" min={1} value={reps} onChange={(e) => setReps(Number(e.target.value))} />
+        </div>
       </div>
-      <div>
-        <Label className="text-xs">Recovery between reps (sec)</Label>
-        <Input
-          type="number"
-          min={0}
-          value={recoverySeconds}
-          onChange={(e) => setRecoverySeconds(e.target.value ? Number(e.target.value) : "")}
-        />
-      </div>
+
+      {workStep.target_mode === "pace" && (
+        <div>
+          <Label className="text-xs">Pace (mm:ss/km)</Label>
+          <Input value={pace} onChange={(e) => setPace(e.target.value)} placeholder="4:00" />
+        </div>
+      )}
+      {workStep.target_mode === "threshold_pace_pct" && (
+        <div>
+          <Label className="text-xs">% of threshold pace</Label>
+          <Input type="number" value={thrPacePct} onChange={(e) => setThrPacePct(e.target.value ? Number(e.target.value) : "")} />
+        </div>
+      )}
+      {workStep.target_mode === "threshold_hr_pct" && (
+        <div>
+          <Label className="text-xs">% of threshold HR</Label>
+          <Input type="number" value={thrHrPct} onChange={(e) => setThrHrPct(e.target.value ? Number(e.target.value) : "")} />
+        </div>
+      )}
+      {workStep.target_mode === "zone" && (
+        <div>
+          <Label className="text-xs">Zone</Label>
+          <Select value={zone} onValueChange={setZone}>
+            <SelectTrigger>
+              <SelectValue placeholder="Choose zone" />
+            </SelectTrigger>
+            <SelectContent>
+              {["z1", "z2", "z3", "z4", "z5"].map((z) => (
+                <SelectItem key={z} value={z}>
+                  {z.toUpperCase()}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+      {workStep.target_mode === "rpe" && (
+        <div>
+          <Label className="text-xs">RPE (1–10)</Label>
+          <Input type="number" min={1} max={10} value={rpe} onChange={(e) => setRpe(e.target.value ? Number(e.target.value) : "")} />
+        </div>
+      )}
+
+      {reps > 1 && (
+        <div>
+          <Label className="text-xs">Recovery between reps (sec)</Label>
+          <Input
+            type="number"
+            min={0}
+            value={recoverySeconds}
+            onChange={(e) => setRecoverySeconds(e.target.value ? Number(e.target.value) : "")}
+          />
+        </div>
+      )}
+
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>
           Cancel
         </Button>
-        <Button
-          onClick={() =>
-            onApply({ reps, recovery_between_reps_seconds: recoverySeconds === "" ? null : recoverySeconds })
-          }
-        >
-          Apply
-        </Button>
+        <Button onClick={apply}>Apply</Button>
       </DialogFooter>
     </div>
   );
