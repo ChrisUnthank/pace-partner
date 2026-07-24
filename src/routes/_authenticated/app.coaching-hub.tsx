@@ -5,7 +5,7 @@ import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { BucketTabStrip, COACHING_HUB_TABS } from "@/components/bucket-tab-strip";
-import { Plus } from "lucide-react";
+import { Plus, Calendar, ListChecks } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/app/coaching-hub")({
   component: CoachingHubOverview,
@@ -61,14 +61,30 @@ function CoachingHubOverview() {
             <h1 className="text-2xl font-bold">Coaching Hub</h1>
             <p className="text-sm text-muted-foreground">Session templates, training plans, and everything you reuse across your roster.</p>
           </div>
-          {/* Direct path into the session builder from the planning hub —
-              same destination as the Home header's New session button. */}
-          <Button asChild size="sm">
-            <Link to="/app/sessions/new">
-              <Plus className="h-4 w-4 mr-1" />
-              Add Session
-            </Link>
-          </Button>
+          {/* Quick-access row: Calendar and Sessions sit alongside Add Session
+              so a coach can jump straight to either without leaving the hub
+              via the sidebar. Both are plain outline buttons so Add Session
+              (the primary action here) still reads as the emphasized one. */}
+          <div className="flex items-center gap-2">
+            <Button asChild size="sm" variant="outline">
+              <Link to="/app/sessions/calendar">
+                <Calendar className="h-4 w-4 mr-1" />
+                Calendar
+              </Link>
+            </Button>
+            <Button asChild size="sm" variant="outline">
+              <Link to="/app/sessions">
+                <ListChecks className="h-4 w-4 mr-1" />
+                Sessions
+              </Link>
+            </Button>
+            <Button asChild size="sm">
+              <Link to="/app/sessions/new">
+                <Plus className="h-4 w-4 mr-1" />
+                Add Session
+              </Link>
+            </Button>
+          </div>
         </div>
 
         <BucketTabStrip items={COACHING_HUB_TABS} active="/app/coaching-hub" />
