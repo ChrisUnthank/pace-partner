@@ -249,9 +249,7 @@ const ASSUMED_PACE_SEC_PER_KM: Record<CopyBucket, number> = {
   race: 300,
 };
 
-/** Estimated distance (m) for one already-fetched session + its steps. */
-export function estimateSessionDistanceM(session: any, steps: any[]): number {
-  const bucket = bucketForSession(session);
+function estimateStepsDistanceM(steps: any[], bucket: CopyBucket | null): number {
   const paceSecPerKm = bucket ? ASSUMED_PACE_SEC_PER_KM[bucket] : 0;
 
   return steps.reduce((sum, s) => {
@@ -267,7 +265,61 @@ export function estimateSessionDistanceM(session: any, steps: any[]): number {
   }, 0);
 }
 
+/** Estimated distance (m) for one already-fetched session + its steps. */
+export function estimateSessionDistanceM(session: any, steps: any[]): number {
+  return estimateStepsDistanceM(steps, bucketForSession(session));
+}
+
 /** Estimated total distance (m) across a whole set of source sessions. */
 export function estimateTotalDistanceM(sessions: any[], stepsBySession: Map<string, any[]>): number {
   return sessions.reduce((sum, s) => sum + estimateSessionDistanceM(s, stepsBySession.get(s.id) ?? []), 0);
+}
+
+/** Estimated distance (m) for a draft session — same math, reading its already-resolved bucket. */
+export function estimateDraftDistanceM(draft: DraftSession): number {
+  return estimateStepsDistanceM(draft.steps, draft.bucket);
+}
+
+function formatDraftPace(secPerKm: number): string {
+  const m = Math.floor(secPerKm / 60);
+  const s = Math.round(secPerKm % 60);
+  return `${m}:${String(s).padStart(2, "0")}/km`;
+}
+
+function targetSuffix(s: DraftStep): string {
+  if (s.target_mode === "pace" && s.target_pace_sec_per_km != null) return ` @ ${formatDraftPace(s.target_pace_sec_per_km)}`;
+  if (s.target_mode === "threshold_pace_pct" && s.target_threshold_pace_pct != null)
+    return ` @ ${s.target_threshold_pace_pct}% thr pace`;
+  if (s.target_mode === "threshold_hr_pct" && s.target_threshold_hr_pct != null)
+    return ` @ ${s.target_threshold_hr_pct}% thr HR`;
+  if (s.target_mode === "zone" && s.target_zone) return ` @ ${s.target_zone.toUpperCase()}`;
+  if (s.target_mode === "rpe" && s.target_rpe != null) return ` @ RPE ${s.target_rpe}`;
+  return "";
+}
+
+/**
+ * Compact one-line structure summary for a draft's work/strides steps —
+ * "6 × 800m @ 3:45/km + 45min easy" — used in the review list so a coach
+ * can actually see what's being copied (and see an edit take effect)
+ * instead of just a bare title.
+ */
+export function summarizeDraftSteps(steps: DraftStep[]): string {
+  const workSteps = steps.filter((s) => s.kind === "work" || s.kind === "strides");
+  if (workSteps.length === 0) return "No work steps";
+
+  return workSteps
+    .map((s) => {
+      const repsPrefix = s.reps > 1 ? `${s.reps} × ` : "";
+      let amount = "";
+      if (s.target_kind === "distance" && s.target_distance_m != null) {
+        amount =
+          s.target_distance_m >= 1000
+            ? `${(s.target_distance_m / 1000).toFixed(s.target_distance_m % 1000 === 0 ? 0 : 1)}km`
+            : `${s.target_distance_m}m`;
+      } else if (s.target_kind === "time" && s.target_time_seconds != null) {
+        amount = `${Math.round(s.target_time_seconds / 60)}min`;
+      }
+      return `${repsPrefix}${amount}${targetSuffix(s)}`;
+    })
+    .join(" + ");
 }
