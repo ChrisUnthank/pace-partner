@@ -827,7 +827,7 @@ function AthleteAnalytics({
             <>
               <div className="h-[320px] w-full">
                 <ResponsiveContainer>
-                  <ComposedChart data={load} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
+                  <ComposedChart data={load} margin={{ top: 26, right: 20, left: 0, bottom: 0 }}>
                     <defs>
                       <pattern
                         id="lowConfidenceHatch"
@@ -935,21 +935,26 @@ function AthleteAnalytics({
                         Dashed/lighter for a not-yet-completed (future
                         planned) race vs a solid line for one that already
                         happened. */}
-                    {(raceDays ?? []).map((r: any) => (
-                      <ReferenceLine
-                        key={r.id}
-                        x={r.session_date}
-                        stroke="#db2777"
-                        strokeWidth={1.5}
-                        strokeDasharray={r.completed_at ? undefined : "4 3"}
-                        label={{
-                          value: "🏁 " + (r.title ?? "Race"),
-                          position: "top",
-                          fontSize: 10,
-                          fill: "#db2777",
-                        }}
-                      />
-                    ))}
+                    {(raceDays ?? []).map((r: any) => {
+                      const rawTitle = r.title ?? "Race";
+                      const shortTitle = rawTitle.length > 18 ? `${rawTitle.slice(0, 17)}…` : rawTitle;
+                      return (
+                        <ReferenceLine
+                          key={r.id}
+                          x={r.session_date}
+                          stroke="#db2777"
+                          strokeWidth={1.5}
+                          strokeDasharray={r.completed_at ? undefined : "4 3"}
+                          label={{
+                            value: "🏁 " + shortTitle,
+                            position: "top",
+                            offset: 10,
+                            fontSize: 10,
+                            fill: "#db2777",
+                          }}
+                        />
+                      );
+                    })}
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
