@@ -18,15 +18,14 @@ import {
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DAY_TYPE_META } from "@/lib/training-day-types";
-import { Plus } from "lucide-react";
+import { Plus, Repeat } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { WeekDiaryGrid, getWeekStart, getWeekDates, type WeekDiaryDay } from "@/components/week-diary-grid";
 
 export const Route = createFileRoute("/_authenticated/app/coach-diary")({
   component: CoachDiaryPage,
 });
-
-const AGENDA_DAYS = 21;
 
 // Stable per-group colors, assigned by group creation order. The
 // training_groups.color column exists (added in the same migration as this
@@ -60,23 +59,6 @@ function toISO(d: Date) {
   return `${y}-${m}-${day}`;
 }
 
-function rangeDates(n: number): string[] {
-  const out: string[] = [];
-  const start = new Date();
-  for (let i = 0; i < n; i++) {
-    const d = new Date(start);
-    d.setDate(start.getDate() + i);
-    out.push(toISO(d));
-  }
-  return out;
-}
-
-function timeLabel(t: string | null, timeOfDay: string | null): string {
-  if (t) return t.slice(0, 5);
-  if (timeOfDay) return timeOfDay.toUpperCase();
-  return "";
-}
-
 function CoachDiaryPage() {
   const { user } = useAuthUser();
   const { data: roles = [] } = useMyRoles();
@@ -84,9 +66,11 @@ function CoachDiaryPage() {
   const isManager = roles.includes("manager");
   const qc = useQueryClient();
 
-  const dates = rangeDates(AGENDA_DAYS);
+  const [weekOffset, setWeekOffset] = useState(0);
+  const weekStart = getWeekStart(weekOffset);
+  const dates = getWeekDates(weekStart);
   const rangeEnd = dates[dates.length - 1];
-  const todayIso = dates[0];
+  const todayIso = toISO(new Date());
 
   // ── All of this coach's groups (managers see every group) ────────────────
   const { data: groups = [] } = useQuery({
@@ -126,7 +110,7 @@ function CoachDiaryPage() {
 
   const scheduleIds = (slots as any[]).map((s) => s.id);
   const { data: overrides = [] } = useQuery({
-    queryKey: ["coach-diary-overrides", scheduleIds.join(",")],
+    queryKey: ["coach-diary-overrides", scheduleIds.join(","), weekStart],
     enabled: scheduleIds.length > 0,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -197,7 +181,28 @@ function CoachDiaryPage() {
     }
   }
 
+  const weekDays: WeekDiaryDay[] = dates.map((d) => ({
+    date: d,
+    training: byDate.get(d)!.training,
+    personal: byDate.get(d)!.personal,
+  }));
+
   const [entryDialog, setEntryDialog] = useState<{ date?: string; initial?: any } | null>(null);
+
+  // Dragging a one-off personal item onto another day column just moves
+  // its specific_date — recurring (day_of_week) items aren't draggable at
+  // all, enforced below via isPersonalDraggable, so this only ever fires
+  // for entries that already have a specific_date.
+  async function handleDropPersonal(entry: any, toDate: string) {
+    const { error } = await (supabase.from("coach_personal_calendar_entries" as any) as any)
+      .update({ specific_date: toDate, updated_at: new Date().toISOString() })
+      .eq("id", entry.id);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    qc.invalidateQueries({ queryKey: ["coach-diary-personal"] });
+  }
 
   if (!isCoach) {
     return (
@@ -209,12 +214,12 @@ function CoachDiaryPage() {
 
   return (
     <AppShell>
-      <div className="max-w-2xl space-y-4">
+      <div className="max-w-4xl space-y-4">
         <div>
           <h1 className="text-2xl font-bold">Diary</h1>
           <p className="text-sm text-muted-foreground">
-            All your training groups' schedules combined into one agenda, alongside your own appointments and
-            commitments.
+            All your training groups' schedules combined into one week, alongside your own appointments and
+            commitments. Drag a personal item to move it to another day.
           </p>
         </div>
 
@@ -232,83 +237,56 @@ function CoachDiaryPage() {
           </div>
         )}
 
-        <div className="flex justify-end">
-          <Button size="sm" variant="outline" onClick={() => setEntryDialog({})}>
-            <Plus className="h-3.5 w-3.5 mr-1" /> Add personal item
-          </Button>
-        </div>
-
-        <div className="space-y-2">
-          {dates.map((d) => {
-            const day = byDate.get(d)!;
-            const isEmpty = day.training.length === 0 && day.personal.length === 0;
-            const dateObj = new Date(d + "T00:00:00");
+        <WeekDiaryGrid
+          weekStart={weekStart}
+          onPrev={() => setWeekOffset((o) => o - 1)}
+          onNext={() => setWeekOffset((o) => o + 1)}
+          onToday={() => setWeekOffset(0)}
+          days={weekDays}
+          todayISO={todayIso}
+          onAddClick={(date) => setEntryDialog({ date })}
+          isPersonalDraggable={(p) => !!p.specific_date}
+          onDropPersonal={handleDropPersonal}
+          renderTraining={(s) => {
+            const meta = (DAY_TYPE_META as any)[s.day_type];
             return (
-              <div key={d} className={cn("border rounded-md px-3 py-2", d === todayIso && "border-primary/50 bg-accent/20")}>
-                <div className="flex items-center justify-between">
-                  <div className="text-sm font-medium">
-                    {dateObj.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
-                    {d === todayIso && <span className="ml-2 text-xs text-primary font-normal">Today</span>}
-                  </div>
-                  <button
-                    className="text-xs text-muted-foreground hover:text-foreground"
-                    onClick={() => setEntryDialog({ date: d })}
-                  >
-                    + add
-                  </button>
+              <div className="rounded-md border px-2 py-1.5 text-[11px] bg-muted/40">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className={cn("h-2 w-2 rounded-full shrink-0", groupMeta.get(s.group_id)?.dot ?? "bg-muted")} />
+                  <span className="font-medium truncate">{meta?.label ?? s.day_type}</span>
                 </div>
-
-                {isEmpty ? (
-                  <p className="text-xs text-muted-foreground mt-1">Nothing scheduled.</p>
-                ) : (
-                  <div className="mt-1.5 space-y-1">
-                    {day.training
-                      .slice()
-                      .sort((a, b) => String(a.start_time ?? "99").localeCompare(String(b.start_time ?? "99")))
-                      .map((s, i) => {
-                        const g = groupMeta.get(s.group_id);
-                        const meta = DAY_TYPE_META[s.day_type as keyof typeof DAY_TYPE_META] ?? DAY_TYPE_META.group_session;
-                        const loc = s.training_locations?.name ?? s.location_text ?? null;
-                        const t = timeLabel(s.start_time, s.time_of_day);
-                        return (
-                          <div key={s.id + ":" + i} className="flex items-start gap-2 text-sm">
-                            <span className={cn("h-2.5 w-2.5 rounded-full mt-1 shrink-0", g?.dot ?? "bg-muted")} />
-                            <div className="min-w-0">
-                              <span className="font-medium">{g?.name ?? "Group"}</span>
-                              {t && <span className="text-muted-foreground"> · {t}</span>}
-                              {loc && <span className="text-muted-foreground"> · {loc}</span>}
-                              {s._overridden && <span className="text-[10px] text-amber-600 ml-1">changed</span>}
-                              <span className="inline-flex items-center gap-1 ml-2 text-[11px] text-muted-foreground align-middle">
-                                <span className={cn("h-1.5 w-1.5 rounded-full", (meta as any).dotCls ?? "bg-muted")} />
-                                {(meta as any).label ?? s.day_type}
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    {day.personal.map((p) => {
-                      const meta = PERSONAL_META[p.category] ?? PERSONAL_META.other;
-                      return (
-                        <button
-                          key={p.id + ":" + d}
-                          onClick={() => setEntryDialog({ initial: p })}
-                          className="flex items-start gap-2 text-sm w-full text-left hover:bg-accent/30 rounded"
-                        >
-                          <span className={cn("h-2.5 w-2.5 rounded-full mt-1 shrink-0", meta.dot)} />
-                          <div className="min-w-0">
-                            <span className="font-medium">{p.title}</span>
-                            {p.start_time && <span className="text-muted-foreground"> · {String(p.start_time).slice(0, 5)}</span>}
-                            <span className="text-[11px] text-muted-foreground ml-2">{meta.label}</span>
-                          </div>
-                        </button>
-                      );
-                    })}
+                {(s.start_time || s.time_of_day) && (
+                  <div className="text-muted-foreground">
+                    {s.start_time ? String(s.start_time).slice(0, 5) : String(s.time_of_day).toUpperCase()}
+                  </div>
+                )}
+                {(s.location_text || s.training_locations?.name) && (
+                  <div className="text-muted-foreground truncate">
+                    {s.training_locations?.name ?? s.location_text}
                   </div>
                 )}
               </div>
             );
-          })}
-        </div>
+          }}
+          renderPersonal={(p) => {
+            const meta = PERSONAL_META[p.category] ?? PERSONAL_META.other;
+            const isRecurring = !p.specific_date;
+            return (
+              <button
+                onClick={() => setEntryDialog({ initial: p })}
+                className="w-full text-left rounded-md border px-2 py-1.5 text-[11px] bg-card hover:bg-accent/30"
+              >
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className={cn("h-2 w-2 rounded-full shrink-0", meta.dot)} />
+                  <span className="font-medium truncate flex-1">{p.title}</span>
+                  {isRecurring && <Repeat className="h-2.5 w-2.5 text-muted-foreground shrink-0" />}
+                </div>
+                {p.start_time && <div className="text-muted-foreground">{String(p.start_time).slice(0, 5)}</div>}
+                <div className="text-muted-foreground">{meta.label}</div>
+              </button>
+            );
+          }}
+        />
       </div>
 
       {entryDialog && (
@@ -329,6 +307,8 @@ function CoachDiaryPage() {
 
 // ---------------------------------------------------------------------------
 // Add/edit a personal diary item — one-off date or weekly recurring.
+// Unchanged from the previous vertical-list version; only the surrounding
+// page layout changed.
 // ---------------------------------------------------------------------------
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -371,7 +351,7 @@ function PersonalEntryDialog({
       notes: notes || null,
       updated_at: new Date().toISOString(),
     };
-    const tbl = (supabase.from("coach_personal_calendar_entries" as any) as any);
+    const tbl = supabase.from("coach_personal_calendar_entries" as any) as any;
     const { error } = isEdit ? await tbl.update(payload).eq("id", initial.id) : await tbl.insert(payload);
     if (error) {
       toast.error(error.message);
@@ -412,10 +392,14 @@ function PersonalEntryDialog({
           <div className="space-y-1">
             <Label>Category</Label>
             <Select value={category} onValueChange={setCategory}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 {Object.entries(PERSONAL_META).map(([k, m]) => (
-                  <SelectItem key={k} value={k}>{m.label}</SelectItem>
+                  <SelectItem key={k} value={k}>
+                    {m.label}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -423,7 +407,9 @@ function PersonalEntryDialog({
           <div className="space-y-1">
             <Label>When</Label>
             <Select value={mode} onValueChange={(v) => setMode(v as any)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="one-off">One-off date</SelectItem>
                 <SelectItem value="weekly">Every week</SelectItem>
@@ -439,10 +425,14 @@ function PersonalEntryDialog({
             <div className="space-y-1">
               <Label>Day of week</Label>
               <Select value={dayOfWeek} onValueChange={setDayOfWeek}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   {WEEKDAYS.map((w, i) => (
-                    <SelectItem key={i} value={String(i)}>{w}</SelectItem>
+                    <SelectItem key={i} value={String(i)}>
+                      {w}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -458,13 +448,19 @@ function PersonalEntryDialog({
           </div>
           <div className="flex items-center justify-between pt-1">
             {isEdit ? (
-              <Button variant="destructive" size="sm" onClick={remove} disabled={saving}>Delete</Button>
+              <Button variant="destructive" size="sm" onClick={remove} disabled={saving}>
+                Delete
+              </Button>
             ) : (
               <span />
             )}
             <div className="flex gap-2">
-              <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
-              <Button onClick={save} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
+              <Button variant="outline" onClick={onClose} disabled={saving}>
+                Cancel
+              </Button>
+              <Button onClick={save} disabled={saving}>
+                {saving ? "Saving…" : "Save"}
+              </Button>
             </div>
           </div>
         </div>
