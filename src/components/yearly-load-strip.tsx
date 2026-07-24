@@ -16,7 +16,14 @@ import { cn } from "@/lib/utils";
  *
  * Load  = sum of athlete_load_daily.combined_load (falls back to
  *         training_load for days recorded before external load existed).
- *         For the future weeks there's no real load yet, so it's
+ *         For any day with a completed session but no row in that table
+ *         yet — most commonly today, right after logging, since the
+ *         recompute pipeline can lag behind real-time — falls back to a
+ *         per-session estimate (real rpe if logged, else the same
+ *         intent/day-type estimate used for the future weeks) so the
+ *         current week's bar doesn't read as blank just because the
+ *         aggregation hasn't caught up.
+ *         For the future weeks there's no real load yet either, so it's
  *         estimated the same way session_training_load() does server-side
  *         (rpe × duration) — just computed here from intent/day_type,
  *         since a planned session obviously has no real rpe.
@@ -128,7 +135,7 @@ export function YearlyLoadStrip({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sessions")
-        .select("session_date, total_distance_m, total_time_seconds, completed_at")
+        .select("session_date, total_distance_m, total_time_seconds, completed_at, rpe, day_type, intent")
         .eq("athlete_id", athleteId)
         .gte("session_date", rangeStart)
         .not("completed_at", "is", null);
@@ -179,6 +186,12 @@ export function YearlyLoadStrip({
 
     const weekKey = (dateStr: string) => toISO(mondayOf(new Date(dateStr + "T00:00:00")));
 
+    // Dates athlete_load_daily has already computed a real number for —
+    // days a completed session exists but this table hasn't caught up to
+    // yet (most commonly today, right after logging) fall back to a
+    // per-session estimate below instead of silently reading as zero.
+    const loadCoveredDates = new Set((loadRows as any[]).map((r) => r.load_date));
+
     for (const r of loadRows as any[]) {
       const k = weekKey(r.load_date);
       const bucket = byWeek.get(k);
@@ -191,6 +204,11 @@ export function YearlyLoadStrip({
       if (!bucket) continue;
       bucket.time += Number(s.total_time_seconds ?? 0);
       bucket.distance += Number(s.total_distance_m ?? 0) / 1000;
+      if (!loadCoveredDates.has(s.session_date)) {
+        const rpeEff = s.rpe != null ? Number(s.rpe) : estimateRpe(s);
+        const durationMin = Number(s.total_time_seconds ?? 0) / 60;
+        bucket.load += rpeEff * durationMin;
+      }
     }
 
     const stepsBySession = new Map<string, any[]>();
