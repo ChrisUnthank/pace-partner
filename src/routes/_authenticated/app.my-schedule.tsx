@@ -300,6 +300,28 @@ function PersonalEntryDialog({
   const [endTime, setEndTime] = useState(initial?.end_time?.slice(0, 5) ?? "");
   const [locationText, setLocationText] = useState(initial?.location_text ?? "");
   const [notes, setNotes] = useState(initial?.notes ?? "");
+  // Links this appointment back to an open injury — lets Injury
+  // Management's "Add to diary" and this dialog's own linking stay in
+  // sync no matter which side someone actually uses.
+  const [injuryId, setInjuryId] = useState<string | null>(initial?.injury_id ?? null);
+
+  // Only offered for the Appointment category, and only open (not
+  // resolved) injuries — a resolved injury has nothing left to schedule
+  // around.
+  const { data: openInjuries } = useQuery({
+    queryKey: ["my-schedule-open-injuries", athleteId],
+    enabled: category === "appointment",
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("injuries")
+        .select("id, body_part, side")
+        .eq("athlete_id", athleteId)
+        .neq("status", "resolved")
+        .order("onset_date", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
 
   const m = useMutation({
     mutationFn: async () => {
@@ -313,13 +335,43 @@ function PersonalEntryDialog({
         end_time: endTime || null,
         location_text: locationText || null,
         notes: notes || null,
+        injury_id: category === "appointment" ? injuryId : null,
       };
+      let entryId: string = initial?.id;
       if (isEdit) {
         const { error } = await supabase.from("athlete_personal_calendar_entries").update(payload).eq("id", initial.id);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from("athlete_personal_calendar_entries").insert(payload);
+        const { data, error } = await supabase.from("athlete_personal_calendar_entries").insert(payload).select("id").single();
         if (error) throw error;
+        entryId = (data as any).id;
+      }
+
+      // Reverse sync: a one-off appointment linked to an injury gets a
+      // matching row in injury_appointments — Injury Management's own
+      // appointment history, not just a single "next appointment" field —
+      // so booking or moving an appointment here shows up there too, not
+      // just the other way round. Replaced (delete-then-insert) rather
+      // than updated in place, keyed by calendar_entry_id, so editing an
+      // existing linked appointment's date/time can't leave a stale
+      // duplicate behind. Recurring appointments don't have a single
+      // concrete date, so there's nothing meaningful to sync for those.
+      if (category === "appointment") {
+        await supabase.from("injury_appointments" as any).delete().eq("calendar_entry_id", entryId);
+        if (injuryId && mode === "one-off") {
+          const apptAt = new Date(`${specificDate}T${startTime || "00:00"}:00`).toISOString();
+          const { error: apptErr } = await supabase.from("injury_appointments" as any).insert({
+            injury_id: injuryId,
+            athlete_id: athleteId,
+            hcp_name: title || null,
+            appt_at: apptAt,
+            notes: notes || null,
+            calendar_entry_id: entryId,
+          } as any);
+          if (apptErr) throw apptErr;
+          const { error: injErr } = await supabase.from("injuries").update({ seeing_hcp: true } as any).eq("id", injuryId);
+          if (injErr) throw injErr;
+        }
       }
     },
     onSuccess: () => {
@@ -365,6 +417,29 @@ function PersonalEntryDialog({
               </SelectContent>
             </Select>
           </div>
+          {category === "appointment" && (openInjuries?.length ?? 0) > 0 && (
+            <div>
+              <Label className="text-xs">Related injury (optional)</Label>
+              <Select value={injuryId ?? "none"} onValueChange={(v) => setInjuryId(v === "none" ? null : v)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Not related to an injury</SelectItem>
+                  {openInjuries!.map((i: any) => (
+                    <SelectItem key={i.id} value={i.id} className="capitalize">
+                      {i.body_part} {i.side && i.side !== "n/a" ? `(${i.side})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {injuryId && mode === "recurring" && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Recurring appointments can't sync a "next appointment" date — switch to "One date" for that.
+                </p>
+              )}
+            </div>
+          )}
           <div>
             <Label className="text-xs">Title</Label>
             <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Evening shift at the cafe" />
