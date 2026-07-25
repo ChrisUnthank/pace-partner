@@ -23,11 +23,33 @@ import {
   estimateTotalDistanceM,
   estimateDraftDistanceM,
   summarizeDraftSteps,
+  applyVolumeNudgeKm,
+  applyPaceNudgeSecPerKm,
+  applyRepDelta,
+  applyRecoveryDelta,
   type ProgressionRules,
   type DraftSession,
   type DraftStep,
+  type CopyBucket,
 } from "@/lib/calendar-copy";
 import { secToClock, clockToSec } from "@/lib/format";
+
+// Whole-batch progression presets — one click sets every bucket's Volume %
+// to the same value (intensity untouched), same underlying action as the
+// existing "quick set target total" control, just a fixed % instead of one
+// computed from a typed target. Manual per-bucket inputs below stay
+// available for fine-tuning after a preset is applied.
+const VOLUME_PATTERN_PRESETS: { label: string; pct: number }[] = [
+  { label: "Cutback −20%", pct: -20 },
+  { label: "Flat 0%", pct: 0 },
+  { label: "Build +5%", pct: 5 },
+  { label: "Build +10%", pct: 10 },
+  { label: "Build +15%", pct: 15 },
+];
+
+// Increment size for the per-bucket +/- steppers next to each manual input.
+const VOLUME_STEP = 5;
+const INTENSITY_STEP = 2;
 
 /**
  * Copy Week/Month Forward. Two-step flow inside one dialog:
@@ -224,8 +246,26 @@ export function CopyPeriodDialog({
     },
   });
 
+  function applyPatternToAllBuckets(pct: number) {
+    setRules((r) => {
+      const next: ProgressionRules = { ...r };
+      for (const b of COPY_BUCKETS) {
+        next[b] = { ...(next[b] ?? { volumePct: 0, intensityPct: 0 }), volumePct: pct };
+      }
+      return next;
+    });
+    toast.success(`Applied ${pct > 0 ? "+" : ""}${pct}% volume to every bucket`);
+  }
+
   function updateRule(bucket: (typeof COPY_BUCKETS)[number], patch: Partial<{ volumePct: number; intensityPct: number }>) {
     setRules((r) => ({ ...r, [bucket]: { ...(r[bucket] ?? { volumePct: 0, intensityPct: 0 }), ...patch } }));
+  }
+
+  function stepRule(bucket: (typeof COPY_BUCKETS)[number], field: "volumePct" | "intensityPct", delta: number) {
+    setRules((r) => {
+      const current = r[bucket]?.[field] ?? 0;
+      return { ...r, [bucket]: { ...(r[bucket] ?? { volumePct: 0, intensityPct: 0 }), [field]: current + delta } };
+    });
   }
 
   async function generatePreview() {
@@ -386,7 +426,33 @@ export function CopyPeriodDialog({
     onClose();
   }
 
+  // Review-screen batch quick-edits — deferred item from the Copy dialog
+  // backlog. Each operates on the current drafts array, so it composes
+  // with whatever progression + individual per-session edits are already
+  // in place rather than rebuilding from the source.
+  function handleVolumeNudge(deltaKm: number) {
+    setDrafts((d) => applyVolumeNudgeKm(d, deltaKm));
+    toast.success(`${deltaKm > 0 ? "+" : ""}${deltaKm}km applied across the batch`);
+  }
+  function handlePaceNudge(bucket: CopyBucket, deltaSecPerKm: number) {
+    const count = drafts.filter((d) => d.bucket === bucket).length;
+    setDrafts((d) => applyPaceNudgeSecPerKm(d, bucket, deltaSecPerKm));
+    toast.success(`${COPY_BUCKET_LABELS[bucket]} pace adjusted on ${count} session${count === 1 ? "" : "s"}`);
+  }
+  function handleRepDelta(bucket: CopyBucket, delta: number) {
+    const count = drafts.filter((d) => d.bucket === bucket).length;
+    setDrafts((d) => applyRepDelta(d, bucket, delta));
+    toast.success(
+      `${delta > 0 ? "+" : ""}${delta} rep applied to ${count} ${COPY_BUCKET_LABELS[bucket]} session${count === 1 ? "" : "s"}`,
+    );
+  }
+  function handleRecoveryDelta(deltaSeconds: number) {
+    setDrafts((d) => applyRecoveryDelta(d, deltaSeconds));
+    toast.success(`Recovery adjusted ${deltaSeconds > 0 ? "+" : ""}${deltaSeconds}s across the batch`);
+  }
+
   const flaggedCount = drafts.filter((d) => d.needsReview).length;
+  const presentBuckets = new Set(drafts.map((d) => d.bucket).filter(Boolean) as CopyBucket[]);
 
   return (
     <>
@@ -548,7 +614,20 @@ export function CopyPeriodDialog({
             {!(variant === "history" && copyMode === "exact") && (
             <div>
               <Label className="text-xs">Progression (optional — leave at 0 for an exact copy)</Label>
-              <div className="mt-1.5 space-y-2">
+
+              <div className="flex flex-wrap gap-2 mt-1.5">
+                {VOLUME_PATTERN_PRESETS.map((p) => (
+                  <Button key={p.label} size="sm" variant="outline" onClick={() => applyPatternToAllBuckets(p.pct)}>
+                    {p.label}
+                  </Button>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Sets every bucket's Volume % to the same value in one click — still yours to fine-tune per bucket
+                below (e.g. keep easy days flat, put a build into the long run only).
+              </p>
+
+              <div className="mt-2.5 space-y-2">
                 {COPY_BUCKETS.map((b) => {
                   const count = bucketCounts[b] ?? 0;
                   return (
@@ -559,7 +638,16 @@ export function CopyPeriodDialog({
                           {count > 0 ? `(${count} session${count === 1 ? "" : "s"})` : "(none in range)"}
                         </span>
                       </span>
-                      <div>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="px-2 shrink-0"
+                          disabled={count === 0}
+                          onClick={() => stepRule(b, "volumePct", -VOLUME_STEP)}
+                        >
+                          −
+                        </Button>
                         <Input
                           type="number"
                           placeholder="Volume %"
@@ -567,8 +655,26 @@ export function CopyPeriodDialog({
                           value={rules[b]?.volumePct ?? 0}
                           onChange={(e) => updateRule(b, { volumePct: Number(e.target.value) })}
                         />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="px-2 shrink-0"
+                          disabled={count === 0}
+                          onClick={() => stepRule(b, "volumePct", VOLUME_STEP)}
+                        >
+                          +
+                        </Button>
                       </div>
-                      <div>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="px-2 shrink-0"
+                          disabled={count === 0}
+                          onClick={() => stepRule(b, "intensityPct", -INTENSITY_STEP)}
+                        >
+                          −
+                        </Button>
                         <Input
                           type="number"
                           placeholder="Intensity %"
@@ -576,6 +682,15 @@ export function CopyPeriodDialog({
                           value={rules[b]?.intensityPct ?? 0}
                           onChange={(e) => updateRule(b, { intensityPct: Number(e.target.value) })}
                         />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="px-2 shrink-0"
+                          disabled={count === 0}
+                          onClick={() => stepRule(b, "intensityPct", INTENSITY_STEP)}
+                        >
+                          +
+                        </Button>
                       </div>
                     </div>
                   );
@@ -594,6 +709,80 @@ export function CopyPeriodDialog({
               <div className="rounded-md border border-amber-300 bg-amber-50 text-amber-900 text-xs p-2">
                 {flaggedCount} session{flaggedCount > 1 ? "s use" : " uses"} a Zone/RPE target and couldn't be
                 auto-adjusted for intensity — review those manually below.
+              </div>
+            )}
+
+            {drafts.length > 0 && (
+              <div className="rounded-md border p-3 space-y-2.5 bg-muted/20">
+                <Label className="text-xs">Quick adjustments</Label>
+                <p className="text-xs text-muted-foreground -mt-1.5">
+                  Nudge this whole batch on top of whatever progression or individual edits are already here.
+                </p>
+
+                <div className="space-y-1.5">
+                  <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+                    Total volume
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[-10, -5, 5, 10, 15, 20].map((km) => (
+                      <Button key={km} size="sm" variant="outline" onClick={() => handleVolumeNudge(km)}>
+                        {km > 0 ? `+${km}` : km}km
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                {presentBuckets.has("easy") && (
+                  <div className="space-y-1.5">
+                    <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+                      Easy pace
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      <Button size="sm" variant="outline" onClick={() => handlePaceNudge("easy", -10)}>
+                        Faster 10s
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => handlePaceNudge("easy", -5)}>
+                        Faster 5s
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => handlePaceNudge("easy", 5)}>
+                        Slower 5s
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => handlePaceNudge("easy", 10)}>
+                        Slower 10s
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {presentBuckets.has("threshold") && (
+                  <div className="space-y-1.5">
+                    <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+                      Threshold reps
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      <Button size="sm" variant="outline" onClick={() => handleRepDelta("threshold", -1)}>
+                        −1 rep
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => handleRepDelta("threshold", 1)}>
+                        +1 rep
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-1.5">
+                  <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+                    Recovery (between reps &amp; sets)
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    <Button size="sm" variant="outline" onClick={() => handleRecoveryDelta(-15)}>
+                      −15s
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => handleRecoveryDelta(15)}>
+                      +15s
+                    </Button>
+                  </div>
+                </div>
               </div>
             )}
 
