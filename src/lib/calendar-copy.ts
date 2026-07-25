@@ -264,16 +264,68 @@ export function classifiedTitle(session: any, steps: any[]): string {
   return intentLabel ? `${intentLabel} ${suffix}` : suffix;
 }
 
+// A week-range override for peaking/tapering — e.g. "the last 2 weeks of
+// this copy should be -30% regardless of the base progression set above."
+// fromWeek/toWeek are 1-indexed relative to the SOURCE range's own start,
+// not calendar week numbers — week 1 is whatever week the copy's source
+// range begins in, which lines up with the target range too since the
+// offset that shifts source dates to target dates is constant across every
+// session in the batch.
+export type WeekOverride = { id: string; fromWeek: number; toWeek: number; volumePct: number };
+
+// Volume-only override — an override in range replaces the whole-batch
+// rule's volumePct for every bucket that week; intensity always still
+// comes from the base rule, so an override doesn't need its own intensity
+// value to reason about. Falls through to the base rules unchanged when no
+// override matches (or none exist).
+export function resolveEffectiveRules(
+  rules: ProgressionRules,
+  weekOverrides: WeekOverride[] | undefined,
+  relativeWeek: number,
+): ProgressionRules {
+  if (!weekOverrides || weekOverrides.length === 0) return rules;
+  const override = weekOverrides.find((o) => relativeWeek >= o.fromWeek && relativeWeek <= o.toWeek);
+  if (!override) return rules;
+  const next: ProgressionRules = {};
+  for (const b of COPY_BUCKETS) {
+    next[b] = { volumePct: override.volumePct, intensityPct: rules[b]?.intensityPct ?? 0 };
+  }
+  return next;
+}
+
 /**
  * Builds one editable draft from a source session + its steps. Only the
  * prescription (structure/targets) copies across — actual-performance
  * fields (distance/HR/pace actually recorded, completed_at, etc.) never
  * do. A copy always lands as a fresh planned session, never a completed
  * one, regardless of whether the source session was completed.
+ *
+ * sourceStart + weekOverrides are optional — when given, the session's
+ * position within the source range (in whole weeks from sourceStart) is
+ * checked against weekOverrides, and a matching override's volumePct wins
+ * over the base rules' for every bucket, letting a coach peak/taper
+ * specific weeks of a multi-week copy without hand-editing every session
+ * in Review.
  */
-export function buildCopyDraft(session: any, steps: any[], offsetDays: number, rules: ProgressionRules): DraftSession {
+export function buildCopyDraft(
+  session: any,
+  steps: any[],
+  offsetDays: number,
+  rules: ProgressionRules,
+  sourceStart?: string,
+  weekOverrides?: WeekOverride[],
+): DraftSession {
   const bucket = bucketForSession(session);
-  const rule = bucket ? rules[bucket] : undefined;
+
+  let effectiveRules = rules;
+  if (sourceStart && weekOverrides && weekOverrides.length > 0) {
+    const daysFromSourceStart = Math.round(
+      (new Date(session.session_date + "T00:00:00").getTime() - new Date(sourceStart + "T00:00:00").getTime()) / 86400000,
+    );
+    const relativeWeek = Math.floor(daysFromSourceStart / 7) + 1;
+    effectiveRules = resolveEffectiveRules(rules, weekOverrides, relativeWeek);
+  }
+  const rule = bucket ? effectiveRules[bucket] : undefined;
 
   const srcDate = new Date(session.session_date + "T00:00:00");
   srcDate.setDate(srcDate.getDate() + offsetDays);
