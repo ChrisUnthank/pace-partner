@@ -1153,6 +1153,8 @@ function PlanBuilder({ templateId, onBack }: { templateId: string | null; onBack
           planTemplateId={savedId}
           week={dayEditor.week}
           day={dayEditor.day}
+          durationWeeks={durationWeeks}
+          allSessions={sessions ?? []}
           existing={sessionByDay.get(`${dayEditor.week}-${dayEditor.day}`) ?? null}
           onClose={() => setDayEditor(null)}
           onSaved={() => {
@@ -1192,6 +1194,8 @@ function DayEditorDialog({
   planTemplateId,
   week,
   day,
+  durationWeeks,
+  allSessions,
   existing,
   onClose,
   onSaved,
@@ -1199,6 +1203,8 @@ function DayEditorDialog({
   planTemplateId: string;
   week: number;
   day: number;
+  durationWeeks: number;
+  allSessions: any[];
   existing: any | null;
   onClose: () => void;
   onSaved: () => void;
@@ -1207,6 +1213,14 @@ function DayEditorDialog({
   const [effortType, setEffortType] = useState(existing?.effort_type ?? "easy");
   const [mode, setMode] = useState<"library" | "manual">(existing?.session_template_id ? "library" : "manual");
   const [libraryTemplateId, setLibraryTemplateId] = useState<string>(existing?.session_template_id ?? "");
+  // Time of day — no schema field exists for this (only the separate squad
+  // Training Schedule has AM/PM), so like the Copy dialogs this just
+  // appends "(AM)"/"(PM)" onto the title rather than needing a migration.
+  const [timeOfDay, setTimeOfDay] = useState<"none" | "am" | "pm">("none");
+  // "Apply to other days" — independent copies, not linked: once saved,
+  // each copy is its own row and editing one never affects the others.
+  const [showApplyToOtherDays, setShowApplyToOtherDays] = useState(false);
+  const [otherDayTargets, setOtherDayTargets] = useState<Set<string>>(new Set());
   const [manualSteps, setManualSteps] = useState<ManualStep[]>(() => {
     if (!existing?.steps) return [];
     return (existing.steps as any[]).map((s) => ({
@@ -1238,7 +1252,6 @@ function DayEditorDialog({
   function addStep() {
     setManualSteps((s) => [...s, { kind: "work", target_kind: "time", value: 20, reps: 1, target_mode: "open" }]);
   }
-
   function updateStep(i: number, patch: Partial<ManualStep>) {
     setManualSteps((s) => s.map((step, idx) => (idx === i ? { ...step, ...patch } : step)));
   }
@@ -1260,6 +1273,50 @@ function DayEditorDialog({
 
   function removeStep(i: number) {
     setManualSteps((s) => s.filter((_, idx) => idx !== i));
+  }
+
+  // Quick title presets, keyed off the effort type already picked — "Run"
+  // for anything continuous, "Session" for anything reps-based, matching
+  // the same taxonomy the Copy dialogs and Deliver Program export use.
+  // Just fills the field; still yours to edit or replace afterward.
+  const EFFORT_TITLE_LABEL: Record<string, string> = {
+    easy: "Easy",
+    long: "Long",
+    tempo: "Tempo",
+    threshold: "Threshold",
+    vo2: "VO2",
+    strides: "Strides",
+    race: "Race",
+  };
+  const titleWord = EFFORT_TITLE_LABEL[effortType] ?? "Training";
+
+  function stripTimeOfDaySuffix(t: string): string {
+    return t.replace(/\s*\((AM|PM)\)\s*$/i, "").trim();
+  }
+
+  // Existing sessions on other days, keyed "week-day" — lets "apply to
+  // other days" know whether a target already has content (update) or is
+  // empty (insert), same add-or-edit semantics as clicking a day directly.
+  const allSessionByDay = new Map((allSessions ?? []).map((s: any) => [`${s.week_number}-${s.day_of_week}`, s]));
+
+  function toggleOtherDayTarget(key: string) {
+    setOtherDayTargets((s) => {
+      const next = new Set(s);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function selectAllSameWeekday() {
+    setOtherDayTargets((s) => {
+      const next = new Set(s);
+      for (let w = 1; w <= durationWeeks; w++) {
+        if (w === week) continue;
+        next.add(`${w}-${day}`);
+      }
+      return next;
+    });
   }
 
   async function save() {
@@ -1295,11 +1352,15 @@ function DayEditorDialog({
           }))
         : null;
 
+    const baseTitle = title.trim() || (effortType === "rest" ? "Rest" : effortType === "cross_train" ? "Cross-train" : title);
+    const strippedTitle = stripTimeOfDaySuffix(baseTitle);
+    const finalTitle = timeOfDay === "none" ? strippedTitle : `${strippedTitle} (${timeOfDay.toUpperCase()})`;
+
     const payload = {
       plan_template_id: planTemplateId,
       week_number: week,
       day_of_week: day,
-      title: title.trim() || (effortType === "rest" ? "Rest" : effortType === "cross_train" ? "Cross-train" : title),
+      title: finalTitle,
       effort_type: effortType,
       steps: mode === "library" ? null : steps,
       session_template_id: mode === "library" && libraryTemplateId ? libraryTemplateId : null,
@@ -1309,12 +1370,40 @@ function DayEditorDialog({
       ? await supabase.from("plan_template_sessions").update(payload as any).eq("id", existing.id)
       : await supabase.from("plan_template_sessions").insert(payload as any);
 
-    setSaving(false);
-
     if (error) {
+      setSaving(false);
       toast.error(error.message);
       return;
     }
+
+    // Apply to other days — independent copies. Each target gets the same
+    // title/effort_type/steps written just now; editing any one of them
+    // afterward never touches the others (no link is stored anywhere).
+    if (otherDayTargets.size > 0) {
+      let applyFailures = 0;
+      for (const key of Array.from(otherDayTargets)) {
+        const [wStr, dStr] = key.split("-");
+        const targetPayload = {
+          plan_template_id: planTemplateId,
+          week_number: Number(wStr),
+          day_of_week: Number(dStr),
+          title: finalTitle,
+          effort_type: effortType,
+          steps: mode === "library" ? null : steps,
+          session_template_id: mode === "library" && libraryTemplateId ? libraryTemplateId : null,
+        };
+        const targetExisting = allSessionByDay.get(key);
+        const { error: applyErr } = targetExisting
+          ? await supabase.from("plan_template_sessions").update(targetPayload as any).eq("id", targetExisting.id)
+          : await supabase.from("plan_template_sessions").insert(targetPayload as any);
+        if (applyErr) applyFailures++;
+      }
+      if (applyFailures > 0) {
+        toast.error(`Saved, but ${applyFailures} of ${otherDayTargets.size} other-day copies failed`);
+      }
+    }
+
+    setSaving(false);
 
     toast.success("Day saved");
     onSaved();
@@ -1369,6 +1458,29 @@ function DayEditorDialog({
               <div>
                 <Label className="text-xs">Title</Label>
                 <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Threshold intervals" />
+                <div className="flex flex-wrap gap-1.5 mt-1.5">
+                  <Button size="sm" variant="outline" className="h-6 text-[11px] px-2" onClick={() => setTitle(`${titleWord} Run`)}>
+                    {titleWord} Run
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-6 text-[11px] px-2" onClick={() => setTitle(`${titleWord} Session`)}>
+                    {titleWord} Session
+                  </Button>
+                </div>
+              </div>
+
+              <div>
+                <Label className="text-xs">Time of day (optional)</Label>
+                <div className="flex gap-2 mt-1">
+                  <Button size="sm" variant={timeOfDay === "none" ? "default" : "outline"} onClick={() => setTimeOfDay("none")}>
+                    No preference
+                  </Button>
+                  <Button size="sm" variant={timeOfDay === "am" ? "default" : "outline"} onClick={() => setTimeOfDay("am")}>
+                    AM
+                  </Button>
+                  <Button size="sm" variant={timeOfDay === "pm" ? "default" : "outline"} onClick={() => setTimeOfDay("pm")}>
+                    PM
+                  </Button>
+                </div>
               </div>
 
               <div className="flex gap-2">
@@ -1446,6 +1558,18 @@ function DayEditorDialog({
                             value={s.value}
                             onChange={(e) => updateStep(i, { value: Number(e.target.value) })}
                           />
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {(s.target_kind === "time" ? [10, 20, 30, 40, 60] : [400, 800, 1000, 1600, 5000]).map((preset) => (
+                              <button
+                                key={preset}
+                                type="button"
+                                onClick={() => updateStep(i, { value: preset })}
+                                className="text-[10px] rounded border px-1.5 py-0.5 hover:bg-accent/40 text-muted-foreground"
+                              >
+                                {preset}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                         <div>
                           <Label className="text-[10px]">Reps</Label>
@@ -1612,6 +1736,80 @@ function DayEditorDialog({
                   <Button size="sm" variant="outline" onClick={addStep}>
                     <Plus className="h-4 w-4 mr-1" /> Add step
                   </Button>
+                </div>
+              )}
+
+              {durationWeeks > 1 && (
+                <div className="rounded-md border p-3 space-y-2 bg-muted/20">
+                  <label className="flex items-center gap-2 text-xs font-medium cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      checked={showApplyToOtherDays}
+                      onChange={(e) => setShowApplyToOtherDays(e.target.checked)}
+                    />
+                    Also apply this day to other days
+                  </label>
+
+                  {showApplyToOtherDays && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Button size="sm" variant="outline" onClick={selectAllSameWeekday}>
+                          Select every {DAY_LABELS[day - 1]}
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setOtherDayTargets(new Set())}>
+                          Clear
+                        </Button>
+                        {otherDayTargets.size > 0 && (
+                          <span className="text-xs text-muted-foreground">{otherDayTargets.size} selected</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Independent copies — each one is saved as its own day. Editing any of them afterward, including
+                        this one, never affects the others.
+                      </p>
+                      <div className="max-h-48 overflow-y-auto space-y-1 border rounded p-2">
+                        {Array.from({ length: durationWeeks }, (_, i) => i + 1).map((w) => (
+                          <div key={w} className="flex items-center gap-1.5">
+                            <span className="text-[10px] text-muted-foreground w-9 shrink-0">Wk {w}</span>
+                            <div className="grid grid-cols-7 gap-1 flex-1">
+                              {DAY_LABELS.map((lbl, di) => {
+                                const d = di + 1;
+                                const key = `${w}-${d}`;
+                                const isCurrent = w === week && d === day;
+                                const checked = otherDayTargets.has(key);
+                                const hasExisting = allSessionByDay.has(key);
+                                return (
+                                  <button
+                                    key={key}
+                                    type="button"
+                                    disabled={isCurrent}
+                                    onClick={() => toggleOtherDayTarget(key)}
+                                    title={
+                                      isCurrent
+                                        ? "This is the day you're editing"
+                                        : `${lbl}, Week ${w}${hasExisting ? " — has a session already, will be overwritten" : ""}`
+                                    }
+                                    className={`text-[10px] rounded border py-1 transition-colors ${
+                                      isCurrent
+                                        ? "bg-muted text-muted-foreground/40 cursor-not-allowed"
+                                        : checked
+                                          ? "bg-[var(--accent-red)] text-white border-[var(--accent-red)]"
+                                          : hasExisting
+                                            ? "border-amber-300 bg-amber-50 hover:bg-amber-100"
+                                            : "hover:bg-accent/40"
+                                    }`}
+                                  >
+                                    {lbl[0]}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </>
