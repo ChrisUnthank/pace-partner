@@ -224,6 +224,44 @@ export function offsetDaysBetween(sourceStart: string, targetStart: string): num
   return Math.round((b.getTime() - a.getTime()) / 86400000);
 }
 
+const INTENT_LABELS: Record<string, string> = {
+  easy: "Easy",
+  aerobic: "Aerobic",
+  tempo: "Tempo",
+  threshold: "Threshold",
+  vo2: "VO2",
+  anaerobic: "Anaerobic",
+  speed: "Speed",
+  recovery: "Recovery",
+};
+
+/**
+ * Classification-based title for a copied/planned session — "Easy Run",
+ * "Threshold Session", "Long Run" — instead of carrying forward whatever
+ * the source session happened to be titled. Real session titles are often
+ * auto-generated from an actual FIT upload's timestamp ("Morning Easy
+ * Run"), which reads as misleading prescriptive guidance on a brand-new
+ * planned session that has no actual time attached to it at all — there's
+ * currently no field anywhere for a coach to specify AM/PM on an
+ * individual session, only the separate squad Training Schedule has that.
+ *
+ * "Run" for anything continuous (easy/tempo/long/fartlek-style — no
+ * discrete reps); "Session" for anything built from reps (intervals,
+ * VO2/speed work, threshold reps) — a coach's own working vocabulary,
+ * not a database enum, so this is derived rather than stored.
+ */
+export function classifiedTitle(session: any, steps: any[]): string {
+  if (session.day_type === "race") return "Race";
+  if (session.day_type === "cross_training") return "Cross Training";
+  if (session.day_type === "rest") return "Rest";
+  if (session.is_long_run) return "Long Run";
+
+  const hasReps = (steps ?? []).some((s: any) => (s.kind === "work" || s.kind === "strides") && Number(s.reps ?? 1) > 1);
+  const suffix = hasReps ? "Session" : "Run";
+  const intentLabel = session.intent ? INTENT_LABELS[session.intent] : undefined;
+  return intentLabel ? `${intentLabel} ${suffix}` : suffix;
+}
+
 /**
  * Builds one editable draft from a source session + its steps. Only the
  * prescription (structure/targets) copies across — actual-performance
@@ -256,7 +294,7 @@ export function buildCopyDraft(session: any, steps: any[], offsetDays: number, r
     sourceSessionId: session.id,
     athlete_id: session.athlete_id,
     session_date: newDate,
-    title: session.title,
+    title: classifiedTitle(session, steps),
     day_type: session.day_type,
     intent: session.intent ?? null,
     structure: session.structure ?? null,
