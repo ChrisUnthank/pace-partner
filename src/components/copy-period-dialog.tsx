@@ -31,6 +31,7 @@ import {
   type DraftSession,
   type DraftStep,
   type CopyBucket,
+  type WeekOverride,
 } from "@/lib/calendar-copy";
 import { secToClock, clockToSec } from "@/lib/format";
 
@@ -112,6 +113,15 @@ export function CopyPeriodDialog({
 
   const [rules, setRules] = useState<ProgressionRules>(emptyProgressionRules());
   const [quickTargetKm, setQuickTargetKm] = useState<string>("");
+  // Week-specific overrides — for peaking/tapering a specific week or two
+  // within a multi-week copy without hand-editing every session of that
+  // week in Review. Week numbers are relative to the source range's own
+  // start (week 1 = the week sourceStart falls in).
+  const [weekOverrides, setWeekOverrides] = useState<WeekOverride[]>([]);
+  const [showAddOverride, setShowAddOverride] = useState(false);
+  const [overrideFromWeek, setOverrideFromWeek] = useState(1);
+  const [overrideToWeek, setOverrideToWeek] = useState(1);
+  const [overridePct, setOverridePct] = useState(-20);
   const [drafts, setDrafts] = useState<DraftSession[]>([]);
   const [reviewAthleteFilter, setReviewAthleteFilter] = useState<string>("all");
   // Optional coach preference — no schema field exists for AM/PM on an
@@ -268,6 +278,22 @@ export function CopyPeriodDialog({
     });
   }
 
+  function addWeekOverride() {
+    if (overrideToWeek < overrideFromWeek) {
+      toast.error("End week must be on or after the start week");
+      return;
+    }
+    setWeekOverrides((prev) => [
+      ...prev,
+      { id: `wo-${Date.now()}`, fromWeek: overrideFromWeek, toWeek: overrideToWeek, volumePct: overridePct },
+    ]);
+    setShowAddOverride(false);
+  }
+
+  function removeWeekOverride(id: string) {
+    setWeekOverrides((prev) => prev.filter((o) => o.id !== id));
+  }
+
   async function generatePreview() {
     if (scopeAthleteIds.length === 0) {
       toast.error(
@@ -299,7 +325,7 @@ export function CopyPeriodDialog({
       // exact copy.
       const effectiveRules = variant === "history" && copyMode === "exact" ? emptyProgressionRules() : rules;
       const built = sourceSessions
-        .map((s: any) => buildCopyDraft(s, stepsBySession.get(s.id) ?? [], offsetDays, effectiveRules))
+        .map((s: any) => buildCopyDraft(s, stepsBySession.get(s.id) ?? [], offsetDays, effectiveRules, sourceStart, weekOverrides))
         .map((d) => (timeOfDayPref === "none" ? d : { ...d, title: `${d.title} (${timeOfDayPref.toUpperCase()})` }));
 
       if (variant === "history" && copyMode === "exact") {
@@ -627,7 +653,12 @@ export function CopyPeriodDialog({
                 below (e.g. keep easy days flat, put a build into the long run only).
               </p>
 
-              <div className="mt-2.5 space-y-2">
+              <div className="grid grid-cols-3 gap-2 mt-2.5 mb-1 px-0.5">
+                <span />
+                <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Volume %</span>
+                <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Intensity %</span>
+              </div>
+              <div className="space-y-2">
                 {COPY_BUCKETS.map((b) => {
                   const count = bucketCounts[b] ?? 0;
                   return (
@@ -650,7 +681,7 @@ export function CopyPeriodDialog({
                         </Button>
                         <Input
                           type="number"
-                          placeholder="Volume %"
+                          aria-label={`${COPY_BUCKET_LABELS[b]} volume percent`}
                           disabled={count === 0}
                           value={rules[b]?.volumePct ?? 0}
                           onChange={(e) => updateRule(b, { volumePct: Number(e.target.value) })}
@@ -677,7 +708,7 @@ export function CopyPeriodDialog({
                         </Button>
                         <Input
                           type="number"
-                          placeholder="Intensity %"
+                          aria-label={`${COPY_BUCKET_LABELS[b]} intensity percent`}
                           disabled={count === 0}
                           value={rules[b]?.intensityPct ?? 0}
                           onChange={(e) => updateRule(b, { intensityPct: Number(e.target.value) })}
@@ -700,6 +731,82 @@ export function CopyPeriodDialog({
                 Volume scales work-step distance/time. Intensity tightens pace or threshold-% targets. Zone/RPE targets
                 can't be scaled numerically — flagged for you to adjust by hand in the review step instead.
               </p>
+
+              <div className="mt-3 pt-3 border-t">
+                <Label className="text-xs">Week-specific overrides (optional)</Label>
+                <p className="text-xs text-muted-foreground mt-1">
+                  For peaking or tapering just part of this copy — e.g. weeks 3–4 of a 4-week copy at −30%,
+                  regardless of the volume set above. Week 1 is whichever week your "Copy from" date falls in.
+                </p>
+
+                {weekOverrides.length > 0 && (
+                  <div className="mt-2 space-y-1.5">
+                    {weekOverrides.map((o) => (
+                      <div key={o.id} className="flex items-center justify-between gap-2 rounded border p-2 text-sm">
+                        <span>
+                          Week{o.fromWeek === o.toWeek ? ` ${o.fromWeek}` : `s ${o.fromWeek}–${o.toWeek}`}:{" "}
+                          <span className="font-medium">
+                            {o.volumePct > 0 ? "+" : ""}
+                            {o.volumePct}%
+                          </span>
+                        </span>
+                        <Button size="sm" variant="ghost" className="text-destructive" onClick={() => removeWeekOverride(o.id)}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {showAddOverride ? (
+                  <div className="mt-2 rounded-md border p-3 space-y-2 bg-muted/20">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-[10px]">From week</Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          value={overrideFromWeek}
+                          onChange={(e) => setOverrideFromWeek(Number(e.target.value))}
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-[10px]">To week</Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          value={overrideToWeek}
+                          onChange={(e) => setOverrideToWeek(Number(e.target.value))}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {VOLUME_PATTERN_PRESETS.map((p) => (
+                        <Button
+                          key={p.label}
+                          size="sm"
+                          variant={overridePct === p.pct ? "default" : "outline"}
+                          onClick={() => setOverridePct(p.pct)}
+                        >
+                          {p.label}
+                        </Button>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" onClick={() => setShowAddOverride(false)}>
+                        Cancel
+                      </Button>
+                      <Button size="sm" onClick={addWeekOverride}>
+                        Add override
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button size="sm" variant="outline" className="mt-2" onClick={() => setShowAddOverride(true)}>
+                    + Add week override
+                  </Button>
+                )}
+              </div>
             </div>
             )}
           </div>
@@ -943,7 +1050,7 @@ export function CopyPeriodDialog({
   );
 }
 
-function EditDraftForm({
+export function EditDraftForm({
   draft,
   onApply,
   onClose,
