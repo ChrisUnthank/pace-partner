@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/app-shell";
@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { UserAvatar } from "@/components/user-avatar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { CalendarRange, ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
+import { CalendarRange, ChevronDown, ChevronRight, ChevronUp, Plus, Trash2 } from "lucide-react";
 import { metersFmt, clockToSec, secToClock } from "@/lib/format";
 import { assignPlanToAthlete, cancelAthletePlan } from "@/lib/plan.functions";
 import { useAuthUser } from "@/lib/use-auth";
@@ -157,10 +157,67 @@ function SystemTemplateNotice({ compact }: { compact?: boolean }) {
   );
 }
 
+/**
+ * One row in the "Build training" list on the Plans landing screen.
+ * Deliberately spells out both *what* an option does and *how it plays
+ * out* (workflow line) so a coach can pick between five genuinely
+ * different paths at a glance, rather than guessing from a title alone.
+ */
+function BuildOptionRow({
+  title,
+  description,
+  workflow,
+  onSelect,
+  disabled,
+  badge,
+}: {
+  title: string;
+  description: string;
+  workflow: string;
+  onSelect: () => void;
+  disabled?: boolean;
+  badge?: string;
+}) {
+  return (
+    <Card className={disabled ? "opacity-60" : undefined}>
+      <CardContent className="p-4 flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-semibold">{title}</span>
+            {badge && (
+              <Badge variant="outline" className="text-[10px]">
+                {badge}
+              </Badge>
+            )}
+          </div>
+          <p className="text-sm text-muted-foreground mt-1">{description}</p>
+          <p className="text-xs text-muted-foreground mt-1.5">
+            <span className="font-medium text-foreground/80">How it works: </span>
+            {workflow}
+          </p>
+        </div>
+        <Button size="sm" variant={disabled ? "outline" : "default"} disabled={disabled} onClick={onSelect} className="shrink-0">
+          {disabled ? (
+            "Coming soon"
+          ) : (
+            <>
+              Select <ChevronRight className="h-3.5 w-3.5 ml-1" />
+            </>
+          )}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 function PlansPage() {
   const { user } = useAuthUser();
   const qc = useQueryClient();
-  const [view, setView] = useState<"browse" | "builder">("browse");
+  const [view, setView] = useState<"landing" | "browse" | "builder">("landing");
+  // Where "Back" from the Plan Builder should return to — landing when
+  // entered directly from "Build from scratch", browse when entered by
+  // editing/previewing a template from the library list.
+  const [returnView, setReturnView] = useState<"landing" | "browse">("landing");
   const [builderTemplateId, setBuilderTemplateId] = useState<string | null>(null);
   const [templateSource, setTemplateSource] = useState<"mine" | "system">("mine");
   const [daysFilter, setDaysFilter] = useState<string>("all");
@@ -170,9 +227,7 @@ function PlansPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [assignTarget, setAssignTarget] = useState<PlanTemplate | null>(null);
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
-  const [buildMenuOpen, setBuildMenuOpen] = useState(false);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
-  const templatesSectionRef = useRef<HTMLDivElement>(null);
   const [copyPeriodOpen, setCopyPeriodOpen] = useState(false);
 
   const { data: templates } = useQuery({
@@ -266,6 +321,7 @@ function PlansPage() {
       qc.invalidateQueries({ queryKey: ["plan-templates"] });
       setTemplateSource("mine");
       setBuilderTemplateId((newTemplate as any).id);
+      setReturnView("browse");
       setView("builder");
     } catch (err: any) {
       toast.error(err?.message ?? "Failed to duplicate template");
@@ -282,11 +338,105 @@ function PlansPage() {
           <PlanBuilder
             templateId={builderTemplateId}
             onBack={() => {
-              setView("browse");
+              setView(returnView);
               setBuilderTemplateId(null);
             }}
           />
         </div>
+      </AppShell>
+    );
+  }
+
+  if (view === "landing") {
+    return (
+      <AppShell>
+        <div className="space-y-4">
+          <BucketTabStrip items={COACHING_HUB_TABS} active="/app/plans" />
+
+          <div>
+            <h1 className="text-xl font-bold flex items-center gap-2">
+              <CalendarRange className="h-5 w-5" /> Training Plans
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Get training onto your roster's calendars, or manage the templates and groups behind it.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+            <div className="lg:col-span-2 space-y-3">
+              <h2 className="text-sm font-bold uppercase tracking-wide text-muted-foreground">Build training</h2>
+
+              <BuildOptionRow
+                title="Apply a template"
+                description="Assign an existing plan template — from your library or the System collection — to one athlete or a whole group."
+                workflow="Pick a template on the next screen, choose who it's for and a start date. Generates real, editable sessions on their calendar."
+                onSelect={() => setView("browse")}
+              />
+              <BuildOptionRow
+                title="Build from scratch"
+                description="Design a brand-new plan template week by week, using the same step builder as a regular session — including threshold-relative targets."
+                workflow="Opens the Plan Builder. Save it as a template, then assign it the same way as any other template."
+                onSelect={() => {
+                  setReturnView("landing");
+                  setBuilderTemplateId(null);
+                  setView("builder");
+                }}
+              />
+              <BuildOptionRow
+                title="Copy athlete history"
+                description="Give each athlete their own recent training back as their own starting point — not one template fanned out, each athlete's own actual history."
+                workflow="Pick a source date range and a scope (athlete, group, or whole roster), then copy it exactly as-is or tune volume/intensity first."
+                onSelect={() => setHistoryDialogOpen(true)}
+              />
+              <BuildOptionRow
+                title="Copy period forward"
+                description="Take one source week or month and apply it — with optional progression — across selected athletes."
+                workflow="Pick a source range and a target start date, set volume/intensity progression per session type, then review every session before it's created."
+                onSelect={() => setCopyPeriodOpen(true)}
+              />
+              <BuildOptionRow
+                title="Auto / Recommended"
+                description="Let Strider suggest the next training block based on an athlete's recent compliance and load."
+                workflow="Not built yet — deliberately held back until there's real usage data from Copy Period Forward and Copy Athlete History to learn what a good suggestion looks like."
+                badge="Coming soon"
+                disabled
+                onSelect={() => {}}
+              />
+            </div>
+
+            <div className="lg:col-span-1 space-y-3">
+              <Card>
+                <CardContent className="p-4 flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-semibold">Templates</div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Browse, duplicate, and manage your template library (My &amp; System).
+                    </p>
+                  </div>
+                  <Button size="sm" variant="outline" className="shrink-0" onClick={() => setView("browse")}>
+                    Open <ChevronRight className="h-3.5 w-3.5 ml-1" />
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="p-4 space-y-2">
+                  <div className="font-semibold">Manage Training Groups &amp; Athletes</div>
+                  <p className="text-xs text-muted-foreground">
+                    Set up training groups and manage roster membership.
+                  </p>
+                  {/* TODO(Chris): confirm the route this should link to — see note below */}
+                  <Button size="sm" variant="outline" className="w-full" disabled>
+                    Coming soon
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </div>
+
+        <CopyPeriodDialog open={copyPeriodOpen} onClose={() => setCopyPeriodOpen(false)} />
+        <CopyPeriodDialog open={historyDialogOpen} onClose={() => setHistoryDialogOpen(false)} variant="history" />
       </AppShell>
     );
   }
@@ -298,69 +448,20 @@ function PlansPage() {
 
         <div className="flex items-center justify-between">
           <div>
+            <button
+              className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 mb-1"
+              onClick={() => setView("landing")}
+            >
+              ← Training Plans
+            </button>
             <h1 className="text-xl font-bold flex items-center gap-2">
-              <CalendarRange className="h-5 w-5" /> Training Plans
+              <CalendarRange className="h-5 w-5" /> Templates
             </h1>
             <p className="text-sm text-muted-foreground">Browse plan templates, or build your own for your roster.</p>
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={() => setCopyPeriodOpen(true)}>
-              Copy period forward
-            </Button>
-            <div className="relative">
-              <Button onClick={() => setBuildMenuOpen((o) => !o)}>
-                Build training <ChevronDown className="h-4 w-4 ml-1" />
-              </Button>
-              {buildMenuOpen && (
-                <>
-                  {/* Click-outside layer — sits below the menu panel, above everything else */}
-                  <div className="fixed inset-0 z-40" onClick={() => setBuildMenuOpen(false)} />
-                  <div className="absolute right-0 mt-1 w-72 rounded-md border bg-popover shadow-md z-50 p-1">
-                    <button
-                      className="w-full text-left rounded px-3 py-2 text-sm hover:bg-accent/50"
-                      onClick={() => {
-                        setBuildMenuOpen(false);
-                        templatesSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-                      }}
-                    >
-                      <div className="font-medium">Apply a template</div>
-                      <div className="text-xs text-muted-foreground">
-                        Browse My or System templates and assign to one athlete or a group.
-                      </div>
-                    </button>
-                    <button
-                      className="w-full text-left rounded px-3 py-2 text-sm hover:bg-accent/50"
-                      onClick={() => {
-                        setBuildMenuOpen(false);
-                        setBuilderTemplateId(null);
-                        setView("builder");
-                      }}
-                    >
-                      <div className="font-medium">Build from scratch</div>
-                      <div className="text-xs text-muted-foreground">
-                        Open the manual Plan Builder to design a new template week by week.
-                      </div>
-                    </button>
-                    <button
-                      className="w-full text-left rounded px-3 py-2 text-sm hover:bg-accent/50"
-                      onClick={() => {
-                        setBuildMenuOpen(false);
-                        setHistoryDialogOpen(true);
-                      }}
-                    >
-                      <div className="font-medium">Copy athlete history</div>
-                      <div className="text-xs text-muted-foreground">
-                        Give each athlete their own recent training back as their own starting point.
-                      </div>
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
         </div>
 
-        <div ref={templatesSectionRef} className="flex gap-2">
+        <div className="flex gap-2">
           <Button
             size="sm"
             variant={templateSource === "mine" ? "default" : "outline"}
@@ -475,6 +576,7 @@ function PlansPage() {
                             variant="ghost"
                             onClick={() => {
                               setBuilderTemplateId(t.id);
+                              setReturnView("browse");
                               setView("builder");
                             }}
                           >
@@ -519,6 +621,7 @@ function PlansPage() {
                         canEdit={!t.is_system && t.created_by === user?.id}
                         onEdit={() => {
                           setBuilderTemplateId(t.id);
+                          setReturnView("browse");
                           setView("builder");
                         }}
                       />
