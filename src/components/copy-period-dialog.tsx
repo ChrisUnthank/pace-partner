@@ -49,20 +49,34 @@ export function CopyPeriodDialog({
   initialSourceStart,
   initialSourceEnd,
   initialAthleteId,
+  variant = "period",
 }: {
   open: boolean;
   onClose: () => void;
   initialSourceStart?: string;
   initialSourceEnd?: string;
   initialAthleteId?: string;
+  // "period" = original Copy Period Forward (one source, fanned across a
+  // chosen scope). "history" = Copy Athlete History — same engine, but
+  // framed around giving each athlete their own recent training back as
+  // their own starting point, defaults to Whole roster, and offers an
+  // "Exact copy" shortcut that skips the review step entirely.
+  variant?: "period" | "history";
 }) {
   const { user } = useAuthUser();
   const qc = useQueryClient();
 
   const [stepUi, setStepUi] = useState<"setup" | "review">("setup");
-  const [scopeMode, setScopeMode] = useState<"athlete" | "group">("athlete");
+  const [scopeMode, setScopeMode] = useState<"athlete" | "group" | "roster">(
+    variant === "history" ? "roster" : "athlete",
+  );
   const [selectedAthleteId, setSelectedAthleteId] = useState<string | undefined>(initialAthleteId);
   const [selectedGroupId, setSelectedGroupId] = useState<string | undefined>(undefined);
+  // Only meaningful for variant "history" — "exact" skips progression and
+  // the review step entirely (straight copy, one click, same shape as the
+  // Calendar page's existing "straight copy" shortcut). "edit" is the
+  // original Setup(progression) -> Review -> Commit flow.
+  const [copyMode, setCopyMode] = useState<"exact" | "edit">("exact");
 
   const [sourceStart, setSourceStart] = useState(initialSourceStart ?? "");
   const [sourceEnd, setSourceEnd] = useState(initialSourceEnd ?? "");
@@ -107,7 +121,14 @@ export function CopyPeriodDialog({
     },
   });
 
-  const scopeAthleteIds = scopeMode === "athlete" ? (selectedAthleteId ? [selectedAthleteId] : []) : groupMemberIds ?? [];
+  const scopeAthleteIds =
+    scopeMode === "athlete"
+      ? selectedAthleteId
+        ? [selectedAthleteId]
+        : []
+      : scopeMode === "roster"
+        ? (roster ?? []).map((a: any) => a.id)
+        : groupMemberIds ?? [];
 
   // Fetched as soon as scope + range are set — feeds both the live
   // "current total" shown in the quick-set control and, unchanged,
@@ -194,7 +215,9 @@ export function CopyPeriodDialog({
 
   async function generatePreview() {
     if (scopeAthleteIds.length === 0) {
-      toast.error(scopeMode === "athlete" ? "Choose an athlete" : "Choose a group with athletes assigned");
+      toast.error(
+        scopeMode === "athlete" ? "Choose an athlete" : scopeMode === "roster" ? "No athletes on your roster yet" : "Choose a group with athletes assigned",
+      );
       return;
     }
     if (!sourceStart || !sourceEnd) {
@@ -215,10 +238,24 @@ export function CopyPeriodDialog({
       const { sessions: sourceSessions, stepsBySession } = sourceData;
 
       const offsetDays = offsetDaysBetween(sourceStart, targetStart);
-      const built = sourceSessions.map((s: any) => buildCopyDraft(s, stepsBySession.get(s.id) ?? [], offsetDays, rules));
+      // Exact copy (history variant only) forces zero progression regardless
+      // of whatever's left in `rules` state, so a stray non-zero value from
+      // a prior "Edit before applying" pass can never sneak into a one-click
+      // exact copy.
+      const effectiveRules = variant === "history" && copyMode === "exact" ? emptyProgressionRules() : rules;
+      const built = sourceSessions.map((s: any) =>
+        buildCopyDraft(s, stepsBySession.get(s.id) ?? [], offsetDays, effectiveRules),
+      );
 
-      setDrafts(built);
-      setStepUi("review");
+      if (variant === "history" && copyMode === "exact") {
+        // Skip the review screen entirely — same one-click shape as the
+        // Calendar page's existing "straight copy" shortcut, just reusable
+        // here across a whole roster instead of one week/month view.
+        await commit(built);
+      } else {
+        setDrafts(built);
+        setStepUi("review");
+      }
     } catch (err: any) {
       toast.error(err?.message ?? "Failed to build preview");
     } finally {
@@ -293,11 +330,12 @@ export function CopyPeriodDialog({
     toast.success("Session swapped");
   }
 
-  async function commit() {
-    if (drafts.length === 0) return;
+  async function commit(draftsOverride?: DraftSession[]) {
+    const toCommit = draftsOverride ?? drafts;
+    if (toCommit.length === 0) return;
     setCommitting(true);
     try {
-      const payload = drafts.map((d) => ({
+      const payload = toCommit.map((d) => ({
         athlete_id: d.athlete_id,
         session_date: d.session_date,
         title: d.title,
@@ -331,24 +369,58 @@ export function CopyPeriodDialog({
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
       <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Copy period forward</DialogTitle>
+          <DialogTitle>{variant === "history" ? "Copy athlete history" : "Copy period forward"}</DialogTitle>
           <DialogDescription>
             {stepUi === "setup"
-              ? "Copy a week or month of sessions into a later date range, with optional progression."
+              ? variant === "history"
+                ? "Give each athlete their own recent training back as their own starting point — pick a source range, then copy it exactly or tune it first."
+                : "Copy a week or month of sessions into a later date range, with optional progression."
               : "Review every session before it's created — edit, swap, or remove any of them individually."}
           </DialogDescription>
         </DialogHeader>
 
         {stepUi === "setup" ? (
           <div className="space-y-4">
+            {variant === "history" && (
+              <div>
+                <Label className="text-xs">How should this go?</Label>
+                <div className="flex gap-2 mt-1">
+                  <Button
+                    size="sm"
+                    variant={copyMode === "exact" ? "default" : "outline"}
+                    onClick={() => setCopyMode("exact")}
+                  >
+                    Exact copy
+                  </Button>
+                  <Button size="sm" variant={copyMode === "edit" ? "default" : "outline"} onClick={() => setCopyMode("edit")}>
+                    Edit before applying
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {copyMode === "exact"
+                    ? "One click — copies each athlete's own sessions forward exactly as-is, no review step."
+                    : "Set optional volume/intensity progression, then review every session before anything is created."}
+                </p>
+              </div>
+            )}
+
             <div className="flex gap-2">
               <Button size="sm" variant={scopeMode === "athlete" ? "default" : "outline"} onClick={() => setScopeMode("athlete")}>
                 Single athlete
               </Button>
               <Button size="sm" variant={scopeMode === "group" ? "default" : "outline"} onClick={() => setScopeMode("group")}>
-                Whole group
+                Training group
+              </Button>
+              <Button size="sm" variant={scopeMode === "roster" ? "default" : "outline"} onClick={() => setScopeMode("roster")}>
+                Whole roster
               </Button>
             </div>
+
+            {scopeMode === "roster" && (
+              <p className="text-xs text-muted-foreground">
+                {(roster ?? []).length} athlete{(roster ?? []).length === 1 ? "" : "s"} on your roster.
+              </p>
+            )}
 
             {scopeMode === "athlete" ? (
               <div>
@@ -357,7 +429,7 @@ export function CopyPeriodDialog({
                   <CoachAthletePicker roster={roster ?? []} value={selectedAthleteId} onChange={setSelectedAthleteId} />
                 </div>
               </div>
-            ) : (
+            ) : scopeMode === "group" ? (
               <div>
                 <Label className="text-xs">Group</Label>
                 <Select value={selectedGroupId} onValueChange={setSelectedGroupId}>
@@ -373,7 +445,7 @@ export function CopyPeriodDialog({
                   </SelectContent>
                 </Select>
               </div>
-            )}
+            ) : null}
 
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -391,7 +463,7 @@ export function CopyPeriodDialog({
               <Input type="date" value={targetStart} onChange={(e) => setTargetStart(e.target.value)} />
             </div>
 
-            {sourceStart && sourceEnd && scopeAthleteIds.length > 0 && (
+            {!(variant === "history" && copyMode === "exact") && sourceStart && sourceEnd && scopeAthleteIds.length > 0 && (
               <div className="rounded-md border p-3 space-y-2 bg-muted/20">
                 <Label className="text-xs">
                   Quick set: target weekly/monthly total{" "}
@@ -421,6 +493,7 @@ export function CopyPeriodDialog({
               </div>
             )}
 
+            {!(variant === "history" && copyMode === "exact") && (
             <div>
               <Label className="text-xs">Progression (optional — leave at 0 for an exact copy)</Label>
               <div className="mt-1.5 space-y-2">
@@ -461,6 +534,7 @@ export function CopyPeriodDialog({
                 can't be scaled numerically — flagged for you to adjust by hand in the review step instead.
               </p>
             </div>
+            )}
           </div>
         ) : (
           <div className="space-y-3">
@@ -522,8 +596,14 @@ export function CopyPeriodDialog({
               <Button variant="outline" onClick={handleClose}>
                 Cancel
               </Button>
-              <Button onClick={generatePreview} disabled={generating}>
-                {generating ? "Building preview..." : "Preview"}
+              <Button onClick={generatePreview} disabled={generating || committing}>
+                {variant === "history" && copyMode === "exact"
+                  ? generating || committing
+                    ? "Copying..."
+                    : "Copy now"
+                  : generating
+                    ? "Building preview..."
+                    : "Preview"}
               </Button>
             </>
           ) : (
