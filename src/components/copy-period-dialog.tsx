@@ -50,6 +50,7 @@ export function CopyPeriodDialog({
   initialSourceEnd,
   initialAthleteId,
   variant = "period",
+  onSuccess,
 }: {
   open: boolean;
   onClose: () => void;
@@ -62,6 +63,11 @@ export function CopyPeriodDialog({
   // their own starting point, defaults to Whole roster, and offers an
   // "Exact copy" shortcut that skips the review step entirely.
   variant?: "period" | "history";
+  // Fired after a real commit (both the review-flow path and history's
+  // one-click "Exact copy" path, since both funnel through commit()) —
+  // lets the Plans landing page offer "Send this program now?" without
+  // this dialog knowing anything about Deliver Program itself.
+  onSuccess?: (scope: { athleteIds: string[]; rangeStart: string; rangeEnd: string }) => void;
 }) {
   const { user } = useAuthUser();
   const qc = useQueryClient();
@@ -359,6 +365,13 @@ export function CopyPeriodDialog({
       toast.success(`${result.created} session${result.created === 1 ? "" : "s"} copied forward`);
       qc.invalidateQueries({ queryKey: ["calendar-sessions"] });
       qc.invalidateQueries({ queryKey: ["sessions"] });
+
+      if (onSuccess && toCommit.length > 0) {
+        const athleteIds = Array.from(new Set(toCommit.map((d) => d.athlete_id)));
+        const dates = toCommit.map((d) => d.session_date).sort();
+        onSuccess({ athleteIds, rangeStart: dates[0], rangeEnd: dates[dates.length - 1] });
+      }
+
       handleClose();
     } catch (err: any) {
       toast.error(err?.message ?? "Failed to copy sessions");
