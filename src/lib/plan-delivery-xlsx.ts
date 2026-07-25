@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
-import { summarizeDraftSteps, type DraftStep } from "@/lib/calendar-copy";
+import { summarizeDraftSteps, classifiedTitle, type DraftStep } from "@/lib/calendar-copy";
+import { tidyStepForTemplate } from "@/lib/templates";
 
 /**
  * Excel export for the Deliver Program flow. Uses exceljs rather than the
@@ -11,6 +12,13 @@ import { summarizeDraftSteps, type DraftStep } from "@/lib/calendar-copy";
  * Legend() component (Tailwind 500/600/400/300 shades → their real hex
  * values) so this genuinely matches the calendar rather than inventing a
  * separate palette.
+ *
+ * Distances/times are run through tidyStepForTemplate (the same snapping
+ * already used for "save a real session as a template") before display —
+ * a planned session's steps table can carry precise, irregular numbers
+ * inherited from whatever real FIT-derived session it was copied from
+ * (5437m, not a clean 5.4km); this export is a hand-off document for a
+ * plan, so it should always read like one, not like a GPS recording.
  */
 
 export type PlanDeliverySession = {
@@ -18,8 +26,16 @@ export type PlanDeliverySession = {
   title: string;
   day_type: string;
   intent: string | null;
+  is_long_run: boolean;
   steps: DraftStep[];
 };
+
+// Snaps every distance/time-bearing field on every step to a plan-friendly
+// number via the same tidyStepForTemplate logic already used when saving a
+// real session as a template — reused rather than re-derived.
+function tidySession(s: PlanDeliverySession): PlanDeliverySession {
+  return { ...s, steps: s.steps.map((st) => tidyStepForTemplate(st) as DraftStep) };
+}
 
 const INTENT_COLOR_HEX: Record<string, string> = {
   easy: "10B981", // emerald-500
@@ -144,10 +160,11 @@ function addSimpleSheet(wb: ExcelJS.Workbook, sessions: PlanDeliverySession[]) {
   ];
   styleHeaderRow(ws.getRow(1));
 
-  for (const s of sessions) {
+  for (const raw of sessions) {
+    const s = tidySession(raw);
     const row = ws.addRow({
       date: s.session_date,
-      session: s.title,
+      session: classifiedTitle(s, s.steps),
       type: s.intent ?? s.day_type,
       structure: summarizeDraftSteps(s.steps) || "—",
     });
@@ -168,12 +185,13 @@ function addDetailedSheet(wb: ExcelJS.Workbook, sessions: PlanDeliverySession[])
   ];
   styleHeaderRow(ws.getRow(1));
 
-  for (const s of sessions) {
+  for (const raw of sessions) {
+    const s = tidySession(raw);
     const steps = s.steps.length > 0 ? s.steps : [null];
     for (const st of steps) {
       const row = ws.addRow({
         date: s.session_date,
-        session: s.title,
+        session: classifiedTitle(s, s.steps),
         step: st ? st.kind : "—",
         reps: st && st.reps > 1 ? st.reps : "",
         amount: st ? amountLabel(st) : "",
