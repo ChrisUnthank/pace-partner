@@ -135,7 +135,7 @@ function CoachDiaryPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("plan_deliveries")
-        .select("id, created_at, summary")
+        .select("id, created_at, scope_label, date_range_start, date_range_end")
         .eq("coach_user_id", user!.id)
         .gte("created_at", `${weekStart}T00:00:00`)
         .lt("created_at", `${new Date(new Date(rangeEnd + "T00:00:00").getTime() + 86400_000).toISOString().slice(0, 10)}T00:00:00`);
@@ -144,10 +144,28 @@ function CoachDiaryPage() {
     },
   });
 
+  // "1-8 Aug" for a range inside one month; "28 Jul - 4 Aug" across
+  // months; year only added if the range crosses a year boundary.
+  function formatCompactDateRange(startISO: string, endISO: string): string {
+    const start = new Date(startISO + "T00:00:00");
+    const end = new Date(endISO + "T00:00:00");
+    const month = (d: Date) => d.toLocaleDateString(undefined, { month: "short" });
+    if (start.getFullYear() === end.getFullYear() && start.getMonth() === end.getMonth()) {
+      return `${start.getDate()}-${end.getDate()} ${month(start)}`;
+    }
+    const sameYear = start.getFullYear() === end.getFullYear();
+    const startLabel = `${start.getDate()} ${month(start)}`;
+    const endLabel = sameYear ? `${end.getDate()} ${month(end)}` : `${end.getDate()} ${month(end)} ${end.getFullYear()}`;
+    return `${startLabel} - ${endLabel}`;
+  }
+
   function deliveredLabelFor(date: string): { label: string } | null {
     const onDay = (deliveries as any[]).filter((d) => d.created_at.slice(0, 10) === date);
     if (onDay.length === 0) return null;
-    return { label: onDay.length === 1 ? "Program delivered" : `${onDay.length} programs delivered` };
+    const labels = onDay.map(
+      (d) => `${d.scope_label ?? "Program"} · ${formatCompactDateRange(d.date_range_start, d.date_range_end)}`,
+    );
+    return { label: labels.join(" | ") };
   }
 
   // ── The coach's own diary items ──────────────────────────────────────────
