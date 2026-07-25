@@ -22,7 +22,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { CalendarDays, Eye, Maximize2, UserMinus, UserPlus } from "lucide-react";
+import { CalendarDays, Eye, Mail, Maximize2, UserMinus, UserPlus } from "lucide-react";
 import { AthleteSummaryPanel } from "@/components/athlete-summary-panel";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TIMEZONE_OPTIONS, guessLocalTimezone } from "@/lib/timezones";
@@ -39,6 +39,12 @@ function AthletesPage() {
   const [name, setName] = useState("");
   const [event, setEvent] = useState("");
   const [email, setEmail] = useState("");
+  // Separate from `email` above — that one is specifically for the
+  // "become a Strider user" invite flow (writes an athlete_invites row).
+  // This is a plain contact address on the athlete themselves, for coaches
+  // whose athletes work "old school" without the app at all — used by the
+  // Deliver Program flow to email them an Excel copy of their sessions.
+  const [contactEmail, setContactEmail] = useState("");
   // Defaults to the coach's own browser-detected timezone — a reasonable
   // guess for a new athlete, and adjustable right here before saving.
   // Previously there was no way to set this at all, so every new athlete
@@ -123,6 +129,7 @@ function AthletesPage() {
     if (!name) { toast.error("Name required"); return; }
     const { data: ath, error } = await supabase.from("athletes").insert({
       name, primary_event: event || null, created_by: user!.id, timezone,
+      email: contactEmail || null,
     }).select().single();
     if (error || !ath) { toast.error(error?.message ?? "Failed"); return; }
     await supabase.from("coach_athletes").insert({ coach_user_id: user!.id, athlete_id: ath.id });
@@ -135,8 +142,17 @@ function AthletesPage() {
         setInviteLink(`${window.location.origin}/claim/${inv.token}`);
       }
     }
-    setName(""); setEvent(""); setEmail("");
+    setName(""); setEvent(""); setEmail(""); setContactEmail("");
     toast.success("Athlete added");
+    qc.invalidateQueries({ queryKey: ["roster"] });
+  }
+
+  async function updateContactEmail(athleteId: string, current: string | null) {
+    const next = window.prompt("Contact email for sending programs directly (leave blank to clear):", current ?? "");
+    if (next === null) return; // cancelled
+    const { error } = await supabase.from("athletes").update({ email: next.trim() || null }).eq("id", athleteId);
+    if (error) { toast.error(error.message); return; }
+    toast.success(next.trim() ? "Contact email saved" : "Contact email cleared");
     qc.invalidateQueries({ queryKey: ["roster"] });
   }
 
@@ -293,6 +309,15 @@ function AthletesPage() {
                               </Button>
                             </>
                           )}
+                          <Badge
+                            variant="outline"
+                            title={r.athletes?.email ? `Contact email: ${r.athletes.email}` : "No contact email on file"}
+                            className={`cursor-pointer gap-1 ${r.athletes?.email ? "" : "text-muted-foreground"}`}
+                            onClick={() => updateContactEmail(r.athlete_id, r.athletes?.email ?? null)}
+                          >
+                            <Mail className="h-3 w-3" />
+                            {r.athletes?.email ? "Email on file" : "No email"}
+                          </Badge>
                           {/* Parent invite — coach-granted, mirrors the
                               athlete invite affordance. Shows a count badge
                               once at least one parent is linked so it's
@@ -357,12 +382,19 @@ function AthletesPage() {
             <Card>
               <CardHeader>
                 <CardTitle>Add an athlete</CardTitle>
-                <CardDescription>Creates the athlete in your roster. Email is optional — they can link later by signing in.</CardDescription>
+                <CardDescription>
+                  Creates the athlete in your roster. Invite email is optional — they can link later by signing in.
+                  Contact email is separate, for sending programs directly to athletes who don't use the app.
+                </CardDescription>
               </CardHeader>
               <CardContent className="grid sm:grid-cols-3 gap-3">
                 <div><Label>Name</Label><Input value={name} onChange={(e) => setName(e.target.value)} /></div>
                 <div><Label>Primary event</Label><Input placeholder="800m" value={event} onChange={(e) => setEvent(e.target.value)} /></div>
                 <div><Label>Invite email (optional)</Label><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+                <div className="sm:col-span-3">
+                  <Label>Contact email (optional — for sending programs directly, no app account needed)</Label>
+                  <Input type="email" placeholder="athlete@example.com" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
+                </div>
                 <div>
                   <Label>Time zone</Label>
                   <Select value={timezone} onValueChange={setTimezone}>
