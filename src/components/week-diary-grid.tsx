@@ -74,6 +74,11 @@ export type WeekDiaryDay = {
   date: string; // ISO
   training: any[];
   personal: any[];
+  // Optional — set when a Deliver Program batch's date range covers this
+  // day. Rendered as a small chip in the day header. Callers compute this
+  // themselves (see listAthletePlanDeliveries in plan-delivery.functions.ts)
+  // since it depends on which athlete's diary is being shown.
+  delivered?: { label: string } | null;
 };
 
 function DraggablePersonalCard({
@@ -148,6 +153,14 @@ function DayColumn({
         <div>
           <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{dow}</div>
           <div className={cn("text-sm font-semibold", isToday && "text-[var(--accent-red)]")}>{d.getDate()}</div>
+          {day.delivered && (
+            <div
+              className="text-[9px] leading-tight text-emerald-700 bg-emerald-100 border border-emerald-200 rounded px-1 mt-0.5 inline-block"
+              title={day.delivered.label}
+            >
+              {day.delivered.label}
+            </div>
+          )}
         </div>
         <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => onAddClick(date)}>
           <Plus className="h-3.5 w-3.5" />
