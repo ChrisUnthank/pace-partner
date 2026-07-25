@@ -136,6 +136,8 @@ function roundTimeSeconds(s: number): number {
   return Math.round(s / 60) * 60;
 }
 
+export { roundDistanceM, roundTimeSeconds };
+
 /**
  * Applies one bucket's progression rule to one step. Only work/strides
  * steps scale — warmup, cooldown, and recovery blocks copy across
@@ -357,6 +359,94 @@ function formatDraftPace(secPerKm: number): string {
   const m = Math.floor(secPerKm / 60);
   const s = Math.round(secPerKm % 60);
   return `${m}:${String(s).padStart(2, "0")}/km`;
+}
+
+/**
+ * Review-screen batch quick-edits — applied to already-built drafts, on
+ * top of whatever progression + individual edits are already in place.
+ * Deliberately separate from scaleStep()/buildCopyDraft(): those work
+ * from the *source* session outward (rebuilding a draft from scratch),
+ * while these mutate the *current* draft state directly, so a coach's
+ * per-session tweaks in Review never get silently discarded by a
+ * batch nudge afterward. All four are pure — return a new array, never
+ * mutate the one passed in.
+ */
+
+// Distributes a total-km delta across every scalable (bucketed) draft's
+// work/strides steps as one shared multiplicative factor — same
+// mental model as the setup screen's "quick set target total" (one %
+// applied everywhere), just expressed as a km delta at review time
+// instead of a target at setup time. cross_training/rest drafts (no
+// bucket) are never touched.
+export function applyVolumeNudgeKm(drafts: DraftSession[], deltaKm: number): DraftSession[] {
+  const scalable = drafts.filter((d) => d.bucket);
+  const totalM = scalable.reduce((sum, d) => sum + estimateDraftDistanceM(d), 0);
+  if (totalM <= 0) return drafts;
+  const factor = 1 + (deltaKm * 1000) / totalM;
+
+  return drafts.map((d) => {
+    if (!d.bucket) return d;
+    const steps = d.steps.map((s) => {
+      if (s.kind !== "work" && s.kind !== "strides") return s;
+      const next = { ...s };
+      if (next.target_kind === "distance" && next.target_distance_m != null) {
+        next.target_distance_m = roundDistanceM(next.target_distance_m * factor);
+      } else if (next.target_kind === "time" && next.target_time_seconds != null) {
+        next.target_time_seconds = roundTimeSeconds(next.target_time_seconds * factor);
+      }
+      return next;
+    });
+    return { ...d, steps };
+  });
+}
+
+// Nudges pace-mode work steps within one bucket only (e.g. "Easy" drafts)
+// by a fixed seconds/km delta. Positive delta = slower (more sec/km).
+// Floored at 60 sec/km (1:00/km) as a sanity backstop against a runaway
+// batch of nudges producing a nonsensical target.
+export function applyPaceNudgeSecPerKm(drafts: DraftSession[], bucket: CopyBucket, deltaSecPerKm: number): DraftSession[] {
+  return drafts.map((d) => {
+    if (d.bucket !== bucket) return d;
+    const steps = d.steps.map((s) => {
+      if ((s.kind !== "work" && s.kind !== "strides") || s.target_mode !== "pace" || s.target_pace_sec_per_km == null) {
+        return s;
+      }
+      return { ...s, target_pace_sec_per_km: Math.max(60, s.target_pace_sec_per_km + deltaSecPerKm) };
+    });
+    return { ...d, steps };
+  });
+}
+
+// Adjusts rep count on every work/strides step within one bucket (e.g.
+// "Threshold" drafts) — floored at 1 rep.
+export function applyRepDelta(drafts: DraftSession[], bucket: CopyBucket, delta: number): DraftSession[] {
+  return drafts.map((d) => {
+    if (d.bucket !== bucket) return d;
+    const steps = d.steps.map((s) => {
+      if (s.kind !== "work" && s.kind !== "strides") return s;
+      return { ...s, reps: Math.max(1, s.reps + delta) };
+    });
+    return { ...d, steps };
+  });
+}
+
+// Adjusts between-reps and between-sets recovery across every draft
+// (any bucket, cross_training/rest included since a recovery field on
+// those would just be left null and skipped) — floored at 0 seconds.
+export function applyRecoveryDelta(drafts: DraftSession[], deltaSeconds: number): DraftSession[] {
+  return drafts.map((d) => {
+    const steps = d.steps.map((s) => {
+      const next = { ...s };
+      if (next.recovery_between_reps_seconds != null) {
+        next.recovery_between_reps_seconds = Math.max(0, next.recovery_between_reps_seconds + deltaSeconds);
+      }
+      if (next.recovery_between_sets_seconds != null) {
+        next.recovery_between_sets_seconds = Math.max(0, next.recovery_between_sets_seconds + deltaSeconds);
+      }
+      return next;
+    });
+    return { ...d, steps };
+  });
 }
 
 function targetSuffix(s: DraftStep): string {
