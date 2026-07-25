@@ -38,27 +38,38 @@ export function DeliverProgramDialog({
   open,
   onClose,
   initialAthleteId,
+  initialAthleteIds,
   initialRangeStart,
   initialRangeEnd,
 }: {
   open: boolean;
   onClose: () => void;
+  // Single-athlete prefill (unused by any caller today, kept for parity
+  // with CopyPeriodDialog's own initialAthleteId). Prefer
+  // initialAthleteIds for anything bulk — a multi-athlete Assign, or a
+  // group/roster Copy — so the prompt lands on "Select athletes" with
+  // everyone already checked instead of forcing "Single athlete".
   initialAthleteId?: string;
+  initialAthleteIds?: string[];
   initialRangeStart?: string;
   initialRangeEnd?: string;
 }) {
   const { user } = useAuthUser();
   const qc = useQueryClient();
 
+  const initialIds = initialAthleteIds && initialAthleteIds.length > 0 ? initialAthleteIds : initialAthleteId ? [initialAthleteId] : [];
+
   const [stepUi, setStepUi] = useState<"setup" | "results">("setup");
   const [scopeMode, setScopeMode] = useState<"athlete" | "select" | "group" | "roster">(
-    initialAthleteId ? "athlete" : "roster",
+    initialIds.length > 1 ? "select" : initialIds.length === 1 ? "athlete" : "roster",
   );
-  const [selectedAthleteId, setSelectedAthleteId] = useState<string | undefined>(initialAthleteId);
+  const [selectedAthleteId, setSelectedAthleteId] = useState<string | undefined>(
+    initialIds.length === 1 ? initialIds[0] : undefined,
+  );
   // Ad-hoc multi-athlete pick — distinct from "group" (a saved Training
   // Group) and from "roster" (everyone) — for a one-off combination of
   // specific athletes that isn't a formal group.
-  const [selectedAthleteIds, setSelectedAthleteIds] = useState<string[]>(initialAthleteId ? [initialAthleteId] : []);
+  const [selectedAthleteIds, setSelectedAthleteIds] = useState<string[]>(initialIds);
   const [selectedGroupId, setSelectedGroupId] = useState<string | undefined>(undefined);
 
   const today = new Date().toISOString().slice(0, 10);
