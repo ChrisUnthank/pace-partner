@@ -60,7 +60,7 @@ const REP_DISTANCE_LADDER_M = [
   1000, 1200, 1500, 1600, 2000, 2400, 3000,
 ];
 
-function snapDistanceM(v: number | null | undefined): number | null {
+export function snapDistanceM(v: number | null | undefined): number | null {
   if (v == null || !Number.isFinite(v) || v <= 0) return v ?? null;
   // Half and full marathon get pinned exactly when the recording is close.
   if (Math.abs(v - 21100) <= 400) return 21100;
@@ -77,14 +77,14 @@ function snapDistanceM(v: number | null | undefined): number | null {
   return Math.round(v / 1000) * 1000; // beyond: nearest km
 }
 
-function snapTimeS(v: number | null | undefined): number | null {
+export function snapTimeS(v: number | null | undefined): number | null {
   if (v == null || !Number.isFinite(v) || v <= 0) return v ?? null;
   if (v < 600) return Math.max(5, Math.round(v / 15) * 15); // under 10 min: nearest 15s
   if (v < 1800) return Math.round(v / 30) * 30; // 10–30 min: nearest 30s
   return Math.round(v / 60) * 60; // beyond: whole minutes
 }
 
-function tidyStepForTemplate(row: any) {
+export function tidyStepForTemplate(row: any) {
   return {
     ...row,
     target_distance_m: snapDistanceM(row.target_distance_m),
