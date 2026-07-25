@@ -130,7 +130,7 @@ export function DeliverProgramDialog({
     queryFn: async () => {
       const { data: sessions, error } = await supabase
         .from("sessions")
-        .select("id, athlete_id, session_date, title, day_type, intent")
+        .select("id, athlete_id, session_date, title, day_type, intent, is_long_run")
         .in("athlete_id", scopeAthleteIds)
         .gte("session_date", rangeStart)
         .lte("session_date", rangeEnd)
@@ -167,6 +167,7 @@ export function DeliverProgramDialog({
         title: s.title,
         day_type: s.day_type,
         intent: s.intent,
+        is_long_run: !!s.is_long_run,
         steps: sourceData.stepsBySession.get(s.id) ?? [],
       }));
   }
@@ -241,6 +242,15 @@ export function DeliverProgramDialog({
         ...(channelEmail ? (["email"] as const) : []),
       ];
 
+      const scopeLabel =
+        scopeMode === "athlete"
+          ? scopeAthletes[0]?.name ?? "Athlete"
+          : scopeMode === "select"
+            ? `Select (${scopeAthletes.length})`
+            : scopeMode === "group"
+              ? (groups ?? []).find((g: any) => g.id === selectedGroupId)?.name ?? "Group"
+              : "Roster";
+
       await recordPlanDelivery({
         data: {
           dateRangeStart: rangeStart,
@@ -250,6 +260,8 @@ export function DeliverProgramDialog({
           exportDetailLevel,
           noticeboardTitle: channelNoticeboard || channelInApp ? noticeboardTitle : undefined,
           noticeboardBody: channelNoticeboard || channelInApp ? noticeboardBody : undefined,
+          scopeType: scopeMode,
+          scopeLabel,
           recipients: recipientResults.map((r) => ({
             athlete_id: r.athlete_id,
             email_to: r.email_to,
@@ -497,11 +509,16 @@ export function DeliverProgramDialog({
               <div key={r.athlete_id} className="flex items-center justify-between gap-2 rounded border p-2 text-sm">
                 <div className="font-medium">{r.athlete_name}</div>
                 <div className="flex items-center gap-1.5">
-                  {(channelNoticeboard || channelInApp) && r.has_login && (
-                    <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">
-                      Notified in app
-                    </Badge>
-                  )}
+                  {(channelNoticeboard || channelInApp) &&
+                    (r.has_login ? (
+                      <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">
+                        Notified in app
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-[10px] bg-amber-100 text-amber-800 border-amber-200">
+                        No app login — not notified
+                      </Badge>
+                    ))}
                   {channelEmail && (
                     <Badge variant="outline" className={`text-[10px] ${emailStatusCls[r.email_status]}`}>
                       {emailStatusLabel[r.email_status]}
@@ -530,4 +547,4 @@ export function DeliverProgramDialog({
       </DialogContent>
     </Dialog>
   );
-} 
+}
