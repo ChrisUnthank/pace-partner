@@ -48,6 +48,12 @@ type TemplateSession = {
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
+function addDaysISO(dateStr: string, days: number): string {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 const EFFORT_STYLES: Record<string, string> = {
   easy: "bg-emerald-100 text-emerald-700 border-emerald-200",
   long: "bg-sky-100 text-sky-700 border-sky-200",
@@ -231,6 +237,35 @@ function PlansPage() {
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [copyPeriodOpen, setCopyPeriodOpen] = useState(false);
   const [deliverDialogOpen, setDeliverDialogOpen] = useState(false);
+
+  // Prefill handed to DeliverProgramDialog when it's opened via the
+  // post-build prompt (null when opened manually via "Send now"). deliverKey
+  // is bumped on every open so the dialog fully remounts and picks up a
+  // fresh prefill each time, rather than reusing whatever scope/range state
+  // it was left in from a previous open.
+  const [deliverInitial, setDeliverInitial] = useState<{ athleteIds: string[]; rangeStart: string; rangeEnd: string } | null>(
+    null,
+  );
+  const [deliverKey, setDeliverKey] = useState(0);
+  // "Send this program now?" confirmation shown right after Assign, Copy
+  // Period Forward, or Copy Athlete History succeeds.
+  const [sendPrompt, setSendPrompt] = useState<{ athleteIds: string[]; rangeStart: string; rangeEnd: string } | null>(
+    null,
+  );
+
+  function openDeliverProgram(initial: { athleteIds: string[]; rangeStart: string; rangeEnd: string } | null) {
+    setDeliverInitial(initial);
+    setDeliverKey((k) => k + 1);
+    setDeliverDialogOpen(true);
+  }
+
+  // Shared success handler for both Copy dialogs (Copy Period Forward and
+  // Copy Athlete History — including its one-click "Exact copy" path, since
+  // both funnel through the same commit()).
+  function handleBuildSuccess(scope: { athleteIds: string[]; rangeStart: string; rangeEnd: string }) {
+    if (scope.athleteIds.length === 0) return;
+    setSendPrompt(scope);
+  }
 
   const { data: templates } = useQuery({
     queryKey: ["plan-templates"],
@@ -441,7 +476,7 @@ function PlansPage() {
                     Post to Noticeboard and/or email each athlete an Excel copy of their upcoming sessions — works
                     for athletes without the app too, once they have a contact email on file.
                   </p>
-                  <Button size="sm" variant="outline" className="w-full" onClick={() => setDeliverDialogOpen(true)}>
+                  <Button size="sm" variant="outline" className="w-full" onClick={() => openDeliverProgram(null)}>
                     Send now
                   </Button>
                 </CardContent>
@@ -450,9 +485,54 @@ function PlansPage() {
           </div>
         </div>
 
-        <CopyPeriodDialog open={copyPeriodOpen} onClose={() => setCopyPeriodOpen(false)} />
-        <CopyPeriodDialog open={historyDialogOpen} onClose={() => setHistoryDialogOpen(false)} variant="history" />
-        <DeliverProgramDialog open={deliverDialogOpen} onClose={() => setDeliverDialogOpen(false)} />
+        <CopyPeriodDialog open={copyPeriodOpen} onClose={() => setCopyPeriodOpen(false)} onSuccess={handleBuildSuccess} />
+        <CopyPeriodDialog
+          open={historyDialogOpen}
+          onClose={() => setHistoryDialogOpen(false)}
+          variant="history"
+          onSuccess={handleBuildSuccess}
+        />
+        <DeliverProgramDialog
+          key={deliverKey}
+          open={deliverDialogOpen}
+          onClose={() => {
+            setDeliverDialogOpen(false);
+            setDeliverInitial(null);
+          }}
+          initialAthleteIds={deliverInitial?.athleteIds}
+          initialRangeStart={deliverInitial?.rangeStart}
+          initialRangeEnd={deliverInitial?.rangeEnd}
+        />
+
+        <Dialog open={!!sendPrompt} onOpenChange={(o) => !o && setSendPrompt(null)}>
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Send this program now?</DialogTitle>
+              <DialogDescription>
+                {sendPrompt && (
+                  <>
+                    Notify {sendPrompt.athleteIds.length} athlete{sendPrompt.athleteIds.length === 1 ? "" : "s"} and/or
+                    email their schedule, covering {sendPrompt.rangeStart} – {sendPrompt.rangeEnd}. You can still
+                    change the scope, date range, or channels on the next screen.
+                  </>
+                )}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setSendPrompt(null)}>
+                Not now
+              </Button>
+              <Button
+                onClick={() => {
+                  if (sendPrompt) openDeliverProgram(sendPrompt);
+                  setSendPrompt(null);
+                }}
+              >
+                Send now
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </AppShell>
     );
   }
@@ -650,11 +730,61 @@ function PlansPage() {
         </Card>
 
         {assignTarget && (
-          <AssignPlanDialog template={assignTarget} onClose={() => setAssignTarget(null)} />
+          <AssignPlanDialog
+            template={assignTarget}
+            onClose={() => setAssignTarget(null)}
+            onSuccess={handleBuildSuccess}
+          />
         )}
 
-        <CopyPeriodDialog open={copyPeriodOpen} onClose={() => setCopyPeriodOpen(false)} />
-        <CopyPeriodDialog open={historyDialogOpen} onClose={() => setHistoryDialogOpen(false)} variant="history" />
+        <CopyPeriodDialog open={copyPeriodOpen} onClose={() => setCopyPeriodOpen(false)} onSuccess={handleBuildSuccess} />
+        <CopyPeriodDialog
+          open={historyDialogOpen}
+          onClose={() => setHistoryDialogOpen(false)}
+          variant="history"
+          onSuccess={handleBuildSuccess}
+        />
+        <DeliverProgramDialog
+          key={deliverKey}
+          open={deliverDialogOpen}
+          onClose={() => {
+            setDeliverDialogOpen(false);
+            setDeliverInitial(null);
+          }}
+          initialAthleteIds={deliverInitial?.athleteIds}
+          initialRangeStart={deliverInitial?.rangeStart}
+          initialRangeEnd={deliverInitial?.rangeEnd}
+        />
+
+        <Dialog open={!!sendPrompt} onOpenChange={(o) => !o && setSendPrompt(null)}>
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Send this program now?</DialogTitle>
+              <DialogDescription>
+                {sendPrompt && (
+                  <>
+                    Notify {sendPrompt.athleteIds.length} athlete{sendPrompt.athleteIds.length === 1 ? "" : "s"} and/or
+                    email their schedule, covering {sendPrompt.rangeStart} – {sendPrompt.rangeEnd}. You can still
+                    change the scope, date range, or channels on the next screen.
+                  </>
+                )}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setSendPrompt(null)}>
+                Not now
+              </Button>
+              <Button
+                onClick={() => {
+                  if (sendPrompt) openDeliverProgram(sendPrompt);
+                  setSendPrompt(null);
+                }}
+              >
+                Send now
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </AppShell>
   );
@@ -721,7 +851,15 @@ function TemplatePreview({
   );
 }
 
-function AssignPlanDialog({ template, onClose }: { template: PlanTemplate; onClose: () => void }) {
+function AssignPlanDialog({
+  template,
+  onClose,
+  onSuccess,
+}: {
+  template: PlanTemplate;
+  onClose: () => void;
+  onSuccess?: (scope: { athleteIds: string[]; rangeStart: string; rangeEnd: string }) => void;
+}) {
   const qc = useQueryClient();
   // Bulk by default — a coach applying a template to a training group
   // shouldn't have to repeat this dialog once per athlete. Goal linking
@@ -802,6 +940,11 @@ function AssignPlanDialog({ template, onClose }: { template: PlanTemplate; onClo
       toast.success(
         `Plan assigned to ${athleteIds.length} athlete${athleteIds.length > 1 ? "s" : ""} — ${totalSessions} sessions created`,
       );
+      onSuccess?.({
+        athleteIds,
+        rangeStart: startDate,
+        rangeEnd: addDaysISO(startDate, template.duration_weeks * 7 - 1),
+      });
       onClose();
     } else {
       toast.error(
