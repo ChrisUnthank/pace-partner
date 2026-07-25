@@ -18,6 +18,13 @@ import { assignPlanToAthlete, cancelAthletePlan } from "@/lib/plan.functions";
 import { useAuthUser } from "@/lib/use-auth";
 import { BucketTabStrip, COACHING_HUB_TABS } from "@/components/bucket-tab-strip";
 import { inferWorkoutTargetMode, type WorkoutTargetMode } from "@/lib/workout-target-modes";
+import {
+  PROGRESSION_PATTERNS,
+  computeProgressionPercents,
+  buildProgressedWeekSessions,
+  estimateTemplateSessionDistanceM,
+  type ProgressionPatternId,
+} from "@/lib/plan-progression";
 import { CopyPeriodDialog } from "@/components/copy-period-dialog";
 import { DeliverProgramDialog } from "@/components/deliver-program-dialog";
 
@@ -1064,6 +1071,7 @@ function PlanBuilder({ templateId, onBack }: { templateId: string | null; onBack
   const [level, setLevel] = useState<string>("intermediate");
   const [saving, setSaving] = useState(false);
   const [dayEditor, setDayEditor] = useState<{ week: number; day: number } | null>(null);
+  const [progressionOpen, setProgressionOpen] = useState(false);
 
   const { data: existingTemplate } = useQuery({
     queryKey: ["plan-template-edit", templateId],
@@ -1254,9 +1262,16 @@ function PlanBuilder({ templateId, onBack }: { templateId: string | null; onBack
 
       {savedId && (
         <Card>
-          <CardHeader>
-            <CardTitle>Weeks</CardTitle>
-            <CardDescription>Click a day to add or edit its session. Leave a day empty for rest.</CardDescription>
+          <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
+            <div>
+              <CardTitle>Weeks</CardTitle>
+              <CardDescription>Click a day to add or edit its session. Leave a day empty for rest.</CardDescription>
+            </div>
+            {durationWeeks > 1 && (
+              <Button size="sm" variant="outline" className="shrink-0" onClick={() => setProgressionOpen(true)}>
+                Apply progression pattern
+              </Button>
+            )}
           </CardHeader>
           <CardContent className="space-y-4">
             {Array.from({ length: durationWeeks }, (_, i) => i + 1).map((week) => (
@@ -1307,11 +1322,230 @@ function PlanBuilder({ templateId, onBack }: { templateId: string | null; onBack
           }}
         />
       )}
+
+      {progressionOpen && savedId && (
+        <ApplyProgressionDialog
+          planTemplateId={savedId}
+          durationWeeks={durationWeeks}
+          allSessions={sessions ?? []}
+          onClose={() => setProgressionOpen(false)}
+          onApplied={() => {
+            setProgressionOpen(false);
+            qc.invalidateQueries({ queryKey: ["plan-template-sessions-edit", savedId] });
+            qc.invalidateQueries({ queryKey: ["all-plan-template-sessions"] });
+          }}
+        />
+      )}
     </div>
   );
 }
 
-// Phase 4: manual step recipe now carries the same five target fields as
+/**
+ * Generates a range of target weeks from one already-built base week,
+ * scaling volume by a named pattern (see plan-progression.ts). Existing
+ * sessions on the target days within the target range are overwritten —
+ * same convention as DayEditorDialog's "Apply to other days" (independent
+ * generated copies, not linked; editing one afterward never affects the
+ * others) — since this is fundamentally that same action one level up
+ * (a whole week, with scaling, instead of one day, flat).
+ */
+function ApplyProgressionDialog({
+  planTemplateId,
+  durationWeeks,
+  allSessions,
+  onClose,
+  onApplied,
+}: {
+  planTemplateId: string;
+  durationWeeks: number;
+  allSessions: any[];
+  onClose: () => void;
+  onApplied: () => void;
+}) {
+  const weeksWithSessions = Array.from(new Set(allSessions.map((s) => s.week_number as number))).sort((a, b) => a - b);
+  const defaultBase = weeksWithSessions[0] ?? 1;
+
+  const [baseWeek, setBaseWeek] = useState(defaultBase);
+  const [targetFrom, setTargetFrom] = useState(Math.min(defaultBase + 1, durationWeeks));
+  const [targetTo, setTargetTo] = useState(durationWeeks);
+  const [patternId, setPatternId] = useState<ProgressionPatternId>("build_5");
+  const [applying, setApplying] = useState(false);
+
+  const baseWeekSessions = allSessions.filter((s) => s.week_number === baseWeek);
+  const baseWeekEstKm =
+    baseWeekSessions.reduce((sum, s) => sum + estimateTemplateSessionDistanceM(s.effort_type, s.steps ?? []), 0) / 1000;
+
+  // Target range, defensively excluding the base week itself in case the
+  // range typed in overlaps it.
+  const targetWeeks =
+    targetFrom && targetTo && targetTo >= targetFrom
+      ? Array.from({ length: targetTo - targetFrom + 1 }, (_, i) => targetFrom + i).filter((w) => w !== baseWeek)
+      : [];
+
+  const percents = computeProgressionPercents(patternId, targetWeeks.length);
+  const activePattern = PROGRESSION_PATTERNS.find((p) => p.id === patternId)!;
+
+  async function apply() {
+    if (baseWeekSessions.length === 0) {
+      toast.error("Base week has no sessions to build a pattern from");
+      return;
+    }
+    if (targetWeeks.length === 0) {
+      toast.error("Choose a target week range after the base week");
+      return;
+    }
+
+    setApplying(true);
+    try {
+      const baseDays = baseWeekSessions.map((s) => s.day_of_week);
+
+      // Clear whatever's already on the target days within the target
+      // weeks first, so regenerating never leaves duplicate/orphaned rows
+      // behind — same "will be overwritten" contract shown in the preview.
+      const { error: delErr } = await supabase
+        .from("plan_template_sessions")
+        .delete()
+        .eq("plan_template_id", planTemplateId)
+        .in("week_number", targetWeeks)
+        .in("day_of_week", baseDays);
+      if (delErr) throw delErr;
+
+      const baseForBuild = baseWeekSessions.map((s) => ({
+        day_of_week: s.day_of_week,
+        title: s.title,
+        effort_type: s.effort_type,
+        steps: s.steps ?? [],
+        notes: s.notes ?? null,
+      }));
+
+      const rows = targetWeeks.flatMap((w, i) =>
+        buildProgressedWeekSessions(baseForBuild, w, percents[i]).map((r) => ({
+          ...r,
+          plan_template_id: planTemplateId,
+        })),
+      );
+
+      const { error: insErr } = await supabase.from("plan_template_sessions").insert(rows as any);
+      if (insErr) throw insErr;
+
+      toast.success(
+        `${rows.length} session${rows.length === 1 ? "" : "s"} generated across ${targetWeeks.length} week${targetWeeks.length === 1 ? "" : "s"}`,
+      );
+      onApplied();
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to apply progression pattern");
+    } finally {
+      setApplying(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Apply progression pattern</DialogTitle>
+          <DialogDescription>
+            Generate a range of weeks from one already-built week, scaling volume by a pattern — fills out the rest
+            of the template in one step instead of building every week by hand.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <Label className="text-xs">Base week</Label>
+              <Input
+                type="number"
+                min={1}
+                max={durationWeeks}
+                value={baseWeek}
+                onChange={(e) => setBaseWeek(Number(e.target.value))}
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">
+                {baseWeekSessions.length > 0
+                  ? `${baseWeekSessions.length} session${baseWeekSessions.length === 1 ? "" : "s"}, ~${baseWeekEstKm.toFixed(1)}km`
+                  : "No sessions in this week yet"}
+              </p>
+            </div>
+            <div>
+              <Label className="text-xs">Generate from week</Label>
+              <Input
+                type="number"
+                min={1}
+                max={durationWeeks}
+                value={targetFrom}
+                onChange={(e) => setTargetFrom(Number(e.target.value))}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Through week</Label>
+              <Input
+                type="number"
+                min={1}
+                max={durationWeeks}
+                value={targetTo}
+                onChange={(e) => setTargetTo(Number(e.target.value))}
+              />
+            </div>
+          </div>
+
+          <div>
+            <Label className="text-xs">Pattern</Label>
+            <div className="flex flex-wrap gap-2 mt-1.5">
+              {PROGRESSION_PATTERNS.map((p) => (
+                <Button
+                  key={p.id}
+                  size="sm"
+                  variant={patternId === p.id ? "default" : "outline"}
+                  onClick={() => setPatternId(p.id)}
+                >
+                  {p.label}
+                </Button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1.5">{activePattern.description}</p>
+          </div>
+
+          {targetWeeks.length > 0 && baseWeekSessions.length > 0 && (
+            <div>
+              <Label className="text-xs">Preview</Label>
+              <div className="mt-1.5 space-y-1 max-h-48 overflow-y-auto">
+                {targetWeeks.map((w, i) => {
+                  const pct = percents[i];
+                  const estKm = baseWeekEstKm * (1 + pct / 100);
+                  const existingCount = allSessions.filter((s) => s.week_number === w).length;
+                  return (
+                    <div key={w} className="flex items-center justify-between gap-2 rounded border p-2 text-sm">
+                      <span className="font-medium">Week {w}</span>
+                      <span className="text-muted-foreground">
+                        {pct > 0 ? "+" : ""}
+                        {pct}% · ~{estKm.toFixed(1)}km
+                      </span>
+                      {existingCount > 0 && (
+                        <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-800 border-amber-200">
+                          {existingCount} existing — will be overwritten
+                        </Badge>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={apply} disabled={applying || baseWeekSessions.length === 0 || targetWeeks.length === 0}>
+            {applying ? "Generating..." : `Generate ${targetWeeks.length} week${targetWeeks.length === 1 ? "" : "s"}`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 // `steps`/`template_steps`, set via the same target-mode selector pattern
 // used in the session builder and the WorkTargetEditor. `value`/`reps` keep
 // their existing meaning (meters or minutes, converted on save) — only the
