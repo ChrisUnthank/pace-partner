@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Download, Mail, Megaphone } from "lucide-react";
+import { Bell, Download, Mail, Megaphone } from "lucide-react";
 import { buildPlanDeliveryWorkbook, downloadPlanDeliveryWorkbook, type PlanDeliverySession } from "@/lib/plan-delivery-xlsx";
 import { recordPlanDelivery } from "@/lib/plan-delivery.functions";
 
@@ -51,8 +51,14 @@ export function DeliverProgramDialog({
   const qc = useQueryClient();
 
   const [stepUi, setStepUi] = useState<"setup" | "results">("setup");
-  const [scopeMode, setScopeMode] = useState<"athlete" | "group" | "roster">(initialAthleteId ? "athlete" : "roster");
+  const [scopeMode, setScopeMode] = useState<"athlete" | "select" | "group" | "roster">(
+    initialAthleteId ? "athlete" : "roster",
+  );
   const [selectedAthleteId, setSelectedAthleteId] = useState<string | undefined>(initialAthleteId);
+  // Ad-hoc multi-athlete pick — distinct from "group" (a saved Training
+  // Group) and from "roster" (everyone) — for a one-off combination of
+  // specific athletes that isn't a formal group.
+  const [selectedAthleteIds, setSelectedAthleteIds] = useState<string[]>(initialAthleteId ? [initialAthleteId] : []);
   const [selectedGroupId, setSelectedGroupId] = useState<string | undefined>(undefined);
 
   const today = new Date().toISOString().slice(0, 10);
@@ -60,8 +66,9 @@ export function DeliverProgramDialog({
   const [rangeStart, setRangeStart] = useState(initialRangeStart ?? today);
   const [rangeEnd, setRangeEnd] = useState(initialRangeEnd ?? weekAhead);
 
-  const [channelNoticeboard, setChannelNoticeboard] = useState(true);
-  const [channelEmail, setChannelEmail] = useState(true);
+  const [channelInApp, setChannelInApp] = useState(true);
+  const [channelNoticeboard, setChannelNoticeboard] = useState(false);
+  const [channelEmail, setChannelEmail] = useState(false);
   const [exportDetailLevel, setExportDetailLevel] = useState<"simple" | "detailed" | "both">("both");
   const [noticeboardTitle, setNoticeboardTitle] = useState("New training block posted");
   const [noticeboardBody, setNoticeboardBody] = useState(
@@ -109,9 +116,11 @@ export function DeliverProgramDialog({
       ? selectedAthleteId
         ? [selectedAthleteId]
         : []
-      : scopeMode === "roster"
-        ? (roster ?? []).map((a: any) => a.id)
-        : groupMemberIds ?? [];
+      : scopeMode === "select"
+        ? selectedAthleteIds
+        : scopeMode === "roster"
+          ? (roster ?? []).map((a: any) => a.id)
+          : groupMemberIds ?? [];
 
   const scopeAthletes = (roster ?? []).filter((a: any) => scopeAthleteIds.includes(a.id));
 
@@ -167,7 +176,7 @@ export function DeliverProgramDialog({
       toast.error(scopeMode === "athlete" ? "Choose an athlete" : "No athletes in that scope");
       return;
     }
-    if (!channelNoticeboard && !channelEmail) {
+    if (!channelInApp && !channelNoticeboard && !channelEmail) {
       toast.error("Choose at least one delivery channel");
       return;
     }
@@ -187,7 +196,13 @@ export function DeliverProgramDialog({
           } else {
             try {
               const athleteSessions = sessionsForAthlete(a.id);
-              const { base64, filename } = buildPlanDeliveryWorkbook(a.name, athleteSessions, exportDetailLevel);
+              const { base64, filename } = await buildPlanDeliveryWorkbook(
+                a.name,
+                athleteSessions,
+                exportDetailLevel,
+                rangeStart,
+                rangeEnd,
+              );
               const html = `
                 <div style="font-family: Arial, sans-serif; color:#111; max-width:640px;">
                   <h2>Your training block is ready</h2>
@@ -220,7 +235,8 @@ export function DeliverProgramDialog({
         });
       }
 
-      const channels: ("noticeboard" | "email")[] = [
+      const channels: ("noticeboard" | "in_app" | "email")[] = [
+        ...(channelInApp ? (["in_app"] as const) : []),
         ...(channelNoticeboard ? (["noticeboard"] as const) : []),
         ...(channelEmail ? (["email"] as const) : []),
       ];
@@ -232,8 +248,8 @@ export function DeliverProgramDialog({
           summary: `${sessionCount} session${sessionCount === 1 ? "" : "s"} across ${scopeAthletes.length} athlete${scopeAthletes.length === 1 ? "" : "s"}`,
           channels,
           exportDetailLevel,
-          noticeboardTitle: channelNoticeboard ? noticeboardTitle : undefined,
-          noticeboardBody: channelNoticeboard ? noticeboardBody : undefined,
+          noticeboardTitle: channelNoticeboard || channelInApp ? noticeboardTitle : undefined,
+          noticeboardBody: channelNoticeboard || channelInApp ? noticeboardBody : undefined,
           recipients: recipientResults.map((r) => ({
             athlete_id: r.athlete_id,
             email_to: r.email_to,
@@ -285,9 +301,12 @@ export function DeliverProgramDialog({
 
         {stepUi === "setup" ? (
           <div className="space-y-4">
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button size="sm" variant={scopeMode === "athlete" ? "default" : "outline"} onClick={() => setScopeMode("athlete")}>
                 Single athlete
+              </Button>
+              <Button size="sm" variant={scopeMode === "select" ? "default" : "outline"} onClick={() => setScopeMode("select")}>
+                Select athletes
               </Button>
               <Button size="sm" variant={scopeMode === "group" ? "default" : "outline"} onClick={() => setScopeMode("group")}>
                 Training group
@@ -302,6 +321,35 @@ export function DeliverProgramDialog({
                 <Label className="text-xs">Athlete</Label>
                 <div className="mt-1">
                   <CoachAthletePicker roster={roster ?? []} value={selectedAthleteId} onChange={setSelectedAthleteId} />
+                </div>
+              </div>
+            ) : scopeMode === "select" ? (
+              <div>
+                <Label className="text-xs">
+                  Athletes {selectedAthleteIds.length > 0 && `(${selectedAthleteIds.length} selected)`}
+                </Label>
+                <div className="mt-1 max-h-48 overflow-y-auto rounded border divide-y">
+                  {(roster ?? []).map((a: any) => {
+                    const checked = selectedAthleteIds.includes(a.id);
+                    return (
+                      <label key={a.id} className="flex items-center gap-2 p-2 text-sm cursor-pointer hover:bg-accent/40">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4"
+                          checked={checked}
+                          onChange={() =>
+                            setSelectedAthleteIds((ids) =>
+                              checked ? ids.filter((id) => id !== a.id) : [...ids, a.id],
+                            )
+                          }
+                        />
+                        <span>{a.name}</span>
+                      </label>
+                    );
+                  })}
+                  {(!roster || roster.length === 0) && (
+                    <p className="text-xs text-muted-foreground p-2">No athletes on your roster yet.</p>
+                  )}
                 </div>
               </div>
             ) : scopeMode === "group" ? (
@@ -335,14 +383,22 @@ export function DeliverProgramDialog({
 
             <div>
               <Label className="text-xs">Channels</Label>
-              <div className="flex gap-2 mt-1">
+              <div className="flex flex-wrap gap-2 mt-1">
+                <Button
+                  size="sm"
+                  variant={channelInApp ? "default" : "outline"}
+                  onClick={() => setChannelInApp((v) => !v)}
+                  className="gap-1.5"
+                >
+                  <Bell className="h-3.5 w-3.5" /> Notify recipients (in-app)
+                </Button>
                 <Button
                   size="sm"
                   variant={channelNoticeboard ? "default" : "outline"}
                   onClick={() => setChannelNoticeboard((v) => !v)}
                   className="gap-1.5"
                 >
-                  <Megaphone className="h-3.5 w-3.5" /> Post to Noticeboard
+                  <Megaphone className="h-3.5 w-3.5" /> Post to Noticeboard (whole squad)
                 </Button>
                 <Button
                   size="sm"
@@ -353,19 +409,26 @@ export function DeliverProgramDialog({
                   <Mail className="h-3.5 w-3.5" /> Email Excel export
                 </Button>
               </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                <strong>Notify recipients</strong> only reaches the athletes selected below (via their bell-icon
+                notifications and calendar). <strong>Noticeboard</strong> is a separate broadcast to everyone on your
+                roster, regardless of who's selected. Use either, both, or neither.
+              </p>
             </div>
 
-            {channelNoticeboard && (
+            {(channelInApp || channelNoticeboard) && (
               <div className="rounded-md border p-3 space-y-2 bg-muted/20">
-                <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">
-                  Noticeboard posts go to your entire squad, not just the athletes selected above.
-                </p>
+                {channelNoticeboard && (
+                  <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                    This Noticeboard post goes to your entire squad, not just the athletes selected above.
+                  </p>
+                )}
                 <div>
-                  <Label className="text-xs">Post title</Label>
+                  <Label className="text-xs">Title</Label>
                   <Input value={noticeboardTitle} onChange={(e) => setNoticeboardTitle(e.target.value)} />
                 </div>
                 <div>
-                  <Label className="text-xs">Post body</Label>
+                  <Label className="text-xs">Message</Label>
                   <Textarea value={noticeboardBody} onChange={(e) => setNoticeboardBody(e.target.value)} rows={2} />
                 </div>
               </div>
@@ -415,7 +478,9 @@ export function DeliverProgramDialog({
                         size="sm"
                         variant="ghost"
                         className="shrink-0"
-                        onClick={() => downloadPlanDeliveryWorkbook(a.name, sessionsForAthlete(a.id), exportDetailLevel)}
+                        onClick={() =>
+                          downloadPlanDeliveryWorkbook(a.name, sessionsForAthlete(a.id), exportDetailLevel, rangeStart, rangeEnd)
+                        }
                         title="Download this athlete's Excel export directly"
                       >
                         <Download className="h-3.5 w-3.5" />
@@ -432,7 +497,7 @@ export function DeliverProgramDialog({
               <div key={r.athlete_id} className="flex items-center justify-between gap-2 rounded border p-2 text-sm">
                 <div className="font-medium">{r.athlete_name}</div>
                 <div className="flex items-center gap-1.5">
-                  {channelNoticeboard && r.has_login && (
+                  {(channelNoticeboard || channelInApp) && r.has_login && (
                     <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">
                       Notified in app
                     </Badge>
