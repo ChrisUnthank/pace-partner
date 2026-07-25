@@ -17,6 +17,7 @@ import { DAY_TYPE_META, type TrainingDayType } from "@/lib/training-day-types";
 import { PERSONAL_CATEGORY_META, PERSONAL_CATEGORY_OPTIONS, type PersonalEntryCategory } from "@/lib/personal-calendar-categories";
 import { cn } from "@/lib/utils";
 import { WeekDiaryGrid, getWeekStart, getWeekDates, type WeekDiaryDay } from "@/components/week-diary-grid";
+import { listAthletePlanDeliveries } from "@/lib/plan-delivery.functions";
 
 export const Route = createFileRoute("/_authenticated/app/my-schedule")({
   component: () => (
@@ -48,6 +49,15 @@ function MySchedulePage() {
   const dates = getWeekDates(weekStart);
   const rangeEnd = dates[dates.length - 1];
   const todayISO = toISO(new Date());
+
+  // "Plan sent" chip — which of this week's days fall inside a delivered
+  // batch's date range, for the athlete currently being viewed (self, or
+  // the parent's currently-selected child).
+  const { data: deliveries } = useQuery({
+    queryKey: ["my-schedule-deliveries", targetAthleteId, weekStart],
+    enabled: !!targetAthleteId,
+    queryFn: () => listAthletePlanDeliveries({ data: { athleteId: targetAthleteId!, rangeStart: weekStart, rangeEnd } }),
+  });
 
   const { data: groupId } = useQuery({
     queryKey: ["my-schedule-group", targetAthleteId],
@@ -151,10 +161,18 @@ function MySchedulePage() {
     }
   }
 
+  function deliveredLabelFor(date: string): { label: string } | null {
+    const match = (deliveries ?? []).find((d) => d.range_start <= date && d.range_end >= date);
+    if (!match) return null;
+    const sentDate = new Date(match.delivered_at).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+    return { label: `Plan sent ${sentDate}` };
+  }
+
   const weekDays: WeekDiaryDay[] = dates.map((d) => ({
     date: d,
     training: byDate.get(d)!.training,
     personal: byDate.get(d)!.personal,
+    delivered: deliveredLabelFor(d),
   }));
 
   const [entryDialog, setEntryDialog] = useState<{ date?: string; initial?: any } | null>(null);
