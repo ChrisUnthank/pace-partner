@@ -19,6 +19,7 @@ import { useAuthUser } from "@/lib/use-auth";
 import { BucketTabStrip, COACHING_HUB_TABS } from "@/components/bucket-tab-strip";
 import { inferWorkoutTargetMode, type WorkoutTargetMode } from "@/lib/workout-target-modes";
 import { CopyPeriodDialog } from "@/components/copy-period-dialog";
+import { DeliverProgramDialog } from "@/components/deliver-program-dialog";
 
 export const Route = createFileRoute("/_authenticated/app/plans")({
   component: PlansPage,
@@ -229,6 +230,7 @@ function PlansPage() {
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [copyPeriodOpen, setCopyPeriodOpen] = useState(false);
+  const [deliverDialogOpen, setDeliverDialogOpen] = useState(false);
 
   const { data: templates } = useQuery({
     queryKey: ["plan-templates"],
@@ -431,12 +433,26 @@ function PlansPage() {
                   </Button>
                 </CardContent>
               </Card>
+
+              <Card>
+                <CardContent className="p-4 space-y-2">
+                  <div className="font-semibold">Send program update</div>
+                  <p className="text-xs text-muted-foreground">
+                    Post to Noticeboard and/or email each athlete an Excel copy of their upcoming sessions — works
+                    for athletes without the app too, once they have a contact email on file.
+                  </p>
+                  <Button size="sm" variant="outline" className="w-full" onClick={() => setDeliverDialogOpen(true)}>
+                    Send now
+                  </Button>
+                </CardContent>
+              </Card>
             </div>
           </div>
         </div>
 
         <CopyPeriodDialog open={copyPeriodOpen} onClose={() => setCopyPeriodOpen(false)} />
         <CopyPeriodDialog open={historyDialogOpen} onClose={() => setHistoryDialogOpen(false)} variant="history" />
+        <DeliverProgramDialog open={deliverDialogOpen} onClose={() => setDeliverDialogOpen(false)} />
       </AppShell>
     );
   }
