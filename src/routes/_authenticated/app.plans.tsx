@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/app-shell";
@@ -170,6 +170,9 @@ function PlansPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [assignTarget, setAssignTarget] = useState<PlanTemplate | null>(null);
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
+  const [buildMenuOpen, setBuildMenuOpen] = useState(false);
+  const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
+  const templatesSectionRef = useRef<HTMLDivElement>(null);
   const [copyPeriodOpen, setCopyPeriodOpen] = useState(false);
 
   const { data: templates } = useQuery({
@@ -301,24 +304,63 @@ function PlansPage() {
             <p className="text-sm text-muted-foreground">Browse plan templates, or build your own for your roster.</p>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setCopyPeriodOpen(true)}
-            >
+            <Button variant="outline" onClick={() => setCopyPeriodOpen(true)}>
               Copy period forward
             </Button>
-            <Button
-              onClick={() => {
-                setBuilderTemplateId(null);
-                setView("builder");
-              }}
-            >
-              New template
-            </Button>
+            <div className="relative">
+              <Button onClick={() => setBuildMenuOpen((o) => !o)}>
+                Build training <ChevronDown className="h-4 w-4 ml-1" />
+              </Button>
+              {buildMenuOpen && (
+                <>
+                  {/* Click-outside layer — sits below the menu panel, above everything else */}
+                  <div className="fixed inset-0 z-40" onClick={() => setBuildMenuOpen(false)} />
+                  <div className="absolute right-0 mt-1 w-72 rounded-md border bg-popover shadow-md z-50 p-1">
+                    <button
+                      className="w-full text-left rounded px-3 py-2 text-sm hover:bg-accent/50"
+                      onClick={() => {
+                        setBuildMenuOpen(false);
+                        templatesSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                      }}
+                    >
+                      <div className="font-medium">Apply a template</div>
+                      <div className="text-xs text-muted-foreground">
+                        Browse My or System templates and assign to one athlete or a group.
+                      </div>
+                    </button>
+                    <button
+                      className="w-full text-left rounded px-3 py-2 text-sm hover:bg-accent/50"
+                      onClick={() => {
+                        setBuildMenuOpen(false);
+                        setBuilderTemplateId(null);
+                        setView("builder");
+                      }}
+                    >
+                      <div className="font-medium">Build from scratch</div>
+                      <div className="text-xs text-muted-foreground">
+                        Open the manual Plan Builder to design a new template week by week.
+                      </div>
+                    </button>
+                    <button
+                      className="w-full text-left rounded px-3 py-2 text-sm hover:bg-accent/50"
+                      onClick={() => {
+                        setBuildMenuOpen(false);
+                        setHistoryDialogOpen(true);
+                      }}
+                    >
+                      <div className="font-medium">Copy athlete history</div>
+                      <div className="text-xs text-muted-foreground">
+                        Give each athlete their own recent training back as their own starting point.
+                      </div>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
 
-        <div className="flex gap-2">
+        <div ref={templatesSectionRef} className="flex gap-2">
           <Button
             size="sm"
             variant={templateSource === "mine" ? "default" : "outline"}
@@ -493,6 +535,7 @@ function PlansPage() {
         )}
 
         <CopyPeriodDialog open={copyPeriodOpen} onClose={() => setCopyPeriodOpen(false)} />
+        <CopyPeriodDialog open={historyDialogOpen} onClose={() => setHistoryDialogOpen(false)} variant="history" />
       </div>
     </AppShell>
   );
