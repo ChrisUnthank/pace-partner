@@ -85,6 +85,13 @@ export function CopyPeriodDialog({
   const [rules, setRules] = useState<ProgressionRules>(emptyProgressionRules());
   const [quickTargetKm, setQuickTargetKm] = useState<string>("");
   const [drafts, setDrafts] = useState<DraftSession[]>([]);
+  const [reviewAthleteFilter, setReviewAthleteFilter] = useState<string>("all");
+  // Optional coach preference — no schema field exists for AM/PM on an
+  // individual session (only the separate squad Training Schedule has
+  // that), so this just appends "(AM)"/"(PM)" onto the generated title
+  // rather than requiring a migration for what's a genuinely optional,
+  // occasional call.
+  const [timeOfDayPref, setTimeOfDayPref] = useState<"none" | "am" | "pm">("none");
   const [editingDraft, setEditingDraft] = useState<DraftSession | null>(null);
   const [swapDraft, setSwapDraft] = useState<DraftSession | null>(null);
 
@@ -129,6 +136,8 @@ export function CopyPeriodDialog({
       : scopeMode === "roster"
         ? (roster ?? []).map((a: any) => a.id)
         : groupMemberIds ?? [];
+
+  const athleteNameById = new Map((roster ?? []).map((a: any) => [a.id, a.name as string]));
 
   // Fetched as soon as scope + range are set — feeds both the live
   // "current total" shown in the quick-set control and, unchanged,
@@ -243,9 +252,9 @@ export function CopyPeriodDialog({
       // a prior "Edit before applying" pass can never sneak into a one-click
       // exact copy.
       const effectiveRules = variant === "history" && copyMode === "exact" ? emptyProgressionRules() : rules;
-      const built = sourceSessions.map((s: any) =>
-        buildCopyDraft(s, stepsBySession.get(s.id) ?? [], offsetDays, effectiveRules),
-      );
+      const built = sourceSessions
+        .map((s: any) => buildCopyDraft(s, stepsBySession.get(s.id) ?? [], offsetDays, effectiveRules))
+        .map((d) => (timeOfDayPref === "none" ? d : { ...d, title: `${d.title} (${timeOfDayPref.toUpperCase()})` }));
 
       if (variant === "history" && copyMode === "exact") {
         // Skip the review screen entirely — same one-click shape as the
@@ -254,6 +263,7 @@ export function CopyPeriodDialog({
         await commit(built);
       } else {
         setDrafts(built);
+        setReviewAthleteFilter("all");
         setStepUi("review");
       }
     } catch (err: any) {
@@ -366,6 +376,7 @@ export function CopyPeriodDialog({
   const flaggedCount = drafts.filter((d) => d.needsReview).length;
 
   return (
+    <>
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
       <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
@@ -463,12 +474,38 @@ export function CopyPeriodDialog({
               <Input type="date" value={targetStart} onChange={(e) => setTargetStart(e.target.value)} />
             </div>
 
+            <div>
+              <Label className="text-xs">Time of day (optional)</Label>
+              <div className="flex gap-2 mt-1">
+                <Button size="sm" variant={timeOfDayPref === "none" ? "default" : "outline"} onClick={() => setTimeOfDayPref("none")}>
+                  No preference
+                </Button>
+                <Button size="sm" variant={timeOfDayPref === "am" ? "default" : "outline"} onClick={() => setTimeOfDayPref("am")}>
+                  AM
+                </Button>
+                <Button size="sm" variant={timeOfDayPref === "pm" ? "default" : "outline"} onClick={() => setTimeOfDayPref("pm")}>
+                  PM
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Left as "No preference" by default — most planned sessions are fine for the athlete to fit in
+                whenever suits them. Only set this if you specifically want these sessions done in the morning or
+                evening.
+              </p>
+            </div>
+
             {!(variant === "history" && copyMode === "exact") && sourceStart && sourceEnd && scopeAthleteIds.length > 0 && (
               <div className="rounded-md border p-3 space-y-2 bg-muted/20">
                 <Label className="text-xs">
                   Quick set: target weekly/monthly total{" "}
                   <span className="text-muted-foreground font-normal">
-                    (current: {currentTotalKm > 0 ? `${currentTotalKm.toFixed(1)} km` : "—"})
+                    (
+                    {currentTotalKm > 0
+                      ? scopeAthleteIds.length > 1
+                        ? `combined current across ${scopeAthleteIds.length} athletes: ${currentTotalKm.toFixed(1)} km`
+                        : `current: ${currentTotalKm.toFixed(1)} km`
+                      : "—"}
+                    )
                   </span>
                 </Label>
                 <div className="flex gap-2">
@@ -489,6 +526,8 @@ export function CopyPeriodDialog({
                   Computes the % change from current to target and sets every bucket's Volume % below to match —
                   still yours to fine-tune per bucket afterward (e.g. keep easy days flat, put the increase into the
                   long run only).
+                  {scopeAthleteIds.length > 1 &&
+                    " With multiple athletes selected, the target you type is a combined figure — the same resulting % is applied to each athlete's own volume, not split evenly between them."}
                 </p>
               </div>
             )}
@@ -544,14 +583,44 @@ export function CopyPeriodDialog({
                 auto-adjusted for intensity — review those manually below.
               </div>
             )}
+
+            {scopeAthleteIds.length > 1 && (
+              <div>
+                <Label className="text-xs">Filter by athlete</Label>
+                <Select value={reviewAthleteFilter} onValueChange={setReviewAthleteFilter}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All athletes ({drafts.length})</SelectItem>
+                    {scopeAthleteIds.map((id) => {
+                      const count = drafts.filter((d) => d.athlete_id === id).length;
+                      return (
+                        <SelectItem key={id} value={id}>
+                          {athleteNameById.get(id) ?? "Athlete"} ({count})
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             <div className="space-y-1.5">
-              {drafts.map((d) => {
+              {drafts
+                .filter((d) => reviewAthleteFilter === "all" || d.athlete_id === reviewAthleteFilter)
+                .map((d) => {
                 const distM = estimateDraftDistanceM(d);
                 return (
                   <div key={d.tempId} className="rounded border p-2 text-sm flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-medium truncate">{d.title}</span>
+                        {scopeAthleteIds.length > 1 && (
+                          <Badge variant="secondary" className="text-[10px]">
+                            {athleteNameById.get(d.athlete_id) ?? "Athlete"}
+                          </Badge>
+                        )}
                         {d.bucket && (
                           <Badge variant="outline" className="text-[10px]">
                             {COPY_BUCKET_LABELS[d.bucket]}
@@ -603,7 +672,7 @@ export function CopyPeriodDialog({
                     : "Copy now"
                   : generating
                     ? "Building preview..."
-                    : "Preview"}
+                    : "Preview & edit"}
               </Button>
             </>
           ) : (
@@ -618,6 +687,7 @@ export function CopyPeriodDialog({
           )}
         </DialogFooter>
       </DialogContent>
+    </Dialog>
 
       {editingDraft && (
         <Dialog open onOpenChange={(o) => !o && setEditingDraft(null)}>
@@ -667,7 +737,7 @@ export function CopyPeriodDialog({
           </DialogContent>
         </Dialog>
       )}
-    </Dialog>
+    </>
   );
 }
 
