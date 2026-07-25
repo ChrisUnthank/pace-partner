@@ -125,6 +125,31 @@ function CoachDiaryPage() {
   });
   const overrideByKey = new Map((overrides as any[]).map((o) => [`${o.schedule_id}:${o.occurrence_date}`, o]));
 
+  // ── Programs delivered this week — general, not per-athlete ──────────────
+  // Marks the day a Deliver Program send happened, not the range it covers
+  // (that per-athlete distinction lives on My Schedule instead) — this is a
+  // squad-wide diary, so a per-athlete chip wouldn't map to anything here.
+  const { data: deliveries = [] } = useQuery({
+    queryKey: ["coach-diary-deliveries", user?.id, weekStart],
+    enabled: !!user && isCoach,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("plan_deliveries")
+        .select("id, created_at, summary")
+        .eq("coach_user_id", user!.id)
+        .gte("created_at", `${weekStart}T00:00:00`)
+        .lt("created_at", `${new Date(new Date(rangeEnd + "T00:00:00").getTime() + 86400_000).toISOString().slice(0, 10)}T00:00:00`);
+      if (error) return [];
+      return data ?? [];
+    },
+  });
+
+  function deliveredLabelFor(date: string): { label: string } | null {
+    const onDay = (deliveries as any[]).filter((d) => d.created_at.slice(0, 10) === date);
+    if (onDay.length === 0) return null;
+    return { label: onDay.length === 1 ? "Program delivered" : `${onDay.length} programs delivered` };
+  }
+
   // ── The coach's own diary items ──────────────────────────────────────────
   const { data: personalEntries = [] } = useQuery({
     queryKey: ["coach-diary-personal", user?.id],
@@ -185,6 +210,7 @@ function CoachDiaryPage() {
     date: d,
     training: byDate.get(d)!.training,
     personal: byDate.get(d)!.personal,
+    delivered: deliveredLabelFor(d),
   }));
 
   const [entryDialog, setEntryDialog] = useState<{ date?: string; initial?: any } | null>(null);
