@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { toast } from "sonner";
 import { CalendarRange, ChevronDown, ChevronRight, ChevronUp, Plus, Trash2 } from "lucide-react";
 import { metersFmt, clockToSec, secToClock } from "@/lib/format";
-import { assignPlanToAthlete, cancelAthletePlan } from "@/lib/plan.functions";
+import { assignPlanToAthlete, cancelAthletePlan, previewPlanAssignment, type PlanAssignDraft } from "@/lib/plan.functions";
 import { useAuthUser } from "@/lib/use-auth";
 import { BucketTabStrip, COACHING_HUB_TABS } from "@/components/bucket-tab-strip";
 import { inferWorkoutTargetMode, type WorkoutTargetMode } from "@/lib/workout-target-modes";
@@ -25,7 +25,20 @@ import {
   estimateTemplateSessionDistanceM,
   type ProgressionPatternId,
 } from "@/lib/plan-progression";
-import { CopyPeriodDialog } from "@/components/copy-period-dialog";
+import { CopyPeriodDialog, EditDraftForm } from "@/components/copy-period-dialog";
+import {
+  COPY_BUCKETS,
+  COPY_BUCKET_LABELS,
+  emptyProgressionRules,
+  summarizeDraftSteps,
+  applyVolumeNudgeKm,
+  applyPaceNudgeSecPerKm,
+  applyRepDelta,
+  applyRecoveryDelta,
+  type ProgressionRules,
+  type CopyBucket,
+  type WeekOverride,
+} from "@/lib/calendar-copy";
 import { DeliverProgramDialog } from "@/components/deliver-program-dialog";
 
 export const Route = createFileRoute("/_authenticated/app/plans")({
@@ -60,6 +73,20 @@ function addDaysISO(dateStr: string, days: number): string {
   d.setDate(d.getDate() + days);
   return d.toISOString().slice(0, 10);
 }
+
+// Whole-batch progression presets for the Assign dialog — same pattern
+// (and same preset values) as Copy Period Forward's own quick-set chips,
+// duplicated locally rather than shared since it's a five-item constant,
+// not worth an extra shared-constants file for.
+const VOLUME_PATTERN_PRESETS: { label: string; pct: number }[] = [
+  { label: "Cutback −20%", pct: -20 },
+  { label: "Flat 0%", pct: 0 },
+  { label: "Build +5%", pct: 5 },
+  { label: "Build +10%", pct: 10 },
+  { label: "Build +15%", pct: 15 },
+];
+const VOLUME_STEP = 5;
+const INTENSITY_STEP = 2;
 
 const EFFORT_STYLES: Record<string, string> = {
   easy: "bg-emerald-100 text-emerald-700 border-emerald-200",
@@ -180,14 +207,14 @@ function SystemTemplateNotice({ compact }: { compact?: boolean }) {
 function BuildOptionRow({
   title,
   description,
-  workflow,
+  steps,
   onSelect,
   disabled,
   badge,
 }: {
   title: string;
   description: string;
-  workflow: string;
+  steps: string[];
   onSelect: () => void;
   disabled?: boolean;
   badge?: string;
@@ -205,10 +232,14 @@ function BuildOptionRow({
             )}
           </div>
           <p className="text-sm text-muted-foreground mt-1">{description}</p>
-          <p className="text-xs text-muted-foreground mt-1.5">
-            <span className="font-medium text-foreground/80">How it works: </span>
-            {workflow}
-          </p>
+          <div className="flex items-center flex-wrap gap-x-1.5 gap-y-1 mt-1.5">
+            {steps.map((step, i) => (
+              <span key={i} className="flex items-center gap-1.5">
+                {i > 0 && <ChevronRight className="h-3 w-3 text-muted-foreground/60 shrink-0" />}
+                <span className="text-xs text-muted-foreground">{step}</span>
+              </span>
+            ))}
+          </div>
         </div>
         <Button size="sm" variant={disabled ? "outline" : "default"} disabled={disabled} onClick={onSelect} className="shrink-0">
           {disabled ? (
@@ -385,8 +416,51 @@ function PlansPage() {
               setView(returnView);
               setBuilderTemplateId(null);
             }}
+            onAssignSuccess={handleBuildSuccess}
           />
         </div>
+
+        <DeliverProgramDialog
+          key={deliverKey}
+          open={deliverDialogOpen}
+          onClose={() => {
+            setDeliverDialogOpen(false);
+            setDeliverInitial(null);
+          }}
+          initialAthleteIds={deliverInitial?.athleteIds}
+          initialRangeStart={deliverInitial?.rangeStart}
+          initialRangeEnd={deliverInitial?.rangeEnd}
+        />
+
+        <Dialog open={!!sendPrompt} onOpenChange={(o) => !o && setSendPrompt(null)}>
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Send this program now?</DialogTitle>
+              <DialogDescription>
+                {sendPrompt && (
+                  <>
+                    Notify {sendPrompt.athleteIds.length} athlete{sendPrompt.athleteIds.length === 1 ? "" : "s"} and/or
+                    email their schedule, covering {sendPrompt.rangeStart} – {sendPrompt.rangeEnd}. You can still
+                    change the scope, date range, or channels on the next screen.
+                  </>
+                )}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setSendPrompt(null)}>
+                Not now
+              </Button>
+              <Button
+                onClick={() => {
+                  if (sendPrompt) openDeliverProgram(sendPrompt);
+                  setSendPrompt(null);
+                }}
+              >
+                Send now
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </AppShell>
     );
   }
@@ -413,13 +487,13 @@ function PlansPage() {
               <BuildOptionRow
                 title="Apply a template"
                 description="Assign an existing plan template — from your library or the System collection — to one athlete or a whole group."
-                workflow="Pick a template on the next screen, choose who it's for and a start date. Generates real, editable sessions on their calendar."
+                steps={["Pick a template", "Choose who it's for", "Set progression (optional)", "Review & edit", "Assign"]}
                 onSelect={() => setView("browse")}
               />
               <BuildOptionRow
                 title="Build from scratch"
                 description="Design a brand-new plan template week by week, using the same step builder as a regular session — including threshold-relative targets."
-                workflow="Opens the Plan Builder. Save it as a template, then assign it the same way as any other template."
+                steps={["Design weeks", "Save template", "Choose who it's for", "Review & edit", "Assign"]}
                 onSelect={() => {
                   setReturnView("landing");
                   setBuilderTemplateId(null);
@@ -429,19 +503,19 @@ function PlansPage() {
               <BuildOptionRow
                 title="Copy athlete history"
                 description="Give each athlete their own recent training back as their own starting point — not one template fanned out, each athlete's own actual history."
-                workflow="Pick a source date range and a scope (athlete, group, or whole roster), then copy it exactly as-is or tune volume/intensity first."
+                steps={["Pick source range & scope", "Exact copy or edit", "Review & edit", "Copy"]}
                 onSelect={() => setHistoryDialogOpen(true)}
               />
               <BuildOptionRow
                 title="Copy period forward"
                 description="Take one source week or month and apply it — with optional progression — across selected athletes."
-                workflow="Pick a source range and a target start date, set volume/intensity progression per session type, then review every session before it's created."
+                steps={["Pick source & target dates", "Set progression (optional)", "Review & edit", "Copy"]}
                 onSelect={() => setCopyPeriodOpen(true)}
               />
               <BuildOptionRow
                 title="Auto / Recommended"
                 description="Let Strider suggest the next training block based on an athlete's recent compliance and load."
-                workflow="Not built yet — deliberately held back until there's real usage data from Copy Period Forward and Copy Athlete History to learn what a good suggestion looks like."
+                steps={["Not built yet — held back until Copy Period Forward has real usage data to learn from"]}
                 badge="Coming soon"
                 disabled
                 onSelect={() => {}}
@@ -868,6 +942,8 @@ function AssignPlanDialog({
   onSuccess?: (scope: { athleteIds: string[]; rangeStart: string; rangeEnd: string }) => void;
 }) {
   const qc = useQueryClient();
+
+  const [stepUi, setStepUi] = useState<"setup" | "review">("setup");
   // Bulk by default — a coach applying a template to a training group
   // shouldn't have to repeat this dialog once per athlete. Goal linking
   // only makes sense for a single athlete (a goal is one athlete's own
@@ -875,7 +951,22 @@ function AssignPlanDialog({
   const [athleteIds, setAthleteIds] = useState<string[]>([]);
   const [startDate, setStartDate] = useState("");
   const [goalId, setGoalId] = useState<string>("none");
+  const [rules, setRules] = useState<ProgressionRules>(emptyProgressionRules());
+  // Week-specific overrides — for peaking/tapering just part of a
+  // multi-week template at assign time, without editing the shared
+  // template itself (which might be reused for other athletes who don't
+  // need the same taper). Week numbers here are the template's own real
+  // week_number, so no relative-week computation is needed the way Copy's
+  // date-range-based overrides need.
+  const [weekOverrides, setWeekOverrides] = useState<WeekOverride[]>([]);
+  const [showAddOverride, setShowAddOverride] = useState(false);
+  const [overrideFromWeek, setOverrideFromWeek] = useState(1);
+  const [overrideToWeek, setOverrideToWeek] = useState(1);
+  const [overridePct, setOverridePct] = useState(-20);
+  const [previewing, setPreviewing] = useState(false);
   const [assigning, setAssigning] = useState(false);
+  const [drafts, setDrafts] = useState<PlanAssignDraft[]>([]);
+  const [editingDraft, setEditingDraft] = useState<PlanAssignDraft | null>(null);
 
   const { data: roster } = useQuery({
     queryKey: ["roster-for-plan-assign"],
@@ -904,13 +995,84 @@ function AssignPlanDialog({
     setAthleteIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   }
 
-  async function assign() {
+  function applyPatternToAllBuckets(pct: number) {
+    setRules((r) => {
+      const next: ProgressionRules = { ...r };
+      for (const b of COPY_BUCKETS) {
+        next[b] = { ...(next[b] ?? { volumePct: 0, intensityPct: 0 }), volumePct: pct };
+      }
+      return next;
+    });
+    toast.success(`Applied ${pct > 0 ? "+" : ""}${pct}% volume to every bucket`);
+  }
+
+  function stepRule(bucket: CopyBucket, field: "volumePct" | "intensityPct", delta: number) {
+    setRules((r) => {
+      const current = r[bucket]?.[field] ?? 0;
+      return { ...r, [bucket]: { ...(r[bucket] ?? { volumePct: 0, intensityPct: 0 }), [field]: current + delta } };
+    });
+  }
+
+  function addWeekOverride() {
+    if (overrideToWeek < overrideFromWeek) {
+      toast.error("End week must be on or after the start week");
+      return;
+    }
+    setWeekOverrides((prev) => [
+      ...prev,
+      { id: `wo-${Date.now()}`, fromWeek: overrideFromWeek, toWeek: overrideToWeek, volumePct: overridePct },
+    ]);
+    setShowAddOverride(false);
+  }
+
+  function removeWeekOverride(id: string) {
+    setWeekOverrides((prev) => prev.filter((o) => o.id !== id));
+  }
+
+  async function preview() {
     if (athleteIds.length === 0) {
       toast.error("Choose at least one athlete");
       return;
     }
     if (!startDate) {
       toast.error("Choose a start date");
+      return;
+    }
+
+    setPreviewing(true);
+    try {
+      const result = await previewPlanAssignment({
+        data: { planTemplateId: template.id, startDate, progressionRules: rules, weekOverrides },
+      });
+      setDrafts(result.drafts);
+      setStepUi("review");
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to build preview");
+    } finally {
+      setPreviewing(false);
+    }
+  }
+
+  function removeDraft(tempId: string) {
+    setDrafts((d) => d.filter((x) => x.tempId !== tempId));
+  }
+
+  function applyEdit(tempId: string, stepIndex: number, patch: any) {
+    setDrafts((all) =>
+      all.map((d) => {
+        if (d.tempId !== tempId) return d;
+        const steps = d.steps.map((s, i) => (i === stepIndex ? { ...s, ...patch } : s));
+        return { ...d, steps };
+      }),
+    );
+  }
+
+  const presentBuckets = new Set(drafts.map((d) => d.bucket).filter(Boolean) as CopyBucket[]);
+  const flaggedCount = drafts.filter((d) => d.needsReview).length;
+
+  async function assign() {
+    if (drafts.length === 0) {
+      toast.error("Nothing left to assign — every session was removed from this batch");
       return;
     }
 
@@ -930,6 +1092,7 @@ function AssignPlanDialog({
             planTemplateId: template.id,
             startDate,
             goalId: singleAthleteId && goalId !== "none" ? goalId : null,
+            drafts,
           },
         });
         totalSessions += result.sessionsCreated;
@@ -961,92 +1124,390 @@ function AssignPlanDialog({
   }
 
   return (
+    <>
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent>
+      <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Assign "{template.name}"</DialogTitle>
           <DialogDescription>
-            Generates real sessions on each selected athlete's calendar starting the week you pick.
+            {stepUi === "setup"
+              ? "Generates real sessions on each selected athlete's calendar starting the week you pick."
+              : "Review every session before it's created — edit or remove any of them individually."}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3">
-          {template.is_system && <SystemTemplateNotice compact />}
+        {stepUi === "setup" ? (
+          <div className="space-y-3">
+            {template.is_system && <SystemTemplateNotice compact />}
 
-          <div>
-            <Label className="text-xs">
-              Athletes {athleteIds.length > 0 && `(${athleteIds.length} selected)`}
-            </Label>
-            <div className="mt-1 max-h-56 overflow-y-auto rounded border divide-y">
-              {(roster ?? []).map((a: any) => {
-                const checked = athleteIds.includes(a.id);
-                return (
-                  <label
-                    key={a.id}
-                    className="flex items-center gap-2 p-2 text-sm cursor-pointer hover:bg-accent/40"
-                  >
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4"
-                      checked={checked}
-                      onChange={() => toggleAthlete(a.id)}
-                    />
-                    <UserAvatar name={a.name} imageUrl={a.profile_image_url} size="sm" />
-                    <span>{a.name}</span>
-                  </label>
-                );
-              })}
-              {(!roster || roster.length === 0) && (
-                <p className="text-xs text-muted-foreground p-2">No athletes on your roster yet.</p>
-              )}
-            </div>
-          </div>
-
-          <div>
-            <Label className="text-xs">Start date (Monday of week 1)</Label>
-            <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-          </div>
-
-          {singleAthleteId ? (
             <div>
-              <Label className="text-xs">Link to a goal (optional)</Label>
-              <Select value={goalId} onValueChange={setGoalId}>
-                <SelectTrigger className="mt-1">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No goal</SelectItem>
-                  {(athleteGoals ?? []).map((g: any) => (
-                    <SelectItem key={g.id} value={g.id}>
-                      {g.title}
-                      {g.race_date ? ` (${g.race_date})` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {(athleteGoals ?? []).length === 0 && (
-                <p className="text-xs text-muted-foreground mt-1">No active goals yet for this athlete.</p>
+              <Label className="text-xs">
+                Athletes {athleteIds.length > 0 && `(${athleteIds.length} selected)`}
+              </Label>
+              <div className="mt-1 max-h-56 overflow-y-auto rounded border divide-y">
+                {(roster ?? []).map((a: any) => {
+                  const checked = athleteIds.includes(a.id);
+                  return (
+                    <label
+                      key={a.id}
+                      className="flex items-center gap-2 p-2 text-sm cursor-pointer hover:bg-accent/40"
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4"
+                        checked={checked}
+                        onChange={() => toggleAthlete(a.id)}
+                      />
+                      <UserAvatar name={a.name} imageUrl={a.profile_image_url} size="sm" />
+                      <span>{a.name}</span>
+                    </label>
+                  );
+                })}
+                {(!roster || roster.length === 0) && (
+                  <p className="text-xs text-muted-foreground p-2">No athletes on your roster yet.</p>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-xs">Start date (Monday of week 1)</Label>
+              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+            </div>
+
+            {singleAthleteId ? (
+              <div>
+                <Label className="text-xs">Link to a goal (optional)</Label>
+                <Select value={goalId} onValueChange={setGoalId}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No goal</SelectItem>
+                    {(athleteGoals ?? []).map((g: any) => (
+                      <SelectItem key={g.id} value={g.id}>
+                        {g.title}
+                        {g.race_date ? ` (${g.race_date})` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {(athleteGoals ?? []).length === 0 && (
+                  <p className="text-xs text-muted-foreground mt-1">No active goals yet for this athlete.</p>
+                )}
+              </div>
+            ) : (
+              athleteIds.length > 1 && (
+                <p className="text-xs text-muted-foreground">
+                  Goal linking is only available when assigning to a single athlete.
+                </p>
+              )
+            )}
+
+            <div>
+              <Label className="text-xs">
+                Progression (optional — adapts this template to this athlete/group; leave at 0 to assign it exactly
+                as built)
+              </Label>
+              <div className="flex flex-wrap gap-2 mt-1.5">
+                {VOLUME_PATTERN_PRESETS.map((p) => (
+                  <Button key={p.label} size="sm" variant="outline" onClick={() => applyPatternToAllBuckets(p.pct)}>
+                    {p.label}
+                  </Button>
+                ))}
+              </div>
+              <div className="grid grid-cols-3 gap-2 mt-2.5 mb-1 px-0.5">
+                <span />
+                <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Volume %</span>
+                <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Intensity %</span>
+              </div>
+              <div className="space-y-2">
+                {COPY_BUCKETS.map((b) => (
+                  <div key={b} className="grid grid-cols-3 gap-2 items-center">
+                    <span className="text-xs text-muted-foreground">{COPY_BUCKET_LABELS[b]}</span>
+                    <div className="flex items-center gap-1">
+                      <Button size="sm" variant="outline" className="px-2 shrink-0" onClick={() => stepRule(b, "volumePct", -VOLUME_STEP)}>
+                        −
+                      </Button>
+                      <Input
+                        type="number"
+                        aria-label={`${COPY_BUCKET_LABELS[b]} volume percent`}
+                        value={rules[b]?.volumePct ?? 0}
+                        onChange={(e) =>
+                          setRules((r) => ({ ...r, [b]: { ...(r[b] ?? { volumePct: 0, intensityPct: 0 }), volumePct: Number(e.target.value) } }))
+                        }
+                      />
+                      <Button size="sm" variant="outline" className="px-2 shrink-0" onClick={() => stepRule(b, "volumePct", VOLUME_STEP)}>
+                        +
+                      </Button>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button size="sm" variant="outline" className="px-2 shrink-0" onClick={() => stepRule(b, "intensityPct", -INTENSITY_STEP)}>
+                        −
+                      </Button>
+                      <Input
+                        type="number"
+                        aria-label={`${COPY_BUCKET_LABELS[b]} intensity percent`}
+                        value={rules[b]?.intensityPct ?? 0}
+                        onChange={(e) =>
+                          setRules((r) => ({ ...r, [b]: { ...(r[b] ?? { volumePct: 0, intensityPct: 0 }), intensityPct: Number(e.target.value) } }))
+                        }
+                      />
+                      <Button size="sm" variant="outline" className="px-2 shrink-0" onClick={() => stepRule(b, "intensityPct", INTENSITY_STEP)}>
+                        +
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1.5">
+                Applied to every week of the template by default — use the week-specific overrides below to peak or
+                taper just part of it for this assignment, without changing the shared template.
+              </p>
+
+              <div className="mt-3 pt-3 border-t">
+                <Label className="text-xs">Week-specific overrides (optional)</Label>
+                <p className="text-xs text-muted-foreground mt-1">
+                  E.g. taper weeks 11–12 of a 12-week template at −30% for this athlete, regardless of the volume
+                  set above. Week numbers are the template's own week numbers.
+                </p>
+
+                {weekOverrides.length > 0 && (
+                  <div className="mt-2 space-y-1.5">
+                    {weekOverrides.map((o) => (
+                      <div key={o.id} className="flex items-center justify-between gap-2 rounded border p-2 text-sm">
+                        <span>
+                          Week{o.fromWeek === o.toWeek ? ` ${o.fromWeek}` : `s ${o.fromWeek}–${o.toWeek}`}:{" "}
+                          <span className="font-medium">
+                            {o.volumePct > 0 ? "+" : ""}
+                            {o.volumePct}%
+                          </span>
+                        </span>
+                        <Button size="sm" variant="ghost" className="text-destructive" onClick={() => removeWeekOverride(o.id)}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {showAddOverride ? (
+                  <div className="mt-2 rounded-md border p-3 space-y-2 bg-muted/20">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-[10px]">From week</Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={template.duration_weeks}
+                          value={overrideFromWeek}
+                          onChange={(e) => setOverrideFromWeek(Number(e.target.value))}
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-[10px]">To week</Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={template.duration_weeks}
+                          value={overrideToWeek}
+                          onChange={(e) => setOverrideToWeek(Number(e.target.value))}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {VOLUME_PATTERN_PRESETS.map((p) => (
+                        <Button
+                          key={p.label}
+                          size="sm"
+                          variant={overridePct === p.pct ? "default" : "outline"}
+                          onClick={() => setOverridePct(p.pct)}
+                        >
+                          {p.label}
+                        </Button>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" onClick={() => setShowAddOverride(false)}>
+                        Cancel
+                      </Button>
+                      <Button size="sm" onClick={addWeekOverride}>
+                        Add override
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button size="sm" variant="outline" className="mt-2" onClick={() => setShowAddOverride(true)}>
+                    + Add week override
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {flaggedCount > 0 && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 text-amber-900 text-xs p-2">
+                {flaggedCount} session{flaggedCount > 1 ? "s use" : " uses"} a Zone/RPE target and couldn't be
+                auto-adjusted for intensity — review those manually below.
+              </div>
+            )}
+
+            {drafts.length > 0 && (
+              <div className="rounded-md border p-3 space-y-2.5 bg-muted/20">
+                <Label className="text-xs">Quick adjustments</Label>
+                <p className="text-xs text-muted-foreground -mt-1.5">
+                  Nudge this whole batch on top of the progression already set.
+                </p>
+
+                <div className="space-y-1.5">
+                  <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Total volume</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[-10, -5, 5, 10, 15, 20].map((km) => (
+                      <Button
+                        key={km}
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setDrafts((d) => applyVolumeNudgeKm(d, km) as PlanAssignDraft[]);
+                          toast.success(`${km > 0 ? "+" : ""}${km}km applied across the batch`);
+                        }}
+                      >
+                        {km > 0 ? `+${km}` : km}km
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                {presentBuckets.has("easy") && (
+                  <div className="space-y-1.5">
+                    <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Easy pace</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {[-10, -5, 5, 10].map((d) => (
+                        <Button
+                          key={d}
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setDrafts((all) => applyPaceNudgeSecPerKm(all, "easy", d) as PlanAssignDraft[])}
+                        >
+                          {d < 0 ? `Faster ${Math.abs(d)}s` : `Slower ${d}s`}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {presentBuckets.has("threshold") && (
+                  <div className="space-y-1.5">
+                    <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Threshold reps</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      <Button size="sm" variant="outline" onClick={() => setDrafts((all) => applyRepDelta(all, "threshold", -1) as PlanAssignDraft[])}>
+                        −1 rep
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setDrafts((all) => applyRepDelta(all, "threshold", 1) as PlanAssignDraft[])}>
+                        +1 rep
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-1.5">
+                  <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Recovery (between reps &amp; sets)</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    <Button size="sm" variant="outline" onClick={() => setDrafts((all) => applyRecoveryDelta(all, -15) as PlanAssignDraft[])}>
+                      −15s
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setDrafts((all) => applyRecoveryDelta(all, 15) as PlanAssignDraft[])}>
+                      +15s
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              {drafts.map((d) => (
+                <div key={d.tempId} className="rounded border p-2 text-sm flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-medium truncate">{d.title}</span>
+                      {d.bucket && (
+                        <Badge variant="outline" className="text-[10px]">
+                          {COPY_BUCKET_LABELS[d.bucket]}
+                        </Badge>
+                      )}
+                      {d.needsReview && (
+                        <Badge className="text-[10px] bg-amber-100 text-amber-800 border-amber-200">Review target</Badge>
+                      )}
+                    </div>
+                    <div className="text-xs text-muted-foreground">{d.session_date}</div>
+                    <div className="text-xs mt-0.5">{summarizeDraftSteps(d.steps)}</div>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button size="sm" variant="ghost" onClick={() => setEditingDraft(d)}>
+                      Edit
+                    </Button>
+                    <Button size="sm" variant="ghost" className="text-destructive" onClick={() => removeDraft(d.tempId)}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+              {drafts.length === 0 && (
+                <p className="text-sm text-muted-foreground p-4 text-center">
+                  Every session was removed from this batch — nothing left to assign.
+                </p>
               )}
             </div>
-          ) : (
-            athleteIds.length > 1 && (
-              <p className="text-xs text-muted-foreground">
-                Goal linking is only available when assigning to a single athlete.
-              </p>
-            )
-          )}
-        </div>
+          </div>
+        )}
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={assign} disabled={assigning}>
-            {assigning ? "Assigning..." : athleteIds.length > 1 ? `Assign to ${athleteIds.length} athletes` : "Assign plan"}
-          </Button>
+          {stepUi === "setup" ? (
+            <>
+              <Button variant="outline" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button onClick={preview} disabled={previewing}>
+                {previewing ? "Building preview..." : "Preview & continue"}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="outline" onClick={() => setStepUi("setup")}>
+                Back
+              </Button>
+              <Button onClick={assign} disabled={assigning || drafts.length === 0}>
+                {assigning
+                  ? "Assigning..."
+                  : athleteIds.length > 1
+                    ? `Assign ${drafts.length} sessions to ${athleteIds.length} athletes`
+                    : `Assign ${drafts.length} sessions`}
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+      {editingDraft && (
+        <Dialog open onOpenChange={(o) => !o && setEditingDraft(null)}>
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Edit "{editingDraft.title}"</DialogTitle>
+              <DialogDescription>Adjust this one session's amount, target, reps, or recovery before it's created.</DialogDescription>
+            </DialogHeader>
+            <EditDraftForm
+              draft={editingDraft as any}
+              onApply={(stepIndex, patch) => {
+                applyEdit(editingDraft.tempId, stepIndex, patch);
+                setEditingDraft(null);
+              }}
+              onClose={() => setEditingDraft(null)}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
+    </>
   );
 }
 
@@ -1058,7 +1519,15 @@ function AssignPlanDialog({
 // (session_templates) or build a one-off step recipe by hand.
 // ----------------------------------------------------------------------------
 
-function PlanBuilder({ templateId, onBack }: { templateId: string | null; onBack: () => void }) {
+function PlanBuilder({
+  templateId,
+  onBack,
+  onAssignSuccess,
+}: {
+  templateId: string | null;
+  onBack: () => void;
+  onAssignSuccess?: (scope: { athleteIds: string[]; rangeStart: string; rangeEnd: string }) => void;
+}) {
   const { user } = useAuthUser();
   const qc = useQueryClient();
   const [savedId, setSavedId] = useState<string | null>(templateId);
@@ -1072,6 +1541,7 @@ function PlanBuilder({ templateId, onBack }: { templateId: string | null; onBack
   const [saving, setSaving] = useState(false);
   const [dayEditor, setDayEditor] = useState<{ week: number; day: number } | null>(null);
   const [progressionOpen, setProgressionOpen] = useState(false);
+  const [assignAfterBuild, setAssignAfterBuild] = useState(false);
 
   const { data: existingTemplate } = useQuery({
     queryKey: ["plan-template-edit", templateId],
@@ -1267,11 +1737,18 @@ function PlanBuilder({ templateId, onBack }: { templateId: string | null; onBack
               <CardTitle>Weeks</CardTitle>
               <CardDescription>Click a day to add or edit its session. Leave a day empty for rest.</CardDescription>
             </div>
-            {durationWeeks > 1 && (
-              <Button size="sm" variant="outline" className="shrink-0" onClick={() => setProgressionOpen(true)}>
-                Apply progression pattern
-              </Button>
-            )}
+            <div className="flex items-center gap-2 shrink-0">
+              {durationWeeks > 1 && (
+                <Button size="sm" variant="outline" onClick={() => setProgressionOpen(true)}>
+                  Apply progression pattern
+                </Button>
+              )}
+              {(sessions ?? []).length > 0 && (
+                <Button size="sm" onClick={() => setAssignAfterBuild(true)}>
+                  Assign to athletes
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             {Array.from({ length: durationWeeks }, (_, i) => i + 1).map((week) => (
@@ -1333,6 +1810,27 @@ function PlanBuilder({ templateId, onBack }: { templateId: string | null; onBack
             setProgressionOpen(false);
             qc.invalidateQueries({ queryKey: ["plan-template-sessions-edit", savedId] });
             qc.invalidateQueries({ queryKey: ["all-plan-template-sessions"] });
+          }}
+        />
+      )}
+
+      {assignAfterBuild && savedId && (
+        <AssignPlanDialog
+          template={{
+            id: savedId,
+            name,
+            description: description.trim() || null,
+            days_per_week: daysPerWeek,
+            duration_weeks: durationWeeks,
+            distance_focus: distanceFocus === "generic" ? null : distanceFocus,
+            level,
+            is_system: false,
+            created_by: user?.id ?? null,
+          }}
+          onClose={() => setAssignAfterBuild(false)}
+          onSuccess={(scope) => {
+            setAssignAfterBuild(false);
+            onAssignSuccess?.(scope);
           }}
         />
       )}
