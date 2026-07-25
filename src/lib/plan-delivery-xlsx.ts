@@ -1,12 +1,16 @@
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { summarizeDraftSteps, type DraftStep } from "@/lib/calendar-copy";
 
 /**
- * Excel export for the Deliver Program flow — for coaches whose athletes
- * work "old school" without the app. Reuses summarizeDraftSteps from the
- * Copy Period engine for the Simple sheet's structure column, since a real
- * `steps` row already has the same field shape as calendar-copy.ts's
- * DraftStep (kind/target_kind/target_mode/etc.) — no re-derivation needed.
+ * Excel export for the Deliver Program flow. Uses exceljs rather than the
+ * xlsx (SheetJS) package — SheetJS's free/community edition can READ cell
+ * styling but silently strips it on WRITE, so color-coded cells are not
+ * possible with it. exceljs supports writing fills in its free version.
+ *
+ * Colors are copied directly from app.sessions.calendar.tsx's own
+ * Legend() component (Tailwind 500/600/400/300 shades → their real hex
+ * values) so this genuinely matches the calendar rather than inventing a
+ * separate palette.
  */
 
 export type PlanDeliverySession = {
@@ -17,16 +21,43 @@ export type PlanDeliverySession = {
   steps: DraftStep[];
 };
 
-function simpleRows(sessions: PlanDeliverySession[]) {
-  return sessions.map((s) => ({
-    Date: s.session_date,
-    Session: s.title,
-    Type: s.intent ?? s.day_type,
-    Structure: summarizeDraftSteps(s.steps) || "—",
-  }));
+const INTENT_COLOR_HEX: Record<string, string> = {
+  easy: "10B981", // emerald-500
+  aerobic: "14B8A6", // teal-500
+  tempo: "F59E0B", // amber-500
+  threshold: "F97316", // orange-500
+  vo2: "EF4444", // red-500
+  anaerobic: "E11D48", // rose-600
+  speed: "D946EF", // fuchsia-500
+  recovery: "38BDF8", // sky-400
+};
+
+const DAY_TYPE_COLOR_HEX: Record<string, string> = {
+  race: "9333EA", // purple-600
+  cross_training: "94A3B8", // slate-400
+  rest: "D6D3D1", // stone-300
+};
+
+const FALLBACK_COLOR_HEX = "E2E8F0"; // slate-200 — anything unrecognized
+
+function colorForSession(s: PlanDeliverySession): string {
+  return DAY_TYPE_COLOR_HEX[s.day_type] ?? (s.intent ? INTENT_COLOR_HEX[s.intent] : undefined) ?? FALLBACK_COLOR_HEX;
+}
+
+// Simple luminance check so text stays legible against both light fills
+// (stone-300) and dark ones (rose-600) rather than hardcoding white.
+function readableTextHex(bgHex: string): string {
+  const r = parseInt(bgHex.slice(0, 2), 16);
+  const g = parseInt(bgHex.slice(2, 4), 16);
+  const b = parseInt(bgHex.slice(4, 6), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.6 ? "1F2937" : "FFFFFF"; // slate-800 vs white
 }
 
 function targetLabel(s: DraftStep): string {
+  if (s.kind === "recovery") {
+    return s.recovery_mode ? s.recovery_mode.charAt(0).toUpperCase() + s.recovery_mode.slice(1) : "";
+  }
   if (s.target_mode === "pace" && s.target_pace_sec_per_km != null) {
     const m = Math.floor(s.target_pace_sec_per_km / 60);
     const sec = Math.round(s.target_pace_sec_per_km % 60);
@@ -40,6 +71,22 @@ function targetLabel(s: DraftStep): string {
 }
 
 function amountLabel(s: DraftStep): string {
+  // Standalone "recovery" steps store their duration on
+  // recovery_target_kind/recovery_target_seconds/recovery_target_distance_m
+  // — a separate set of fields from every other step kind's target_kind/
+  // target_distance_m/target_time_seconds. Reading the wrong pair here was
+  // why a recovery row showed a blank Amount.
+  if (s.kind === "recovery") {
+    if (s.recovery_target_kind === "distance" && s.recovery_target_distance_m != null) {
+      return s.recovery_target_distance_m >= 1000
+        ? `${(s.recovery_target_distance_m / 1000).toFixed(1)}km`
+        : `${s.recovery_target_distance_m}m`;
+    }
+    if (s.recovery_target_kind === "time" && s.recovery_target_seconds != null) {
+      return `${Math.round(s.recovery_target_seconds / 60)}min`;
+    }
+    return "";
+  }
   if (s.target_kind === "distance" && s.target_distance_m != null) {
     return s.target_distance_m >= 1000 ? `${(s.target_distance_m / 1000).toFixed(1)}km` : `${s.target_distance_m}m`;
   }
@@ -49,68 +96,136 @@ function amountLabel(s: DraftStep): string {
   return "";
 }
 
-function detailedRows(sessions: PlanDeliverySession[]) {
-  const rows: Record<string, string | number>[] = [];
-  for (const s of sessions) {
-    const orderedSteps = [...s.steps];
-    if (orderedSteps.length === 0) {
-      rows.push({ Date: s.session_date, Session: s.title, Step: "—", Reps: "", Amount: "", Target: "" });
-      continue;
-    }
-    for (const st of orderedSteps) {
-      rows.push({
-        Date: s.session_date,
-        Session: s.title,
-        Step: st.kind,
-        Reps: st.reps > 1 ? st.reps : "",
-        Amount: amountLabel(st),
-        Target: targetLabel(st),
-      });
-    }
+// The between-reps/between-sets recovery embedded inside a work step
+// (e.g. "90s jog" between each of 6×400m) — distinct from a standalone
+// recovery-kind step, and previously not shown anywhere in the export.
+function recoveryLabel(s: DraftStep): string {
+  const parts: string[] = [];
+  if (s.reps > 1 && (s.recovery_between_reps_seconds != null || s.recovery_between_reps_mode)) {
+    const bits = [
+      s.recovery_between_reps_seconds != null ? `${s.recovery_between_reps_seconds}s` : null,
+      s.recovery_between_reps_mode,
+    ].filter(Boolean);
+    parts.push(`${bits.join(" ")} between reps`.trim());
   }
-  return rows;
+  if ((s.set_count ?? 1) > 1 && (s.recovery_between_sets_seconds != null || s.recovery_between_sets_mode)) {
+    const bits = [
+      s.recovery_between_sets_seconds != null ? `${s.recovery_between_sets_seconds}s` : null,
+      s.recovery_between_sets_mode,
+    ].filter(Boolean);
+    parts.push(`${bits.join(" ")} between sets`.trim());
+  }
+  return parts.join("; ");
 }
 
-export function buildPlanDeliveryWorkbook(
+function styleHeaderRow(row: ExcelJS.Row) {
+  row.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  row.eachCell((cell) => {
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1F2937" } }; // slate-800
+  });
+}
+
+function fillRow(row: ExcelJS.Row, session: PlanDeliverySession) {
+  const bgHex = colorForSession(session);
+  const textHex = readableTextHex(bgHex);
+  row.eachCell((cell) => {
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: `FF${bgHex}` } };
+    cell.font = { color: { argb: `FF${textHex}` } };
+  });
+}
+
+function addSimpleSheet(wb: ExcelJS.Workbook, sessions: PlanDeliverySession[]) {
+  const ws = wb.addWorksheet("Program");
+  ws.columns = [
+    { header: "Date", key: "date", width: 12 },
+    { header: "Session", key: "session", width: 28 },
+    { header: "Type", key: "type", width: 12 },
+    { header: "Structure", key: "structure", width: 55 },
+  ];
+  styleHeaderRow(ws.getRow(1));
+
+  for (const s of sessions) {
+    const row = ws.addRow({
+      date: s.session_date,
+      session: s.title,
+      type: s.intent ?? s.day_type,
+      structure: summarizeDraftSteps(s.steps) || "—",
+    });
+    fillRow(row, s);
+  }
+}
+
+function addDetailedSheet(wb: ExcelJS.Workbook, sessions: PlanDeliverySession[]) {
+  const ws = wb.addWorksheet("Program (detailed)");
+  ws.columns = [
+    { header: "Date", key: "date", width: 12 },
+    { header: "Session", key: "session", width: 28 },
+    { header: "Step", key: "step", width: 10 },
+    { header: "Reps", key: "reps", width: 8 },
+    { header: "Amount", key: "amount", width: 10 },
+    { header: "Target", key: "target", width: 18 },
+    { header: "Recovery", key: "recovery", width: 24 },
+  ];
+  styleHeaderRow(ws.getRow(1));
+
+  for (const s of sessions) {
+    const steps = s.steps.length > 0 ? s.steps : [null];
+    for (const st of steps) {
+      const row = ws.addRow({
+        date: s.session_date,
+        session: s.title,
+        step: st ? st.kind : "—",
+        reps: st && st.reps > 1 ? st.reps : "",
+        amount: st ? amountLabel(st) : "",
+        target: st ? targetLabel(st) : "",
+        recovery: st ? recoveryLabel(st) : "",
+      });
+      fillRow(row, s);
+    }
+  }
+}
+
+function filenameFor(rangeStart: string, rangeEnd: string, athleteName?: string): string {
+  const rangeLabel = `${rangeStart}_to_${rangeEnd}`;
+  if (!athleteName) return `${rangeLabel}.xlsx`;
+  const safeName = athleteName.replace(/[^a-z0-9]+/gi, "-").replace(/(^-+|-+$)/g, "").toLowerCase();
+  return `${safeName || "athlete"}-${rangeLabel}.xlsx`;
+}
+
+export async function buildPlanDeliveryWorkbook(
   athleteName: string,
   sessions: PlanDeliverySession[],
   detailLevel: "simple" | "detailed" | "both",
-): { blob: Blob; base64: string; filename: string } {
-  const wb = XLSX.utils.book_new();
+  rangeStart: string,
+  rangeEnd: string,
+): Promise<{ blob: Blob; base64: string; filename: string }> {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "Strider";
 
-  if (detailLevel === "simple" || detailLevel === "both") {
-    const ws = XLSX.utils.json_to_sheet(simpleRows(sessions));
-    ws["!cols"] = [{ wch: 12 }, { wch: 28 }, { wch: 12 }, { wch: 55 }];
-    XLSX.utils.book_append_sheet(wb, ws, "Program");
-  }
-  if (detailLevel === "detailed" || detailLevel === "both") {
-    const ws = XLSX.utils.json_to_sheet(detailedRows(sessions));
-    ws["!cols"] = [{ wch: 12 }, { wch: 28 }, { wch: 10 }, { wch: 8 }, { wch: 10 }, { wch: 18 }];
-    XLSX.utils.book_append_sheet(wb, ws, "Program (detailed)");
-  }
+  if (detailLevel === "simple" || detailLevel === "both") addSimpleSheet(wb, sessions);
+  if (detailLevel === "detailed" || detailLevel === "both") addDetailedSheet(wb, sessions);
 
-  const wbArray = XLSX.write(wb, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
-  const blob = new Blob([wbArray], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer as ArrayBuffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
 
-  // Base64 for the email attachment, built from the same array buffer
-  // rather than re-serializing the workbook a second time.
-  const bytes = new Uint8Array(wbArray);
+  const bytes = new Uint8Array(buffer as ArrayBuffer);
   let binary = "";
   for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
   const base64 = btoa(binary);
 
-  const safeName = athleteName.replace(/[^a-z0-9]+/gi, "-").replace(/(^-+|-+$)/g, "").toLowerCase();
-  const filename = `${safeName || "athlete"}-program.xlsx`;
-
-  return { blob, base64, filename };
+  return { blob, base64, filename: filenameFor(rangeStart, rangeEnd, athleteName) };
 }
 
-export function downloadPlanDeliveryWorkbook(
+export async function downloadPlanDeliveryWorkbook(
   athleteName: string,
   sessions: PlanDeliverySession[],
   detailLevel: "simple" | "detailed" | "both",
+  rangeStart: string,
+  rangeEnd: string,
 ) {
-  const { blob, filename } = buildPlanDeliveryWorkbook(athleteName, sessions, detailLevel);
+  const { blob, filename } = await buildPlanDeliveryWorkbook(athleteName, sessions, detailLevel, rangeStart, rangeEnd);
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
