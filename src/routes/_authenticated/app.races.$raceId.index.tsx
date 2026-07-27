@@ -59,6 +59,45 @@ export const Route = createFileRoute("/_authenticated/app/races/$raceId/")({
   component: SessionDetail,
 });
 
+// Keeps a marked race's saved totals (performances.distance_m /
+// time_seconds) in sync with whatever currently belongs to the race step.
+// markAsRace() below only ever wrote these once, at the moment "Mark as
+// race" was clicked — any later reclassification (moving reps in/out of
+// the race step, or editing a rep's recorded distance/time) silently left
+// the saved race numbers stale, since nothing re-summed them afterward.
+// Safe to call after any step edit, race or not — it's a no-op whenever
+// the session has no race marked at all.
+async function recomputeRacePerformance(session: any) {
+  if (!session?.race_step_id) return;
+
+  const { data: results, error: resErr } = await supabase
+    .from("interval_results")
+    .select("actual_distance_m, actual_time_seconds")
+    .eq("step_id", session.race_step_id);
+
+  if (resErr) {
+    toast.error(`Couldn't refresh race totals: ${resErr.message}`);
+    return;
+  }
+
+  const totalDistance = (results ?? []).reduce((sum, r: any) => sum + (Number(r.actual_distance_m) || 0), 0);
+  const totalTime = (results ?? []).reduce((sum, r: any) => sum + (Number(r.actual_time_seconds) || 0), 0);
+
+  // The race step no longer has any recorded results (e.g. everything was
+  // reassigned away from it) — leave the existing performances row alone
+  // rather than overwriting real data with zeroes. "Unmark as race" is
+  // the correct way to actually clear it.
+  if (totalDistance <= 0 || totalTime <= 0) return;
+
+  const { error: perfErr } = await (supabase.from("performances") as any)
+    .update({ distance_m: Math.round(totalDistance), time_seconds: totalTime })
+    .eq("session_id", session.id);
+
+  if (perfErr) {
+    toast.error(`Couldn't refresh race totals: ${perfErr.message}`);
+  }
+}
+
 function SessionDetail() {
   // This route's only param is `raceId` (performances.id) — there is no
   // `sessionId` in it. This page was adapted from the session detail page,
@@ -1449,6 +1488,12 @@ function StepBlock({
       return;
     }
 
+    // If this rep belongs to the marked race step, keep the saved race
+    // totals in sync — otherwise editing e.g. a race rep's actual
+    // distance after the fact would silently leave the old number frozen
+    // in performances, same class of staleness as the kind-reassignment
+    // case below.
+    await recomputeRacePerformance(session);
     invalidateSession(qc, session.id, session.athlete_id);
   }
 
@@ -1465,7 +1510,15 @@ function StepBlock({
       return;
     }
     toast.success(`Reassigned to ${newKind}`);
+    // Keep the marked race's saved totals in sync — a no-op unless this
+    // session has a race marked at all. This is what was missing: moving
+    // a rep in/out of the race step previously never touched the
+    // already-saved performances row, so it kept showing whatever totals
+    // existed at the moment "Mark as race" was originally clicked.
+    await recomputeRacePerformance(session);
     invalidateSession(qc, session.id, session.athlete_id);
+    qc.invalidateQueries({ queryKey: ["race-by-session", session.id] });
+    qc.invalidateQueries({ queryKey: ["races", session.athlete_id] });
   }
 
   async function markAsRace() {
