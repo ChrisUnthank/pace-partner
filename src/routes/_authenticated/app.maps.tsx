@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { ComingSoonPage } from "@/components/coming-soon-page";
-import { Map, Route, MapPinned, Mountain, Users } from "lucide-react";
+import { Map, Route as RouteIcon, MapPinned, Mountain, Users } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/app/maps")({
   component: MapsRoutesPage,
@@ -15,7 +15,7 @@ function MapsRoutesPage() {
       description="A shared library of training routes and locations — save the loops your squad actually runs, see them on a map, and attach them straight to planned sessions instead of describing them in a text field every time."
       features={[
         {
-          icon: Route,
+          icon: RouteIcon,
           title: "Route library",
           description: "Save named routes with distance and elevation, built by drawing on the map or importing a GPX/FIT file.",
         },
