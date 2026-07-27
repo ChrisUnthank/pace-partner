@@ -66,7 +66,7 @@ export function AthleteSubnav({ athleteId, active }: { athleteId: string; active
   ];
 
   return (
-    <div className="flex items-center gap-1 border-b border-border overflow-x-auto -mb-px">
+    <div className="flex items-center gap-1 border-b border-border overflow-x-auto no-scrollbar -mb-px">
       {tabs.map((t) => {
         const isActive = t.key === active;
         return (
