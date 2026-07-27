@@ -156,3 +156,37 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator {
   cursor: pointer;
   opacity: 1;
 }
+
+/* Hides the scrollbar visually while keeping the element scrollable —
+   for horizontally-scrollable UI like the athlete subnav tab strip,
+   where a native OS scrollbar reads as a stray line under the tabs
+   rather than a deliberate part of the design. */
+.no-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* old Edge/IE */
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/new Edge */
+}
+
+/* Thin, brand-red scrollbar for places where the scrollbar itself is a
+   deliberate, visible part of the UI (e.g. the continuous-scroll
+   calendar) — matches --accent-red instead of the generic OS default. */
+.brand-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent-red) transparent;
+}
+.brand-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+.brand-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.brand-scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--accent-red);
+  border-radius: 9999px;
+  opacity: 0.6;
+}
+.brand-scrollbar::-webkit-scrollbar-thumb:hover {
+  opacity: 1;
+}
