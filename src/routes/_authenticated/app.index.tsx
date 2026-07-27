@@ -14,10 +14,11 @@ import { DashboardGrid } from "@/components/dashboard/dashboard-grid";
 import { DashboardCustomizeSheet } from "@/components/dashboard/dashboard-customize-sheet";
 import {
   QuickActionsWidget,
-  QuickTilesWidget,
-  SquadReadinessWidget,
+  CommunityWidget,
+  CoachingHubWidget,
+  HealthVitalsWidget,
+  CoachingInsightsWidget,
   YourAthletesWidget,
-  NeedsAttentionWidget,
   UpcomingRacesWidget,
   RecentReviewsWidget,
   AthleteLoadStripWidget,
@@ -74,13 +75,15 @@ function AppHome() {
       case "quick_actions":
         return <QuickActionsWidget />;
       case "quick_tiles":
-        return <QuickTilesWidget />;
-      case "squad_readiness":
-        return <SquadReadinessWidget />;
+        return <CommunityWidget />;
+      case "coaching_hub":
+        return <CoachingHubWidget />;
+      case "health_vitals":
+        return <HealthVitalsWidget />;
       case "your_athletes":
         return <YourAthletesWidget />;
-      case "needs_attention":
-        return <NeedsAttentionWidget />;
+      case "coaching_insights":
+        return <CoachingInsightsWidget />;
       case "upcoming_races":
         return <UpcomingRacesWidget />;
       case "recent_reviews":
