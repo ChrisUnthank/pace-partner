@@ -6,6 +6,7 @@ import { UserAvatar } from "@/components/user-avatar";
 import { ReadinessBadge } from "@/components/readiness-badge";
 import { metersFmt, secToClock } from "@/lib/format";
 import { CalendarDays, X, Maximize2 } from "lucide-react";
+import { ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis, Tooltip } from "recharts";
 
 type AthleteSummary = {
   id: string;
@@ -15,13 +16,13 @@ type AthleteSummary = {
 };
 
 // Quick-look panel showing an athlete's recent totals, current training
-// load, and a handful of recent sessions — without navigating away from
-// wherever it's rendered. Deliberately an in-flow block (a sticky column
-// on desktop, a normal stacked section on mobile), not a fixed/floating
-// overlay — a `fixed inset-y-0` overlay has no way to know a given page's
-// header height, so it risks sliding over the header strip. Living in
-// normal document flow inside the caller's own layout sidesteps that
-// entirely, on any page, regardless of header height.
+// load, a mini year-of-load trend, and a handful of recent sessions —
+// without navigating away from wherever it's rendered. Deliberately an
+// in-flow block (a sticky column on desktop, a normal stacked section on
+// mobile), not a fixed/floating overlay — a `fixed inset-y-0` overlay has
+// no way to know a given page's header height, so it risks sliding over
+// the header strip. Living in normal document flow inside the caller's own
+// layout sidesteps that entirely, on any page, regardless of header height.
 //
 // "Full view" goes to the full /app/athletes/$athleteId page.
 //
@@ -51,6 +52,30 @@ export function AthleteSummaryPanel({
         .limit(1)
         .maybeSingle();
       return data as any;
+    },
+  });
+
+  // Last 12 months of Fitness/Fatigue/Form, for the mini trend chart under
+  // the readiness badge — same fields (ctl/atl/tsb) and colors as the real
+  // Fitness, Fatigue & Form chart on the Analytics page, just compressed
+  // and stripped of axes/legend/guide-lines for a glanceable mini version.
+  const { data: yearLoad } = useQuery({
+    queryKey: ["panel-year-load", athleteId],
+    enabled: isOpen,
+    queryFn: async () => {
+      const since = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
+      const { data } = await supabase
+        .from("athlete_load_daily")
+        .select("load_date, ctl, atl, tsb")
+        .eq("athlete_id", athleteId!)
+        .gte("load_date", since)
+        .order("load_date", { ascending: true });
+      return (data ?? []).map((d: any) => ({
+        load_date: d.load_date,
+        ctl: d.ctl != null ? Math.round(Number(d.ctl)) : null,
+        atl: d.atl != null ? Math.round(Number(d.atl)) : null,
+        tsb: d.tsb != null ? Math.round(Number(d.tsb)) : null,
+      }));
     },
   });
 
@@ -119,7 +144,69 @@ export function AthleteSummaryPanel({
       </div>
 
       {load && (
-        <ReadinessBadge status={load.readiness_status} score={load.readiness_score} confidence={load.confidence} />
+        <>
+          <ReadinessBadge status={load.readiness_status} score={load.readiness_score} confidence={load.confidence} />
+
+          {/* Mini 12-month training load trend — same Fitness/Fatigue/Form
+              data as the Analytics page chart, compressed with hidden axes
+              and no legend/guide-lines so it reads at a glance rather than
+              competing with the full chart for detail. */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="text-xs text-muted-foreground">12-month training load</div>
+              <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                <span className="inline-flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />Fitness
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />Fatigue
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />Form
+                </span>
+              </div>
+            </div>
+            {!yearLoad || yearLoad.length < 3 ? (
+              <p className="text-xs text-muted-foreground">Building baseline — keep logging sessions.</p>
+            ) : (
+              <div className="h-24 w-full -ml-2">
+                <ResponsiveContainer>
+                  <ComposedChart data={yearLoad} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="panelFormFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.25} />
+                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis dataKey="load_date" hide />
+                    <YAxis hide domain={["auto", "auto"]} />
+                    <Tooltip
+                      contentStyle={{
+                        background: "hsl(var(--background))",
+                        border: "1px solid hsl(var(--border))",
+                        fontSize: 11,
+                        padding: "4px 8px",
+                      }}
+                      labelStyle={{ color: "hsl(var(--foreground))", fontSize: 11 }}
+                      itemStyle={{ fontSize: 11 }}
+                    />
+                    <Area type="monotone" dataKey="tsb" name="Form" stroke="#3b82f6" fill="url(#panelFormFill)" strokeWidth={1.5} />
+                    <Line type="monotone" dataKey="ctl" name="Fitness" stroke="#10b981" strokeWidth={1.5} dot={false} />
+                    <Line
+                      type="monotone"
+                      dataKey="atl"
+                      name="Fatigue"
+                      stroke="#f43f5e"
+                      strokeWidth={1.5}
+                      strokeDasharray="3 2"
+                      dot={false}
+                    />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+        </>
       )}
 
       <div>
