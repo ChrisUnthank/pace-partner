@@ -2,7 +2,8 @@ import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Sparkles } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { FileText } from "lucide-react";
 import { listRecentReviewsForCoach } from "@/lib/ai-reviews.functions";
 import { UserAvatar } from "@/components/user-avatar";
 
@@ -10,15 +11,21 @@ const TYPE_LABEL: Record<string, string> = {
   weekly: "Weekly", monthly: "Monthly", phase: "Completed Phase", yearly: "Yearly", custom: "Custom",
 };
 
+// Was "Recent Reviews" — renamed to pair it with the Reports area
+// (Metrics bucket in the sidebar) rather than reading as AI-reviews-only,
+// with a "View all" link through to the Reports page itself.
 export function RecentReviewsCard() {
   const list = useServerFn(listRecentReviewsForCoach);
   const { data = [] } = useQuery({ queryKey: ["recent-reviews"], queryFn: () => list() });
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="text-base flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-[var(--accent-red)]" /> Recent Reviews
+          <FileText className="h-4 w-4 text-[var(--accent-red)]" /> Reports and Reviews
         </CardTitle>
+        <Button asChild size="sm" variant="ghost">
+          <Link to="/app/reports">View all</Link>
+        </Button>
       </CardHeader>
       <CardContent>
         {data.length === 0 ? (
