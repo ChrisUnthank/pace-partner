@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ReadinessBadge } from "@/components/readiness-badge";
-import { DashboardAlertsPanel } from "@/components/dashboard-alerts-panel";
+import { DashboardAlertsList } from "@/components/dashboard-alerts-panel";
 import { UserAvatar } from "@/components/user-avatar";
 import { RecentReviewsCard } from "@/components/recent-reviews-card";
 import { AthleteSummaryPanel } from "@/components/athlete-summary-panel";
@@ -22,6 +22,8 @@ import {
   CalendarDays,
   Megaphone,
   MessageSquare,
+  MessageCircle,
+  IdCard,
   Trophy,
   CalendarRange,
   LineChart,
@@ -29,6 +31,8 @@ import {
   HeartPulse,
   Backpack,
   AlertTriangle,
+  Sparkles,
+  BookmarkCheck,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------
@@ -78,10 +82,26 @@ function formatRelative(iso: string) {
   return `${days}d ago`;
 }
 
-export function QuickTile({ to, icon: Icon, label, badge }: { to: string; icon: any; label: string; badge?: number }) {
+export function QuickTile({
+  to,
+  icon: Icon,
+  label,
+  badge,
+  params,
+  search,
+}: {
+  to: string;
+  icon: any;
+  label: string;
+  badge?: number;
+  params?: Record<string, string>;
+  search?: Record<string, string>;
+}) {
   return (
     <Link
-      to={to}
+      to={to as any}
+      params={params as any}
+      search={search as any}
       className="relative rounded-lg border border-border p-4 flex flex-col items-center justify-center gap-2 transition-colors hover:bg-accent/50 hover:border-[var(--accent-red)]/30"
     >
       {!!badge && (
@@ -188,7 +208,13 @@ export function QuickActionsWidget() {
   );
 }
 
-export function QuickTilesWidget() {
+// Was QuickTilesWidget (Messages/Noticeboard/Athletes/Health & Vitals) —
+// Athletes and Health & Vitals moved out to their own dedicated widgets, so
+// this narrows to exactly the sidebar's Community bucket: Messages,
+// Noticeboard, Group Chat, and the coach's own public Profile Page (same
+// slug-or-create-flow pattern AthleteSubnav uses for the Athlete Page tab).
+export function CommunityWidget() {
+  const { user } = useAuthUser();
   const listContacts = useServerFn(listMessageContacts);
   const { data: contacts } = useQuery({
     queryKey: ["msg-contacts-home"],
@@ -196,47 +222,75 @@ export function QuickTilesWidget() {
   });
   const unreadCount = (contacts ?? []).reduce((sum: number, c: any) => sum + (c.unread ?? 0), 0);
 
+  // Same query key AppShell uses for its own coach-profile-slug lookup, so
+  // this dedupes against that call instead of firing a second one.
+  const { data: coachProfile } = useQuery({
+    queryKey: ["my-coach-profile-slug", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("coach_profiles")
+        .select("slug")
+        .eq("coach_user_id", user!.id)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
+
   return (
     <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
       <QuickTile to="/app/messages" icon={MessageSquare} label="Messages" badge={unreadCount} />
       <QuickTile to="/app/noticeboard" icon={Megaphone} label="Noticeboard" />
-      <QuickTile to="/app/athletes" icon={ClipboardList} label="Athletes" />
-      <QuickTile to="/app/health" icon={HeartPulse} label="Health & Vitals" />
+      <QuickTile to="/app/group-chat" icon={MessageCircle} label="Group Chat" />
+      {coachProfile?.slug ? (
+        <QuickTile to="/app/coach/$slug" params={{ slug: coachProfile.slug }} icon={IdCard} label="Profile Page" />
+      ) : (
+        <QuickTile to="/app/coach" icon={IdCard} label="Profile Page" />
+      )}
     </div>
   );
 }
 
-export function SquadReadinessWidget() {
-  const { data: roster } = useHomeRoster();
-  const { data: readiness } = useRosterReadiness(roster);
-
-  if (!roster || roster.length === 0) return null;
-
-  const counts = { green: 0, amber: 0, red: 0 };
-  (readiness ?? []).forEach((r: any) => {
-    if (r.readiness_status && counts[r.readiness_status as "green" | "amber" | "red"] !== undefined) {
-      counts[r.readiness_status as "green" | "amber" | "red"]++;
-    }
-  });
-  const loggedToday = (readiness ?? []).length;
-
+// Covers the Coaching Hub sidebar leaf — previously the only widget-grid
+// coverage for it was none at all.
+export function CoachingHubWidget() {
   return (
-    <Card>
-      <CardContent className="pt-5 pb-5 flex flex-wrap items-center gap-4 text-sm">
-        <div className="flex items-center gap-2">
-          <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-          <AnimatedNumber value={counts.green} /> ready
-          <span className="h-2.5 w-2.5 rounded-full bg-amber-500 ml-2" />
-          <AnimatedNumber value={counts.amber} /> caution
-          <span className="h-2.5 w-2.5 rounded-full bg-red-500 ml-2" />
-          <AnimatedNumber value={counts.red} /> recover
-        </div>
-        <span className="text-muted-foreground">
-          · <AnimatedNumber value={loggedToday} /> of {roster.length} logged today
-        </span>
-      </CardContent>
-    </Card>
+    <BigLinkCard
+      to="/app/coaching-hub"
+      icon={BookmarkCheck}
+      title="Coaching Hub"
+      description="Session templates, plan templates, and active plans."
+    />
   );
+}
+
+// Covers the Health & Vitals sidebar leaf. Shows a live active-injury
+// count across the roster when there's anything worth flagging, same
+// query shape as the roster-wide injury flag on the Athletes page, so the
+// two stay consistent with each other.
+export function HealthVitalsWidget() {
+  const { data: roster } = useHomeRoster();
+  const { data: injuryCount } = useQuery({
+    queryKey: ["home-injury-count", roster?.map((r) => r.athlete_id).join(",")],
+    enabled: !!roster && roster.length > 0,
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from("injuries")
+        .select("id", { count: "exact", head: true })
+        .in(
+          "athlete_id",
+          roster!.map((r) => r.athlete_id),
+        )
+        .neq("status", "resolved");
+      if (error) throw error;
+      return count ?? 0;
+    },
+  });
+  const description = injuryCount
+    ? `${injuryCount} active injur${injuryCount === 1 ? "y" : "ies"} across your roster.`
+    : "Daily logs, injuries, and recovery across your roster.";
+  return <BigLinkCard to="/app/health" icon={HeartPulse} title="Health & Vitals" description={description} />;
 }
 
 export function YourAthletesWidget() {
@@ -249,8 +303,15 @@ export function YourAthletesWidget() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Your athletes</CardTitle>
-          <Button asChild size="sm" variant="outline">
-            <Link to="/app/athletes">Manage</Link>
+          {/* Solid button + icon (same ClipboardList icon the Community
+              widget's old Athletes tile used) so this reads as the clear,
+              obvious way into full roster management, not a secondary
+              ghost/outline action. */}
+          <Button asChild size="sm">
+            <Link to="/app/athletes">
+              <ClipboardList className="h-4 w-4 mr-1.5" />
+              Manage Athletes
+            </Link>
           </Button>
         </CardHeader>
         <CardContent>
@@ -308,8 +369,56 @@ export function YourAthletesWidget() {
   );
 }
 
-export function NeedsAttentionWidget() {
-  return <DashboardAlertsPanel />;
+// Combines the old separate Squad Readiness and Needs Attention widgets
+// into one card — the readiness counts row sits above the flagged-athletes
+// list, both under a single "Coaching Insights" header. Built as
+// independent sections (readiness row, then the alerts list) rather than
+// one interleaved block, specifically so a third section can be added
+// later without restructuring what's already here.
+export function CoachingInsightsWidget() {
+  const { data: roster } = useHomeRoster();
+  const { data: readiness } = useRosterReadiness(roster);
+
+  const counts = { green: 0, amber: 0, red: 0 };
+  (readiness ?? []).forEach((r: any) => {
+    if (r.readiness_status && counts[r.readiness_status as "green" | "amber" | "red"] !== undefined) {
+      counts[r.readiness_status as "green" | "amber" | "red"]++;
+    }
+  });
+  const loggedToday = (readiness ?? []).length;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Sparkles className="h-4 w-4 text-[var(--accent-red)]" /> Coaching Insights
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {roster && roster.length > 0 && (
+          <div className="flex flex-wrap items-center gap-4 text-sm rounded-lg border border-border px-4 py-3">
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+              <AnimatedNumber value={counts.green} /> ready
+              <span className="h-2.5 w-2.5 rounded-full bg-amber-500 ml-2" />
+              <AnimatedNumber value={counts.amber} /> caution
+              <span className="h-2.5 w-2.5 rounded-full bg-red-500 ml-2" />
+              <AnimatedNumber value={counts.red} /> recover
+            </div>
+            <span className="text-muted-foreground">
+              · <AnimatedNumber value={loggedToday} /> of {roster.length} logged today
+            </span>
+          </div>
+        )}
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2 flex items-center gap-1.5">
+            <AlertTriangle className="h-3.5 w-3.5" /> Needs attention
+          </div>
+          <DashboardAlertsList embedded />
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 export function UpcomingRacesWidget() {
