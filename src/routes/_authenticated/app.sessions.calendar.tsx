@@ -13,7 +13,7 @@ import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { ChevronLeft, ChevronRight, List as ListIcon, Upload, CalendarPlus, PencilLine, Trophy, HeartPulse } from "lucide-react";
+import { ChevronLeft, ChevronRight, List as ListIcon, Upload, CalendarPlus, PencilLine, Trophy, HeartPulse, CalendarRange } from "lucide-react";
 import {
   CalendarDayCell,
   WeekTotalCell,
@@ -821,64 +821,52 @@ function CalendarPage() {
     <AppShell fullWidth>
       <div className="space-y-4">
         {isCoach && selectedAthleteId && (
-          <>
-            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
-              <Link to="/app/athletes" className="hover:text-foreground">
-                Athletes
-              </Link>
-              <span className="text-border">/</span>
-              <Link to="/app/athletes/$athleteId" params={{ athleteId: selectedAthleteId }} className="hover:text-foreground">
-                {selectedAthleteName ?? "Athlete"}
-              </Link>
+          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+            <Link to="/app/athletes" className="hover:text-foreground">
+              Athletes
+            </Link>
+            <span className="text-border">/</span>
+            <Link to="/app/athletes/$athleteId" params={{ athleteId: selectedAthleteId }} className="hover:text-foreground">
+              {selectedAthleteName ?? "Athlete"}
+            </Link>
+          </div>
+        )}
+
+        {/* Icon + eyebrow heading, matching the pattern used elsewhere in
+            the app — paired on the same row as the athlete tab strip
+            (right-aligned) instead of each taking its own row, so this
+            reads as one compact header rather than two stacked ones. */}
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div
+              className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+              style={{ background: "var(--accent-red)" }}
+            >
+              <CalendarRange className="h-5 w-5 text-white" strokeWidth={2} />
             </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Training</div>
+              <h1 className="text-xl font-bold leading-tight">Calendar</h1>
+            </div>
+          </div>
+          {isCoach && selectedAthleteId ? (
             <AthleteSubnav athleteId={selectedAthleteId} active="calendar" />
-          </>
-        )}
-        {!(isCoach && selectedAthleteId) && !isParent && (
-          <BucketTabStrip
-            items={TRAINING_TABS.filter((t) =>
-              t.to === "/app/daily-log" || t.to === "/app/my-schedule" ? roles.includes("athlete") : true,
-            )}
-            active="/app/sessions/calendar"
-          />
-        )}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold">Calendar</h1>
-            <p className="text-xs text-muted-foreground">Sessions by date · color = intent / day type</p>
-          </div>
-          <div className="flex items-center gap-2">
-            {isCoach && (
-              <Button variant="outline" size="sm" onClick={() => setCopyPeriodOpen(true)}>
-                Copy period forward
-              </Button>
-            )}
-            {canEdit && (
-              <Button asChild variant="outline" size="sm">
-                <Link
-                  to="/app/sessions"
-                  search={selectedAthleteId ? ({ athleteId: selectedAthleteId } as any) : undefined}
-                >
-                  <ListIcon className="h-4 w-4 mr-1" /> List view
-                </Link>
-              </Button>
-            )}
-          </div>
+          ) : (
+            !isParent && (
+              <BucketTabStrip
+                items={TRAINING_TABS.filter((t) =>
+                  t.to === "/app/daily-log" || t.to === "/app/my-schedule" ? roles.includes("athlete") : true,
+                )}
+                active="/app/sessions/calendar"
+              />
+            )
+          )}
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-1">
-            <Button variant="outline" size="icon" onClick={() => shift(-1)}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" size="sm" onClick={goToday}>
-              Today
-            </Button>
-            <Button variant="outline" size="icon" onClick={() => shift(1)}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-            <span className="ml-2 text-sm font-medium">{view === "month" ? monthLabel : weekLabel}</span>
-          </div>
+        {/* Athlete search / switcher — where the plain "Calendar" heading
+            used to sit, now that the heading has moved up alongside the
+            tab strip. */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             {isCoach &&
               roster &&
@@ -949,6 +937,43 @@ function CalendarPage() {
                 )}
               </div>
             )}
+            {!isCoach && !isParent && (
+              <p className="text-xs text-muted-foreground">Sessions by date · color = intent / day type</p>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {isCoach && (
+              <Button variant="outline" size="sm" onClick={() => setCopyPeriodOpen(true)}>
+                Copy period forward
+              </Button>
+            )}
+            {canEdit && (
+              <Button asChild variant="outline" size="sm">
+                <Link
+                  to="/app/sessions"
+                  search={selectedAthleteId ? ({ athleteId: selectedAthleteId } as any) : undefined}
+                >
+                  <ListIcon className="h-4 w-4 mr-1" /> List view
+                </Link>
+              </Button>
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1">
+            <Button variant="outline" size="icon" onClick={() => shift(-1)}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" size="sm" onClick={goToday}>
+              Today
+            </Button>
+            <Button variant="outline" size="icon" onClick={() => shift(1)}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+            <span className="ml-2 text-sm font-medium">{view === "month" ? monthLabel : weekLabel}</span>
+          </div>
+          <div className="flex items-center gap-2">
             <div className="flex flex-col items-end gap-1">
               <div className="inline-flex rounded-md border overflow-hidden">
                 <button
@@ -999,7 +1024,7 @@ function CalendarPage() {
                         else monthHeaderRefs.current.delete(month.key);
                       }}
                       data-month-key={month.key}
-                      className="sticky top-0 z-10 -mx-1 sm:-mx-1.5 px-1 sm:px-1.5 py-1.5 bg-card/95 backdrop-blur-sm text-sm font-semibold border-b border-border"
+                      className="sticky top-0 z-10 -mx-1 sm:-mx-1.5 px-1 sm:px-1.5 py-1.5 bg-card text-sm font-semibold border-b border-border"
                     >
                       {month.label}
                     </div>
