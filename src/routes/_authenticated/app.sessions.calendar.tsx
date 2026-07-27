@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useMemo, useState, useRef, useEffect } from "react";
+import { useMemo, useState, useRef, useEffect, useLayoutEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
@@ -73,6 +73,18 @@ function startOfMonth(d: Date) {
 function endOfMonth(d: Date) {
   return new Date(d.getFullYear(), d.getMonth() + 1, 0);
 }
+function addMonths(d: Date, n: number) {
+  return new Date(d.getFullYear(), d.getMonth() + n, 1);
+}
+// "2026-07" — used to identify/compare months without needing a full Date,
+// and as the data-month-key the sticky-header IntersectionObserver reads.
+function monthKey(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+function monthKeyToDate(key: string) {
+  const [y, m] = key.split("-").map(Number);
+  return new Date(y, m - 1, 1);
+}
 
 function CalendarPage() {
   const search = Route.useSearch();
@@ -94,6 +106,30 @@ function CalendarPage() {
 
   const view = search.view ?? "month";
   const anchor = search.date ? parseISO(search.date) : new Date();
+
+  // Continuous-scroll month window (Month view only — Week view keeps its
+  // existing paginated behavior unchanged). Independent of `anchor`/the
+  // `date` search param, which now only seeds the window's initial
+  // center; scrolling expands monthWindowStart/End without touching the
+  // URL. Starts 2 months back / 2 months forward — enough to feel
+  // continuous immediately without loading more than a coach is likely
+  // to ever look at in one sitting.
+  const [monthWindowStart, setMonthWindowStart] = useState(() => startOfMonth(addMonths(anchor, -2)));
+  const [monthWindowEnd, setMonthWindowEnd] = useState(() => endOfMonth(addMonths(anchor, 2)));
+  // Which month's sticky header is currently pinned at the top of the
+  // scroll container — drives the month label, and which month
+  // "Copy this month → next month" / Prev / Next operate on. Tracked via
+  // IntersectionObserver further down, not derived from scroll math.
+  const [centeredMonthKey, setCenteredMonthKey] = useState(() => monthKey(anchor));
+  const centeredMonthDate = monthKeyToDate(centeredMonthKey);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const monthHeaderRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  // Set just before prepending months above the current viewport, so a
+  // layout effect can compensate scrollTop by however much taller the
+  // content became — otherwise the browser holds scrollTop fixed in
+  // pixels, which visually yanks the view to whatever now occupies that
+  // offset instead of keeping the user looking at the same date.
+  const prevScrollHeightRef = useRef<number | null>(null);
 
   // Coach roster
   const { data: roster } = useQuery({
@@ -206,14 +242,15 @@ function CalendarPage() {
       const days = Array.from({ length: 7 }, (_, i) => addDays(ws, i));
       return { rangeStart: toISO(ws), rangeEnd: toISO(addDays(ws, 6)), gridDays: days, weekStart: ws };
     }
-    const mStart = startOfMonth(anchor);
-    const mEnd = endOfMonth(anchor);
-    const gStart = startOfWeek(mStart);
-    const gEnd = addDays(startOfWeek(mEnd), 6);
+    // Month view: the WHOLE continuous-scroll window, not just one month —
+    // every month currently loaded needs its sessions/load/vitals fetched
+    // in the same query so scrolling through them doesn't hit empty cells.
+    const gStart = startOfWeek(monthWindowStart);
+    const gEnd = addDays(startOfWeek(endOfMonth(monthWindowEnd)), 6);
     const len = Math.round((+gEnd - +gStart) / 86400000) + 1;
     const days = Array.from({ length: len }, (_, i) => addDays(gStart, i));
     return { rangeStart: toISO(gStart), rangeEnd: toISO(gEnd), gridDays: days, weekStart: gStart };
-  }, [view, anchor]);
+  }, [view, anchor, monthWindowStart, monthWindowEnd]);
 
   const { data: bundle } = useQuery({
     queryKey: ["calendar", selectedAthleteId, rangeStart, rangeEnd],
@@ -372,16 +409,86 @@ function CalendarPage() {
     });
   }, [gridDays, byDate]);
 
+  // Groups the continuous-scroll window's weeks by month, one block per
+  // month with its own sticky header — this is what actually renders for
+  // Month view. A week that straddles a month boundary (e.g. the week
+  // starting Mon 27 Jul running into Aug) is listed under whichever
+  // month contains its Monday, same "which month owns this row" rule
+  // the single-month view already used via inMonth checks.
+  const continuousMonths = useMemo(() => {
+    if (view !== "month" || weeks.length === 0) return [];
+    const months: { key: string; label: string; start: Date; weeks: { days: Date[]; distanceM: number; timeS: number; sessionCount: number }[] }[] = [];
+    // Bounds come from the weeks themselves rather than being
+    // independently recomputed from monthWindowStart/End — a leading
+    // week's Monday can land in the month BEFORE monthWindowStart (grid
+    // padding before the 1st), and deriving the loop from monthWindowStart
+    // directly would silently drop that week's section entirely instead
+    // of giving it its own (small) month heading.
+    let cursor = startOfMonth(weeks[0].days[0]);
+    const endCursor = startOfMonth(weeks[weeks.length - 1].days[0]);
+    while (cursor <= endCursor) {
+      const monthWeeks = weeks.filter(
+        (w) => w.days[0].getFullYear() === cursor.getFullYear() && w.days[0].getMonth() === cursor.getMonth(),
+      );
+      if (monthWeeks.length > 0) {
+        months.push({
+          key: monthKey(cursor),
+          label: cursor.toLocaleDateString(undefined, { month: "long", year: "numeric" }),
+          start: new Date(cursor),
+          weeks: monthWeeks,
+        });
+      }
+      cursor = addMonths(cursor, 1);
+    }
+    return months;
+  }, [view, weeks]);
+
   const todayISO = toISO(new Date());
-  const monthLabel = anchor.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  const monthLabel = centeredMonthDate.toLocaleDateString(undefined, { month: "long", year: "numeric" });
   const weekLabel = `${weekStart.toLocaleDateString(undefined, { month: "short", day: "numeric" })} – ${addDays(weekStart, 6).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`;
 
+  // Smoothly scrolls the given month's sticky header into view, expanding
+  // the loaded window first if that month isn't loaded yet. Used by
+  // Today/Prev/Next in Month view instead of navigating to a new page.
+  function scrollToMonth(key: string) {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = monthHeaderRefs.current.get(key);
+        el?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
+  }
+
+  function shiftMonthView(delta: number) {
+    const target = addMonths(centeredMonthDate, delta);
+    const key = monthKey(target);
+    if (key < monthKey(monthWindowStart)) setMonthWindowStart(startOfMonth(target));
+    if (key > monthKey(monthWindowEnd)) setMonthWindowEnd(endOfMonth(target));
+    scrollToMonth(key);
+  }
+
+  function goTodayMonthView() {
+    const key = monthKey(new Date());
+    if (key < monthKey(monthWindowStart) || key > monthKey(monthWindowEnd)) {
+      setMonthWindowStart(startOfMonth(addMonths(new Date(), -2)));
+      setMonthWindowEnd(endOfMonth(addMonths(new Date(), 2)));
+    }
+    scrollToMonth(key);
+  }
+
   function shift(delta: number) {
-    const next =
-      view === "month" ? new Date(anchor.getFullYear(), anchor.getMonth() + delta, 1) : addDays(anchor, delta * 7);
+    if (view === "month") {
+      shiftMonthView(delta);
+      return;
+    }
+    const next = addDays(anchor, delta * 7);
     navigate({ search: (p: any) => ({ ...p, date: toISO(next) }) });
   }
   function goToday() {
+    if (view === "month") {
+      goTodayMonthView();
+      return;
+    }
     navigate({ search: (p: any) => ({ ...p, date: undefined }) });
   }
   function setView(v: "month" | "week") {
@@ -412,11 +519,11 @@ function CalendarPage() {
       srcEnd = toISO(addDays(ws, 6));
       targetStart = toISO(addDays(ws, 7));
     } else {
-      const mStart = startOfMonth(anchor);
-      const mEnd = endOfMonth(anchor);
+      const mStart = startOfMonth(centeredMonthDate);
+      const mEnd = endOfMonth(centeredMonthDate);
       srcStart = toISO(mStart);
       srcEnd = toISO(mEnd);
-      targetStart = toISO(new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1));
+      targetStart = toISO(new Date(centeredMonthDate.getFullYear(), centeredMonthDate.getMonth() + 1, 1));
     }
 
     setPendingQuickCopy({ kind, srcStart, srcEnd, targetStart });
@@ -485,11 +592,67 @@ function CalendarPage() {
     }
   }
 
-  // Scroll-to-navigate: scrolling down over the grid moves forward a month/week,
-  // scrolling up moves back — in addition to the arrow buttons and Today, not a
+  // Tracks which month's sticky header is currently pinned at the top of
+  // the scroll container. rootMargin creates a thin observation band near
+  // the top edge only — a header "counts" as current once it's scrolled
+  // up near the top, not merely somewhere in the visible area — same
+  // logic a native sticky-section list uses.
+  useEffect(() => {
+    if (view !== "month") return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.filter((e) => e.isIntersecting);
+        if (visible.length === 0) return;
+        const topMost = visible.reduce((a, b) => (a.boundingClientRect.top < b.boundingClientRect.top ? a : b));
+        const key = topMost.target.getAttribute("data-month-key");
+        if (key) setCenteredMonthKey(key);
+      },
+      { root: container, rootMargin: "0px 0px -85% 0px", threshold: 0 },
+    );
+
+    monthHeaderRefs.current.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [view, continuousMonths]);
+
+  // Compensates scroll position after months get prepended above the
+  // current viewport — see prevScrollHeightRef's declaration above for why.
+  useLayoutEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el || prevScrollHeightRef.current == null) return;
+    const diff = el.scrollHeight - prevScrollHeightRef.current;
+    if (diff > 0) el.scrollTop += diff;
+    prevScrollHeightRef.current = null;
+  }, [monthWindowStart]);
+
+  // Expands the loaded window as the user scrolls near either edge —
+  // this is what makes the scroll feel continuous instead of hitting a
+  // hard stop a couple of months out. 600px of runway is enough to load
+  // the next month well before it's actually reached at normal scroll
+  // speed.
+  const EDGE_LOAD_THRESHOLD_PX = 600;
+  function handleContinuousScroll(e: React.UIEvent<HTMLDivElement>) {
+    if (view !== "month") return;
+    const el = e.currentTarget;
+    if (el.scrollTop < EDGE_LOAD_THRESHOLD_PX) {
+      prevScrollHeightRef.current = el.scrollHeight;
+      setMonthWindowStart((prev) => addMonths(prev, -1));
+    }
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < EDGE_LOAD_THRESHOLD_PX) {
+      setMonthWindowEnd((prev) => addMonths(prev, 1));
+    }
+  }
+
+  // Scroll-to-navigate: scrolling down over the grid moves forward a week,
+  // scrolling up moves back — Week view only; Month view's own scroll IS
+  // the navigation now (see handleContinuousScroll above), so hijacking
+  // its wheel events too would fight the native scroll instead of
+  // complementing it. In addition to the arrow buttons and Today, not a
   // replacement for them. Throttled with a cooldown rather than accumulating
   // every wheel tick, since a single trackpad swipe fires dozens of small delta
-  // events — without this it would fly through several months on one gesture.
+  // events — without this it would fly through several weeks on one gesture.
   const wheelCooldown = useRef(false);
   function handleGridWheel(e: React.WheelEvent) {
     if (Math.abs(e.deltaY) < 12) return; // ignore tiny jitter (e.g. trackpad momentum tail)
@@ -655,7 +818,7 @@ function CalendarPage() {
   const showWeekTotals = !(isMobile && view === "month");
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <div className="space-y-4">
         {isCoach && selectedAthleteId && (
           <>
@@ -820,9 +983,69 @@ function CalendarPage() {
           </div>
         </div>
 
-        <Card onWheel={handleGridWheel}>
-          <CardContent className="p-1 sm:p-1.5">
-            {showWeekTotals ? (
+        <Card onWheel={view === "week" ? handleGridWheel : undefined}>
+          <CardContent className={view === "month" ? "p-0" : "p-1 sm:p-1.5"}>
+            {view === "month" ? (
+              <div
+                ref={scrollContainerRef}
+                onScroll={handleContinuousScroll}
+                className="max-h-[75vh] overflow-y-auto brand-scrollbar p-1 sm:p-1.5"
+              >
+                {continuousMonths.map((month) => (
+                  <div key={month.key} className="mb-3 last:mb-0">
+                    <div
+                      ref={(el) => {
+                        if (el) monthHeaderRefs.current.set(month.key, el);
+                        else monthHeaderRefs.current.delete(month.key);
+                      }}
+                      data-month-key={month.key}
+                      className="sticky top-0 z-10 -mx-1 sm:-mx-1.5 px-1 sm:px-1.5 py-1.5 bg-card/95 backdrop-blur-sm text-sm font-semibold border-b border-border"
+                    >
+                      {month.label}
+                    </div>
+                    <div
+                      className={cn(
+                        "grid gap-0.5 mb-1 mt-1.5 text-[10px] text-muted-foreground",
+                        showWeekTotals ? "grid-cols-8" : "grid-cols-7",
+                      )}
+                    >
+                      {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
+                        <div key={d} className="text-center uppercase tracking-wide">
+                          {d}
+                        </div>
+                      ))}
+                      {showWeekTotals && <div className="text-center uppercase tracking-wide">Total</div>}
+                    </div>
+                    <div className="space-y-0.5">
+                      {month.weeks.map((week, wi) => (
+                        <div key={wi} className={cn("grid gap-0.5", showWeekTotals ? "grid-cols-8" : "grid-cols-7")}>
+                          {week.days.map((d) => {
+                            const iso = toISO(d);
+                            const day = byDate.get(iso)!;
+                            const inMonth = d.getMonth() === month.start.getMonth();
+                            return (
+                              <CalendarDayCell
+                                key={iso}
+                                day={day}
+                                inMonth={inMonth}
+                                isToday={iso === todayISO}
+                                compact={!showWeekTotals}
+                                weather={showWeekTotals ? (forecast?.get(iso) ?? null) : undefined}
+                                onMultiClick={(dd) => setSheetDay(dd)}
+                                onAdd={canEdit ? (date) => setAddMenuDate(date) : undefined}
+                              />
+                            );
+                          })}
+                          {showWeekTotals && (
+                            <WeekTotalCell distanceM={week.distanceM} timeS={week.timeS} sessionCount={week.sessionCount} />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
               <>
                 <div className="grid grid-cols-8 gap-0.5 mb-1 text-[10px] text-muted-foreground">
                   {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
@@ -838,12 +1061,11 @@ function CalendarPage() {
                       {week.days.map((d) => {
                         const iso = toISO(d);
                         const day = byDate.get(iso)!;
-                        const inMonth = view === "week" ? true : d.getMonth() === anchor.getMonth();
                         return (
                           <CalendarDayCell
                             key={iso}
                             day={day}
-                            inMonth={inMonth}
+                            inMonth={true}
                             isToday={iso === todayISO}
                             compact={false}
                             weather={forecast?.get(iso) ?? null}
@@ -855,34 +1077,6 @@ function CalendarPage() {
                       <WeekTotalCell distanceM={week.distanceM} timeS={week.timeS} sessionCount={week.sessionCount} />
                     </div>
                   ))}
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="grid grid-cols-7 gap-0.5 mb-1 text-[10px] text-muted-foreground">
-                  {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
-                    <div key={d} className="text-center uppercase tracking-wide">
-                      {d}
-                    </div>
-                  ))}
-                </div>
-                <div className="grid grid-cols-7 gap-0.5">
-                  {gridDays.map((d) => {
-                    const iso = toISO(d);
-                    const day = byDate.get(iso)!;
-                    const inMonth = view === "week" ? true : d.getMonth() === anchor.getMonth();
-                    return (
-                      <CalendarDayCell
-                        key={iso}
-                        day={day}
-                        inMonth={inMonth}
-                        isToday={iso === todayISO}
-                        compact={true}
-                        onMultiClick={(dd) => setSheetDay(dd)}
-                        onAdd={canEdit ? (date) => setAddMenuDate(date) : undefined}
-                      />
-                    );
-                  })}
                 </div>
               </>
             )}
