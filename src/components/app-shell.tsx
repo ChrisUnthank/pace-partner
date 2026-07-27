@@ -60,7 +60,7 @@ function isPathActive(current: string, to: string): boolean {
   return current === to || current.startsWith(to + "/");
 }
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({ children, fullWidth = false }: { children: ReactNode; fullWidth?: boolean }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { user } = useAuthUser();
@@ -494,7 +494,14 @@ export function AppShell({ children }: { children: ReactNode }) {
           })}
         </nav>
 
-        <main className="flex-1 px-4 md:px-8 py-6 md:py-8 max-w-7xl w-full mx-auto print:p-0 print:max-w-none">{children}</main>
+        <main
+          className={cn(
+            "flex-1 px-4 md:px-8 py-6 md:py-8 w-full mx-auto print:p-0 print:max-w-none",
+            fullWidth ? "max-w-none" : "max-w-7xl",
+          )}
+        >
+          {children}
+        </main>
       </div>
     </div>
   );
