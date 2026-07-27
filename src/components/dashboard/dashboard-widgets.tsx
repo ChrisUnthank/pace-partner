@@ -1,0 +1,686 @@
+import { useEffect, useState } from "react";
+import { Link } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuthUser, useMyRawRoles } from "@/lib/use-auth";
+import { todayISO } from "@/lib/format";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { ReadinessBadge } from "@/components/readiness-badge";
+import { DashboardAlertsPanel } from "@/components/dashboard-alerts-panel";
+import { UserAvatar } from "@/components/user-avatar";
+import { RecentReviewsCard } from "@/components/recent-reviews-card";
+import { AthleteSummaryPanel } from "@/components/athlete-summary-panel";
+import { YearlyLoadStrip } from "@/components/yearly-load-strip";
+import { ActivityIcon } from "@/lib/activity-icon";
+import { listPosts } from "@/lib/noticeboard.functions";
+import { listMessageContacts } from "@/lib/messages.functions";
+import {
+  ClipboardList,
+  CalendarDays,
+  Megaphone,
+  MessageSquare,
+  Trophy,
+  CalendarRange,
+  LineChart,
+  ArrowRight,
+  HeartPulse,
+  Backpack,
+  AlertTriangle,
+} from "lucide-react";
+
+// ---------------------------------------------------------------------
+// Small shared helpers
+// ---------------------------------------------------------------------
+
+// Animates a number counting up on mount/change — used for the squad
+// readiness counts. Deliberately hand-rolled (no new dependency) rather
+// than pulling in a motion library for one effect.
+function AnimatedNumber({ value }: { value: number }) {
+  const [display, setDisplay] = useState(0);
+  useEffect(() => {
+    let raf: number;
+    const start = performance.now();
+    const duration = 500;
+    function tick(now: number) {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setDisplay(Math.round(value * eased));
+      if (t < 1) raf = requestAnimationFrame(tick);
+    }
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [value]);
+  return <span className="tabular-nums">{display}</span>;
+}
+
+function relativeDate(iso: string) {
+  const d = new Date(iso + "T00:00:00");
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diff = Math.round((d.getTime() - today.getTime()) / 86400000);
+  if (diff === 0) return "Today";
+  if (diff === 1) return "Tomorrow";
+  if (diff > 1 && diff < 7) return d.toLocaleDateString(undefined, { weekday: "long" });
+  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
+function formatRelative(iso: string) {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+}
+
+export function QuickTile({ to, icon: Icon, label, badge }: { to: string; icon: any; label: string; badge?: number }) {
+  return (
+    <Link
+      to={to}
+      className="relative rounded-lg border border-border p-4 flex flex-col items-center justify-center gap-2 transition-colors hover:bg-accent/50 hover:border-[var(--accent-red)]/30"
+    >
+      {!!badge && (
+        <span className="absolute top-2 right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--accent-red)] text-[10px] font-bold text-white flex items-center justify-center">
+          {badge > 9 ? "9+" : badge}
+        </span>
+      )}
+      <Icon className="h-5 w-5 text-[var(--accent-red)]" />
+      <span className="text-xs font-medium">{label}</span>
+    </Link>
+  );
+}
+
+function BigLinkCard({ to, icon: Icon, title, description }: { to: string; icon: any; title: string; description: string }) {
+  return (
+    <Link to={to} className="group block">
+      <Card className="h-full transition-colors hover:border-[var(--accent-red)]/40 hover:bg-sidebar-accent/30">
+        <CardContent className="p-5 flex items-center gap-4">
+          <span className="shrink-0 w-11 h-11 rounded-lg bg-[var(--accent-red)]/10 grid place-items-center">
+            <Icon className="h-5 w-5 text-[var(--accent-red)]" />
+          </span>
+          <div className="min-w-0">
+            <div className="font-semibold flex items-center gap-1.5">
+              {title}
+              <ArrowRight className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
+            <div className="text-sm text-muted-foreground">{description}</div>
+          </div>
+        </CardContent>
+      </Card>
+    </Link>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded border border-border p-2">
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className="text-lg font-semibold tabular-nums">{value}</div>
+    </div>
+  );
+}
+
+// Shared roster + readiness queries — several coach widgets need these.
+// Query keys match what the page used before this was split into
+// widgets, so react-query dedupes the network call across whichever
+// widgets are visible rather than each fetching its own copy.
+function useHomeRoster() {
+  const { user } = useAuthUser();
+  const { data: rawRoles = [] } = useMyRawRoles();
+  const isManager = rawRoles.includes("manager");
+  return useQuery({
+    queryKey: ["roster", user?.id, isManager],
+    enabled: !!user,
+    queryFn: async () => {
+      if (isManager) {
+        const { data, error } = await supabase
+          .from("athletes")
+          .select("id, name, primary_event, profile_image_url, last_log_at")
+          .order("name");
+        if (error) throw error;
+        return (data ?? []).map((a) => ({ athlete_id: a.id, athletes: a }));
+      }
+      const { data, error } = await supabase
+        .from("coach_athletes")
+        .select("athlete_id, athletes(id, name, primary_event, profile_image_url, last_log_at)")
+        .eq("coach_user_id", user!.id);
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+function useRosterReadiness(roster: any[] | undefined) {
+  return useQuery({
+    queryKey: ["roster-readiness", roster?.map((r) => r.athlete_id).join(",")],
+    enabled: !!roster && roster.length > 0,
+    queryFn: async () => {
+      const today = todayISO();
+      const { data, error } = await supabase
+        .from("athlete_load_daily")
+        .select("athlete_id, readiness_status, readiness_score, confidence, combined_load, ctl, atl, tsb")
+        .in(
+          "athlete_id",
+          roster!.map((r) => r.athlete_id),
+        )
+        .eq("load_date", today);
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+// ---------------------------------------------------------------------
+// Coach widgets
+// ---------------------------------------------------------------------
+
+export function QuickActionsWidget() {
+  return (
+    <div className="grid sm:grid-cols-2 gap-3">
+      <BigLinkCard to="/app/sessions/calendar" icon={CalendarRange} title="Calendar" description="See what's planned, day by day." />
+      <BigLinkCard to="/app/analytics" icon={LineChart} title="Analytics" description="Trends, load, and progress over time." />
+    </div>
+  );
+}
+
+export function QuickTilesWidget() {
+  const listContacts = useServerFn(listMessageContacts);
+  const { data: contacts } = useQuery({
+    queryKey: ["msg-contacts-home"],
+    queryFn: () => listContacts(),
+  });
+  const unreadCount = (contacts ?? []).reduce((sum: number, c: any) => sum + (c.unread ?? 0), 0);
+
+  return (
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <QuickTile to="/app/messages" icon={MessageSquare} label="Messages" badge={unreadCount} />
+      <QuickTile to="/app/noticeboard" icon={Megaphone} label="Noticeboard" />
+      <QuickTile to="/app/athletes" icon={ClipboardList} label="Athletes" />
+      <QuickTile to="/app/health" icon={HeartPulse} label="Health & Vitals" />
+    </div>
+  );
+}
+
+export function SquadReadinessWidget() {
+  const { data: roster } = useHomeRoster();
+  const { data: readiness } = useRosterReadiness(roster);
+
+  if (!roster || roster.length === 0) return null;
+
+  const counts = { green: 0, amber: 0, red: 0 };
+  (readiness ?? []).forEach((r: any) => {
+    if (r.readiness_status && counts[r.readiness_status as "green" | "amber" | "red"] !== undefined) {
+      counts[r.readiness_status as "green" | "amber" | "red"]++;
+    }
+  });
+  const loggedToday = (readiness ?? []).length;
+
+  return (
+    <Card>
+      <CardContent className="pt-5 pb-5 flex flex-wrap items-center gap-4 text-sm">
+        <div className="flex items-center gap-2">
+          <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+          <AnimatedNumber value={counts.green} /> ready
+          <span className="h-2.5 w-2.5 rounded-full bg-amber-500 ml-2" />
+          <AnimatedNumber value={counts.amber} /> caution
+          <span className="h-2.5 w-2.5 rounded-full bg-red-500 ml-2" />
+          <AnimatedNumber value={counts.red} /> recover
+        </div>
+        <span className="text-muted-foreground">
+          · <AnimatedNumber value={loggedToday} /> of {roster.length} logged today
+        </span>
+      </CardContent>
+    </Card>
+  );
+}
+
+export function YourAthletesWidget() {
+  const [selectedAthleteId, setSelectedAthleteId] = useState<string | null>(null);
+  const { data: roster } = useHomeRoster();
+  const { data: readiness } = useRosterReadiness(roster);
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>Your athletes</CardTitle>
+          <Button asChild size="sm" variant="outline">
+            <Link to="/app/athletes">Manage</Link>
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {!roster || roster.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No athletes yet.{" "}
+              <Link to="/app/athletes" className="underline">
+                Add your first one
+              </Link>
+              .
+            </p>
+          ) : (
+            <div className="divide-y max-h-[420px] overflow-y-auto">
+              {roster.map((r: any) => {
+                const ready = readiness?.find((x) => x.athlete_id === r.athlete_id);
+                return (
+                  <button
+                    key={r.athlete_id}
+                    type="button"
+                    onClick={() => setSelectedAthleteId(r.athlete_id)}
+                    className={`w-full flex items-center justify-between py-3 hover:bg-accent/50 px-2 rounded gap-3 text-left ${
+                      selectedAthleteId === r.athlete_id ? "bg-accent/60" : ""
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <UserAvatar name={r.athletes?.name} imageUrl={r.athletes?.profile_image_url} size="sm" />
+                      <div className="min-w-0">
+                        <div className="font-medium truncate">{r.athletes?.name}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {r.athletes?.primary_event ?? "—"}
+                          {r.athletes?.last_log_at && <> · last log {formatRelative(r.athletes.last_log_at)}</>}
+                        </div>
+                      </div>
+                    </div>
+                    <ReadinessBadge
+                      status={ready?.readiness_status as any}
+                      score={ready?.readiness_score as any}
+                      confidence={ready?.confidence as any}
+                    />
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {selectedAthleteId && (
+        <AthleteSummaryPanel
+          athlete={roster?.find((r: any) => r.athlete_id === selectedAthleteId)?.athletes ?? null}
+          onClose={() => setSelectedAthleteId(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+export function NeedsAttentionWidget() {
+  return <DashboardAlertsPanel />;
+}
+
+export function UpcomingRacesWidget() {
+  const { data: roster } = useHomeRoster();
+  const { data: upcomingRaces } = useQuery({
+    queryKey: ["upcoming-races", roster?.map((r) => r.athlete_id).join(",")],
+    enabled: !!roster && roster.length > 0,
+    queryFn: async () => {
+      const today = todayISO();
+      const twoWeeksOut = new Date();
+      twoWeeksOut.setDate(twoWeeksOut.getDate() + 14);
+      const { data, error } = await supabase
+        .from("sessions")
+        .select("id, title, session_date, athlete_id")
+        .in(
+          "athlete_id",
+          roster!.map((r) => r.athlete_id),
+        )
+        .eq("day_type", "race")
+        .gte("session_date", today)
+        .lte("session_date", twoWeeksOut.toISOString().slice(0, 10))
+        .order("session_date", { ascending: true })
+        .limit(6);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Trophy className="h-4 w-4 text-[var(--accent-red)]" /> Upcoming races
+        </CardTitle>
+      </CardHeader>
+      <CardContent className={upcomingRaces && upcomingRaces.length > 0 ? "space-y-1" : undefined}>
+        {!upcomingRaces || upcomingRaces.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Nothing in the next two weeks.</p>
+        ) : (
+          upcomingRaces.map((race: any) => {
+            const athleteName = roster?.find((r) => r.athlete_id === race.athlete_id)?.athletes?.name;
+            return (
+              // race.id here is a sessions.id (this queries the sessions
+              // table), so it links to the session page, not
+              // /app/races/$raceId (which takes a performances.id — an
+              // upcoming race has no performances row yet).
+              <Link
+                key={race.id}
+                to="/app/sessions/$sessionId"
+                params={{ sessionId: race.id }}
+                className="flex items-center justify-between py-1.5 text-sm hover:bg-accent/50 rounded px-1 -mx-1"
+              >
+                <div className="min-w-0">
+                  <div className="font-medium truncate">{race.title ?? "Race"}</div>
+                  <div className="text-xs text-muted-foreground truncate">{athleteName}</div>
+                </div>
+                <span className="text-xs text-muted-foreground shrink-0 ml-2">{relativeDate(race.session_date)}</span>
+              </Link>
+            );
+          })
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function RecentReviewsWidget() {
+  return <RecentReviewsCard />;
+}
+
+// ---------------------------------------------------------------------
+// Athlete widgets
+// ---------------------------------------------------------------------
+
+export function AthleteLoadStripWidget({ athleteId }: { athleteId: string }) {
+  return (
+    <div>
+      <YearlyLoadStrip athleteId={athleteId} compact />
+      <div className="flex justify-end mt-1">
+        <Link to="/app/analytics" className="text-xs text-muted-foreground hover:text-foreground underline">
+          Open in Analytics →
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+export function AthleteTodayWidget({ athleteId }: { athleteId: string }) {
+  const today = todayISO();
+
+  const { data: vitals } = useQuery({
+    queryKey: ["home-vitals", athleteId, today],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("daily_vitals")
+        .select("sleep_hours, resting_hr, hydration")
+        .eq("athlete_id", athleteId)
+        .eq("vitals_date", today)
+        .maybeSingle();
+      return data;
+    },
+  });
+
+  const { data: readiness } = useQuery({
+    queryKey: ["home-readiness", athleteId, today],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("athlete_load_daily")
+        .select("readiness_status, readiness_score, confidence")
+        .eq("athlete_id", athleteId)
+        .eq("load_date", today)
+        .maybeSingle();
+      return data;
+    },
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Today</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="text-sm text-muted-foreground">Readiness</div>
+          {readiness?.readiness_status ? (
+            <ReadinessBadge
+              status={readiness.readiness_status as any}
+              score={readiness.readiness_score as any}
+              confidence={readiness.confidence as any}
+            />
+          ) : (
+            <Link to="/app/daily-log" className="text-xs underline text-muted-foreground">
+              Log vitals to see readiness
+            </Link>
+          )}
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <Stat label="Sleep" value={vitals?.sleep_hours != null ? `${vitals.sleep_hours}h` : "—"} />
+          <Stat label="Resting HR" value={vitals?.resting_hr != null ? `${vitals.resting_hr}` : "—"} />
+          <Stat label="Hydration" value={vitals?.hydration != null ? `${vitals.hydration}/5` : "—"} />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Personal, simpler equivalent of the coach's Needs Attention widget —
+// just this one athlete, no dismiss/severity machinery. Renders nothing
+// when there's genuinely nothing to flag, same philosophy as the coach
+// version's "all on track" state — deliberately kept as an invisible
+// grid slot rather than an empty-state card, since "nothing wrong" isn't
+// something worth taking up space to say.
+export function AthleteAttentionWidget({ athleteId }: { athleteId: string }) {
+  const { data: injuries } = useQuery({
+    queryKey: ["home-injuries", athleteId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("injuries")
+        .select("body_part, side, status")
+        .eq("athlete_id", athleteId)
+        .neq("status", "resolved");
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+
+  const { data: soonEvent } = useQuery({
+    queryKey: ["home-next-event", athleteId],
+    queryFn: async () => {
+      const today = todayISO();
+      const soon = new Date();
+      soon.setDate(soon.getDate() + 7);
+      const { data, error } = await supabase
+        .from("event_entries")
+        .select("event_name, event_date")
+        .eq("athlete_id", athleteId)
+        .gte("event_date", today)
+        .lte("event_date", soon.toISOString().slice(0, 10))
+        .order("event_date", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const { data: wornGear } = useQuery({
+    queryKey: ["home-gear-retirement", athleteId],
+    queryFn: async () => {
+      const { data: items, error } = await supabase
+        .from("gear_items")
+        .select("id, brand, model, nickname, retirement_target_km")
+        .eq("athlete_id", athleteId)
+        .eq("is_retired", false)
+        .not("retirement_target_km", "is", null);
+      if (error) throw error;
+      if (!items || items.length === 0) return [] as any[];
+      const ids = items.map((i) => i.id);
+      const { data: links, error: linkErr } = await supabase
+        .from("session_gear")
+        .select("gear_id, sessions(total_distance_m)")
+        .in("gear_id", ids);
+      if (linkErr) throw linkErr;
+      const usage = new Map<string, number>();
+      for (const l of (links ?? []) as any[]) {
+        const m = Number(l.sessions?.total_distance_m ?? 0);
+        usage.set(l.gear_id, (usage.get(l.gear_id) ?? 0) + m);
+      }
+      return items
+        .map((i: any) => ({ ...i, km: (usage.get(i.id) ?? 0) / 1000 }))
+        .filter((i: any) => i.km >= Number(i.retirement_target_km) * 0.9);
+    },
+  });
+
+  const hasAnything = (injuries?.length ?? 0) > 0 || !!soonEvent || (wornGear?.length ?? 0) > 0;
+  if (!hasAnything) return null;
+
+  return (
+    <Card className="border-l-4 border-l-amber-500">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 text-amber-500" /> Worth a look
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2 text-sm">
+        {(injuries ?? []).map((i: any, idx: number) => (
+          <div key={idx} className="flex items-center justify-between gap-2">
+            <span className="capitalize truncate">
+              Active injury — {i.body_part} {i.side && i.side !== "n/a" ? `(${i.side})` : ""}
+            </span>
+            <Link to="/app/injuries" className="text-xs text-[var(--accent-red)] hover:underline shrink-0">
+              Open →
+            </Link>
+          </div>
+        ))}
+        {soonEvent && (
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate">
+              {soonEvent.event_name} — {relativeDate(soonEvent.event_date)}
+            </span>
+            <Link to="/app/event-entries" className="text-xs text-[var(--accent-red)] hover:underline shrink-0">
+              Open →
+            </Link>
+          </div>
+        )}
+        {(wornGear ?? []).map((g: any, idx: number) => (
+          <div key={idx} className="flex items-center justify-between gap-2">
+            <span className="truncate">
+              {g.nickname || `${g.brand} ${g.model}`} — {g.km.toFixed(0)}/{g.retirement_target_km}km
+            </span>
+            <Link to="/app/gear" className="text-xs text-[var(--accent-red)] hover:underline shrink-0">
+              Open →
+            </Link>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function AthleteNextSessionWidget({ athleteId }: { athleteId: string }) {
+  const today = todayISO();
+  const { data: nextSession } = useQuery({
+    queryKey: ["home-next-session", athleteId, today],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("sessions")
+        .select("id, title, session_date, day_type, intent, activity_type")
+        .eq("athlete_id", athleteId)
+        .gte("session_date", today)
+        .is("completed_at", null)
+        .order("session_date", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      return data;
+    },
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Next session</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {nextSession ? (
+          <Link
+            to="/app/sessions/$sessionId"
+            params={{ sessionId: nextSession.id }}
+            className="flex items-center justify-between gap-3 hover:bg-accent/50 rounded p-2 -m-2"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <ActivityIcon session={nextSession as any} size={20} className="text-muted-foreground shrink-0" />
+              <div className="min-w-0">
+                <div className="text-xs text-muted-foreground">{relativeDate(nextSession.session_date)}</div>
+                <div className="font-medium truncate">{nextSession.title ?? "Session"}</div>
+              </div>
+            </div>
+            <div className="flex gap-1">
+              {nextSession.day_type && (
+                <Badge variant="outline" className="capitalize">
+                  {String(nextSession.day_type).replace("_", " ")}
+                </Badge>
+              )}
+              {nextSession.intent && (
+                <Badge variant="outline" className="capitalize">
+                  {nextSession.intent}
+                </Badge>
+              )}
+            </div>
+          </Link>
+        ) : (
+          <p className="text-sm text-muted-foreground">No upcoming sessions scheduled.</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function AthleteQuickTilesWidget() {
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
+      <QuickTile to="/app/daily-log" icon={ClipboardList} label="Daily Log" />
+      <QuickTile to="/app/sessions" icon={CalendarDays} label="Sessions" />
+      <QuickTile to="/app/health" icon={HeartPulse} label="Health & Vitals" />
+      <QuickTile to="/app/my-schedule" icon={Backpack} label="Locker" />
+      <QuickTile to="/app/noticeboard" icon={Megaphone} label="Noticeboard" />
+      <QuickTile to="/app/messages" icon={MessageSquare} label="Messages" />
+    </div>
+  );
+}
+
+export function AthleteRecentNoticesWidget({ athleteId }: { athleteId: string }) {
+  const list = useServerFn(listPosts);
+  const { data: posts } = useQuery({
+    queryKey: ["home-notices", athleteId],
+    queryFn: async () => (await list()).slice(0, 3),
+  });
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle>Recent notices</CardTitle>
+        <Button asChild size="sm" variant="ghost">
+          <Link to="/app/noticeboard">View all</Link>
+        </Button>
+      </CardHeader>
+      <CardContent>
+        {!posts || posts.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No recent notices.</p>
+        ) : (
+          <div className="divide-y">
+            {posts.map((p: any) => (
+              <Link
+                key={p.id}
+                to="/app/noticeboard"
+                className="flex items-center justify-between py-2 gap-3 hover:bg-accent/50 rounded px-2 -mx-2"
+              >
+                <div className="min-w-0">
+                  <div className="font-medium truncate text-sm">{p.title}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {p.author_name} · {formatRelative(p.created_at)}
+                  </div>
+                </div>
+                <Badge variant="outline" className="capitalize text-[10px]">
+                  {(p.post_type ?? "").replace("_", " ")}
+                </Badge>
+              </Link>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
