@@ -460,6 +460,27 @@ function SessionDetail() {
     },
   });
 
+  // Surfaces a file that was accepted (recognised, a session row exists)
+  // but failed to actually parse — previously this failed completely
+  // silently: uploadAndParseSessionFile still creates the session and
+  // records the file with parse_error set, it just never runs the
+  // classification/points build for it, so the session looked like an
+  // empty "Completed" session with no indication anything had gone
+  // wrong.
+  const { data: failedFiles = [] } = useQuery({
+    queryKey: ["session-failed-files", sessionId],
+    enabled: !!sessionId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("session_files")
+        .select("id, original_filename, parse_error")
+        .eq("session_id", sessionId)
+        .not("parse_error", "is", null);
+      if (error) return [];
+      return data ?? [];
+    },
+  });
+
   const stepIds = steps?.map((s) => s.id) ?? [];
   const { data: results = [], isFetching: resultsLoading } = useQuery({
     queryKey: ["results", sessionId, stepIds.join(",")],
@@ -1047,6 +1068,29 @@ function SessionDetail() {
             </div>
           </CardContent>
         </Card>
+
+        {failedFiles.length > 0 && (
+          <Card className="border-destructive/50 bg-destructive/5">
+            <CardContent className="py-3 space-y-2">
+              <p className="text-sm font-medium flex items-center gap-1.5 text-destructive">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                {failedFiles.length === 1 ? "A file failed to parse" : `${failedFiles.length} files failed to parse`} —
+                this session has no training data from {failedFiles.length === 1 ? "it" : "them"}.
+              </p>
+              {failedFiles.map((f: any) => (
+                <div key={f.id} className="text-xs border rounded-md px-3 py-2">
+                  <span className="font-medium">{f.original_filename ?? "Uploaded file"}</span>
+                  <span className="text-muted-foreground">: {f.parse_error}</span>
+                </div>
+              ))}
+              <p className="text-xs text-muted-foreground">
+                The date/time above may not reflect when this activity actually happened — without a readable file,
+                the session falls back to today's date. Try re-uploading the original file, or check it isn't
+                corrupted or from an unsupported device/export.
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
         {visibleSameDaySessions.length > 0 && (
           <Card className="border-amber-500/40 bg-amber-500/5">
