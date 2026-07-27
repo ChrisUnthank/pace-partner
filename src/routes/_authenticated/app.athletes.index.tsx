@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { UserAvatar } from "@/components/user-avatar";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -22,7 +23,22 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { CalendarDays, Eye, Mail, Maximize2, UserMinus, UserPlus } from "lucide-react";
+import {
+  Users,
+  Eye,
+  Mail,
+  UserMinus,
+  UserPlus,
+  LayoutGrid,
+  IdCard,
+  Gauge,
+  CalendarRange,
+  CalendarDays,
+  LineChart,
+  Trophy,
+  Globe,
+  HeartPulse,
+} from "lucide-react";
 import { AthleteSummaryPanel } from "@/components/athlete-summary-panel";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TIMEZONE_OPTIONS, guessLocalTimezone } from "@/lib/timezones";
@@ -30,6 +46,35 @@ import { TIMEZONE_OPTIONS, guessLocalTimezone } from "@/lib/timezones";
 export const Route = createFileRoute("/_authenticated/app/athletes/")({
   component: AthletesPage,
 });
+
+// Same nine destinations as AthleteSubnav (the tab strip shown once a coach
+// is already inside a single athlete's pages), just rendered as a bare icon
+// row here so the whole roster can jump straight to any one of them without
+// opening the athlete first. Kept as a plain function (not a shared import)
+// because this version never needs "active tab" highlighting — every icon
+// here always renders the same (red), whereas AthleteSubnav's icons only
+// turn red when active.
+function athleteNavTabs(athleteId: string, slug?: string | null) {
+  return [
+    { key: "overview", label: "Overview", icon: LayoutGrid, to: "/app/athletes/$athleteId", params: { athleteId } },
+    { key: "calendar", label: "Calendar", icon: CalendarRange, to: "/app/sessions/calendar", search: { athleteId } },
+    { key: "sessions", label: "Sessions", icon: CalendarDays, to: "/app/sessions", search: { athleteId } },
+    { key: "analytics", label: "Analytics", icon: LineChart, to: "/app/analytics", search: { athleteId } },
+    { key: "health", label: "Health", icon: HeartPulse, to: "/app/health", search: { athleteId } },
+    {
+      key: "performance-profile",
+      label: "Performance Profile",
+      icon: IdCard,
+      to: "/app/athletes/$athleteId/performance-profile",
+      params: { athleteId },
+    },
+    { key: "zones", label: "Zones", icon: Gauge, to: "/app/zones", search: { athleteId } },
+    { key: "races", label: "Races", icon: Trophy, to: "/app/races", search: { athleteId } },
+    slug
+      ? { key: "athlete-page", label: "Athlete Page", icon: Globe, to: "/app/athlete/$slug", params: { slug } }
+      : { key: "athlete-page", label: "Athlete Page", icon: Globe, to: "/app/athlete", search: { athleteId } },
+  ] as const;
+}
 
 function AthletesPage() {
   const { user } = useAuthUser();
@@ -120,6 +165,26 @@ function AthletesPage() {
         if (!inv.accepted_at) pendingByAthlete.set(inv.athlete_id, { token: inv.token, email: inv.email });
       }
       return { countByAthlete, pendingByAthlete };
+    },
+  });
+
+  // Public Athlete Page slugs for the whole roster in one batched query —
+  // needed so each row's "Athlete Page" icon can link straight to the
+  // existing public page when one exists, same as AthleteSubnav does for a
+  // single athlete. Batched here for the same reason parentInfo is: one
+  // query for the whole roster, not one per row.
+  const { data: profileSlugs } = useQuery({
+    queryKey: ["roster-athlete-slugs", athleteIds.join(",")],
+    enabled: athleteIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("athlete_profiles")
+        .select("athlete_id, slug")
+        .in("athlete_id", athleteIds);
+      if (error) { toast.error(error.message); return new Map<string, string>(); }
+      const m = new Map<string, string>();
+      for (const p of data ?? []) m.set(p.athlete_id, p.slug);
+      return m;
     },
   });
 
@@ -250,99 +315,143 @@ function AthletesPage() {
   }
 
   return (
-    <AppShell>
-      <div className="space-y-6 max-w-6xl">
-        <h1 className="text-2xl font-bold">Athletes</h1>
+    <AppShell fullWidth>
+      <div className="space-y-6">
+        {/* Icon + eyebrow heading, matching the pattern used on Calendar and
+            elsewhere in the app — a colored icon block + small-caps eyebrow
+            above the page title, instead of a bare <h1>. */}
+        <div className="flex items-center gap-3">
+          <div
+            className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+            style={{ background: "var(--accent-red)" }}
+          >
+            <Users className="h-5 w-5 text-white" strokeWidth={2} />
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Coaching</div>
+            <h1 className="text-xl font-bold leading-tight">Athletes</h1>
+          </div>
+        </div>
 
-        {/* Roster leads the page — it's what a coach actually wants on
-            arrival. The add/invite forms are secondary, occasional actions,
-            so they now sit below rather than pushing the roster down. */}
-        <div className="grid gap-6 lg:grid-cols-[1fr_380px] items-start">
-          <div className="space-y-6 min-w-0">
-            <Card>
-              <CardHeader><CardTitle>Roster</CardTitle></CardHeader>
-              <CardContent className="p-0">
-                {!roster || roster.length === 0 ? (
-                  <p className="p-4 text-sm text-muted-foreground">No athletes yet — add one below.</p>
-                ) : (
-                  <div className="divide-y">
-                    {roster.map((r: any) => {
-                      const parentCount = parentInfo?.countByAthlete.get(r.athlete_id) ?? 0;
-                      const pendingParentInvite = parentInfo?.pendingByAthlete.get(r.athlete_id);
-                      return (
+        {/* Roster leads the page at 2/3 width — it's what a coach actually
+            wants on arrival. Add/invite (and the quick-view summary panel
+            when something's selected) live in the final third rather than
+            pushing the roster down the page. Full width so the roster can
+            show every sub-page icon on one line without crowding. */}
+        <div className="grid gap-6 lg:grid-cols-[2fr_1fr] items-start">
+          <Card className="min-w-0">
+            <CardHeader><CardTitle>Roster</CardTitle></CardHeader>
+            <CardContent className="p-0">
+              {!roster || roster.length === 0 ? (
+                <p className="p-4 text-sm text-muted-foreground">No athletes yet — add one in the panel to the right.</p>
+              ) : (
+                <div className="divide-y">
+                  {roster.map((r: any) => {
+                    const parentCount = parentInfo?.countByAthlete.get(r.athlete_id) ?? 0;
+                    const pendingParentInvite = parentInfo?.pendingByAthlete.get(r.athlete_id);
+                    const slug = profileSlugs?.get(r.athlete_id) ?? null;
+                    const tabs = athleteNavTabs(r.athlete_id, slug);
+                    return (
                       <div
                         key={r.athlete_id}
-                        className={`flex justify-between items-center px-4 py-3 hover:bg-accent/40 gap-3 ${
+                        className={`flex flex-col gap-2 px-4 py-3 hover:bg-accent/40 ${
                           selectedAthleteId === r.athlete_id ? "bg-accent/60" : ""
                         }`}
                       >
-                        <button
-                          type="button"
-                          onClick={() => setSelectedAthleteId(r.athlete_id)}
-                          title="Quick view"
-                          className="flex-1 min-w-0 text-left group"
-                        >
-                          <div className="font-medium truncate flex items-center gap-1.5">
-                            <span className="truncate">{r.athletes?.name}</span>
-                            <Eye className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />
-                          </div>
-                          <div className="text-xs text-muted-foreground truncate">{r.athletes?.primary_event ?? "—"}</div>
-                        </button>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <Button asChild size="icon" variant="ghost" title="Full view">
-                            <Link to="/app/athletes/$athleteId" params={{ athleteId: r.athlete_id }}>
-                              <Maximize2 className="h-4 w-4" />
-                            </Link>
-                          </Button>
-                          <Button asChild size="icon" variant="ghost" title="View calendar">
-                            <Link to="/app/sessions/calendar" search={{ athleteId: r.athlete_id } as any}>
-                              <CalendarDays className="h-4 w-4" />
-                            </Link>
-                          </Button>
-                          {r.athletes?.user_id ? (
-                            <Badge variant="secondary">Linked</Badge>
-                          ) : (
-                            <>
-                              <Badge variant="outline">Invite pending</Badge>
-                              <Button size="sm" variant="ghost" onClick={() => copyExistingInvite(r.athlete_id, r.athlete_invites)}>
-                                {r.athlete_invites?.length ? "Copy invite link" : "Generate invite link"}
-                              </Button>
-                            </>
-                          )}
-                          <Badge
-                            variant="outline"
-                            title={r.athletes?.email ? `Contact email: ${r.athletes.email}` : "No contact email on file"}
-                            className={`cursor-pointer gap-1 ${r.athletes?.email ? "" : "text-muted-foreground"}`}
-                            onClick={() => updateContactEmail(r.athlete_id, r.athletes?.email ?? null)}
+                        <div className="flex items-center justify-between gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedAthleteId(r.athlete_id)}
+                            title="Quick view"
+                            className="flex items-center gap-3 flex-1 min-w-0 text-left group"
                           >
-                            <Mail className="h-3 w-3" />
-                            {r.athletes?.email ? "Email on file" : "No email"}
-                          </Badge>
-                          {/* Parent invite — coach-granted, mirrors the
-                              athlete invite affordance. Shows a count badge
-                              once at least one parent is linked so it's
-                              obvious at a glance who already has access. */}
-                          {parentCount > 0 ? (
+                            <UserAvatar
+                              name={r.athletes?.name}
+                              imageUrl={r.athletes?.profile_image_url ?? undefined}
+                              size="sm"
+                              className="shrink-0"
+                            />
+                            <div className="min-w-0">
+                              <div className="font-medium truncate flex items-center gap-1.5">
+                                <span className="truncate">{r.athletes?.name}</span>
+                                <Eye className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />
+                              </div>
+                              <div className="text-xs text-muted-foreground truncate">{r.athletes?.primary_event ?? "—"}</div>
+                            </div>
+                          </button>
+
+                          {/* Sub-page jump strip — one icon per athlete page
+                              (Overview, Calendar, Sessions, Analytics,
+                              Health, Performance Profile, Zones, Races,
+                              Athlete Page), always red so it reads as a
+                              distinct row of quick links rather than
+                              generic toolbar buttons. */}
+                          <div className="flex items-center gap-0.5 shrink-0 overflow-x-auto no-scrollbar">
+                            {tabs.map((t) => (
+                              <Button
+                                key={t.key}
+                                asChild
+                                size="icon"
+                                variant="ghost"
+                                title={t.label}
+                                className="h-8 w-8 text-[var(--accent-red)] hover:bg-[var(--accent-red)]/10 hover:text-[var(--accent-red)]"
+                              >
+                                <Link to={t.to as any} params={(t as any).params as any} search={(t as any).search as any}>
+                                  <t.icon className="h-4 w-4" />
+                                </Link>
+                              </Button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3 flex-wrap pl-11">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {r.athletes?.user_id ? (
+                              <Badge variant="secondary">Linked</Badge>
+                            ) : (
+                              <>
+                                <Badge variant="outline">Invite pending</Badge>
+                                <Button size="sm" variant="ghost" onClick={() => copyExistingInvite(r.athlete_id, r.athlete_invites)}>
+                                  {r.athlete_invites?.length ? "Copy invite link" : "Generate invite link"}
+                                </Button>
+                              </>
+                            )}
                             <Badge
                               variant="outline"
-                              title="Parents/guardians linked"
-                              className="cursor-pointer"
-                              onClick={() => inviteParent(r.athlete_id, undefined)}
+                              title={r.athletes?.email ? `Contact email: ${r.athletes.email}` : "No contact email on file"}
+                              className={`cursor-pointer gap-1 ${r.athletes?.email ? "" : "text-muted-foreground"}`}
+                              onClick={() => updateContactEmail(r.athlete_id, r.athletes?.email ?? null)}
                             >
-                              <UserPlus className="h-3 w-3 mr-1" />
-                              {parentCount} parent{parentCount > 1 ? "s" : ""}
+                              <Mail className="h-3 w-3" />
+                              {r.athletes?.email ? "Email on file" : "No email"}
                             </Badge>
-                          ) : (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              title="Invite a parent or guardian"
-                              onClick={() => inviteParent(r.athlete_id, pendingParentInvite)}
-                            >
-                              <UserPlus className="h-3.5 w-3.5 mr-1" />
-                              {pendingParentInvite ? "Copy parent link" : "Invite parent"}
-                            </Button>
-                          )}
+                            {/* Parent invite — coach-granted, mirrors the
+                                athlete invite affordance. Shows a count badge
+                                once at least one parent is linked so it's
+                                obvious at a glance who already has access. */}
+                            {parentCount > 0 ? (
+                              <Badge
+                                variant="outline"
+                                title="Parents/guardians linked"
+                                className="cursor-pointer"
+                                onClick={() => inviteParent(r.athlete_id, undefined)}
+                              >
+                                <UserPlus className="h-3 w-3 mr-1" />
+                                {parentCount} parent{parentCount > 1 ? "s" : ""}
+                              </Badge>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                title="Invite a parent or guardian"
+                                onClick={() => inviteParent(r.athlete_id, pendingParentInvite)}
+                              >
+                                <UserPlus className="h-3.5 w-3.5 mr-1" />
+                                {pendingParentInvite ? "Copy parent link" : "Invite parent"}
+                              </Button>
+                            )}
+                          </div>
+
                           {/* Manager view lists every athlete in the org
                               directly from the athletes table, not via a
                               personal coach_athletes link — there's nothing
@@ -372,12 +481,21 @@ function AthletesPage() {
                           )}
                         </div>
                       </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Final third of the page — quick-view summary (only takes up
+              space once an athlete is actually selected), Add an athlete,
+              and Invite an existing account. Sticky so it stays in view as
+              a long roster scrolls past it. */}
+          <div className="space-y-6 lg:sticky lg:top-4">
+            {selectedAthlete && (
+              <AthleteSummaryPanel athlete={selectedAthlete} onClose={() => setSelectedAthleteId(null)} />
+            )}
 
             <Card>
               <CardHeader>
@@ -387,11 +505,11 @@ function AthletesPage() {
                   Contact email is separate, for sending programs directly to athletes who don't use the app.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="grid sm:grid-cols-3 gap-3">
+              <CardContent className="grid gap-3">
                 <div><Label>Name</Label><Input value={name} onChange={(e) => setName(e.target.value)} /></div>
                 <div><Label>Primary event</Label><Input placeholder="800m" value={event} onChange={(e) => setEvent(e.target.value)} /></div>
                 <div><Label>Invite email (optional)</Label><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
-                <div className="sm:col-span-3">
+                <div>
                   <Label>Contact email (optional — for sending programs directly, no app account needed)</Label>
                   <Input type="email" placeholder="athlete@example.com" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
                 </div>
@@ -406,7 +524,7 @@ function AthletesPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="sm:col-span-3"><Button onClick={addAthlete}>Add</Button></div>
+                <div><Button onClick={addAthlete}>Add</Button></div>
               </CardContent>
             </Card>
 
@@ -415,25 +533,14 @@ function AthletesPage() {
                 <CardTitle>Invite an existing account</CardTitle>
                 <CardDescription>If the athlete already has a Strider account, send them a join request — they'll see it on their Profile.</CardDescription>
               </CardHeader>
-              <CardContent className="grid sm:grid-cols-3 gap-3">
+              <CardContent className="grid gap-3">
                 <div><Label>Account email</Label><Input type="email" value={joinEmail} onChange={(e) => setJoinEmail(e.target.value)} /></div>
                 <div><Label>Display name (optional)</Label><Input value={joinName} onChange={(e) => setJoinName(e.target.value)} /></div>
                 <div><Label>Message (optional)</Label><Input value={joinMessage} onChange={(e) => setJoinMessage(e.target.value)} /></div>
-                <div className="sm:col-span-3"><Button variant="outline" onClick={sendJoinRequest}>Send join request</Button></div>
+                <div><Button variant="outline" onClick={sendJoinRequest}>Send join request</Button></div>
               </CardContent>
             </Card>
           </div>
-
-          {/* Summary panel — an in-flow sticky column, not a fixed overlay,
-              so it can never slide over the header strip regardless of
-              header height. Sticks within the viewport as the roster/forms
-              column scrolls past it. Only takes up space once an athlete
-              is actually selected. */}
-          {selectedAthlete && (
-            <div className="lg:sticky lg:top-4">
-              <AthleteSummaryPanel athlete={selectedAthlete} onClose={() => setSelectedAthleteId(null)} />
-            </div>
-          )}
         </div>
       </div>
 
