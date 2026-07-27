@@ -33,9 +33,18 @@ type AthleteSummary = {
 export function AthleteSummaryPanel({
   athlete,
   onClose,
+  embedded = false,
 }: {
   athlete: AthleteSummary | null;
   onClose: () => void;
+  // True when rendered inside something that already provides its own
+  // chrome — currently the Roster page's quick-view Sheet, which has its
+  // own background/padding and its own close (X) button top-right. Drops
+  // this component's own border/background/padding and its header-row
+  // close button so the two don't stack. The Home dashboard's "Your
+  // athletes" widget renders this in-flow instead (no Sheet), so it keeps
+  // the default (embedded=false) look.
+  embedded?: boolean;
 }) {
   const athleteId = athlete?.id ?? null;
   const isOpen = !!athleteId;
@@ -116,7 +125,7 @@ export function AthleteSummaryPanel({
   const rangeTimeS = completedInRange.reduce((sum: number, s: any) => sum + Number(s.total_time_seconds ?? 0), 0);
 
   return (
-    <div className="border rounded-lg bg-card p-4 space-y-5">
+    <div className={embedded ? "space-y-5" : "border rounded-lg bg-card p-4 space-y-5"}>
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-3 min-w-0">
           <UserAvatar name={athlete.name} imageUrl={athlete.profile_image_url ?? undefined} size="lg" />
@@ -125,9 +134,11 @@ export function AthleteSummaryPanel({
             <div className="text-xs text-muted-foreground truncate">{athlete.primary_event ?? "—"}</div>
           </div>
         </div>
-        <Button size="icon" variant="ghost" onClick={onClose} aria-label="Close">
-          <X className="h-4 w-4" />
-        </Button>
+        {!embedded && (
+          <Button size="icon" variant="ghost" onClick={onClose} aria-label="Close">
+            <X className="h-4 w-4" />
+          </Button>
+        )}
       </div>
 
       <div className="flex items-center gap-2">
