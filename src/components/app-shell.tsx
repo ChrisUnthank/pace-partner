@@ -31,6 +31,8 @@ import {
   FileText,
   Flag,
   Globe,
+  Map,
+  PersonStanding,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NotificationBell } from "@/components/notification-bell";
@@ -143,6 +145,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         // them. (Daily Log moved to Health & Vitals; My Schedule moved
         // to the new Locker area.)
         { to: "/app/training-schedule", label: "Training Schedule", icon: Clock, show: true },
+        // Placeholder page for now (coming soon) — placed here rather than
+        // its own bucket since a route library is fundamentally a training-
+        // planning tool, same audience as Sessions/Calendar/Schedule.
+        { to: "/app/maps", label: "Maps & Routes", icon: Map, show: isCoachOrAthlete },
       ],
     },
     {
@@ -153,6 +159,11 @@ export function AppShell({ children }: { children: ReactNode }) {
       children: [
         { to: "/app/analytics", label: "Analytics", icon: LineChart, show: isCoachOrAthlete },
         { to: "/app/zones", label: "Zones", icon: Gauge, show: isAthlete || isCoach },
+        // Placeholder page for now (coming soon) — grouped with the other
+        // athlete-performance-data pages rather than Health & Vitals,
+        // since form/gait metrics sit alongside pace/HR/load analysis
+        // rather than being a wellbeing or injury-log concern.
+        { to: "/app/biomechanics", label: "Biomechanics", icon: PersonStanding, show: isAthlete || isCoach },
         { to: "/app/compare", label: "Compare", icon: GitCompare, show: isCoachOrAthlete },
         { to: "/app/reports", label: "Reports", icon: FileText, show: isCoachOrAthlete },
       ],
