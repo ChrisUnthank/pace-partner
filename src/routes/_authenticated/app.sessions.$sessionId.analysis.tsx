@@ -1405,7 +1405,16 @@ function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number)
 // keeps the original heuristic.
 const INDOOR_GAP_THRESHOLD_S = 60;
 const INDOOR_MIN_DISTANCE_M = 800;
-const INDOOR_MAX_RADIUS_M = 700;
+// Confirmed against a real session's raw GPS data: a genuine confined-loop
+// warmup (radius 653m) and a set of primer reps run in a small loop
+// (radius 349m) were both getting caught by the old 700m cap — neither is
+// remotely close to real indoor GPS drift, which stays put (the watch
+// isn't actually moving) and typically wanders well under 200m even in a
+// large gym or building. 700m was generous enough to swallow legitimate
+// compact outdoor loops along with actual treadmill drift; 200m still
+// comfortably covers genuine indoor jitter while excluding both examples
+// above.
+const INDOOR_MAX_RADIUS_M = 200;
 const INDOOR_MIN_RATIO = 2.5;
 // A genuine treadmill run covers its distance at a real running pace. A
 // race-day corral wait, a walk to the start line, or standing around
@@ -1595,7 +1604,13 @@ function MapPanel({
   // against the route's own starting value rather than assumed to start at
   // exactly 0, since a merged multi-file session's raw distance_m doesn't
   // always begin there.
-  const startDistance = Number(first.d ?? 0);
+  //
+  // Baseline is the first point of the WHOLE recording (safePoints), not
+  // geoPoints[0] — geoPoints has already had any excluded indoor/treadmill
+  // run removed, so if that excluded run happened to fall before the first
+  // retained outdoor point, its own distance range would land below this
+  // baseline and render as a negative, nonsensical "-4.0–1.0 km" label.
+  const startDistance = Number((safePoints[0] ?? first)?.d ?? 0);
   const kmMarkers: { position: [number, number]; km: number }[] = [];
   {
     let nextKm = 1;
