@@ -35,15 +35,17 @@ import { YearlyLoadStrip } from "@/components/yearly-load-strip";
 
 const RANGES = {
   "4w": { days: 28, label: "4 weeks" },
+  month: { days: null, label: "This month" },
   "3m": { days: 91, label: "3 months" },
   "6m": { days: 182, label: "6 months" },
+  year: { days: null, label: "This year" },
   all: { days: 2000, label: "All time" },
 } as const;
 type RangeKey = keyof typeof RANGES;
 
 const searchSchema = z.object({
   athleteId: z.string().optional(),
-  range: z.enum(["4w", "3m", "6m", "all"]).optional(),
+  range: z.enum(["4w", "month", "3m", "6m", "year", "all"]).optional(),
   from: z.string().optional(),
   to: z.string().optional(),
 });
@@ -53,10 +55,37 @@ export const Route = createFileRoute("/_authenticated/app/analytics")({
   component: AnalyticsPage,
 });
 
+// `.toISOString()` always converts to UTC before formatting, so calling it
+// on a Date built from local calendar fields (e.g. "midnight on this
+// Monday") silently rolls the date back by however many hours the local
+// timezone sits ahead of UTC — Monday 00:00 AEDT becomes Sunday 13:00 UTC,
+// so `.toISOString().slice(0, 10)` reads "Sunday". This was why "this
+// week" (and, less visibly, "this month"/"this year") boundaries below
+// were landing a day early for anyone east of UTC. Same technique as
+// todayISO() in lib/format.ts: build the string from the Date's own local
+// getFullYear/getMonth/getDate rather than round-tripping through UTC.
+function toLocalISODate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function isoDaysAgo(days: number) {
   const d = new Date();
   d.setDate(d.getDate() - days);
-  return d.toISOString().slice(0, 10);
+  return toLocalISODate(d);
+}
+
+// Resolves a range key to its "since" date. "month"/"year" are calendar
+// boundaries (start of the current month/year) rather than a fixed
+// lookback window, so they can't go through the same days-based math as
+// the other range keys.
+function sinceForRange(range: RangeKey): string {
+  const now = new Date();
+  if (range === "month") return toLocalISODate(new Date(now.getFullYear(), now.getMonth(), 1));
+  if (range === "year") return toLocalISODate(new Date(now.getFullYear(), 0, 1));
+  return isoDaysAgo(RANGES[range].days as number);
 }
 
 function isoWeekKey(dateStr: string) {
@@ -347,8 +376,7 @@ function AthleteAnalytics({
   customTo?: string;
   onCustomRange: (from?: string, to?: string) => void;
 }) {
-  const days = RANGES[range].days;
-  const since = customFrom ?? isoDaysAgo(days);
+  const since = customFrom ?? sinceForRange(range);
   // (We still cap analytics queries by "since"; "to" is applied client-side where it matters.)
 
   // Own roster fetch — mirrors CoachRoster's query — so a coach can switch
@@ -532,7 +560,7 @@ function AthleteAnalytics({
   // was selected.
   const intentPeriodStart = useMemo(() => {
     const now = new Date();
-    return new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10);
+    return toLocalISODate(new Date(now.getFullYear(), 0, 1));
   }, []);
 
   const { data: intentRollup } = useQuery({
@@ -553,7 +581,7 @@ function AthleteAnalytics({
   // the current year (covers all three period options) rather than using the outer `since`.
   const volumePeriodStart = useMemo(() => {
     const now = new Date();
-    return new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10);
+    return toLocalISODate(new Date(now.getFullYear(), 0, 1));
   }, []);
 
   const { data: stepVolumeSessions } = useQuery({
@@ -601,6 +629,127 @@ function AthleteAnalytics({
       return data;
     },
   });
+
+  // ---------------------------------------------------------------------
+  // Training Load Forecast — projects Fitness/Fatigue/Form forward from
+  // today under a handful of "what if training continued like this"
+  // scenarios. Independent of the page-level range picker above, same
+  // reasoning as intentPeriodStart/volumePeriodStart — always fetches the
+  // last 35 real days regardless of what the outer range is set to, since
+  // the projection needs a full 28-day window of real history to seed its
+  // rolling averages correctly even if someone's viewing "This month" on
+  // the 3rd.
+  const FORECAST_DAYS = 91;
+  type ForecastScenario = "continued" | "increased" | "decreased" | "none";
+  const [forecastScenario, setForecastScenario] = useState<ForecastScenario>("continued");
+
+  const { data: forecastSeed } = useQuery({
+    queryKey: ["analytics-forecast-seed", athleteId],
+    queryFn: async () => {
+      const from = isoDaysAgo(35);
+      const { data } = await supabase
+        .from("athlete_load_daily")
+        .select("load_date, combined_load, ctl, atl")
+        .eq("athlete_id", athleteId)
+        .gte("load_date", from)
+        .order("load_date", { ascending: true });
+      return data ?? [];
+    },
+  });
+
+  // Mirrors the same 7-day / 28-day simple-moving-average math the
+  // recompute_readiness() Postgres function uses for real ATL/CTL (NOT the
+  // standard Banister exponentially-weighted formula — this app's chosen
+  // model is a plain rolling average of combined_load over 7 and 28
+  // days), so the projected line picks up exactly where the real one
+  // leaves off instead of jumping to a different curve shape.
+  const forecast = useMemo(() => {
+    if (!forecastSeed || forecastSeed.length < 7) return null;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const byDate = new Map<string, number>();
+    for (const row of forecastSeed) {
+      byDate.set(row.load_date as string, Number(row.combined_load ?? 0));
+    }
+
+    function dateOffset(days: number) {
+      const d = new Date(today);
+      d.setDate(d.getDate() + days);
+      return toLocalISODate(d);
+    }
+
+    // Seed the rolling window with the last 28 real days (missing dates —
+    // e.g. before the athlete started logging — count as 0, a rest day).
+    const series: { date: string; load: number }[] = [];
+    for (let i = 27; i >= 0; i--) {
+      const date = dateOffset(-i);
+      series.push({ date, load: byDate.get(date) ?? 0 });
+    }
+
+    // What gets repeated going forward — the athlete's own last 7 days,
+    // not a flattened average, so the projection still shows a realistic
+    // weekly rhythm (rest days included) rather than one flat number
+    // every day.
+    const lastWeekPattern = series.slice(-7).map((s) => s.load);
+    const multiplier =
+      forecastScenario === "increased" ? 1.2 : forecastScenario === "decreased" ? 0.7 : forecastScenario === "none" ? 0 : 1;
+
+    const lastReal = [...forecastSeed].reverse().find((r) => r.ctl != null && r.atl != null);
+    const anchorCtl = lastReal ? Number(lastReal.ctl) : series.slice(-28).reduce((s, x) => s + x.load, 0) / 28;
+    const anchorAtl = lastReal ? Number(lastReal.atl) : series.slice(-7).reduce((s, x) => s + x.load, 0) / 7;
+
+    const points: { load_date: string; ctlProjected: number; atlProjected: number; tsbProjected: number }[] = [
+      // Shared boundary point — same date/values as the last real day, so
+      // the projected (dashed) line visually connects with no gap where
+      // the real (solid) line ends.
+      {
+        load_date: lastReal ? (lastReal.load_date as string) : dateOffset(0),
+        ctlProjected: Math.round(anchorCtl),
+        atlProjected: Math.round(anchorAtl),
+        tsbProjected: Math.round(anchorCtl - anchorAtl),
+      },
+    ];
+
+    for (let i = 1; i <= FORECAST_DAYS; i++) {
+      const patternValue = lastWeekPattern[(i - 1) % 7] ?? 0;
+      const load = patternValue * multiplier;
+      series.push({ date: dateOffset(i), load });
+
+      const window7 = series.slice(-7);
+      const window28 = series.slice(-28);
+      const atl = window7.reduce((s, x) => s + x.load, 0) / window7.length;
+      const ctl = window28.reduce((s, x) => s + x.load, 0) / window28.length;
+
+      points.push({
+        load_date: dateOffset(i),
+        ctlProjected: Math.round(ctl),
+        atlProjected: Math.round(atl),
+        tsbProjected: Math.round(ctl - atl),
+      });
+    }
+
+    return points;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [forecastSeed, forecastScenario]);
+
+  // Real history + the projection above, merged onto one shared timeline
+  // so the chart can draw a solid line for the real data and a dashed one
+  // for the projected continuation without a visible seam. Only the last
+  // 30 real days are kept for context — the chart's job here is "how does
+  // the near future look from here", not re-showing the whole history the
+  // main Fitness/Fatigue/Form chart above already covers.
+  const forecastChartData = useMemo(() => {
+    if (!forecast) return null;
+    const recentReal = (load ?? []).slice(-30).map((d: any) => ({
+      load_date: d.load_date,
+      ctl: d.ctl,
+      atl: d.atl,
+      tsb: d.tsb,
+    }));
+    return [...recentReal, ...forecast];
+  }, [load, forecast]);
 
   const [granularity, setGranularity] = useState<GranularityKey>("week");
 
@@ -988,6 +1137,136 @@ function AthleteAnalytics({
         </CardContent>
       </Card>
 
+      {/* Training Load Forecast — projects Fitness/Fatigue/Form forward
+          under a chosen "what if training continued like this" scenario.
+          Deliberately a separate card from the real chart above rather
+          than toggled into it, so the real, already-trusted chart stays
+          untouched and this is unambiguously a model, not measured data. */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Training Load Forecast</CardTitle>
+          <CardDescription>
+            A projection, not measured data — repeats this athlete's own last 7 days of training load forward,
+            scaled per scenario, and runs it through the same Fitness/Fatigue/Form math as the real chart above.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!forecastChartData || !load || load.length < 7 ? (
+            <p className="text-sm text-muted-foreground">
+              Building baseline — need at least a week of real training load history to project from.
+            </p>
+          ) : (
+            <>
+              <div className="flex border rounded-md overflow-hidden text-xs w-fit mb-4">
+                <button
+                  onClick={() => setForecastScenario("continued")}
+                  className={`px-2.5 py-1 ${forecastScenario === "continued" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+                >
+                  Continued
+                </button>
+                <button
+                  onClick={() => setForecastScenario("increased")}
+                  className={`px-2.5 py-1 ${forecastScenario === "increased" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+                >
+                  Increased
+                </button>
+                <button
+                  onClick={() => setForecastScenario("decreased")}
+                  className={`px-2.5 py-1 ${forecastScenario === "decreased" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+                >
+                  Decreased
+                </button>
+                <button
+                  onClick={() => setForecastScenario("none")}
+                  className={`px-2.5 py-1 ${forecastScenario === "none" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+                >
+                  No training
+                </button>
+              </div>
+
+              <div className="h-[320px] w-full">
+                <ResponsiveContainer>
+                  <ComposedChart data={forecastChartData} margin={{ top: 26, right: 20, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
+                    <XAxis dataKey="load_date" tick={{ fontSize: 11 }} minTickGap={32} />
+                    <YAxis tick={{ fontSize: 11 }} />
+                    <Tooltip
+                      contentStyle={{
+                        background: "hsl(var(--background))",
+                        border: "1px solid hsl(var(--border))",
+                        fontSize: 12,
+                      }}
+                      itemStyle={{ color: "hsl(var(--foreground))" }}
+                      labelStyle={{ color: "hsl(var(--foreground))" }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeDasharray="2 4" />
+                    {load && load.length > 0 && (
+                      <ReferenceLine
+                        x={load[load.length - 1].load_date as string}
+                        stroke="hsl(var(--muted-foreground))"
+                        strokeWidth={1}
+                        label={{ value: "Today", position: "top", fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                      />
+                    )}
+                    {/* Real data — same colors/style as the Fitness, Fatigue
+                        & Form chart above, solid lines. */}
+                    <Area type="monotone" dataKey="tsb" name="Form" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.12} />
+                    <Line type="monotone" dataKey="ctl" name="Fitness" stroke="#10b981" strokeWidth={2} dot={false} />
+                    <Line
+                      type="monotone"
+                      dataKey="atl"
+                      name="Fatigue"
+                      stroke="#f43f5e"
+                      strokeWidth={2}
+                      strokeDasharray="4 3"
+                      dot={false}
+                    />
+                    {/* Projected continuation — same colors, open dashed
+                        stroke so it's unmistakably a projection, not more
+                        real data. */}
+                    <Area
+                      type="monotone"
+                      dataKey="tsbProjected"
+                      name="Form (projected)"
+                      stroke="#3b82f6"
+                      strokeDasharray="6 4"
+                      fill="#3b82f6"
+                      fillOpacity={0.05}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="ctlProjected"
+                      name="Fitness (projected)"
+                      stroke="#10b981"
+                      strokeWidth={2}
+                      strokeDasharray="6 4"
+                      dot={false}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="atlProjected"
+                      name="Fatigue (projected)"
+                      stroke="#f43f5e"
+                      strokeWidth={2}
+                      strokeDasharray="6 4"
+                      dot={false}
+                    />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-2">
+                "Continued" repeats this athlete's own last 7 days of training load forward as-is. "Increased" and
+                "decreased" scale that same weekly pattern up ~20% or down ~30%. "No training" projects a full stop.
+                All four use the same Fitness/Fatigue/Form math as the chart above, so the projected line always
+                picks up exactly where the real one leaves off — this is a model of what the numbers would do under
+                each scenario, not a prediction of what will actually happen.
+              </p>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 className="text-sm font-medium text-muted-foreground">Training trends grouped by</h2>
         <div className="flex border rounded-md overflow-hidden text-xs">
@@ -1332,7 +1611,7 @@ function RangePicker({
             onClick={() => onChange(k)}
             className={`px-3 py-1.5 text-xs ${value === k && !isCustom ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
           >
-            {k === "all" ? "All" : k.toUpperCase()}
+            {k === "all" ? "All" : k === "month" ? "MTD" : k === "year" ? "YTD" : k.toUpperCase()}
           </button>
         ))}
       </div>
@@ -1527,9 +1806,9 @@ function volumePeriodLabel(g: GranularityKey) {
 
 function periodStartForGranularity(g: GranularityKey) {
   const now = new Date();
-  if (g === "week") return startOfIsoWeek(now).toISOString().slice(0, 10);
-  if (g === "month") return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-  return new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10);
+  if (g === "week") return toLocalISODate(startOfIsoWeek(now));
+  if (g === "month") return toLocalISODate(new Date(now.getFullYear(), now.getMonth(), 1));
+  return toLocalISODate(new Date(now.getFullYear(), 0, 1));
 }
 
 // Reverted back to a pie chart (its original form) now that the page-level
