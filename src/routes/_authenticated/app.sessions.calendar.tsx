@@ -33,7 +33,6 @@ import { uploadAndParseSessionFile } from "@/lib/session-files.functions";
 import { toast } from "sonner";
 import { AthleteSubnav } from "@/components/athlete-subnav";
 import { BucketTabStrip, TRAINING_TABS } from "@/components/bucket-tab-strip";
-import { CopyPeriodDialog } from "@/components/copy-period-dialog";
 import { emptyProgressionRules, offsetDaysBetween, buildCopyDraft } from "@/lib/calendar-copy";
 import { commitCopyDrafts } from "@/lib/calendar-copy.functions";
 
@@ -671,7 +670,7 @@ function CalendarPage() {
   const [addMenuDate, setAddMenuDate] = useState<string | null>(null);
   const [uploadDate, setUploadDate] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [copyPeriodOpen, setCopyPeriodOpen] = useState(false);
+
   const [quickCopying, setQuickCopying] = useState<"week" | "month" | null>(null);
   const [pendingQuickCopy, setPendingQuickCopy] = useState<{
     kind: "week" | "month";
@@ -819,55 +818,29 @@ function CalendarPage() {
 
   return (
     <AppShell fullWidth>
-      <div className="space-y-4">
-        {isCoach && selectedAthleteId && (
-          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
-            <Link to="/app/athletes" className="hover:text-foreground">
-              Athletes
-            </Link>
-            <span className="text-border">/</span>
-            <Link to="/app/athletes/$athleteId" params={{ athleteId: selectedAthleteId }} className="hover:text-foreground">
-              {selectedAthleteName ?? "Athlete"}
-            </Link>
-          </div>
-        )}
-
-        {/* Icon + eyebrow heading, matching the pattern used elsewhere in
-            the app — paired on the same row as the athlete tab strip
-            (right-aligned) instead of each taking its own row, so this
-            reads as one compact header rather than two stacked ones. */}
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div
-              className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
-              style={{ background: "var(--accent-red)" }}
-            >
-              <CalendarRange className="h-5 w-5 text-white" strokeWidth={2} />
-            </div>
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Training</div>
-              <h1 className="text-xl font-bold leading-tight">Calendar</h1>
-            </div>
-          </div>
-          {isCoach && selectedAthleteId ? (
-            <AthleteSubnav athleteId={selectedAthleteId} active="calendar" />
-          ) : (
-            !isParent && (
-              <BucketTabStrip
-                items={TRAINING_TABS.filter((t) =>
-                  t.to === "/app/daily-log" || t.to === "/app/my-schedule" ? roles.includes("athlete") : true,
-                )}
-                active="/app/sessions/calendar"
-              />
-            )
-          )}
-        </div>
-
-        {/* Athlete search / switcher — where the plain "Calendar" heading
-            used to sit, now that the heading has moved up alongside the
-            tab strip. */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
+      <div className="space-y-3">
+        {/* Breadcrumb (coach only) paired with the athlete/child search —
+            right-aligned on the same line, rather than the picker having
+            its own row further down. */}
+        {((isCoach && selectedAthleteId) || (isParent && !isCoach && parentRoster.length > 0)) && (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            {isCoach && selectedAthleteId ? (
+              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                <Link to="/app/athletes" className="hover:text-foreground">
+                  Athletes
+                </Link>
+                <span className="text-border">/</span>
+                <Link
+                  to="/app/athletes/$athleteId"
+                  params={{ athleteId: selectedAthleteId }}
+                  className="hover:text-foreground"
+                >
+                  {selectedAthleteName ?? "Athlete"}
+                </Link>
+              </div>
+            ) : (
+              <div />
+            )}
             {isCoach &&
               roster &&
               roster.length > 0 &&
@@ -937,14 +910,89 @@ function CalendarPage() {
                 )}
               </div>
             )}
-            {!isCoach && !isParent && (
-              <p className="text-xs text-muted-foreground">Sessions by date · color = intent / day type</p>
-            )}
+          </div>
+        )}
+
+        {/* Icon + eyebrow heading, matching the pattern used elsewhere in
+            the app — paired on the same row as the athlete tab strip
+            (right-aligned) instead of each taking its own row. */}
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div
+              className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+              style={{ background: "var(--accent-red)" }}
+            >
+              <CalendarRange className="h-5 w-5 text-white" strokeWidth={2} />
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Training</div>
+              <h1 className="text-xl font-bold leading-tight">Calendar</h1>
+              {!isCoach && !isParent && (
+                <p className="text-xs text-muted-foreground">Sessions by date · color = intent / day type</p>
+              )}
+            </div>
+          </div>
+          {isCoach && selectedAthleteId ? (
+            <AthleteSubnav athleteId={selectedAthleteId} active="calendar" />
+          ) : (
+            !isParent && (
+              <BucketTabStrip
+                items={TRAINING_TABS.filter((t) =>
+                  t.to === "/app/daily-log" || t.to === "/app/my-schedule" ? roles.includes("athlete") : true,
+                )}
+                active="/app/sessions/calendar"
+              />
+            )
+          )}
+        </div>
+
+        {/* Today/Prev/Next + every toggle/action now share one row — Month/
+            Week, "Copy this month → next month", and List view all live
+            here instead of being split across a separate row of their own.
+            "Copy period forward" (the full dialog with progression rules)
+            has been removed from Calendar entirely — it already exists as
+            a "Build training" option on the Plans page. */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1">
+            <Button variant="outline" size="icon" onClick={() => shift(-1)}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" size="sm" onClick={goToday}>
+              Today
+            </Button>
+            <Button variant="outline" size="icon" onClick={() => shift(1)}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+            <span className="ml-2 text-sm font-medium">{view === "month" ? monthLabel : weekLabel}</span>
           </div>
           <div className="flex items-center gap-2">
+            <div className="inline-flex rounded-md border overflow-hidden">
+              <button
+                onClick={() => setView("month")}
+                className={cn("px-3 py-1.5 text-xs", view === "month" ? "bg-accent" : "bg-background")}
+              >
+                Month
+              </button>
+              <button
+                onClick={() => setView("week")}
+                className={cn("px-3 py-1.5 text-xs border-l", view === "week" ? "bg-accent" : "bg-background")}
+              >
+                Week
+              </button>
+            </div>
             {isCoach && (
-              <Button variant="outline" size="sm" onClick={() => setCopyPeriodOpen(true)}>
-                Copy period forward
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs text-muted-foreground"
+                disabled={quickCopying === view}
+                onClick={() => requestQuickCopy(view)}
+              >
+                {quickCopying === view
+                  ? "Copying..."
+                  : view === "month"
+                    ? "Copy this month → next month"
+                    : "Copy this week → next week"}
               </Button>
             )}
             {canEdit && (
@@ -960,94 +1008,47 @@ function CalendarPage() {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-1">
-            <Button variant="outline" size="icon" onClick={() => shift(-1)}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" size="sm" onClick={goToday}>
-              Today
-            </Button>
-            <Button variant="outline" size="icon" onClick={() => shift(1)}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-            <span className="ml-2 text-sm font-medium">{view === "month" ? monthLabel : weekLabel}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="flex flex-col items-end gap-1">
-              <div className="inline-flex rounded-md border overflow-hidden">
-                <button
-                  onClick={() => setView("month")}
-                  className={cn("px-3 py-1.5 text-xs", view === "month" ? "bg-accent" : "bg-background")}
-                >
-                  Month
-                </button>
-                <button
-                  onClick={() => setView("week")}
-                  className={cn("px-3 py-1.5 text-xs border-l", view === "week" ? "bg-accent" : "bg-background")}
-                >
-                  Week
-                </button>
-              </div>
-              {isCoach && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 text-[11px] text-muted-foreground"
-                  disabled={quickCopying === view}
-                  onClick={() => requestQuickCopy(view)}
-                >
-                  {quickCopying === view
-                    ? "Copying..."
-                    : view === "month"
-                      ? "Copy this month → next month"
-                      : "Copy this week → next week"}
-                </Button>
-              )}
-            </div>
-          </div>
-        </div>
-
         <Card onWheel={view === "week" ? handleGridWheel : undefined}>
           <CardContent className={view === "month" ? "p-0" : "p-1 sm:p-1.5"}>
             {view === "month" ? (
               <div
                 ref={scrollContainerRef}
                 onScroll={handleContinuousScroll}
-                className="max-h-[75vh] overflow-y-auto brand-scrollbar p-1 sm:p-1.5"
+                className="max-h-[75vh] overflow-y-auto brand-scrollbar"
               >
-                {continuousMonths.map((month) => (
-                  <div key={month.key} className="mb-3 last:mb-0">
-                    <div
-                      ref={(el) => {
-                        if (el) monthHeaderRefs.current.set(month.key, el);
-                        else monthHeaderRefs.current.delete(month.key);
-                      }}
-                      data-month-key={month.key}
-                      className="sticky top-0 z-10 -mx-1 sm:-mx-1.5 px-1 sm:px-1.5 py-1.5 bg-card text-sm font-semibold border-b border-border"
-                    >
-                      {month.label}
-                    </div>
-                    <div
-                      className={cn(
-                        "grid gap-0.5 mb-1 mt-1.5 text-[10px] text-muted-foreground",
-                        showWeekTotals ? "grid-cols-8" : "grid-cols-7",
-                      )}
-                    >
-                      {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
-                        <div key={d} className="text-center uppercase tracking-wide">
-                          {d}
-                        </div>
-                      ))}
-                      {showWeekTotals && <div className="text-center uppercase tracking-wide">Total</div>}
-                    </div>
-                    <div className="space-y-0.5">
-                      {month.weeks.map((week, wi) => (
-                        <div key={wi} className={cn("grid gap-0.5", showWeekTotals ? "grid-cols-8" : "grid-cols-7")}>
-                          {week.days.map((d) => {
-                            const iso = toISO(d);
-                            const day = byDate.get(iso)!;
-                            const inMonth = d.getMonth() === month.start.getMonth();
+                <div className="p-1 sm:p-1.5">
+                  {continuousMonths.map((month) => (
+                    <div key={month.key} className="mb-3 last:mb-0">
+                      <div
+                        ref={(el) => {
+                          if (el) monthHeaderRefs.current.set(month.key, el);
+                          else monthHeaderRefs.current.delete(month.key);
+                        }}
+                        data-month-key={month.key}
+                        className="sticky top-0 z-20 py-1.5 bg-card text-sm font-semibold border-b border-border"
+                      >
+                        {month.label}
+                      </div>
+                      <div
+                        className={cn(
+                          "grid gap-0.5 mb-1 mt-1.5 text-[10px] text-muted-foreground",
+                          showWeekTotals ? "grid-cols-8" : "grid-cols-7",
+                        )}
+                      >
+                        {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
+                          <div key={d} className="text-center uppercase tracking-wide">
+                            {d}
+                          </div>
+                        ))}
+                        {showWeekTotals && <div className="text-center uppercase tracking-wide">Total</div>}
+                      </div>
+                      <div className="space-y-0.5">
+                        {month.weeks.map((week, wi) => (
+                          <div key={wi} className={cn("grid gap-0.5", showWeekTotals ? "grid-cols-8" : "grid-cols-7")}>
+                            {week.days.map((d) => {
+                              const iso = toISO(d);
+                              const day = byDate.get(iso)!;
+                              const inMonth = d.getMonth() === month.start.getMonth();
                             return (
                               <CalendarDayCell
                                 key={iso}
@@ -1069,6 +1070,7 @@ function CalendarPage() {
                     </div>
                   </div>
                 ))}
+                </div>
               </div>
             ) : (
               <>
@@ -1399,18 +1401,6 @@ function CalendarPage() {
           </div>
         </DialogContent>
       </Dialog>
-
-      {/* Pre-filled with whatever range/athlete the grid is currently
-          showing — the coach can still change any of it once the dialog's
-          open (e.g. switch to a whole group instead of just this athlete),
-          this just saves re-entering the obvious starting point. */}
-      <CopyPeriodDialog
-        open={copyPeriodOpen}
-        onClose={() => setCopyPeriodOpen(false)}
-        initialSourceStart={rangeStart}
-        initialSourceEnd={rangeEnd}
-        initialAthleteId={selectedAthleteId || undefined}
-      />
 
       <Dialog open={!!pendingQuickCopy} onOpenChange={(o) => !o && setPendingQuickCopy(null)}>
         <DialogContent className="sm:max-w-sm">
