@@ -38,14 +38,33 @@ import {
   Trophy,
   Globe,
   HeartPulse,
+  Bandage,
 } from "lucide-react";
 import { AthleteSummaryPanel } from "@/components/athlete-summary-panel";
+import { ReadinessBadge } from "@/components/readiness-badge";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TIMEZONE_OPTIONS, guessLocalTimezone } from "@/lib/timezones";
+import { todayISO } from "@/lib/format";
 
 export const Route = createFileRoute("/_authenticated/app/athletes/")({
   component: AthletesPage,
 });
+
+// "Last logged 3d ago" style relative text for each roster row — same
+// rounding as the Home dashboard's roster widgets (just-now / minutes /
+// hours / days), duplicated locally rather than shared since it's a tiny
+// pure function and this file doesn't otherwise depend on dashboard-widgets.
+function formatRelative(iso: string) {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+}
 
 // Same nine destinations as AthleteSubnav (the tab strip shown once a coach
 // is already inside a single athlete's pages), just rendered as a bare icon
@@ -184,6 +203,43 @@ function AthletesPage() {
       if (error) { toast.error(error.message); return new Map<string, string>(); }
       const m = new Map<string, string>();
       for (const p of data ?? []) m.set(p.athlete_id, p.slug);
+      return m;
+    },
+  });
+
+  // Today's readiness (Ready/Caution/Recover) per athlete, batched the same
+  // way parentInfo and profileSlugs are — one query for the whole roster —
+  // so each row can show its flag without an N+1 query per athlete.
+  const { data: readinessByAthlete } = useQuery({
+    queryKey: ["roster-readiness", athleteIds.join(",")],
+    enabled: athleteIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("athlete_load_daily")
+        .select("athlete_id, readiness_status, readiness_score, confidence")
+        .in("athlete_id", athleteIds)
+        .eq("load_date", todayISO());
+      if (error) { toast.error(error.message); return new Map<string, any>(); }
+      const m = new Map<string, any>();
+      for (const r of data ?? []) m.set(r.athlete_id, r);
+      return m;
+    },
+  });
+
+  // Active (non-resolved) injury count per athlete — same batching
+  // pattern, used to show a small injury flag next to the readiness badge.
+  const { data: injuryCountByAthlete } = useQuery({
+    queryKey: ["roster-injuries", athleteIds.join(",")],
+    enabled: athleteIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("injuries")
+        .select("athlete_id")
+        .in("athlete_id", athleteIds)
+        .neq("status", "resolved");
+      if (error) { toast.error(error.message); return new Map<string, number>(); }
+      const m = new Map<string, number>();
+      for (const i of data ?? []) m.set(i.athlete_id, (m.get(i.athlete_id) ?? 0) + 1);
       return m;
     },
   });
@@ -351,6 +407,8 @@ function AthletesPage() {
                     const pendingParentInvite = parentInfo?.pendingByAthlete.get(r.athlete_id);
                     const slug = profileSlugs?.get(r.athlete_id) ?? null;
                     const tabs = athleteNavTabs(r.athlete_id, slug);
+                    const readiness = readinessByAthlete?.get(r.athlete_id);
+                    const injuryCount = injuryCountByAthlete?.get(r.athlete_id) ?? 0;
                     return (
                       <div
                         key={r.athlete_id}
@@ -358,12 +416,12 @@ function AthletesPage() {
                           selectedAthleteId === r.athlete_id ? "bg-accent/60 border-[var(--accent-red)]" : "border-transparent"
                         }`}
                       >
-                        <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center justify-between gap-3 flex-wrap">
                           <button
                             type="button"
                             onClick={() => setSelectedAthleteId(r.athlete_id)}
                             title="Quick view"
-                            className="flex items-center gap-3 flex-1 min-w-0 text-left group"
+                            className="flex items-center gap-3 min-w-0 text-left group"
                           >
                             <UserAvatar
                               name={r.athletes?.name}
@@ -371,34 +429,67 @@ function AthletesPage() {
                               size="md"
                               className="shrink-0"
                             />
-                            <div className="min-w-0 flex items-baseline gap-2">
-                              <span className="font-medium truncate">{r.athletes?.name}</span>
-                              <span className="text-xs text-muted-foreground truncate shrink-0">{r.athletes?.primary_event ?? "—"}</span>
-                              <Eye className="h-3.5 w-3.5 shrink-0 text-[var(--accent-red)]/50 group-hover:text-[var(--accent-red)] transition-colors" />
+                            <div className="min-w-0">
+                              <div className="flex items-baseline gap-2">
+                                <span className="font-medium truncate">{r.athletes?.name}</span>
+                                {/* Only shown when actually set — this used
+                                    to always render an em-dash placeholder
+                                    when an athlete had no primary event,
+                                    which read as a stray "-" on every row. */}
+                                {r.athletes?.primary_event && (
+                                  <span className="text-xs text-muted-foreground truncate shrink-0">{r.athletes.primary_event}</span>
+                                )}
+                                <Eye className="h-3.5 w-3.5 shrink-0 text-[var(--accent-red)]/50 group-hover:text-[var(--accent-red)] transition-colors" />
+                              </div>
+                              <div className="text-[11px] text-muted-foreground truncate">
+                                {r.athletes?.last_log_at ? `Last logged ${formatRelative(r.athletes.last_log_at)}` : "No sessions logged yet"}
+                              </div>
                             </div>
                           </button>
 
-                          {/* Sub-page jump strip — one icon per athlete page
-                              (Overview, Calendar, Sessions, Analytics,
-                              Health, Performance Profile, Zones, Races,
-                              Athlete Page), always red so it reads as a
-                              distinct row of quick links rather than
-                              generic toolbar buttons. */}
-                          <div className="flex items-center gap-0.5 shrink-0 overflow-x-auto no-scrollbar">
-                            {tabs.map((t) => (
-                              <Button
-                                key={t.key}
-                                asChild
-                                size="icon"
-                                variant="ghost"
-                                title={t.label}
-                                className="h-8 w-8 text-[var(--accent-red)] hover:bg-[var(--accent-red)]/10 hover:text-[var(--accent-red)]"
+                          <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                            {/* Readiness / injury flags — visible at a glance
+                                without opening the quick-view popup. */}
+                            {readiness?.readiness_status && (
+                              <ReadinessBadge
+                                status={readiness.readiness_status}
+                                score={readiness.readiness_score}
+                                confidence={readiness.confidence}
+                              />
+                            )}
+                            {injuryCount > 0 && (
+                              <Badge
+                                variant="outline"
+                                title={`${injuryCount} active injur${injuryCount > 1 ? "ies" : "y"}`}
+                                className="gap-1 border-rose-500/30 bg-rose-500/10 text-rose-600"
                               >
-                                <Link to={t.to as any} params={(t as any).params as any} search={(t as any).search as any}>
-                                  <t.icon className="h-4 w-4" />
-                                </Link>
-                              </Button>
-                            ))}
+                                <Bandage className="h-3 w-3" />
+                                {injuryCount}
+                              </Badge>
+                            )}
+
+                            {/* Sub-page jump strip — one icon per athlete page
+                                (Overview, Calendar, Sessions, Analytics,
+                                Health, Performance Profile, Zones, Races,
+                                Athlete Page), always red so it reads as a
+                                distinct row of quick links rather than
+                                generic toolbar buttons. */}
+                            <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar">
+                              {tabs.map((t) => (
+                                <Button
+                                  key={t.key}
+                                  asChild
+                                  size="icon"
+                                  variant="ghost"
+                                  title={t.label}
+                                  className="h-8 w-8 text-[var(--accent-red)] hover:bg-[var(--accent-red)]/10 hover:text-[var(--accent-red)]"
+                                >
+                                  <Link to={t.to as any} params={(t as any).params as any} search={(t as any).search as any}>
+                                    <t.icon className="h-4 w-4" />
+                                  </Link>
+                                </Button>
+                              ))}
+                            </div>
                           </div>
                         </div>
 
@@ -486,15 +577,13 @@ function AthletesPage() {
             </CardContent>
           </Card>
 
-          {/* Final third of the page — quick-view summary (only takes up
-              space once an athlete is actually selected), Add an athlete,
-              and Invite an existing account. Sticky so it stays in view as
-              a long roster scrolls past it. */}
+          {/* Final third of the page — Add an athlete and Invite an existing
+              account. Sticky so it stays in view as a long roster scrolls
+              past it. Quick-view used to render here too, but on a long
+              roster that meant scrolling back up to actually see it after
+              clicking a row further down — it's now a fixed side panel
+              (below) instead, which stays in place regardless of scroll. */}
           <div className="space-y-6 lg:sticky lg:top-4">
-            {selectedAthlete && (
-              <AthleteSummaryPanel athlete={selectedAthlete} onClose={() => setSelectedAthleteId(null)} />
-            )}
-
             <Card>
               <CardHeader>
                 <CardTitle>Add an athlete</CardTitle>
@@ -541,6 +630,19 @@ function AthletesPage() {
           </div>
         </div>
       </div>
+
+      {/* Quick-view popup — a fixed side panel rather than an in-flow
+          column, so clicking a row far down a long roster doesn't require
+          scrolling back up to see it. Closes on outside click, Esc, or its
+          own close button. */}
+      <Sheet open={!!selectedAthlete} onOpenChange={(o) => !o && setSelectedAthleteId(null)}>
+        <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle className="sr-only">Athlete quick view</SheetTitle>
+          </SheetHeader>
+          <AthleteSummaryPanel athlete={selectedAthlete} embedded onClose={() => setSelectedAthleteId(null)} />
+        </SheetContent>
+      </Sheet>
 
       <Dialog open={!!inviteLink} onOpenChange={(o) => !o && setInviteLink(null)}>
         <DialogContent>
