@@ -31,7 +31,7 @@ import {
   FileText,
   Flag,
   Globe,
-  Map,
+  Map as MapIcon,
   PersonStanding,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -148,7 +148,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         // Placeholder page for now (coming soon) — placed here rather than
         // its own bucket since a route library is fundamentally a training-
         // planning tool, same audience as Sessions/Calendar/Schedule.
-        { to: "/app/maps", label: "Maps & Routes", icon: Map, show: isCoachOrAthlete },
+        { to: "/app/maps", label: "Maps & Routes", icon: MapIcon, show: isCoachOrAthlete },
       ],
     },
     {
@@ -498,4 +498,4 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
     </div>
   );
-}  
+}
