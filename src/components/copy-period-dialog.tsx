@@ -21,6 +21,7 @@ import {
   buildCopyDraft,
   bucketForSession,
   estimateTotalDistanceM,
+  estimateSessionDistanceM,
   estimateDraftDistanceM,
   summarizeDraftSteps,
   applyVolumeNudgeKm,
@@ -34,6 +35,12 @@ import {
   type WeekOverride,
 } from "@/lib/calendar-copy";
 import { secToClock, clockToSec } from "@/lib/format";
+import {
+  computeVolumeTargetDeltas,
+  kmDeltasToProgressionRules,
+  REP_BUCKETS,
+  type DistributionStrategy,
+} from "@/lib/volume-target";
 
 // Whole-batch progression presets — one click sets every bucket's Volume %
 // to the same value (intensity untouched), same underlying action as the
@@ -122,6 +129,26 @@ export function CopyPeriodDialog({
   const [overrideFromWeek, setOverrideFromWeek] = useState(1);
   const [overrideToWeek, setOverrideToWeek] = useState(1);
   const [overridePct, setOverridePct] = useState(-20);
+
+  // Volume Target — aggregate weekly-volume progression, distributed
+  // across buckets by strategy rather than a flat % everywhere. Produces
+  // suggested per-bucket deltas (editable) which merge into `rules` /
+  // apply as rep deltas at preview time; doesn't touch the existing
+  // %-based quick-nudge knobs above at all.
+  const [volumeTargetKm, setVolumeTargetKm] = useState<string>("");
+  const [distributionStrategy, setDistributionStrategy] = useState<DistributionStrategy>("proportional");
+  const [longRunCapMode, setLongRunCapMode] = useState<"none" | "km" | "time">("none");
+  const [longRunCapKmInput, setLongRunCapKmInput] = useState<string>("");
+  const [longRunCapTimeInput, setLongRunCapTimeInput] = useState<string>(""); // "h:mm"
+  const [suggestedKmDelta, setSuggestedKmDelta] = useState<Partial<Record<CopyBucket, number>>>({});
+  const [suggestedRepDelta, setSuggestedRepDelta] = useState<Partial<Record<CopyBucket, number>>>({});
+  const [volumeTargetCapped, setVolumeTargetCapped] = useState(false);
+  const [volumeTargetComputed, setVolumeTargetComputed] = useState(false);
+  // Rep deltas can't be expressed as a %, so they're carried separately
+  // and applied to the built drafts (via applyRepDelta, same function the
+  // Review-screen Quick Adjustments panel already uses) right after
+  // Preview builds them — not merged into `rules`.
+  const [pendingRepDeltas, setPendingRepDeltas] = useState<Partial<Record<CopyBucket, number>>>({});
   const [drafts, setDrafts] = useState<DraftSession[]>([]);
   const [reviewAthleteFilter, setReviewAthleteFilter] = useState<string>("all");
   // Optional coach preference — no schema field exists for AM/PM on an
@@ -230,6 +257,30 @@ export function CopyPeriodDialog({
     if (b) bucketCounts[b] = (bucketCounts[b] ?? 0) + 1;
   }
 
+  // Per-bucket km + estimated km/rep (for threshold/vo2's rep-delta
+  // conversion) — feeds the Volume Target section below. Computed from
+  // the same source sessions bucketCounts already uses, just broken out
+  // by bucket instead of summed.
+  const currentKmByBucket: Partial<Record<CopyBucket, number>> = {};
+  const kmPerRepByBucket: Partial<Record<CopyBucket, number>> = {};
+  for (const b of COPY_BUCKETS) {
+    const sessionsInBucket = (sourceData?.sessions ?? []).filter((s: any) => bucketForSession(s) === b);
+    const totalM = sessionsInBucket.reduce(
+      (sum: number, s: any) => sum + estimateSessionDistanceM(s, sourceData?.stepsBySession.get(s.id) ?? []),
+      0,
+    );
+    currentKmByBucket[b] = totalM / 1000;
+    if (REP_BUCKETS.includes(b)) {
+      let totalReps = 0;
+      for (const s of sessionsInBucket) {
+        for (const st of sourceData?.stepsBySession.get(s.id) ?? []) {
+          if (st.kind === "work" || st.kind === "strides") totalReps += Number(st.reps ?? 1);
+        }
+      }
+      if (totalReps > 0) kmPerRepByBucket[b] = totalM / 1000 / totalReps;
+    }
+  }
+
   function applyQuickTarget() {
     const targetKm = Number(quickTargetKm);
     if (!targetKm || currentTotalM <= 0) {
@@ -278,6 +329,48 @@ export function CopyPeriodDialog({
     });
   }
 
+  function computeSuggestedVolumeTarget() {
+    const targetKm = Number(volumeTargetKm);
+    if (!targetKm) {
+      toast.error("Enter a target weekly total first");
+      return;
+    }
+
+    let capKm: number | null = null;
+    if (longRunCapMode === "km" && longRunCapKmInput) {
+      capKm = Number(longRunCapKmInput);
+    } else if (longRunCapMode === "time" && longRunCapTimeInput) {
+      // "long" bucket's own assumed pace (5:30/km) — same approximation
+      // already used for the browsing-only weekly-volume estimate
+      // elsewhere in this app; a rough cap conversion, not a precise one.
+      // longRunCapTimeInput is "H:MM" (hours:minutes), not a pace string,
+      // so this is parsed directly rather than reusing clockToSec (which
+      // is mm:ss for pace).
+      const [hStr, mStr] = longRunCapTimeInput.split(":");
+      const totalSeconds = (Number(hStr) || 0) * 3600 + (Number(mStr) || 0) * 60;
+      capKm = totalSeconds / 330;
+    }
+
+    const result = computeVolumeTargetDeltas({
+      currentKmByBucket,
+      targetKm,
+      strategy: distributionStrategy,
+      longRunCapKm: capKm,
+      kmPerRepByBucket,
+    });
+
+    setSuggestedKmDelta(result.kmDeltaByBucket);
+    setSuggestedRepDelta(result.repDeltaByBucket);
+    setVolumeTargetCapped(result.longRunCapped);
+    setVolumeTargetComputed(true);
+  }
+
+  function applyVolumeTargetToProgression() {
+    setRules((r) => kmDeltasToProgressionRules(suggestedKmDelta, currentKmByBucket, r));
+    setPendingRepDeltas((prev) => ({ ...prev, ...suggestedRepDelta }));
+    toast.success("Volume target applied — Volume % below updated, rep counts will apply to the review batch");
+  }
+
   function addWeekOverride() {
     if (overrideToWeek < overrideFromWeek) {
       toast.error("End week must be on or after the start week");
@@ -324,9 +417,20 @@ export function CopyPeriodDialog({
       // a prior "Edit before applying" pass can never sneak into a one-click
       // exact copy.
       const effectiveRules = variant === "history" && copyMode === "exact" ? emptyProgressionRules() : rules;
-      const built = sourceSessions
+      let built = sourceSessions
         .map((s: any) => buildCopyDraft(s, stepsBySession.get(s.id) ?? [], offsetDays, effectiveRules, sourceStart, weekOverrides))
         .map((d) => (timeOfDayPref === "none" ? d : { ...d, title: `${d.title} (${timeOfDayPref.toUpperCase()})` }));
+
+      // Volume Target's rep-based buckets (threshold/vo2) apply here,
+      // after the draft list exists — same applyRepDelta the Review
+      // screen's own Quick Adjustments panel uses, just driven by the
+      // computed deltas instead of a manual chip click.
+      if (variant !== "history" || copyMode !== "exact") {
+        for (const bucket of Object.keys(pendingRepDeltas) as CopyBucket[]) {
+          const delta = pendingRepDeltas[bucket];
+          if (delta) built = applyRepDelta(built, bucket, delta);
+        }
+      }
 
       if (variant === "history" && copyMode === "exact") {
         // Skip the review screen entirely — same one-click shape as the
@@ -638,8 +742,127 @@ export function CopyPeriodDialog({
             )}
 
             {!(variant === "history" && copyMode === "exact") && (
+            <div className="rounded-md border p-3 space-y-2.5">
+              <Label className="text-xs">Volume target (optional)</Label>
+              <p className="text-xs text-muted-foreground">
+                Set a weekly total and a distribution strategy — computes suggested per-bucket deltas (km for
+                continuous buckets, reps for threshold/VO2) which you can fine-tune before applying. For minor
+                same-shape nudges instead, use the Quick nudge %/bucket controls below.
+              </p>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-[10px]">Target weekly total (km)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    placeholder={currentTotalKm > 0 ? `current: ${currentTotalKm.toFixed(1)}` : "e.g. 100"}
+                    value={volumeTargetKm}
+                    onChange={(e) => setVolumeTargetKm(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label className="text-[10px]">Distribution strategy</Label>
+                  <Select value={distributionStrategy} onValueChange={(v: any) => setDistributionStrategy(v)}>
+                    <SelectTrigger className="mt-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="proportional">Proportional (spread by current share)</SelectItem>
+                      <SelectItem value="long_priority">Long run priority</SelectItem>
+                      <SelectItem value="easy_priority">Easy priority</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div>
+                <Label className="text-[10px]">Long run cap (optional)</Label>
+                <div className="flex gap-2 mt-1">
+                  <Button size="sm" variant={longRunCapMode === "none" ? "default" : "outline"} onClick={() => setLongRunCapMode("none")}>
+                    No cap
+                  </Button>
+                  <Button size="sm" variant={longRunCapMode === "km" ? "default" : "outline"} onClick={() => setLongRunCapMode("km")}>
+                    Distance
+                  </Button>
+                  <Button size="sm" variant={longRunCapMode === "time" ? "default" : "outline"} onClick={() => setLongRunCapMode("time")}>
+                    Time
+                  </Button>
+                </div>
+                {longRunCapMode === "km" && (
+                  <Input
+                    type="number"
+                    min={0}
+                    placeholder="e.g. 32 km"
+                    className="mt-2"
+                    value={longRunCapKmInput}
+                    onChange={(e) => setLongRunCapKmInput(e.target.value)}
+                  />
+                )}
+                {longRunCapMode === "time" && (
+                  <Input
+                    placeholder="h:mm, e.g. 2:00"
+                    className="mt-2"
+                    value={longRunCapTimeInput}
+                    onChange={(e) => setLongRunCapTimeInput(e.target.value)}
+                  />
+                )}
+                <p className="text-xs text-muted-foreground mt-1">
+                  Once the long run hits this cap, the rest of the increase redirects to the other buckets instead
+                  of pushing the long run further.
+                </p>
+              </div>
+
+              <Button size="sm" variant="outline" onClick={computeSuggestedVolumeTarget}>
+                Compute suggested deltas
+              </Button>
+
+              {volumeTargetComputed && (
+                <div className="rounded border p-2.5 space-y-1.5 bg-muted/20">
+                  {volumeTargetCapped && (
+                    <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                      Long run cap reached — the remainder redirected to other buckets.
+                    </p>
+                  )}
+                  {COPY_BUCKETS.filter((b) => b !== "race" && (suggestedKmDelta[b] != null || suggestedRepDelta[b] != null)).map(
+                    (b) => (
+                      <div key={b} className="grid grid-cols-3 gap-2 items-center text-sm">
+                        <span className="text-xs text-muted-foreground">{COPY_BUCKET_LABELS[b]}</span>
+                        {suggestedRepDelta[b] != null ? (
+                          <Input
+                            type="number"
+                            className="col-span-2"
+                            value={suggestedRepDelta[b]}
+                            onChange={(e) =>
+                              setSuggestedRepDelta((prev) => ({ ...prev, [b]: Number(e.target.value) }))
+                            }
+                          />
+                        ) : (
+                          <Input
+                            type="number"
+                            step="0.1"
+                            className="col-span-2"
+                            value={suggestedKmDelta[b]?.toFixed(1) ?? 0}
+                            onChange={(e) => setSuggestedKmDelta((prev) => ({ ...prev, [b]: Number(e.target.value) }))}
+                          />
+                        )}
+                      </div>
+                    ),
+                  )}
+                  <p className="text-[10px] text-muted-foreground">
+                    {"Continuous buckets show a km delta, threshold/VO2 show a rep-count delta. Edit any value, then apply."}
+                  </p>
+                  <Button size="sm" onClick={applyVolumeTargetToProgression}>
+                    Apply to progression
+                  </Button>
+                </div>
+              )}
+            </div>
+            )}
+
+            {!(variant === "history" && copyMode === "exact") && (
             <div>
-              <Label className="text-xs">Progression (optional — leave at 0 for an exact copy)</Label>
+              <Label className="text-xs">Quick nudge — %/bucket (optional, leave at 0 for an exact copy)</Label>
 
               <div className="flex flex-wrap gap-2 mt-1.5">
                 {VOLUME_PATTERN_PRESETS.map((p) => (
