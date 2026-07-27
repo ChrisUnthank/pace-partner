@@ -354,8 +354,8 @@ function AthletesPage() {
                     return (
                       <div
                         key={r.athlete_id}
-                        className={`flex flex-col gap-2 px-4 py-3 hover:bg-accent/40 ${
-                          selectedAthleteId === r.athlete_id ? "bg-accent/60" : ""
+                        className={`flex flex-col gap-2 px-4 py-3 rounded-md border-2 transition-colors hover:bg-accent/40 hover:border-[var(--accent-red)] ${
+                          selectedAthleteId === r.athlete_id ? "bg-accent/60 border-[var(--accent-red)]" : "border-transparent"
                         }`}
                       >
                         <div className="flex items-center justify-between gap-3">
@@ -368,15 +368,13 @@ function AthletesPage() {
                             <UserAvatar
                               name={r.athletes?.name}
                               imageUrl={r.athletes?.profile_image_url ?? undefined}
-                              size="sm"
+                              size="md"
                               className="shrink-0"
                             />
-                            <div className="min-w-0">
-                              <div className="font-medium truncate flex items-center gap-1.5">
-                                <span className="truncate">{r.athletes?.name}</span>
-                                <Eye className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />
-                              </div>
-                              <div className="text-xs text-muted-foreground truncate">{r.athletes?.primary_event ?? "—"}</div>
+                            <div className="min-w-0 flex items-baseline gap-2">
+                              <span className="font-medium truncate">{r.athletes?.name}</span>
+                              <span className="text-xs text-muted-foreground truncate shrink-0">{r.athletes?.primary_event ?? "—"}</span>
+                              <Eye className="h-3.5 w-3.5 shrink-0 text-[var(--accent-red)]/50 group-hover:text-[var(--accent-red)] transition-colors" />
                             </div>
                           </button>
 
@@ -404,7 +402,7 @@ function AthletesPage() {
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-between gap-3 flex-wrap pl-11">
+                        <div className="flex items-center justify-between gap-3 flex-wrap pl-12">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             {r.athletes?.user_id ? (
                               <Badge variant="secondary">Linked</Badge>
