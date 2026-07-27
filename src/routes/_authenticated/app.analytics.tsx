@@ -639,9 +639,12 @@ function AthleteAnalytics({
   // the projection needs a full 28-day window of real history to seed its
   // rolling averages correctly even if someone's viewing "This month" on
   // the 3rd.
-  const FORECAST_DAYS = 91;
   type ForecastScenario = "continued" | "increased" | "decreased" | "none";
+  type ForecastMonths = 1 | 3;
+  const [showForecast, setShowForecast] = useState(false);
   const [forecastScenario, setForecastScenario] = useState<ForecastScenario>("continued");
+  const [forecastMonths, setForecastMonths] = useState<ForecastMonths>(3);
+  const FORECAST_DAYS = forecastMonths === 1 ? 30 : 91;
 
   const { data: forecastSeed } = useQuery({
     queryKey: ["analytics-forecast-seed", athleteId],
@@ -732,7 +735,7 @@ function AthleteAnalytics({
 
     return points;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [forecastSeed, forecastScenario]);
+  }, [forecastSeed, forecastScenario, forecastMonths]);
 
   // Real history + the projection above, merged onto one shared timeline
   // so the chart can draw a solid line for the real data and a dashed one
@@ -953,22 +956,197 @@ function AthleteAnalytics({
           custom-range mechanism (same one the range picker uses). */}
       <YearlyLoadStrip athleteId={athleteId} onWeekClick={(from, to) => onCustomRange(from, to)} />
 
-      {/* Fitness / Fatigue / Form chart */}
+      {/* Fitness / Fatigue / Form chart — with an optional forward-looking
+          projection layered on top of the same card via a toggle, rather
+          than a separate chart, so "what happened" and "what if it
+          continued" read as one picture instead of two disconnected
+          ones. Turning the forecast on necessarily overrides the range
+          picker above with a fixed recent window (last 30 real days) —
+          a multi-month or "All time" history squashed against a 1-3
+          month projection isn't a readable chart either way, so this
+          makes that trade-off explicit and automatic instead of letting
+          someone select "All time" and wonder why the forecast looks
+          broken. */}
       <Card>
         <CardHeader>
-          <CardTitle>Fitness, Fatigue & Form</CardTitle>
-          <CardDescription>
-            Fitness, fatigue, and form over {RANGES[range].label.toLowerCase()}.
-          </CardDescription>
-          {!!estimatedLoadCount && (
-            <p className="flex items-start gap-1.5 text-xs text-amber-600 pt-1">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-              {estimatedLoadCount} session{estimatedLoadCount === 1 ? "" : "s"} in this range {estimatedLoadCount === 1 ? "has" : "have"} no logged RPE — {estimatedLoadCount === 1 ? "its" : "their"} contribution to these numbers is a category-based estimate, not real effort data.
-            </p>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <CardTitle>Fitness, Fatigue & Form</CardTitle>
+              <CardDescription>
+                {showForecast
+                  ? "Projected forward from today, based on this athlete's last 30 days of real training."
+                  : `Fitness, fatigue, and form over ${RANGES[range].label.toLowerCase()}.`}
+              </CardDescription>
+            </div>
+            <Button size="sm" variant={showForecast ? "default" : "outline"} onClick={() => setShowForecast((v) => !v)}>
+              {showForecast ? "Hide forecast" : "Show forecast"}
+            </Button>
+          </div>
+          {showForecast ? (
+            <div className="flex items-center gap-3 flex-wrap pt-2">
+              <div className="flex border rounded-md overflow-hidden text-xs w-fit">
+                <button
+                  onClick={() => setForecastScenario("continued")}
+                  className={`px-2.5 py-1 ${forecastScenario === "continued" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+                >
+                  Continued
+                </button>
+                <button
+                  onClick={() => setForecastScenario("increased")}
+                  className={`px-2.5 py-1 ${forecastScenario === "increased" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+                >
+                  Increased
+                </button>
+                <button
+                  onClick={() => setForecastScenario("decreased")}
+                  className={`px-2.5 py-1 ${forecastScenario === "decreased" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+                >
+                  Decreased
+                </button>
+                <button
+                  onClick={() => setForecastScenario("none")}
+                  className={`px-2.5 py-1 ${forecastScenario === "none" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+                >
+                  No training
+                </button>
+              </div>
+              <div className="flex border rounded-md overflow-hidden text-xs w-fit">
+                <button
+                  onClick={() => setForecastMonths(1)}
+                  className={`px-2.5 py-1 ${forecastMonths === 1 ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+                >
+                  1 Month
+                </button>
+                <button
+                  onClick={() => setForecastMonths(3)}
+                  className={`px-2.5 py-1 ${forecastMonths === 3 ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+                >
+                  3 Months
+                </button>
+              </div>
+            </div>
+          ) : (
+            !!estimatedLoadCount && (
+              <p className="flex items-start gap-1.5 text-xs text-amber-600 pt-1">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                {estimatedLoadCount} session{estimatedLoadCount === 1 ? "" : "s"} in this range {estimatedLoadCount === 1 ? "has" : "have"} no logged RPE — {estimatedLoadCount === 1 ? "its" : "their"} contribution to these numbers is a category-based estimate, not real effort data.
+              </p>
+            )
           )}
         </CardHeader>
         <CardContent>
-          {!load || load.length < 3 ? (
+          {showForecast ? (
+            !forecastChartData || !load || load.length < 7 ? (
+              <p className="text-sm text-muted-foreground">
+                Building baseline — need at least a week of real training load history to project from.
+              </p>
+            ) : (
+              <>
+                <div className="h-[320px] w-full">
+                  <ResponsiveContainer>
+                    <ComposedChart data={forecastChartData} margin={{ top: 26, right: 20, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
+                      <XAxis dataKey="load_date" tick={{ fontSize: 11 }} minTickGap={32} />
+                      <YAxis tick={{ fontSize: 11 }} />
+                      <Tooltip
+                        contentStyle={{
+                          background: "hsl(var(--background))",
+                          border: "1px solid hsl(var(--border))",
+                          fontSize: 12,
+                        }}
+                        itemStyle={{ color: "hsl(var(--foreground))" }}
+                        labelStyle={{ color: "hsl(var(--foreground))" }}
+                      />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeDasharray="2 4" />
+                      {load && load.length > 0 && (
+                        <ReferenceLine
+                          x={load[load.length - 1].load_date as string}
+                          stroke="hsl(var(--muted-foreground))"
+                          strokeWidth={1}
+                          label={{ value: "Today", position: "top", fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                        />
+                      )}
+                      {/* Real data — same colors/style as the non-forecast
+                          view below, solid lines. */}
+                      <Area type="monotone" dataKey="tsb" name="Form" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.12} />
+                      <Line type="monotone" dataKey="ctl" name="Fitness" stroke="#10b981" strokeWidth={2} dot={false} />
+                      <Line
+                        type="monotone"
+                        dataKey="atl"
+                        name="Fatigue"
+                        stroke="#f43f5e"
+                        strokeWidth={2}
+                        strokeDasharray="4 3"
+                        dot={false}
+                      />
+                      {/* Projected continuation — same colors, open dashed
+                          stroke so it's unmistakably a projection, not more
+                          real data. */}
+                      <Area
+                        type="monotone"
+                        dataKey="tsbProjected"
+                        name="Form (projected)"
+                        stroke="#3b82f6"
+                        strokeDasharray="6 4"
+                        fill="#3b82f6"
+                        fillOpacity={0.05}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="ctlProjected"
+                        name="Fitness (projected)"
+                        stroke="#10b981"
+                        strokeWidth={2}
+                        strokeDasharray="6 4"
+                        dot={false}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="atlProjected"
+                        name="Fatigue (projected)"
+                        stroke="#f43f5e"
+                        strokeWidth={2}
+                        strokeDasharray="6 4"
+                        dot={false}
+                      />
+                      {/* Race days — including any upcoming planned race
+                          that falls within the projection window, so a
+                          coach can see whether the projected trajectory
+                          sets up well for it. */}
+                      {(raceDays ?? []).map((r: any) => {
+                        const rawTitle = r.title ?? "Race";
+                        const shortTitle = rawTitle.length > 18 ? `${rawTitle.slice(0, 17)}…` : rawTitle;
+                        return (
+                          <ReferenceLine
+                            key={r.id}
+                            x={r.session_date}
+                            stroke="#db2777"
+                            strokeWidth={1.5}
+                            strokeDasharray={r.completed_at ? undefined : "4 3"}
+                            label={{
+                              value: "🏁 " + shortTitle,
+                              position: "top",
+                              offset: 10,
+                              fontSize: 10,
+                              fill: "#db2777",
+                            }}
+                          />
+                        );
+                      })}
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-2">
+                  "Continued" repeats this athlete's own last 7 days of training load forward as-is. "Increased" and
+                  "decreased" scale that same weekly pattern up ~20% or down ~30%. "No training" projects a full
+                  stop. All four use the same Fitness/Fatigue/Form math as the real chart, so the projected line
+                  always picks up exactly where the real one leaves off — this is a model of what the numbers would
+                  do under each scenario, not a prediction of what will actually happen.
+                </p>
+              </>
+            )
+          ) : !load || load.length < 3 ? (
             <p className="text-sm text-muted-foreground">
               Building baseline — keep logging sessions and daily check-ins.
             </p>
@@ -1132,136 +1310,6 @@ function AthleteAnalytics({
                   this app.
                 </p>
               )}
-            </>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Training Load Forecast — projects Fitness/Fatigue/Form forward
-          under a chosen "what if training continued like this" scenario.
-          Deliberately a separate card from the real chart above rather
-          than toggled into it, so the real, already-trusted chart stays
-          untouched and this is unambiguously a model, not measured data. */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Training Load Forecast</CardTitle>
-          <CardDescription>
-            A projection, not measured data — repeats this athlete's own last 7 days of training load forward,
-            scaled per scenario, and runs it through the same Fitness/Fatigue/Form math as the real chart above.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {!forecastChartData || !load || load.length < 7 ? (
-            <p className="text-sm text-muted-foreground">
-              Building baseline — need at least a week of real training load history to project from.
-            </p>
-          ) : (
-            <>
-              <div className="flex border rounded-md overflow-hidden text-xs w-fit mb-4">
-                <button
-                  onClick={() => setForecastScenario("continued")}
-                  className={`px-2.5 py-1 ${forecastScenario === "continued" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
-                >
-                  Continued
-                </button>
-                <button
-                  onClick={() => setForecastScenario("increased")}
-                  className={`px-2.5 py-1 ${forecastScenario === "increased" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
-                >
-                  Increased
-                </button>
-                <button
-                  onClick={() => setForecastScenario("decreased")}
-                  className={`px-2.5 py-1 ${forecastScenario === "decreased" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
-                >
-                  Decreased
-                </button>
-                <button
-                  onClick={() => setForecastScenario("none")}
-                  className={`px-2.5 py-1 ${forecastScenario === "none" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
-                >
-                  No training
-                </button>
-              </div>
-
-              <div className="h-[320px] w-full">
-                <ResponsiveContainer>
-                  <ComposedChart data={forecastChartData} margin={{ top: 26, right: 20, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
-                    <XAxis dataKey="load_date" tick={{ fontSize: 11 }} minTickGap={32} />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <Tooltip
-                      contentStyle={{
-                        background: "hsl(var(--background))",
-                        border: "1px solid hsl(var(--border))",
-                        fontSize: 12,
-                      }}
-                      itemStyle={{ color: "hsl(var(--foreground))" }}
-                      labelStyle={{ color: "hsl(var(--foreground))" }}
-                    />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeDasharray="2 4" />
-                    {load && load.length > 0 && (
-                      <ReferenceLine
-                        x={load[load.length - 1].load_date as string}
-                        stroke="hsl(var(--muted-foreground))"
-                        strokeWidth={1}
-                        label={{ value: "Today", position: "top", fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
-                      />
-                    )}
-                    {/* Real data — same colors/style as the Fitness, Fatigue
-                        & Form chart above, solid lines. */}
-                    <Area type="monotone" dataKey="tsb" name="Form" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.12} />
-                    <Line type="monotone" dataKey="ctl" name="Fitness" stroke="#10b981" strokeWidth={2} dot={false} />
-                    <Line
-                      type="monotone"
-                      dataKey="atl"
-                      name="Fatigue"
-                      stroke="#f43f5e"
-                      strokeWidth={2}
-                      strokeDasharray="4 3"
-                      dot={false}
-                    />
-                    {/* Projected continuation — same colors, open dashed
-                        stroke so it's unmistakably a projection, not more
-                        real data. */}
-                    <Area
-                      type="monotone"
-                      dataKey="tsbProjected"
-                      name="Form (projected)"
-                      stroke="#3b82f6"
-                      strokeDasharray="6 4"
-                      fill="#3b82f6"
-                      fillOpacity={0.05}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="ctlProjected"
-                      name="Fitness (projected)"
-                      stroke="#10b981"
-                      strokeWidth={2}
-                      strokeDasharray="6 4"
-                      dot={false}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="atlProjected"
-                      name="Fatigue (projected)"
-                      stroke="#f43f5e"
-                      strokeWidth={2}
-                      strokeDasharray="6 4"
-                      dot={false}
-                    />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-2">
-                "Continued" repeats this athlete's own last 7 days of training load forward as-is. "Increased" and
-                "decreased" scale that same weekly pattern up ~20% or down ~30%. "No training" projects a full stop.
-                All four use the same Fitness/Fatigue/Form math as the chart above, so the projected line always
-                picks up exactly where the real one leaves off — this is a model of what the numbers would do under
-                each scenario, not a prediction of what will actually happen.
-              </p>
             </>
           )}
         </CardContent>
