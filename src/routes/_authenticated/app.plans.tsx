@@ -23,6 +23,7 @@ import {
   computeProgressionPercents,
   buildProgressedWeekSessions,
   estimateTemplateSessionDistanceM,
+  bucketForEffortType,
   type ProgressionPatternId,
 } from "@/lib/plan-progression";
 import { CopyPeriodDialog, EditDraftForm } from "@/components/copy-period-dialog";
@@ -39,6 +40,12 @@ import {
   type CopyBucket,
   type WeekOverride,
 } from "@/lib/calendar-copy";
+import {
+  computeVolumeTargetDeltas,
+  kmDeltasToProgressionRules,
+  REP_BUCKETS,
+  type DistributionStrategy,
+} from "@/lib/volume-target";
 import { DeliverProgramDialog } from "@/components/deliver-program-dialog";
 
 export const Route = createFileRoute("/_authenticated/app/plans")({
@@ -487,13 +494,13 @@ function PlansPage() {
               <BuildOptionRow
                 title="Apply a template"
                 description="Assign an existing plan template — from your library or the System collection — to one athlete or a whole group."
-                steps={["Pick a template", "Choose who it's for", "Set progression (optional)", "Review & edit", "Assign"]}
+                steps={["Pick a template", "Choose who it's for", "Set progression (optional)", "Review & edit", "Save to calendar", "Notify/send to athlete"]}
                 onSelect={() => setView("browse")}
               />
               <BuildOptionRow
                 title="Build from scratch"
                 description="Design a brand-new plan template week by week, using the same step builder as a regular session — including threshold-relative targets."
-                steps={["Design weeks", "Save template", "Choose who it's for", "Review & edit", "Assign"]}
+                steps={["Design weeks", "Save template", "Choose who it's for", "Review & edit", "Save to calendar", "Notify/send to athlete"]}
                 onSelect={() => {
                   setReturnView("landing");
                   setBuilderTemplateId(null);
@@ -503,13 +510,13 @@ function PlansPage() {
               <BuildOptionRow
                 title="Copy athlete history"
                 description="Give each athlete their own recent training back as their own starting point — not one template fanned out, each athlete's own actual history."
-                steps={["Pick source range & scope", "Exact copy or edit", "Review & edit", "Copy"]}
+                steps={["Pick source range & scope", "Exact copy or edit", "Review & edit", "Save to calendar", "Notify/send to athlete"]}
                 onSelect={() => setHistoryDialogOpen(true)}
               />
               <BuildOptionRow
                 title="Copy period forward"
                 description="Take one source week or month and apply it — with optional progression — across selected athletes."
-                steps={["Pick source & target dates", "Set progression (optional)", "Review & edit", "Copy"]}
+                steps={["Pick source & target dates", "Set progression (optional)", "Review & edit", "Save to calendar", "Notify/send to athlete"]}
                 onSelect={() => setCopyPeriodOpen(true)}
               />
               <BuildOptionRow
@@ -968,6 +975,48 @@ function AssignPlanDialog({
   const [drafts, setDrafts] = useState<PlanAssignDraft[]>([]);
   const [editingDraft, setEditingDraft] = useState<PlanAssignDraft | null>(null);
 
+  // Volume Target — same aggregate weekly-total distribution as Copy's
+  // own Volume Target section (see src/lib/volume-target.ts), computed
+  // from this template's own sessions rather than a source date range.
+  const [volumeTargetKm, setVolumeTargetKm] = useState<string>("");
+  const [distributionStrategy, setDistributionStrategy] = useState<DistributionStrategy>("proportional");
+  const [longRunCapMode, setLongRunCapMode] = useState<"none" | "km" | "time">("none");
+  const [longRunCapKmInput, setLongRunCapKmInput] = useState<string>("");
+  const [longRunCapTimeInput, setLongRunCapTimeInput] = useState<string>("");
+  const [suggestedKmDelta, setSuggestedKmDelta] = useState<Partial<Record<CopyBucket, number>>>({});
+  const [suggestedRepDelta, setSuggestedRepDelta] = useState<Partial<Record<CopyBucket, number>>>({});
+  const [volumeTargetCapped, setVolumeTargetCapped] = useState(false);
+  const [volumeTargetComputed, setVolumeTargetComputed] = useState(false);
+  const [pendingRepDeltas, setPendingRepDeltas] = useState<Partial<Record<CopyBucket, number>>>({});
+
+  const { data: templateSessionsForVolume } = useQuery({
+    queryKey: ["template-sessions-for-volume-target", template.id],
+    queryFn: async () => {
+      const { data } = await supabase.from("plan_template_sessions").select("effort_type, steps").eq("plan_template_id", template.id);
+      return (data ?? []) as any[];
+    },
+  });
+
+  const currentKmByBucket: Partial<Record<CopyBucket, number>> = {};
+  const kmPerRepByBucket: Partial<Record<CopyBucket, number>> = {};
+  for (const b of COPY_BUCKETS) {
+    const sessionsInBucket = (templateSessionsForVolume ?? []).filter((s: any) => bucketForEffortType(s.effort_type) === b);
+    const totalM = sessionsInBucket.reduce(
+      (sum: number, s: any) => sum + estimateTemplateSessionDistanceM(s.effort_type, s.steps ?? []),
+      0,
+    );
+    currentKmByBucket[b] = totalM / 1000;
+    if (REP_BUCKETS.includes(b)) {
+      let totalReps = 0;
+      for (const s of sessionsInBucket) {
+        for (const st of s.steps ?? []) {
+          if (st.kind === "work" || st.kind === "strides") totalReps += Number(st.reps ?? 1);
+        }
+      }
+      if (totalReps > 0) kmPerRepByBucket[b] = totalM / 1000 / totalReps;
+    }
+  }
+
   const { data: roster } = useQuery({
     queryKey: ["roster-for-plan-assign"],
     queryFn: async () => {
@@ -1013,6 +1062,44 @@ function AssignPlanDialog({
     });
   }
 
+  function computeSuggestedVolumeTarget() {
+    const targetKm = Number(volumeTargetKm);
+    if (!targetKm) {
+      toast.error("Enter a target weekly total first");
+      return;
+    }
+
+    let capKm: number | null = null;
+    if (longRunCapMode === "km" && longRunCapKmInput) {
+      capKm = Number(longRunCapKmInput);
+    } else if (longRunCapMode === "time" && longRunCapTimeInput) {
+      // "H:MM" duration, not a pace string — parsed directly rather than
+      // via clockToSec (which is mm:ss for pace elsewhere in this app).
+      const [hStr, mStr] = longRunCapTimeInput.split(":");
+      const totalSeconds = (Number(hStr) || 0) * 3600 + (Number(mStr) || 0) * 60;
+      capKm = totalSeconds / 330; // long bucket's own assumed pace (5:30/km), same approximation used elsewhere
+    }
+
+    const result = computeVolumeTargetDeltas({
+      currentKmByBucket,
+      targetKm,
+      strategy: distributionStrategy,
+      longRunCapKm: capKm,
+      kmPerRepByBucket,
+    });
+
+    setSuggestedKmDelta(result.kmDeltaByBucket);
+    setSuggestedRepDelta(result.repDeltaByBucket);
+    setVolumeTargetCapped(result.longRunCapped);
+    setVolumeTargetComputed(true);
+  }
+
+  function applyVolumeTargetToProgression() {
+    setRules((r) => kmDeltasToProgressionRules(suggestedKmDelta, currentKmByBucket, r));
+    setPendingRepDeltas((prev) => ({ ...prev, ...suggestedRepDelta }));
+    toast.success("Volume target applied — Volume % below updated, rep counts will apply after Preview");
+  }
+
   function addWeekOverride() {
     if (overrideToWeek < overrideFromWeek) {
       toast.error("End week must be on or after the start week");
@@ -1044,7 +1131,12 @@ function AssignPlanDialog({
       const result = await previewPlanAssignment({
         data: { planTemplateId: template.id, startDate, progressionRules: rules, weekOverrides },
       });
-      setDrafts(result.drafts);
+      let finalDrafts = result.drafts;
+      for (const bucket of Object.keys(pendingRepDeltas) as CopyBucket[]) {
+        const delta = pendingRepDeltas[bucket];
+        if (delta) finalDrafts = applyRepDelta(finalDrafts, bucket, delta) as PlanAssignDraft[];
+      }
+      setDrafts(finalDrafts);
       setStepUi("review");
     } catch (err: any) {
       toast.error(err?.message ?? "Failed to build preview");
@@ -1203,10 +1295,129 @@ function AssignPlanDialog({
               )
             )}
 
+            <div className="rounded-md border p-3 space-y-2.5">
+              <Label className="text-xs">Volume target (optional)</Label>
+              <p className="text-xs text-muted-foreground">
+                Set a weekly total and a distribution strategy — computes suggested per-bucket deltas (km for
+                continuous buckets, reps for threshold/VO2) which you can fine-tune before applying. For minor
+                same-shape nudges instead, use the Quick nudge %/bucket controls below.
+              </p>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-[10px]">Target weekly total (km)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    placeholder={
+                      Object.values(currentKmByBucket).some((v) => (v ?? 0) > 0)
+                        ? `current: ${Object.values(currentKmByBucket).reduce((a: number, b) => a + (b ?? 0), 0).toFixed(1)}`
+                        : "e.g. 100"
+                    }
+                    value={volumeTargetKm}
+                    onChange={(e) => setVolumeTargetKm(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label className="text-[10px]">Distribution strategy</Label>
+                  <Select value={distributionStrategy} onValueChange={(v: any) => setDistributionStrategy(v)}>
+                    <SelectTrigger className="mt-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="proportional">Proportional (spread by current share)</SelectItem>
+                      <SelectItem value="long_priority">Long run priority</SelectItem>
+                      <SelectItem value="easy_priority">Easy priority</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div>
+                <Label className="text-[10px]">Long run cap (optional)</Label>
+                <div className="flex gap-2 mt-1">
+                  <Button size="sm" variant={longRunCapMode === "none" ? "default" : "outline"} onClick={() => setLongRunCapMode("none")}>
+                    No cap
+                  </Button>
+                  <Button size="sm" variant={longRunCapMode === "km" ? "default" : "outline"} onClick={() => setLongRunCapMode("km")}>
+                    Distance
+                  </Button>
+                  <Button size="sm" variant={longRunCapMode === "time" ? "default" : "outline"} onClick={() => setLongRunCapMode("time")}>
+                    Time
+                  </Button>
+                </div>
+                {longRunCapMode === "km" && (
+                  <Input
+                    type="number"
+                    min={0}
+                    placeholder="e.g. 32 km"
+                    className="mt-2"
+                    value={longRunCapKmInput}
+                    onChange={(e) => setLongRunCapKmInput(e.target.value)}
+                  />
+                )}
+                {longRunCapMode === "time" && (
+                  <Input
+                    placeholder="h:mm, e.g. 2:00"
+                    className="mt-2"
+                    value={longRunCapTimeInput}
+                    onChange={(e) => setLongRunCapTimeInput(e.target.value)}
+                  />
+                )}
+                <p className="text-xs text-muted-foreground mt-1">
+                  Once the long run hits this cap, the rest of the increase redirects to the other buckets instead
+                  of pushing the long run further.
+                </p>
+              </div>
+
+              <Button size="sm" variant="outline" onClick={computeSuggestedVolumeTarget}>
+                Compute suggested deltas
+              </Button>
+
+              {volumeTargetComputed && (
+                <div className="rounded border p-2.5 space-y-1.5 bg-muted/20">
+                  {volumeTargetCapped && (
+                    <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                      Long run cap reached — the remainder redirected to other buckets.
+                    </p>
+                  )}
+                  {COPY_BUCKETS.filter((b) => b !== "race" && (suggestedKmDelta[b] != null || suggestedRepDelta[b] != null)).map(
+                    (b) => (
+                      <div key={b} className="grid grid-cols-3 gap-2 items-center text-sm">
+                        <span className="text-xs text-muted-foreground">{COPY_BUCKET_LABELS[b]}</span>
+                        {suggestedRepDelta[b] != null ? (
+                          <Input
+                            type="number"
+                            className="col-span-2"
+                            value={suggestedRepDelta[b]}
+                            onChange={(e) => setSuggestedRepDelta((prev) => ({ ...prev, [b]: Number(e.target.value) }))}
+                          />
+                        ) : (
+                          <Input
+                            type="number"
+                            step="0.1"
+                            className="col-span-2"
+                            value={suggestedKmDelta[b]?.toFixed(1) ?? 0}
+                            onChange={(e) => setSuggestedKmDelta((prev) => ({ ...prev, [b]: Number(e.target.value) }))}
+                          />
+                        )}
+                      </div>
+                    ),
+                  )}
+                  <p className="text-[10px] text-muted-foreground">
+                    {"Continuous buckets show a km delta, threshold/VO2 show a rep-count delta. Edit any value, then apply."}
+                  </p>
+                  <Button size="sm" onClick={applyVolumeTargetToProgression}>
+                    Apply to progression
+                  </Button>
+                </div>
+              )}
+            </div>
+
             <div>
               <Label className="text-xs">
-                Progression (optional — adapts this template to this athlete/group; leave at 0 to assign it exactly
-                as built)
+                Quick nudge — %/bucket (optional; adapts this template to this athlete/group, leave at 0 to assign
+                it exactly as built)
               </Label>
               <div className="flex flex-wrap gap-2 mt-1.5">
                 {VOLUME_PATTERN_PRESETS.map((p) => (
