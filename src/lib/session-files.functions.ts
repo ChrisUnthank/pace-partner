@@ -1165,18 +1165,23 @@ function sortFilesForRebuild(files: any[]) {
   });
 }
 
-async function parseStoredFile(sb: any, file: { storage_path: string; file_kind: string }): Promise<ParsedFile | null> {
+async function parseStoredFile(
+  sb: any,
+  file: { storage_path: string; file_kind: string },
+): Promise<{ parsed: ParsedFile } | { error: string }> {
   const { data: blob, error } = await sb.storage.from("session-files").download(file.storage_path);
-  if (error || !blob) return null;
+  if (error || !blob) {
+    return { error: `couldn't be re-read from storage (${error?.message ?? "no file returned"})` };
+  }
   const buf = await blob.arrayBuffer();
 
   try {
     if (file.file_kind === "gpx") {
-      return parseGPX(new TextDecoder().decode(new Uint8Array(buf)));
+      return { parsed: parseGPX(new TextDecoder().decode(new Uint8Array(buf))) };
     }
-    return await parseFIT(buf);
-  } catch {
-    return null;
+    return { parsed: await parseFIT(buf) };
+  } catch (e: any) {
+    return { error: `re-parse failed (${String(e?.message ?? e)})` };
   }
 }
 
@@ -1262,7 +1267,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
 
   const { data: files } = await sb
     .from("session_files")
-    .select("id, storage_path, file_kind, started_at, total_distance_m, total_time_s, created_at")
+    .select("id, storage_path, file_kind, started_at, total_distance_m, total_time_s, created_at, original_filename")
     .eq("session_id", sessionId);
 
   const safeFiles = sortFilesForRebuild(files ?? []);
@@ -1312,13 +1317,22 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   }
 
   const parsedFiles: { file: any; parsed: ParsedFile }[] = [];
+  const parseFailures: string[] = [];
   for (const f of safeFiles) {
-    const parsed = await parseStoredFile(sb, f);
-    if (parsed) parsedFiles.push({ file: f, parsed });
+    const result = await parseStoredFile(sb, f);
+    if ("parsed" in result) {
+      parsedFiles.push({ file: f, parsed: result.parsed });
+    } else {
+      parseFailures.push(`"${f.original_filename ?? f.storage_path}" ${result.error}`);
+    }
   }
 
   if (parsedFiles.length === 0) {
-    throw new Error("Rebuild failed: no attached file could be parsed");
+    throw new Error(
+      parseFailures.length > 0
+        ? `Rebuild failed: ${parseFailures.join("; ")}`
+        : "Rebuild failed: no attached file could be parsed",
+    );
   }
 
   const anchorMsList = parsedFiles
