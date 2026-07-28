@@ -21,7 +21,7 @@ import { listMedia } from "@/lib/noticeboard.functions";
 
 export const Route = createFileRoute("/_authenticated/app/noticeboard")({
   component: () => (
-    <AppShell>
+    <AppShell fullWidth>
       <Noticeboard />
     </AppShell>
   ),
@@ -103,9 +103,18 @@ function Noticeboard() {
         <div className="xl:col-span-2 space-y-4">
           {/* HEADER */}
           <div className="flex justify-between items-center">
-            <div>
-              <h1 className="text-2xl font-bold">Noticeboard</h1>
-              <p className="text-sm text-muted-foreground">Squad announcements and updates</p>
+            <div className="flex items-center gap-3">
+              <div
+                className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+                style={{ background: "var(--accent-red)" }}
+              >
+                <Megaphone className="h-5 w-5 text-white" strokeWidth={2} />
+              </div>
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Community</div>
+                <h1 className="text-2xl font-bold leading-tight">Noticeboard</h1>
+                <p className="text-sm text-muted-foreground">Squad announcements and updates</p>
+              </div>
             </div>
 
             <Select value={filter} onValueChange={setFilter}>
