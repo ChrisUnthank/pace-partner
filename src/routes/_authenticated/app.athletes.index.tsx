@@ -100,8 +100,16 @@ function AthletesPage() {
     window.scrollTo(0, 0);
   }, []);
 
+  // Key deliberately NOT "roster" plain — the Home dashboard's
+  // useHomeRoster hook uses that same ["roster", user.id, isManager] key
+  // but selects a narrower set of columns (no email, user_id,
+  // athlete_invites, or timezone). Sharing the key meant this page could
+  // silently receive that narrower cached shape instead of its own,
+  // making invite/email status look wrong whenever Home loaded first —
+  // same root cause as the readiness-query crash below, just a silent
+  // data bug instead of a thrown error.
   const { data: roster } = useQuery({
-    queryKey: ["roster", user?.id, isManager],
+    queryKey: ["athletes-page-roster", user?.id, isManager],
     enabled: !!user,
     queryFn: async () => {
       if (isManager) {
@@ -173,8 +181,15 @@ function AthletesPage() {
   // Today's readiness (Ready/Caution/Recover) per athlete, batched the same
   // way parentInfo and profileSlugs are — one query for the whole roster —
   // so each row can show its flag without an N+1 query per athlete.
+  // Key is deliberately NOT "roster-readiness" — the Home dashboard's
+  // useRosterReadiness hook already uses that exact key (same athlete-id
+  // list) but caches a plain array, not a Map. Reusing the same key here
+  // meant the two pages could serve each other's cached shape and crash
+  // with a "X.get is not a function" error, since React Query treats
+  // identical keys as the same cache entry regardless of what each call
+  // site expects back.
   const { data: readinessByAthlete } = useQuery({
-    queryKey: ["roster-readiness", athleteIds.join(",")],
+    queryKey: ["athletes-page-readiness", athleteIds.join(",")],
     enabled: athleteIds.length > 0,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -228,7 +243,7 @@ function AthletesPage() {
     }
     setName(""); setEvent(""); setEmail(""); setContactEmail("");
     toast.success("Athlete added");
-    qc.invalidateQueries({ queryKey: ["roster"] });
+    qc.invalidateQueries({ queryKey: ["athletes-page-roster"] });
   }
 
   async function updateContactEmail(athleteId: string, current: string | null) {
@@ -237,7 +252,7 @@ function AthletesPage() {
     const { error } = await supabase.from("athletes").update({ email: next.trim() || null }).eq("id", athleteId);
     if (error) { toast.error(error.message); return; }
     toast.success(next.trim() ? "Contact email saved" : "Contact email cleared");
-    qc.invalidateQueries({ queryKey: ["roster"] });
+    qc.invalidateQueries({ queryKey: ["athletes-page-roster"] });
   }
 
   async function copyExistingInvite(athleteId: string, existing: any) {
@@ -250,7 +265,7 @@ function AthletesPage() {
       }).select("token").single();
       if (error || !data) { toast.error(error?.message ?? "Failed"); return; }
       token = data.token;
-      qc.invalidateQueries({ queryKey: ["roster"] });
+      qc.invalidateQueries({ queryKey: ["athletes-page-roster"] });
     }
     const link = `${window.location.origin}/claim/${token}`;
     try {
@@ -309,7 +324,7 @@ function AthletesPage() {
     if (error) { toast.error(error.message); return; }
     if (selectedAthleteId === athleteId) setSelectedAthleteId(null);
     toast.success("Removed from your roster");
-    qc.invalidateQueries({ queryKey: ["roster"] });
+    qc.invalidateQueries({ queryKey: ["athletes-page-roster"] });
   }
 
   async function sendJoinRequest() {
@@ -330,7 +345,7 @@ function AthletesPage() {
     if (result.already_linked) toast.success("Athlete is already on your roster");
     else toast.success("Join request sent");
     setJoinEmail(""); setJoinName(""); setJoinMessage("");
-    qc.invalidateQueries({ queryKey: ["roster"] });
+    qc.invalidateQueries({ queryKey: ["athletes-page-roster"] });
   }
 
   return (
