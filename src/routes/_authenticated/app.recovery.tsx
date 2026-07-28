@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { todayISO } from "@/lib/format";
 import { toast } from "sonner";
-import { Trash2 } from "lucide-react";
+import { Trash2, Bath } from "lucide-react";
 import { BucketTabStrip, HEALTH_TABS } from "@/components/bucket-tab-strip";
 
 export const Route = createFileRoute("/_authenticated/app/recovery")({
@@ -26,10 +26,10 @@ const MODALITIES = ["physio", "massage", "sauna", "compression", "ice_bath", "ot
 function RecoveryPage() {
   const { data: athlete, isLoading } = useMyAthlete();
 
-  if (isLoading) return <AppShell><p>Loading…</p></AppShell>;
+  if (isLoading) return <AppShell fullWidth><p>Loading…</p></AppShell>;
   if (!athlete)
     return (
-      <AppShell>
+      <AppShell fullWidth>
         <p className="text-sm">
           No athlete profile linked. Visit <Link to="/app/profile" className="underline">Profile</Link>.
         </p>
@@ -37,13 +37,22 @@ function RecoveryPage() {
     );
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <div className="space-y-6 max-w-3xl">
-        <div>
-          <h1 className="text-2xl font-bold">Recovery</h1>
-          <p className="text-sm text-muted-foreground">
-            Log physio, massage, and other recovery work to track what you're doing over time.
-          </p>
+        <div className="flex items-center gap-3">
+          <div
+            className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+            style={{ background: "var(--accent-red)" }}
+          >
+            <Bath className="h-5 w-5 text-white" strokeWidth={2} />
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Wellbeing</div>
+            <h1 className="text-2xl font-bold leading-tight">Recovery</h1>
+            <p className="text-sm text-muted-foreground">
+              Log physio, massage, and other recovery work to track what you're doing over time.
+            </p>
+          </div>
         </div>
         <BucketTabStrip items={HEALTH_TABS} active="/app/recovery" />
         <NewRecoveryForm athleteId={athlete.id} />
