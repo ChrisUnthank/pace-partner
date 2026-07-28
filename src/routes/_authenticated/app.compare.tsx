@@ -588,16 +588,23 @@ function ComparePage() {
   }, [comparison, targetLabel]);
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <GitCompare className="h-5 w-5" /> Compare Sessions
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            See how a repeated or similar session type has changed over time — and what that actually means for fitness
-            and likely race performance, not just a pace number.
-          </p>
+        <div className="flex items-center gap-3">
+          <div
+            className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+            style={{ background: "var(--accent-red)" }}
+          >
+            <GitCompare className="h-5 w-5 text-white" strokeWidth={2} />
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Metrics</div>
+            <h1 className="text-2xl font-bold leading-tight">Compare Sessions</h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              See how a repeated or similar session type has changed over time — and what that actually means for fitness
+              and likely race performance, not just a pace number.
+            </p>
+          </div>
         </div>
 
         {isCoach && (
