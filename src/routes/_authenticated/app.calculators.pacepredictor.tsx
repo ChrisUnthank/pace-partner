@@ -74,7 +74,7 @@ function PacePredictorPage() {
   }, [distanceKm, timeSec]);
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <div className="space-y-6 max-w-3xl">
         <div>
           <Link
@@ -83,10 +83,19 @@ function PacePredictorPage() {
           >
             <ChevronLeft className="h-3.5 w-3.5" /> Calculators
           </Link>
-          <h1 className="text-2xl font-bold mt-1 flex items-center gap-2">
-            <Timer className="h-5 w-5" /> Pace / Race Predictor
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <div className="flex items-center gap-3 mt-1">
+            <div
+              className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+              style={{ background: "var(--accent-red)" }}
+            >
+              <Timer className="h-5 w-5 text-white" strokeWidth={2} />
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Metrics</div>
+              <h1 className="text-2xl font-bold leading-tight">Pace / Race Predictor</h1>
+            </div>
+          </div>
+          <p className="text-sm text-muted-foreground mt-2">
             Enter a recent race result to get equivalent times at other distances, plus training paces built from that
             same performance.
           </p>
