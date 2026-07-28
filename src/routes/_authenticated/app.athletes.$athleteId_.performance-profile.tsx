@@ -18,6 +18,7 @@ import { StrengthsDevelopmentCard } from "@/components/strengths-development-car
 import { RaceProfileCard } from "@/components/race-profile-card";
 import { AthleteDnaRatingsCard } from "@/components/athlete-dna-ratings-card";
 import { DevelopmentPotentialCard } from "@/components/development-potential-card";
+import { EventSuitabilityCard } from "@/components/event-suitability-card";
 
 export const Route = createFileRoute("/_authenticated/app/athletes/$athleteId_/performance-profile")({
   component: PerformanceProfilePage,
@@ -150,6 +151,7 @@ function PerformanceProfilePage() {
             <StrengthsDevelopmentCard athleteId={athleteId} />
             <AthleteDnaRatingsCard athleteId={athleteId} />
             <DevelopmentPotentialCard athleteId={athleteId} />
+            <EventSuitabilityCard athleteId={athleteId} />
             <PerformanceCurveCard athleteId={athleteId} />
             <TrainingResponseCard athleteId={athleteId} />
             <RaceProfileCard athleteId={athleteId} />
