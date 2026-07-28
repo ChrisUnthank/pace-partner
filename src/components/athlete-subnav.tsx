@@ -75,14 +75,21 @@ export function AthleteSubnav({ athleteId, active }: { athleteId: string; active
             to={t.to as any}
             params={t.params as any}
             search={t.search as any}
+            title={t.label}
+            aria-label={t.label}
             className={cn(
-              "relative flex items-center gap-1.5 px-3 h-9 text-sm font-medium whitespace-nowrap shrink-0 transition-colors",
-              isActive ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+              "relative flex items-center justify-center h-9 w-10 shrink-0 rounded-t-md transition-colors",
+              isActive ? "text-[var(--accent-red)]" : "text-foreground hover:bg-accent/50",
             )}
           >
-            <t.icon className={cn("h-3.5 w-3.5", isActive && "text-[var(--accent-red)]")} />
-            {t.label}
-            {isActive && <span className="absolute left-0 right-0 -bottom-[1px] h-[2px] rounded-full bg-[var(--accent-red)]" />}
+            {/* Icon-only — no text label. Active page is still obvious at a
+                glance from the red color, a bolder stroke weight (the
+                closest lucide equivalent of "bold" on an outline icon),
+                and the underline bar below; inactive tabs stay plain
+                white/foreground rather than dimmed, since red is reserved
+                for "this is where you are". */}
+            <t.icon className="h-4 w-4" strokeWidth={isActive ? 2.75 : 2} />
+            {isActive && <span className="absolute left-1.5 right-1.5 -bottom-[1px] h-[2px] rounded-full bg-[var(--accent-red)]" />}
           </Link>
         );
       })}
