@@ -129,6 +129,18 @@ function CalendarPage() {
   // pixels, which visually yanks the view to whatever now occupies that
   // offset instead of keeping the user looking at the same date.
   const prevScrollHeightRef = useRef<number | null>(null);
+  // Guards handleContinuousScroll against re-triggering a month-window
+  // expansion while one is still settling. Without this, a fast mouse
+  // wheel (which fires many discrete, larger-delta scroll events, unlike
+  // trackpad momentum) can cross the 600px edge-load threshold several
+  // times before React has re-rendered the prepended month AND the
+  // compensating scrollTop adjustment below has actually run — each of
+  // those extra calls prepends another month and shifts scrollHeight
+  // again mid-flight, which is what produced the squashed/truncated
+  // month header glitch. Locked the instant an edge-load fires, released
+  // only once that load has actually settled (immediately for an append,
+  // after the scroll-position correction for a prepend).
+  const loadingEdgeRef = useRef(false);
 
   // Coach roster
   const { data: roster } = useQuery({
@@ -620,11 +632,22 @@ function CalendarPage() {
   // current viewport — see prevScrollHeightRef's declaration above for why.
   useLayoutEffect(() => {
     const el = scrollContainerRef.current;
-    if (!el || prevScrollHeightRef.current == null) return;
+    if (!el || prevScrollHeightRef.current == null) {
+      loadingEdgeRef.current = false;
+      return;
+    }
     const diff = el.scrollHeight - prevScrollHeightRef.current;
     if (diff > 0) el.scrollTop += diff;
     prevScrollHeightRef.current = null;
+    loadingEdgeRef.current = false;
   }, [monthWindowStart]);
+
+  // Append (bottom edge) doesn't shift scroll position the way a prepend
+  // does, so there's no measurement to wait for — the lock just needs
+  // releasing once the newly-appended month has actually rendered.
+  useEffect(() => {
+    loadingEdgeRef.current = false;
+  }, [monthWindowEnd]);
 
   // Expands the loaded window as the user scrolls near either edge —
   // this is what makes the scroll feel continuous instead of hitting a
@@ -634,12 +657,16 @@ function CalendarPage() {
   const EDGE_LOAD_THRESHOLD_PX = 600;
   function handleContinuousScroll(e: React.UIEvent<HTMLDivElement>) {
     if (view !== "month") return;
+    if (loadingEdgeRef.current) return;
     const el = e.currentTarget;
     if (el.scrollTop < EDGE_LOAD_THRESHOLD_PX) {
+      loadingEdgeRef.current = true;
       prevScrollHeightRef.current = el.scrollHeight;
       setMonthWindowStart((prev) => addMonths(prev, -1));
+      return;
     }
     if (el.scrollHeight - el.scrollTop - el.clientHeight < EDGE_LOAD_THRESHOLD_PX) {
+      loadingEdgeRef.current = true;
       setMonthWindowEnd((prev) => addMonths(prev, 1));
     }
   }
@@ -819,17 +846,12 @@ function CalendarPage() {
   return (
     <AppShell fullWidth>
       <div className="space-y-3">
-        {/* Row 1 — breadcrumb (left), athlete subnav (center), athlete/child
-            picker (right). The subnav used to share a row with the page
-            heading further down; moving it up here and merging that
-            heading row with the Today/Prev/Next controls (below) drops the
-            header from three rows to two, freeing real vertical room for
-            the calendar grid itself. Stacks vertically below md; the
-            3-column grid only centers the subnav once there's room for all
-            three side by side. */}
-        <div className="flex flex-col gap-2 md:grid md:grid-cols-3 md:items-center">
-          <div className="min-w-0">
-            {isCoach && selectedAthleteId && (
+        {/* Breadcrumb (coach only) paired with the athlete/child search —
+            right-aligned on the same line, rather than the picker having
+            its own row further down. */}
+        {((isCoach && selectedAthleteId) || (isParent && !isCoach && parentRoster.length > 0)) && (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            {isCoach && selectedAthleteId ? (
               <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
                 <Link to="/app/athletes" className="hover:text-foreground">
                   Athletes
@@ -843,23 +865,9 @@ function CalendarPage() {
                   {selectedAthleteName ?? "Athlete"}
                 </Link>
               </div>
-            )}
-          </div>
-          <div className="flex md:justify-center min-w-0">
-            {isCoach && selectedAthleteId ? (
-              <AthleteSubnav athleteId={selectedAthleteId} active="calendar" />
             ) : (
-              !isParent && (
-                <BucketTabStrip
-                  items={TRAINING_TABS.filter((t) =>
-                    t.to === "/app/daily-log" || t.to === "/app/my-schedule" ? roles.includes("athlete") : true,
-                  )}
-                  active="/app/sessions/calendar"
-                />
-              )
+              <div />
             )}
-          </div>
-          <div className="flex md:justify-end min-w-0">
             {isCoach &&
               roster &&
               roster.length > 0 &&
@@ -930,41 +938,59 @@ function CalendarPage() {
               </div>
             )}
           </div>
+        )}
+
+        {/* Icon + eyebrow heading, matching the pattern used elsewhere in
+            the app — paired on the same row as the athlete tab strip
+            (right-aligned) instead of each taking its own row. */}
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div
+              className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+              style={{ background: "var(--accent-red)" }}
+            >
+              <CalendarRange className="h-5 w-5 text-white" strokeWidth={2} />
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Training</div>
+              <h1 className="text-xl font-bold leading-tight">Calendar</h1>
+              {!isCoach && !isParent && (
+                <p className="text-xs text-muted-foreground">Sessions by date · color = intent / day type</p>
+              )}
+            </div>
+          </div>
+          {isCoach && selectedAthleteId ? (
+            <AthleteSubnav athleteId={selectedAthleteId} active="calendar" />
+          ) : (
+            !isParent && (
+              <BucketTabStrip
+                items={TRAINING_TABS.filter((t) =>
+                  t.to === "/app/daily-log" || t.to === "/app/my-schedule" ? roles.includes("athlete") : true,
+                )}
+                active="/app/sessions/calendar"
+              />
+            )
+          )}
         </div>
 
-        {/* Row 2 — icon + eyebrow heading, Today/Prev/Next and the current
-            month/week label all on the left (heading and date controls
-            side by side rather than stacked on separate rows), Month/Week
-            toggle + Copy + List view on the right. */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="flex items-center gap-3">
-              <div
-                className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
-                style={{ background: "var(--accent-red)" }}
-              >
-                <CalendarRange className="h-5 w-5 text-white" strokeWidth={2} />
-              </div>
-              <div>
-                <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Training</div>
-                <h1 className="text-xl font-bold leading-tight">Calendar</h1>
-                {!isCoach && !isParent && (
-                  <p className="text-xs text-muted-foreground">Sessions by date · color = intent / day type</p>
-                )}
-              </div>
-            </div>
-            <div className="flex items-center gap-1">
-              <Button variant="outline" size="icon" onClick={() => shift(-1)}>
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <Button variant="outline" size="sm" onClick={goToday}>
-                Today
-              </Button>
-              <Button variant="outline" size="icon" onClick={() => shift(1)}>
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-              <span className="ml-2 text-sm font-medium">{view === "month" ? monthLabel : weekLabel}</span>
-            </div>
+        {/* Today/Prev/Next + every toggle/action now share one row — Month/
+            Week, "Copy this month → next month", and List view all live
+            here instead of being split across a separate row of their own.
+            "Copy period forward" (the full dialog with progression rules)
+            has been removed from Calendar entirely — it already exists as
+            a "Build training" option on the Plans page. */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1">
+            <Button variant="outline" size="icon" onClick={() => shift(-1)}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" size="sm" onClick={goToday}>
+              Today
+            </Button>
+            <Button variant="outline" size="icon" onClick={() => shift(1)}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+            <span className="ml-2 text-sm font-medium">{view === "month" ? monthLabel : weekLabel}</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="inline-flex rounded-md border overflow-hidden">
@@ -1015,7 +1041,7 @@ function CalendarPage() {
               <div
                 ref={scrollContainerRef}
                 onScroll={handleContinuousScroll}
-                className="max-h-[75vh] lg:max-h-[82vh] overflow-y-auto brand-scrollbar"
+                className="max-h-[75vh] overflow-y-auto brand-scrollbar"
               >
                 <div className="p-1 sm:p-1.5">
                   {continuousMonths.map((month) => (
