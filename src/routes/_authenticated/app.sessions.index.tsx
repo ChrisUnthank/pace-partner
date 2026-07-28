@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { metersFmt, secToClock } from "@/lib/format";
 import { sessionClassificationLabel, SESSION_INTENTS, INTENT_LABEL, DAY_TYPE_LABEL } from "@/lib/session-categories";
-import { Plus, Upload, Users, Search, Eye, Trash2, Download, RefreshCw, X } from "lucide-react";
+import { Plus, Upload, Users, Search, Eye, Trash2, Download, RefreshCw, X, CalendarDays } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ActivityIcon } from "@/lib/activity-icon";
@@ -478,7 +478,7 @@ function SessionsList() {
   }
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       {isCoach && filterAthlete !== "all" && (
         <>
           <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground mb-2">
@@ -503,7 +503,18 @@ function SessionsList() {
         </div>
       )}
       <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
-        <h1 className="text-2xl font-bold">Sessions</h1>
+        <div className="flex items-center gap-3">
+          <div
+            className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+            style={{ background: "var(--accent-red)" }}
+          >
+            <CalendarDays className="h-5 w-5 text-white" strokeWidth={2} />
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Training</div>
+            <h1 className="text-2xl font-bold leading-tight">Sessions</h1>
+          </div>
+        </div>
         {/* Primary actions live up here with the heading (Coros-style),
             not buried in the sidebar. Calendar button dropped — the tab
             strip above already covers it. */}
