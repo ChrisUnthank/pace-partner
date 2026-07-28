@@ -916,11 +916,14 @@ function AthleteAnalytics({
   const dayTypeTotalSessions = useMemo(() => dayTypeData.reduce((a, d) => a + d.sessions, 0), [dayTypeData]);
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          {showBack && (
-            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+    <div className="space-y-3">
+      {/* Row 1 — breadcrumb + athlete subnav on the left, athlete picker on
+          the right. Same pattern as Calendar/Health/Performance Profile so
+          a coach always finds the athlete switcher in the same spot. */}
+      {showBack && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3 min-w-0">
+            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground shrink-0">
               <Link to="/app/athletes" className="hover:text-foreground">
                 Athletes
               </Link>
@@ -929,36 +932,50 @@ function AthleteAnalytics({
                 {athlete?.name ?? "Athlete"}
               </Link>
             </div>
-          )}
-          <h1 className="text-2xl font-bold mt-1">{athlete?.name ?? "Analytics"}</h1>
-          <div className="mt-1">
-            <ReadinessBadge
-              status={latest?.readiness_status as any}
-              score={latest?.readiness_score as any}
-              confidence={latest?.confidence as any}
-            />
+            <AthleteSubnav athleteId={athleteId} active="analytics" />
           </div>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {showBack && (
+          <div className="shrink-0">
             <CoachAthletePicker
               roster={roster ?? []}
               myAthlete={myAthlete as any}
               value={athleteId}
               onChange={(v) => navigate({ search: (p: any) => ({ ...p, athleteId: v }) })}
             />
-          )}
-          <RangePicker
-            value={range}
-            onChange={onRangeChange}
-            customFrom={customFrom}
-            customTo={customTo}
-            onCustomRange={onCustomRange}
+          </div>
+        </div>
+      )}
+
+      {/* Row 2 — icon + eyebrow heading (always "Analytics", never the
+          athlete's name) + readiness badge on the left, range picker on
+          the right. */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div
+              className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+              style={{ background: "var(--accent-red)" }}
+            >
+              <LineChart className="h-5 w-5 text-white" strokeWidth={2} />
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Metrics</div>
+              <h1 className="text-2xl font-bold leading-tight">Analytics</h1>
+            </div>
+          </div>
+          <ReadinessBadge
+            status={latest?.readiness_status as any}
+            score={latest?.readiness_score as any}
+            confidence={latest?.confidence as any}
           />
         </div>
+        <RangePicker
+          value={range}
+          onChange={onRangeChange}
+          customFrom={customFrom}
+          customTo={customTo}
+          onCustomRange={onCustomRange}
+        />
       </div>
-
-      {showBack && <AthleteSubnav athleteId={athleteId} active="analytics" />}
 
       {/* Year-at-a-glance weekly training strip — Coros-style. Clicking a
           week zooms every chart below to that week via the existing
