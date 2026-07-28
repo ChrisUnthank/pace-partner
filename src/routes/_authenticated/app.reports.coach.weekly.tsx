@@ -313,11 +313,19 @@ function AthleteReportPage() {
   }
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <div className="space-y-6 max-w-4xl print:max-w-none">
-        <div className="flex items-center gap-2 print:hidden">
-          <FileText className="h-5 w-5 text-[var(--accent-red)]" />
-          <h1 className="text-2xl font-bold">Athlete Report</h1>
+        <div className="flex items-center gap-3 print:hidden">
+          <div
+            className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+            style={{ background: "var(--accent-red)" }}
+          >
+            <FileText className="h-5 w-5 text-white" strokeWidth={2} />
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Metrics</div>
+            <h1 className="text-2xl font-bold leading-tight">Roster Report</h1>
+          </div>
         </div>
 
         <Card className="print:hidden">
