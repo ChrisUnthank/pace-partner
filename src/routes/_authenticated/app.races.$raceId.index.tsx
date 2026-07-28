@@ -570,7 +570,7 @@ function SessionDetail() {
         event_name: session.title || null,
         notes: session.notes || null,
         session_id: sessionId, // ✅ critical
-        is_pb: false,
+        // is_pb omitted — a DB trigger recomputes it right after insert.
         context: "race",
       };
 
@@ -1558,7 +1558,7 @@ function StepBlock({
       event_name: session.title || null,
       notes: session.notes || null,
       session_id: session.id,
-      is_pb: false,
+      // is_pb omitted — recomputed by trigger.
       context: "race",
     });
 
