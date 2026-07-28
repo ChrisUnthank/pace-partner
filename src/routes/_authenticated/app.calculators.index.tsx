@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Gauge, Timer, Mountain, Flame, ArrowRight } from "lucide-react";
+import { Gauge, Timer, Mountain, Flame, ArrowRight, Calculator } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/app/calculators/")({
@@ -43,11 +43,20 @@ const CALCULATORS = [
 
 function CalculatorsPage() {
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold">Calculators</h1>
-          <p className="text-sm text-muted-foreground">Standalone tools — no session or upload required.</p>
+        <div className="flex items-center gap-3">
+          <div
+            className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+            style={{ background: "var(--accent-red)" }}
+          >
+            <Calculator className="h-5 w-5 text-white" strokeWidth={2} />
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Metrics</div>
+            <h1 className="text-2xl font-bold leading-tight">Calculators</h1>
+            <p className="text-sm text-muted-foreground">Standalone tools — no session or upload required.</p>
+          </div>
         </div>
 
         <div className="grid sm:grid-cols-2 gap-4">
