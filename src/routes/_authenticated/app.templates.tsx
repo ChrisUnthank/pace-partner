@@ -15,7 +15,7 @@ import { INTENT_LABEL, STRUCTURE_LABEL } from "@/lib/session-categories";
 import { applyTemplateToSession } from "@/lib/templates";
 import { todayISO } from "@/lib/format";
 import { toast } from "sonner";
-import { Trash2, Play, Plus } from "lucide-react";
+import { Trash2, Play, Plus, BookmarkCheck } from "lucide-react";
 import { BucketTabStrip, COACHING_HUB_TABS } from "@/components/bucket-tab-strip";
 
 export const Route = createFileRoute("/_authenticated/app/templates")({
@@ -65,16 +65,25 @@ function TemplatesPage() {
     else { toast.success("Template deleted"); qc.invalidateQueries({ queryKey: ["templates"] }); }
   }
 
-  if (!isCoach) return <AppShell><p className="text-sm">Templates are coach-only.</p></AppShell>;
+  if (!isCoach) return <AppShell fullWidth><p className="text-sm">Templates are coach-only.</p></AppShell>;
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <div className="max-w-3xl space-y-4">
         <BucketTabStrip items={COACHING_HUB_TABS} active="/app/templates" />
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">Templates</h1>
-            <p className="text-sm text-muted-foreground">Save reusable session structures and apply them to any athlete on any date.</p>
+          <div className="flex items-center gap-3">
+            <div
+              className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+              style={{ background: "var(--accent-red)" }}
+            >
+              <BookmarkCheck className="h-5 w-5 text-white" strokeWidth={2} />
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Coaching</div>
+              <h1 className="text-2xl font-bold leading-tight">Templates</h1>
+              <p className="text-sm text-muted-foreground">Save reusable session structures and apply them to any athlete on any date.</p>
+            </div>
           </div>
           {/* Same destination as the New session buttons on Home and the
               Coaching Hub overview — templates and building from scratch
