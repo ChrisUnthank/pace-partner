@@ -106,7 +106,7 @@ function AppHome() {
   }
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <div className="space-y-6">
         <div className="flex items-center gap-3">
           <UserAvatar
