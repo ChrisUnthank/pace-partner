@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ExternalLink, Plus, Trash2 } from "lucide-react";
+import { ExternalLink, Plus, Trash2, IdCard } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { SingleImageUpload, MultiImageUpload } from "@/components/coach-profile/image-upload";
@@ -350,7 +350,7 @@ function CoachEditorPage() {
 
   if (isLoading) {
     return (
-      <AppShell>
+      <AppShell fullWidth>
         <div className="text-sm text-muted-foreground">Loading coach profile…</div>
       </AppShell>
     );
@@ -358,7 +358,7 @@ function CoachEditorPage() {
 
   if (error || !coach) {
     return (
-      <AppShell>
+      <AppShell fullWidth>
         <div className="text-sm text-muted-foreground">Coach not found.</div>
       </AppShell>
     );
@@ -447,10 +447,21 @@ function CoachEditorPage() {
   const contactDone = !!(form.location_city && form.contact_email);
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <div className="space-y-6 pb-16">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">Coach Page</h1>
+          <div className="flex items-center gap-3">
+            <div
+              className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+              style={{ background: "var(--accent-red)" }}
+            >
+              <IdCard className="h-5 w-5 text-white" strokeWidth={2} />
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Community</div>
+              <h1 className="text-2xl font-bold leading-tight">Coach Page</h1>
+            </div>
+          </div>
           <div className="flex items-center gap-3">
             <label className="flex items-center gap-2 text-sm">
               <Switch
