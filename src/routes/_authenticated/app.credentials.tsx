@@ -21,10 +21,10 @@ export const Route = createFileRoute("/_authenticated/app/credentials")({
 function CredentialsPage() {
   const { data: athlete, isLoading } = useMyAthlete();
 
-  if (isLoading) return <AppShell><p>Loading…</p></AppShell>;
+  if (isLoading) return <AppShell fullWidth><p>Loading…</p></AppShell>;
   if (!athlete)
     return (
-      <AppShell>
+      <AppShell fullWidth>
         <p className="text-sm">
           No athlete profile linked. Visit <Link to="/app/profile" className="underline">Profile</Link>.
         </p>
@@ -32,13 +32,22 @@ function CredentialsPage() {
     );
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <div className="space-y-6 max-w-2xl">
-        <div>
-          <h1 className="text-2xl font-bold">Credentials</h1>
-          <p className="text-sm text-muted-foreground">
-            Club, membership, and registration details — handy to have on hand for race-day admin.
-          </p>
+        <div className="flex items-center gap-3">
+          <div
+            className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+            style={{ background: "var(--accent-red)" }}
+          >
+            <IdCard className="h-5 w-5 text-white" strokeWidth={2} />
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Locker</div>
+            <h1 className="text-2xl font-bold leading-tight">Credentials</h1>
+            <p className="text-sm text-muted-foreground">
+              Club, membership, and registration details — handy to have on hand for race-day admin.
+            </p>
+          </div>
         </div>
         <BucketTabStrip items={LOCKER_TABS} active="/app/credentials" />
         <CredentialsForm athleteId={athlete.id} />
