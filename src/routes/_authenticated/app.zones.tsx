@@ -464,31 +464,50 @@ function CoachAthleteZonesView({ athleteId }: { athleteId: string }) {
   const hasAnyZoneTime = (zoneTimeRaw ?? []).length > 0;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
-        <Link to="/app/athletes" className="hover:text-foreground">
-          Athletes
-        </Link>
-        <span className="text-border">/</span>
-        <Link to="/app/athletes/$athleteId" params={{ athleteId }} className="hover:text-foreground">
-          {athlete?.name ?? "Athlete"}
-        </Link>
+    <div className="space-y-3">
+      {/* Row 1 — breadcrumb + athlete subnav on the left, athlete picker on
+          the right. Same pattern as Calendar/Analytics/Health/Performance
+          Profile so a coach always finds the athlete switcher in the same
+          spot. */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3 min-w-0">
+          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground shrink-0">
+            <Link to="/app/athletes" className="hover:text-foreground">
+              Athletes
+            </Link>
+            <span className="text-border">/</span>
+            <Link to="/app/athletes/$athleteId" params={{ athleteId }} className="hover:text-foreground">
+              {athlete?.name ?? "Athlete"}
+            </Link>
+          </div>
+          <AthleteSubnav athleteId={athleteId} active="zones" />
+        </div>
+        <div className="shrink-0">
+          <CoachAthletePicker
+            roster={rosterAthletes}
+            myAthlete={myAthlete as any}
+            value={athleteId}
+            onChange={(v) => navigate({ search: (p: any) => ({ ...p, athleteId: v }) })}
+          />
+        </div>
       </div>
-      <AthleteSubnav athleteId={athleteId} active="zones" />
 
-      <div className="flex items-start justify-between gap-3 flex-wrap">
+      {/* Row 2 — icon + eyebrow heading (always "Zones", never the
+          athlete's name), matching the roster-overview heading above. */}
+      <div className="flex items-center gap-3">
+        <div
+          className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+          style={{ background: "var(--accent-red)" }}
+        >
+          <Gauge className="h-5 w-5 text-white" strokeWidth={2} />
+        </div>
         <div>
-          <h1 className="text-2xl font-bold">{athlete?.name ?? "Zones"}</h1>
+          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Metrics</div>
+          <h1 className="text-2xl font-bold leading-tight">Zones</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Training zones, time-in-zone breakdown, and how boundaries have shifted over time.
           </p>
         </div>
-        <CoachAthletePicker
-          roster={rosterAthletes}
-          myAthlete={myAthlete as any}
-          value={athleteId}
-          onChange={(v) => navigate({ search: (p: any) => ({ ...p, athleteId: v }) })}
-        />
       </div>
 
       <ZoneBoundariesCard athleteId={athleteId} profile={zoneProfile} />
