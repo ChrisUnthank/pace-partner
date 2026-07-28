@@ -5,7 +5,7 @@ import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { BucketTabStrip, COACHING_HUB_TABS } from "@/components/bucket-tab-strip";
-import { Plus, Calendar, ListChecks } from "lucide-react";
+import { Plus, Calendar, ListChecks, BookmarkCheck } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/app/coaching-hub")({
   component: CoachingHubOverview,
@@ -54,12 +54,21 @@ function CoachingHubOverview() {
   });
 
   return (
-    <AppShell>
-      <div className="space-y-4 max-w-4xl">
+    <AppShell fullWidth>
+      <div className="space-y-4 max-w-6xl">
         <div className="flex items-start justify-between flex-wrap gap-2">
-          <div>
-            <h1 className="text-2xl font-bold">Coaching Hub</h1>
-            <p className="text-sm text-muted-foreground">Session templates, training plans, and everything you reuse across your roster.</p>
+          <div className="flex items-center gap-3">
+            <div
+              className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+              style={{ background: "var(--accent-red)" }}
+            >
+              <BookmarkCheck className="h-5 w-5 text-white" strokeWidth={2} />
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Coaching</div>
+              <h1 className="text-2xl font-bold leading-tight">Coaching Hub</h1>
+              <p className="text-sm text-muted-foreground">Session templates, training plans, and everything you reuse across your roster.</p>
+            </div>
           </div>
           {/* Quick-access row: Calendar and Sessions sit alongside Add Session
               so a coach can jump straight to either without leaving the hub
