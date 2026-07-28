@@ -12,7 +12,7 @@ import { AthleteSubnav } from "@/components/athlete-subnav";
 import { BucketTabStrip, HEALTH_TABS } from "@/components/bucket-tab-strip";
 import { CoachAthletePicker } from "@/components/coach-athlete-picker";
 import { todayISO } from "@/lib/format";
-import { AlertTriangle, Search, Apple, Bath, Bandage, FlaskConical, TestTube2 } from "lucide-react";
+import { AlertTriangle, Search, Apple, Bath, Bandage, FlaskConical, TestTube2, HeartPulse } from "lucide-react";
 import { useLactateSessionPoints, useLactateSpotChecks } from "./app.lactate";
 
 const searchSchema = z.object({
@@ -44,7 +44,7 @@ function HealthPage() {
   // own athlete row, plus the AthleteSubnav for further navigation.
   if (isCoach && search.athleteId) {
     return (
-      <AppShell>
+      <AppShell fullWidth>
         <CoachAthleteHealthView athleteId={search.athleteId} />
       </AppShell>
     );
@@ -55,14 +55,14 @@ function HealthPage() {
   // Analytics already do.
   if (isCoach) {
     return (
-      <AppShell>
+      <AppShell fullWidth>
         <CoachHealthRoster />
       </AppShell>
     );
   }
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <AthleteHealthView />
     </AppShell>
   );
@@ -394,9 +394,18 @@ function AthleteHealthView() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Health & Vitals</h1>
-        <p className="text-sm text-muted-foreground mt-1">Vitals, recovery, and injury status in one place.</p>
+      <div className="flex items-center gap-3">
+        <div
+          className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+          style={{ background: "var(--accent-red)" }}
+        >
+          <HeartPulse className="h-5 w-5 text-white" strokeWidth={2} />
+        </div>
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Wellbeing</div>
+          <h1 className="text-2xl font-bold leading-tight">Health & Vitals</h1>
+          <p className="text-sm text-muted-foreground mt-1">Vitals, recovery, and injury status in one place.</p>
+        </div>
       </div>
       <BucketTabStrip items={HEALTH_TABS} active="/app/health" />
       {isLoading ? <p className="text-sm text-muted-foreground">Loading…</p> : <HealthSnapshotCard snapshot={snapshot} />}
@@ -535,9 +544,18 @@ function CoachHealthRoster() {
   return (
     <div className="space-y-6">
       <div className="flex items-end justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold">Health & Vitals</h1>
-          <p className="text-sm text-muted-foreground mt-1">Latest log date and injury flags across your roster.</p>
+        <div className="flex items-center gap-3">
+          <div
+            className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+            style={{ background: "var(--accent-red)" }}
+          >
+            <HeartPulse className="h-5 w-5 text-white" strokeWidth={2} />
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Wellbeing</div>
+            <h1 className="text-2xl font-bold leading-tight">Health & Vitals</h1>
+            <p className="text-sm text-muted-foreground mt-1">Latest log date and injury flags across your roster.</p>
+          </div>
         </div>
         <div className="relative w-full sm:w-64">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
