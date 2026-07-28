@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Plus, Trash2, Repeat } from "lucide-react";
+import { Plus, Trash2, Repeat, NotebookPen } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyRoles, useMyRawRoles, useMyAthlete, useMyLinkedAthletes } from "@/lib/use-auth";
@@ -21,7 +21,7 @@ import { listAthletePlanDeliveries } from "@/lib/plan-delivery.functions";
 
 export const Route = createFileRoute("/_authenticated/app/my-schedule")({
   component: () => (
-    <AppShell>
+    <AppShell fullWidth>
       <MySchedulePage />
     </AppShell>
   ),
@@ -196,12 +196,21 @@ function MySchedulePage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold">Diary</h1>
-        <p className="text-sm text-muted-foreground">
-          Your week, laid out — coach-assigned sessions from Training Schedule alongside your own work shifts,
-          appointments, and everything else on your plate. Drag a personal item to move it to another day.
-        </p>
+      <div className="flex items-center gap-3">
+        <div
+          className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+          style={{ background: "var(--accent-red)" }}
+        >
+          <NotebookPen className="h-5 w-5 text-white" strokeWidth={2} />
+        </div>
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Locker</div>
+          <h1 className="text-2xl font-bold leading-tight">Diary</h1>
+          <p className="text-sm text-muted-foreground">
+            Your week, laid out — coach-assigned sessions from Training Schedule alongside your own work shifts,
+            appointments, and everything else on your plate. Drag a personal item to move it to another day.
+          </p>
+        </div>
       </div>
 
       <BucketTabStrip items={LOCKER_TABS} active="/app/my-schedule" />
