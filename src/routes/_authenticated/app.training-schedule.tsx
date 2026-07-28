@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Plus, Pencil, Trash2, MapPin, CalendarPlus, ExternalLink, Ban, Megaphone, ChevronRight, Users } from "lucide-react";
+import { Plus, Pencil, Trash2, MapPin, CalendarPlus, ExternalLink, Ban, Megaphone, ChevronRight, Users, Clock } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -25,7 +25,7 @@ import { UserAvatar } from "@/components/user-avatar";
 
 export const Route = createFileRoute("/_authenticated/app/training-schedule")({
   component: () => (
-    <AppShell>
+    <AppShell fullWidth>
       <TrainingSchedulePage />
     </AppShell>
   ),
@@ -183,9 +183,18 @@ function TrainingSchedulePage() {
 
   return (
     <div className="space-y-4 max-w-5xl">
-      <div>
-        <h1 className="text-2xl font-bold">Training Schedule</h1>
-        <p className="text-sm text-muted-foreground">Location, days, and times for squad, group, or individual training with the coach.</p>
+      <div className="flex items-center gap-3">
+        <div
+          className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+          style={{ background: "var(--accent-red)" }}
+        >
+          <Clock className="h-5 w-5 text-white" strokeWidth={2} />
+        </div>
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Training</div>
+          <h1 className="text-2xl font-bold leading-tight">Training Schedule</h1>
+          <p className="text-sm text-muted-foreground">Location, days, and times for squad, group, or individual training with the coach.</p>
+        </div>
       </div>
 
       <BucketTabStrip
