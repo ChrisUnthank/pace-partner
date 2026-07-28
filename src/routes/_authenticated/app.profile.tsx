@@ -19,10 +19,12 @@ import { setStoredUnits } from "@/lib/units";
 import { TIMEZONE_OPTIONS, guessLocalTimezone } from "@/lib/timezones";
 import { ZoneBoundariesCard } from "@/components/zone-boundaries-card";
 import { GoalsCard } from "@/components/goals-card";
+import { AthleteSeasonsCard } from "@/components/athlete-seasons-card";
 import { AthleteIdentityCard } from "@/components/athlete-identity-card";
 import { ContactDetailsCard } from "@/components/contact-details-card";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
-import { computePbStatus, pbStatusFor } from "@/lib/performance-pb";
+import { computePbStatus, pbStatusFor, PB_BADGE_LABEL, PB_BADGE_CLASS } from "@/lib/performance-pb";
+import { cn } from "@/lib/utils";
 import { PerformanceEditDialog, type EditablePerformance } from "@/components/performance-edit-dialog";
 
 export const Route = createFileRoute("/_authenticated/app/profile")({
@@ -163,6 +165,9 @@ function Profile() {
 
         {/* Full width: zone boundaries */}
         {athlete && <ZoneBoundariesCard athleteId={athlete.id} profile={zones} />}
+
+        {/* Full width: season windows feed the PBs card's Season Best badges directly below */}
+        {athlete && <AthleteSeasonsCard athleteId={athlete.id} />}
 
         {/* Full width: performances table + chart need the extra room */}
         {athlete && (
@@ -1381,7 +1386,7 @@ Geelong`}
           <div className="space-y-2">
             <div className="divide-y border rounded">
               {visiblePerformances.map((p) => {
-                const { isCurrentPB, isPastPB } = pbStatusFor(p.id, pbStatusMap);
+                const { badge } = pbStatusFor(p.id, pbStatusMap);
 
                 return (
                   <div key={p.id} className="flex justify-between items-center gap-3 px-3 py-2 text-sm">
@@ -1397,15 +1402,8 @@ Geelong`}
                           <span className="text-muted-foreground">{p.event_name}</span>
                         </>
                       )}
-                      {isCurrentPB && (
-                        <Badge className="ml-1 bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-emerald-200">
-                          PB
-                        </Badge>
-                      )}
-                      {isPastPB && (
-                        <Badge className="ml-1 bg-amber-100 text-amber-700 hover:bg-amber-100 border-amber-200">
-                          Past PB
-                        </Badge>
+                      {badge && (
+                        <Badge className={cn("ml-1", PB_BADGE_CLASS[badge])}>{PB_BADGE_LABEL[badge]}</Badge>
                       )}
                     </span>
 
