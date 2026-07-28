@@ -12,7 +12,7 @@ import { ReadinessBadge } from "@/components/readiness-badge";
 import { VitalsPanel } from "@/components/vitals-panel";
 import { CoachChat } from "@/components/coach-chat";
 import { toast } from "sonner";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, LayoutGrid } from "lucide-react";
 import { AthleteSubnav } from "@/components/athlete-subnav";
 import { CoachAthletePicker } from "@/components/coach-athlete-picker";
 import { UserAvatar } from "@/components/user-avatar";
@@ -302,9 +302,12 @@ function AthleteDetail() {
             <div className="flex items-center gap-4">
               <UserAvatar name={athlete.name} imageUrl={(athlete as any).profile_image_url} size="xl" />
               <div>
-                <h1 className="font-display text-4xl font-extrabold tracking-tight leading-none">
-                  {athlete.name}
-                </h1>
+                <div className="flex items-center gap-2">
+                  <LayoutGrid className="h-6 w-6 text-[var(--accent-red)] shrink-0" strokeWidth={2} />
+                  <h1 className="font-display text-4xl font-extrabold tracking-tight leading-none">
+                    {athlete.name}
+                  </h1>
+                </div>
                 <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
                   {athlete.primary_event ?? "Unassigned event"}
                 </p>
