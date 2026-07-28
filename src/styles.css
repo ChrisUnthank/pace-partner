@@ -190,3 +190,31 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator {
 .brand-scrollbar::-webkit-scrollbar-thumb:hover {
   opacity: 1;
 }
+
+/* Same brand-red treatment applied globally to the page/window scroll
+   itself (html), not just specific inner containers marked with
+   .brand-scrollbar above. Every page scrolls via the document — `main` in
+   AppShell has no height cap of its own — so this is the only way to
+   brand that main scrollbar consistently everywhere, including pages
+   that don't opt into an inner scroll container at all. Going forward,
+   any new scrollable container (a list, a modal body, a side panel)
+   should get the `brand-scrollbar` class explicitly; this rule only
+   covers the outermost page scroll. */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent-red) transparent;
+}
+html::-webkit-scrollbar {
+  width: 10px;
+}
+html::-webkit-scrollbar-track {
+  background: transparent;
+}
+html::-webkit-scrollbar-thumb {
+  background-color: var(--accent-red);
+  border-radius: 9999px;
+  opacity: 0.6;
+}
+html::-webkit-scrollbar-thumb:hover {
+  opacity: 1;
+}
