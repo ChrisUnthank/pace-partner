@@ -23,7 +23,7 @@ import { GoalsCard } from "@/components/goals-card";
 import { AthleteIdentityCard } from "@/components/athlete-identity-card";
 import { Badge } from "@/components/ui/badge";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
-import { computePbStatus, pbStatusFor } from "@/lib/performance-pb";
+import { computePbStatus, pbStatusFor, PB_BADGE_LABEL, PB_BADGE_CLASS } from "@/lib/performance-pb";
 
 export const Route = createFileRoute("/_authenticated/app/athletes/$athleteId")({
   component: AthleteDetail,
@@ -370,23 +370,14 @@ function AthleteDetail() {
                 <table className="w-full text-sm">
                   <tbody>
                     {pbs.map((p: any) => {
-                      const { isCurrentPB, isPastPB } = pbStatusFor(p.id, pbStatusMap);
+                      const { badge } = pbStatusFor(p.id, pbStatusMap);
 
                       return (
                         <tr key={p.id} className="border-t">
                           <td className="py-2 px-3 whitespace-nowrap">
                             <span className="inline-flex items-center gap-1">
                               {metersFmt(p.distance_m)}
-                              {isCurrentPB && (
-                                <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-emerald-200">
-                                  PB
-                                </Badge>
-                              )}
-                              {isPastPB && (
-                                <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 border-amber-200">
-                                  Past PB
-                                </Badge>
-                              )}
+                              {badge && <Badge className={PB_BADGE_CLASS[badge]}>{PB_BADGE_LABEL[badge]}</Badge>}
                             </span>
                           </td>
                           <td className="py-2 px-3 text-right tabular-nums whitespace-nowrap">{secToClock(p.time_seconds)}</td>
