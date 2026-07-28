@@ -17,6 +17,8 @@ import { YearlyLoadStrip } from "@/components/yearly-load-strip";
 import { ActivityIcon } from "@/lib/activity-icon";
 import { listPosts } from "@/lib/noticeboard.functions";
 import { listMessageContacts } from "@/lib/messages.functions";
+import { athleteNavTabs } from "@/lib/athlete-nav-tabs";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import {
   ClipboardList,
   CalendarDays,
@@ -298,8 +300,30 @@ export function YourAthletesWidget() {
   const { data: roster } = useHomeRoster();
   const { data: readiness } = useRosterReadiness(roster);
 
+  // Public Athlete Page slugs, batched the same way the Roster page does
+  // it — needed so each row's "Athlete Page" icon can link straight to the
+  // existing public page when one exists, same as the Roster page and
+  // AthleteSubnav.
+  const athleteIds = (roster ?? []).map((r: any) => r.athlete_id);
+  const { data: profileSlugs } = useQuery({
+    queryKey: ["roster-athlete-slugs", athleteIds.join(",")],
+    enabled: athleteIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("athlete_profiles")
+        .select("athlete_id, slug")
+        .in("athlete_id", athleteIds);
+      if (error) throw error;
+      const m = new Map<string, string>();
+      for (const p of data ?? []) m.set(p.athlete_id, p.slug);
+      return m;
+    },
+  });
+
+  const selectedAthlete = roster?.find((r: any) => r.athlete_id === selectedAthleteId)?.athletes ?? null;
+
   return (
-    <div className="space-y-4">
+    <>
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Your athletes</CardTitle>
@@ -324,34 +348,61 @@ export function YourAthletesWidget() {
               .
             </p>
           ) : (
-            <div className="divide-y max-h-[420px] overflow-y-auto">
+            <div className="divide-y max-h-[420px] overflow-y-auto brand-scrollbar pr-1">
               {roster.map((r: any) => {
                 const ready = readiness?.find((x) => x.athlete_id === r.athlete_id);
+                const slug = profileSlugs?.get(r.athlete_id) ?? null;
+                const tabs = athleteNavTabs(r.athlete_id, slug);
                 return (
-                  <button
+                  <div
                     key={r.athlete_id}
-                    type="button"
-                    onClick={() => setSelectedAthleteId(r.athlete_id)}
-                    className={`w-full flex items-center justify-between py-3 hover:bg-accent/50 px-2 rounded gap-3 text-left ${
+                    className={`flex flex-col gap-2 py-3 px-2 rounded gap-y-1 ${
                       selectedAthleteId === r.athlete_id ? "bg-accent/60" : ""
                     }`}
                   >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <UserAvatar name={r.athletes?.name} imageUrl={r.athletes?.profile_image_url} size="sm" />
-                      <div className="min-w-0">
-                        <div className="font-medium truncate">{r.athletes?.name}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {r.athletes?.primary_event ?? "—"}
-                          {r.athletes?.last_log_at && <> · last log {formatRelative(r.athletes.last_log_at)}</>}
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedAthleteId(r.athlete_id)}
+                        title="Quick view"
+                        className="flex items-center gap-3 min-w-0 text-left hover:opacity-80 transition-opacity"
+                      >
+                        <UserAvatar name={r.athletes?.name} imageUrl={r.athletes?.profile_image_url} size="sm" />
+                        <div className="min-w-0">
+                          <div className="font-medium truncate">{r.athletes?.name}</div>
+                          <div className="text-xs text-muted-foreground truncate">
+                            {r.athletes?.primary_event ?? "—"}
+                            {r.athletes?.last_log_at && <> · last log {formatRelative(r.athletes.last_log_at)}</>}
+                          </div>
+                        </div>
+                      </button>
+                      <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                        <ReadinessBadge
+                          status={ready?.readiness_status as any}
+                          score={ready?.readiness_score as any}
+                          confidence={ready?.confidence as any}
+                        />
+                        {/* Same sub-page jump strip as the Roster page —
+                            one icon per athlete page, always red. */}
+                        <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar">
+                          {tabs.map((t) => (
+                            <Button
+                              key={t.key}
+                              asChild
+                              size="icon"
+                              variant="ghost"
+                              title={t.label}
+                              className="h-7 w-7 text-[var(--accent-red)] hover:bg-[var(--accent-red)]/10 hover:text-[var(--accent-red)]"
+                            >
+                              <Link to={t.to as any} params={(t as any).params as any} search={(t as any).search as any}>
+                                <t.icon className="h-3.5 w-3.5" />
+                              </Link>
+                            </Button>
+                          ))}
                         </div>
                       </div>
                     </div>
-                    <ReadinessBadge
-                      status={ready?.readiness_status as any}
-                      score={ready?.readiness_score as any}
-                      confidence={ready?.confidence as any}
-                    />
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -359,13 +410,19 @@ export function YourAthletesWidget() {
         </CardContent>
       </Card>
 
-      {selectedAthleteId && (
-        <AthleteSummaryPanel
-          athlete={roster?.find((r: any) => r.athlete_id === selectedAthleteId)?.athletes ?? null}
-          onClose={() => setSelectedAthleteId(null)}
-        />
-      )}
-    </div>
+      {/* Quick-view — a fixed side panel (Sheet), same as the Roster
+          page's, rather than an in-flow block that used to render below
+          the whole list — on a longer roster that meant scrolling down
+          past the list to see it. */}
+      <Sheet open={!!selectedAthlete} onOpenChange={(o) => !o && setSelectedAthleteId(null)}>
+        <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto brand-scrollbar">
+          <SheetHeader>
+            <SheetTitle className="sr-only">Athlete quick view</SheetTitle>
+          </SheetHeader>
+          <AthleteSummaryPanel athlete={selectedAthlete} embedded onClose={() => setSelectedAthleteId(null)} />
+        </SheetContent>
+      </Sheet>
+    </>
   );
 }
 
