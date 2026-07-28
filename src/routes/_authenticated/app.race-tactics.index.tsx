@@ -87,7 +87,7 @@ function RaceTacticsList() {
   const newPlanSearch = filterAthleteId ? { athleteId: filterAthleteId } : undefined;
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <div className="space-y-4 max-w-4xl">
         {isCoach && (
           <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
@@ -109,24 +109,30 @@ function RaceTacticsList() {
           </div>
         )}
         <div className="flex items-center justify-between flex-wrap gap-2">
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <Flag className="h-5 w-5 text-[var(--accent-red)]" />
-              Race Tactics
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              {filterAthleteId ? (
-                <>
-                  Plans for <span className="font-medium text-foreground">{filterAthlete?.name ?? "this athlete"}</span>
-                  {" · "}
-                  <Link to="/app/race-tactics" className="underline">
-                    View all plans
-                  </Link>
-                </>
-              ) : (
-                "Goal-time race plans with editable splits."
-              )}
-            </p>
+          <div className="flex items-center gap-3">
+            <div
+              className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+              style={{ background: "var(--accent-red)" }}
+            >
+              <Flag className="h-5 w-5 text-white" strokeWidth={2} />
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Performances</div>
+              <h1 className="text-2xl font-bold leading-tight">Race Tactics</h1>
+              <p className="text-sm text-muted-foreground mt-1">
+                {filterAthleteId ? (
+                  <>
+                    Plans for <span className="font-medium text-foreground">{filterAthlete?.name ?? "this athlete"}</span>
+                    {" · "}
+                    <Link to="/app/race-tactics" className="underline">
+                      View all plans
+                    </Link>
+                  </>
+                ) : (
+                  "Goal-time race plans with editable splits."
+                )}
+              </p>
+            </div>
           </div>
           <Button asChild>
             <Link to="/app/race-tactics/new" search={newPlanSearch as any}>
