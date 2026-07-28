@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ExternalLink, Plus, Trash2 } from "lucide-react";
+import { ExternalLink, Plus, Trash2, Globe } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { SingleImageUpload, MultiImageUpload } from "@/components/coach-profile/image-upload";
@@ -358,14 +358,14 @@ function AthleteEditorPage() {
 
   if (isLoading) {
     return (
-      <AppShell>
+      <AppShell fullWidth>
         <div className="text-sm text-muted-foreground">Loading athlete page…</div>
       </AppShell>
     );
   }
   if (error || !profile || !athlete) {
     return (
-      <AppShell>
+      <AppShell fullWidth>
         <div className="text-sm text-muted-foreground">Athlete page not found.</div>
       </AppShell>
     );
@@ -450,7 +450,7 @@ function AthleteEditorPage() {
   );
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <div className="space-y-6 pb-16">
         {isCoach && (
           <>
@@ -467,7 +467,18 @@ function AthleteEditorPage() {
           </>
         )}
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">Athlete Page</h1>
+          <div className="flex items-center gap-3">
+            <div
+              className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+              style={{ background: "var(--accent-red)" }}
+            >
+              <Globe className="h-5 w-5 text-white" strokeWidth={2} />
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Community</div>
+              <h1 className="text-2xl font-bold leading-tight">Athlete Page</h1>
+            </div>
+          </div>
           <div className="flex items-center gap-3">
             <label className="flex items-center gap-2 text-sm">
               <Switch checked={!!form.is_published} onCheckedChange={(v) => setForm({ ...form, is_published: !!v })} />
