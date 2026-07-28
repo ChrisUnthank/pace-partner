@@ -970,7 +970,7 @@ function CalendarPage() {
               </div>
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Training</div>
-                <h1 className="text-xl font-bold leading-tight">Calendar</h1>
+                <h1 className="text-2xl font-bold leading-tight">Calendar</h1>
                 {!isCoach && !isParent && (
                   <p className="text-xs text-muted-foreground">Sessions by date · color = intent / day type</p>
                 )}
