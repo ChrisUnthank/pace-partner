@@ -6,7 +6,7 @@ import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, Megaphone, CheckCheck, Check, Pencil } from "lucide-react";
+import { Send, Megaphone, CheckCheck, Check, Pencil, MessageSquare } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuthUser, useMyRoles } from "@/lib/use-auth";
 import { listMessageContacts, listThread, sendMessage, markThreadRead, broadcastToAthletes, editMessage, listMyBroadcasts, editBroadcast } from "@/lib/messages.functions";
@@ -15,9 +15,9 @@ import { toast } from "sonner";
 import { UserAvatar } from "@/components/user-avatar";
 
 export const Route = createFileRoute("/_authenticated/app/messages")({
-  component: () => <AppShell><Messages /></AppShell>,
-  errorComponent: ({ error }) => <AppShell><p className="text-sm text-destructive">{String(error)}</p></AppShell>,
-  notFoundComponent: () => <AppShell><p>Not found</p></AppShell>,
+  component: () => <AppShell fullWidth><Messages /></AppShell>,
+  errorComponent: ({ error }) => <AppShell fullWidth><p className="text-sm text-destructive">{String(error)}</p></AppShell>,
+  notFoundComponent: () => <AppShell fullWidth><p>Not found</p></AppShell>,
 });
 
 function Messages() {
@@ -102,9 +102,18 @@ function Messages() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Messages</h1>
-          <p className="text-sm text-muted-foreground">Direct conversations with your {isCoach ? "athletes" : "coach"}.</p>
+        <div className="flex items-center gap-3">
+          <div
+            className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+            style={{ background: "var(--accent-red)" }}
+          >
+            <MessageSquare className="h-5 w-5 text-white" strokeWidth={2} />
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Community</div>
+            <h1 className="text-2xl font-bold leading-tight">Messages</h1>
+            <p className="text-sm text-muted-foreground">Direct conversations with your {isCoach ? "athletes" : "coach"}.</p>
+          </div>
         </div>
       </div>
 
@@ -169,7 +178,7 @@ function Messages() {
           <CardHeader className="pb-2 border-b border-border">
             <CardTitle className="text-base">{activeContact?.name ?? "Select a conversation"}</CardTitle>
           </CardHeader>
-          <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-2 bg-muted/20">
+          <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-2 bg-muted/20 brand-scrollbar">
             {(messages as any[]).map((m) => {
               const mine = m.sender_id === user?.id;
               const canEdit = mine && differenceInHours(new Date(), new Date(m.created_at)) < 24;
