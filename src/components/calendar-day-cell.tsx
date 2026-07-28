@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Plus, Thermometer, Wind, HeartPulse } from "lucide-react";
+import { Plus, Thermometer, Wind, HeartPulse, Medal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { sessionClassificationLabel, INTENT_LABEL, DAY_TYPE_LABEL } from "@/lib/session-categories";
 import { ActivityIcon } from "@/lib/activity-icon";
@@ -26,6 +26,18 @@ export type CalendarSession = {
   targetLabel?: string | null;
 };
 
+// A PB that landed on this day — sourced from `performances` (is_pb =
+// true), entirely independent of `sessions`/session data. Deliberately a
+// separate, minimal shape (not CalendarSession) since this is a display
+// decoration, not something the analytics pipeline reads — populating it
+// never touches total_distance_m or anything session-derived.
+export type DayPb = {
+  id: string;
+  distance_m: number;
+  time_seconds: number;
+  event_name: string | null;
+};
+
 export type DayData = {
   date: string; // YYYY-MM-DD
   sessions: CalendarSession[];
@@ -37,6 +49,10 @@ export type DayData = {
   // calendar the same way TrainingPeaks' Metrics card shows it, reusing data
   // that already exists rather than building a new tracking pipeline.
   restingHr?: number | null;
+  // Any PBs set on this date — including ones with no session behind
+  // them at all (bulk-imported or manually entered historical results),
+  // which is exactly why this can't be derived from `sessions` above.
+  pbs?: DayPb[];
 };
 
 // Forecast for a single future day — only ever populated for days ahead of
@@ -101,6 +117,12 @@ export function sessionShortLabel(s: CalendarSession): string {
   return "Training";
 }
 
+function pbTooltip(pbs: DayPb[]): string {
+  return pbs
+    .map((p) => `PB — ${metersFmt(p.distance_m)} in ${secToClock(p.time_seconds)}${p.event_name ? ` (${p.event_name})` : ""}`)
+    .join("\n");
+}
+
 export function CalendarDayCell({
   day,
   inMonth,
@@ -123,6 +145,7 @@ export function CalendarDayCell({
   const sessions = day.sessions;
   const dayNum = Number(day.date.slice(8, 10));
   const readinessCls = day.readiness_status ? READINESS_DOT[day.readiness_status] : null;
+  const pbs = day.pbs ?? [];
 
   const addButton = onAdd && (
     <button
@@ -152,6 +175,13 @@ export function CalendarDayCell({
         {dayNum}
       </span>
       <div className="flex items-center gap-1">
+        {pbs.length > 0 && (
+          <Medal
+            className="h-3 w-3 text-amber-500 shrink-0"
+            title={pbTooltip(pbs)}
+            aria-label={pbTooltip(pbs)}
+          />
+        )}
         {readinessCls && (
           <span
             className={cn("h-2 w-2 rounded-full", readinessCls)}
