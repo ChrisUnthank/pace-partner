@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DAY_TYPE_META } from "@/lib/training-day-types";
-import { Plus, Repeat } from "lucide-react";
+import { Plus, Repeat, NotebookPen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { WeekDiaryGrid, getWeekStart, getWeekDates, type WeekDiaryDay } from "@/components/week-diary-grid";
@@ -250,21 +250,30 @@ function CoachDiaryPage() {
 
   if (!isCoach) {
     return (
-      <AppShell>
+      <AppShell fullWidth>
         <p className="text-sm text-muted-foreground">The coach diary is only available to coaches.</p>
       </AppShell>
     );
   }
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <div className="space-y-4">
-        <div>
-          <h1 className="text-2xl font-bold">Diary</h1>
-          <p className="text-sm text-muted-foreground">
-            All your training groups' schedules combined into one week, alongside your own appointments and
-            commitments. Drag a personal item to move it to another day.
-          </p>
+        <div className="flex items-center gap-3">
+          <div
+            className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+            style={{ background: "var(--accent-red)" }}
+          >
+            <NotebookPen className="h-5 w-5 text-white" strokeWidth={2} />
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Coaching</div>
+            <h1 className="text-2xl font-bold leading-tight">Diary</h1>
+            <p className="text-sm text-muted-foreground">
+              All your training groups' schedules combined into one week, alongside your own appointments and
+              commitments. Drag a personal item to move it to another day.
+            </p>
+          </div>
         </div>
 
         <BucketTabStrip items={COACHING_HUB_TABS} active="/app/coach-diary" />
