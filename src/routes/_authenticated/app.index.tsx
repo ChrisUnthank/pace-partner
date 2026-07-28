@@ -230,7 +230,7 @@ function AppHome() {
                 </span>
                 <div className="flex items-center gap-2 shrink-0">
                   <Button size="sm" variant="ghost" onClick={() => setPickerOpen(true)}>
-                    Add widget
+                    Manage widgets
                   </Button>
                   <Button size="sm" variant="ghost" onClick={() => layout.reset()}>
                     <RotateCcw className="h-3.5 w-3.5 mr-1" />
