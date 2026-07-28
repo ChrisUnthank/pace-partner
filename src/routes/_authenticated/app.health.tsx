@@ -446,17 +446,49 @@ function CoachAthleteHealthView({ athleteId }: { athleteId: string }) {
   const rosterAthletes = useMemo(() => (roster ?? []).map((r: any) => r.athletes).filter(Boolean), [roster]);
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <h1 className="text-2xl font-bold">{athlete?.name ?? "Athlete"} — Health & Vitals</h1>
-        <CoachAthletePicker
-          roster={rosterAthletes}
-          myAthlete={myAthlete as any}
-          value={athleteId}
-          onChange={(v) => navigate({ search: (p: any) => ({ ...p, athleteId: v }) })}
-        />
+    <div className="space-y-3">
+      {/* Row 1 — breadcrumb + athlete subnav on the left, athlete picker on
+          the right. Same pattern as Calendar/Analytics/Performance
+          Profile so a coach always finds the athlete switcher in the same
+          spot. */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3 min-w-0">
+          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground shrink-0">
+            <Link to="/app/athletes" className="hover:text-foreground">
+              Athletes
+            </Link>
+            <span className="text-border">/</span>
+            <Link to="/app/athletes/$athleteId" params={{ athleteId }} className="hover:text-foreground">
+              {athlete?.name ?? "Athlete"}
+            </Link>
+          </div>
+          <AthleteSubnav athleteId={athleteId} active="health" />
+        </div>
+        <div className="shrink-0">
+          <CoachAthletePicker
+            roster={rosterAthletes}
+            myAthlete={myAthlete as any}
+            value={athleteId}
+            onChange={(v) => navigate({ search: (p: any) => ({ ...p, athleteId: v }) })}
+          />
+        </div>
       </div>
-      <AthleteSubnav athleteId={athleteId} active="health" />
+
+      {/* Row 2 — icon + eyebrow heading (always "Health & Vitals", never
+          the athlete's name), matching the roster-overview heading below. */}
+      <div className="flex items-center gap-3">
+        <div
+          className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+          style={{ background: "var(--accent-red)" }}
+        >
+          <HeartPulse className="h-5 w-5 text-white" strokeWidth={2} />
+        </div>
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Wellbeing</div>
+          <h1 className="text-2xl font-bold leading-tight">Health & Vitals</h1>
+        </div>
+      </div>
+
       {isLoading ? <p className="text-sm text-muted-foreground">Loading…</p> : <HealthSnapshotCard snapshot={snapshot} />}
       <HealthOverviewExtras athleteId={athleteId} />
       {/* Daily Log itself is still self-service (athlete-only) — a coach
