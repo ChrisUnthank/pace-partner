@@ -12,7 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { metersFmt, secToClock, clockToSec } from "@/lib/format";
 import { toast } from "sonner";
-import { Trash2, Sparkles, User2 } from "lucide-react";
+import { Trash2, Sparkles, User2, Pencil } from "lucide-react";
 import { ProfileImageUploader } from "@/components/profile-image-uploader";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { setStoredUnits } from "@/lib/units";
@@ -22,6 +22,8 @@ import { GoalsCard } from "@/components/goals-card";
 import { AthleteIdentityCard } from "@/components/athlete-identity-card";
 import { ContactDetailsCard } from "@/components/contact-details-card";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import { computePbStatus, pbStatusFor } from "@/lib/performance-pb";
+import { PerformanceEditDialog, type EditablePerformance } from "@/components/performance-edit-dialog";
 
 export const Route = createFileRoute("/_authenticated/app/profile")({
   component: Profile,
@@ -46,7 +48,25 @@ type BulkImportRow = {
   source_venue: string;
   duplicate?: boolean;
   error?: string;
+  // Set during preview if a session already exists for this athlete on
+  // the same date with a matching distance (see matchSessionForRow) —
+  // linking it means this bulk-imported result shows up as this
+  // session's race the same way a session-derived race normally would,
+  // instead of sitting as a permanently orphaned standalone result.
+  matchedSessionId?: string | null;
 };
+
+// A bulk-imported row (date + distance only, no GPS trace) is considered
+// a match for an existing session when both the date is identical and
+// the distance is close enough to plausibly be the same race — GPS-
+// logged session distance is rarely exact (e.g. a "5000m" road race
+// might log as 5023m), so this needs some tolerance rather than an
+// exact match. ±5%, with a 100m floor so short track races (800m,
+// 1500m) aren't matched against something wildly different.
+function distanceWithinTolerance(a: number, b: number): boolean {
+  const tolerance = Math.max(100, a * 0.05);
+  return Math.abs(a - b) <= tolerance;
+}
 
 function Profile() {
   const { user } = useAuthUser();
@@ -672,7 +692,11 @@ function normaliseBulkImportText(text: string): string[] {
   return records.map(parseAvRecordToPipe).filter((row): row is string => Boolean(row));
 }
 
-function parseBulkPerformances(text: string, athleteId: string): BulkImportRow[] {
+function parseBulkPerformances(
+  text: string,
+  athleteId: string,
+  existingPerformances: { distance_m: number; race_type: string | null; time_seconds: number | null }[],
+): BulkImportRow[] {
   const lines = normaliseBulkImportText(text);
 
   const rows: BulkImportRow[] = lines.map((line) => {
@@ -768,6 +792,22 @@ function parseBulkPerformances(text: string, athleteId: string): BulkImportRow[]
   });
 
   const bests = new Map<string, number>();
+
+  // Seed with the athlete's real, already-saved bests first — previously
+  // this only compared pasted rows against each other, so importing a
+  // batch of results all slower than an existing PB could still flag the
+  // earliest of the batch as "PB" in the preview. This is a preview
+  // estimate only (the actual insert omits is_pb and lets the DB trigger
+  // determine the real, final answer), but it should now agree with what
+  // the trigger will do in the overwhelmingly common case.
+  for (const p of existingPerformances) {
+    if (p.time_seconds == null) continue;
+    const key = `${p.distance_m}-${p.race_type}`;
+    const cur = bests.get(key);
+    if (cur == null || p.time_seconds < cur) {
+      bests.set(key, p.time_seconds);
+    }
+  }
 
   [...rows]
     .filter((row) => !row.error)
@@ -866,25 +906,18 @@ function PBsCard({
     [primaryEvent],
   );
 
+  // Current-PB / past-PB status for every result — shared with the
+  // Races page and the coach Overview page (src/lib/performance-pb.ts).
+  // "Current" now trusts is_pb directly since a DB trigger keeps it
+  // correct; "past PB" is reconstructed by walking history in date
+  // order, since is_pb itself only ever reflects "current", not "ever
+  // was".
+  const pbStatusMap = useMemo(() => computePbStatus(pbs ?? []), [pbs]);
+
+  const [editingPerformance, setEditingPerformance] = useState<EditablePerformance | null>(null);
+
   const existingKeys = useMemo(() => {
     return new Set((pbs ?? []).map((p) => performanceKey(p)));
-  }, [pbs]);
-
-  // Current best time per (distance, race type) — the mark that's still standing today.
-  const currentBests = useMemo(() => {
-    const map = new Map<string, number>();
-
-    for (const p of pbs) {
-      if (p.time_seconds == null) continue;
-      const key = `${p.distance_m}-${p.race_type}`;
-      const cur = map.get(key);
-
-      if (cur == null || p.time_seconds < cur) {
-        map.set(key, p.time_seconds);
-      }
-    }
-
-    return map;
   }, [pbs]);
 
   // One entry per distinct event, for the progression chart's event picker.
@@ -951,6 +984,7 @@ function PBsCard({
 
   const duplicateCount = previewRows.filter((row) => row.duplicate).length;
   const errorCount = previewRows.filter((row) => row.error).length;
+  const matchedCount = previewRows.filter((row) => row.matchedSessionId).length;
   const insertableRows = previewRows.filter((row) => !row.error && !row.duplicate);
 
   async function add() {
@@ -966,7 +1000,10 @@ function PBsCard({
       performance_date: date,
       distance_m: dist,
       time_seconds: sec,
-      is_pb: true,
+      // is_pb omitted — this was previously hardcoded to true for every
+      // manual entry regardless of whether it actually beat the athlete's
+      // existing best. A DB trigger now recomputes it correctly right
+      // after insert, comparing against the athlete's full history.
       context: "race",
       notes: "",
       event_name: `${dist}m`,
@@ -997,16 +1034,64 @@ function PBsCard({
     toast.success("Removed");
   }
 
-  function previewImport() {
+  async function previewImport() {
     if (!bulkText.trim()) {
       toast.error("Paste performances first");
       return;
     }
 
-    const rows = parseBulkPerformances(bulkText, athleteId).map((row) => ({
-      ...row,
-      duplicate: !row.error && existingKeys.has(performanceKey(row)),
-    }));
+    const parsed = parseBulkPerformances(bulkText, athleteId, pbs);
+
+    const validDates = parsed.filter((r) => !r.error).map((r) => r.performance_date);
+    let sessionsByDate = new Map<string, { id: string; total_distance_m: number | null }[]>();
+
+    // Session matching — same athlete, same date, distance within
+    // tolerance (see distanceWithinTolerance above). Only sessions that
+    // don't already have a linked performance are eligible, so this
+    // can't create a second race record competing for the same session.
+    // Scoped to just the dates actually present in this paste rather
+    // than the athlete's whole session history.
+    if (validDates.length > 0) {
+      const minDate = validDates.reduce((a, b) => (a < b ? a : b));
+      const maxDate = validDates.reduce((a, b) => (a > b ? a : b));
+      const alreadyLinkedSessionIds = new Set((pbs ?? []).map((p: any) => p.session_id).filter(Boolean));
+
+      const { data: candidateSessions } = await supabase
+        .from("sessions")
+        .select("id, session_date, total_distance_m")
+        .eq("athlete_id", athleteId)
+        .gte("session_date", minDate)
+        .lte("session_date", maxDate);
+
+      sessionsByDate = new Map();
+      for (const s of candidateSessions ?? []) {
+        if (alreadyLinkedSessionIds.has(s.id)) continue;
+        const list = sessionsByDate.get(s.session_date) ?? [];
+        list.push({ id: s.id, total_distance_m: s.total_distance_m });
+        sessionsByDate.set(s.session_date, list);
+      }
+    }
+
+    const rows = parsed.map((row) => {
+      const duplicate = !row.error && existingKeys.has(performanceKey(row));
+
+      let matchedSessionId: string | null = null;
+      if (!row.error && !duplicate) {
+        const candidates = sessionsByDate.get(row.performance_date) ?? [];
+        // If more than one session on the same day is within tolerance,
+        // take the closest distance match rather than just the first.
+        let best: { id: string; diff: number } | null = null;
+        for (const s of candidates) {
+          if (s.total_distance_m == null) continue;
+          if (!distanceWithinTolerance(row.distance_m, s.total_distance_m)) continue;
+          const diff = Math.abs(row.distance_m - s.total_distance_m);
+          if (!best || diff < best.diff) best = { id: s.id, diff };
+        }
+        matchedSessionId = best?.id ?? null;
+      }
+
+      return { ...row, duplicate, matchedSessionId };
+    });
 
     console.log("Bulk import parsed rows", rows.slice(0, 20));
 
@@ -1014,6 +1099,7 @@ function PBsCard({
 
     const errors = rows.filter((r) => r.error).length;
     const duplicates = rows.filter((r) => r.duplicate).length;
+    const matched = rows.filter((r) => r.matchedSessionId).length;
     const insertable = rows.filter((r) => !r.error && !r.duplicate).length;
 
     if (rows.length === 0) {
@@ -1025,7 +1111,7 @@ function PBsCard({
       toast.error(`Preview created with ${errors} row issue${errors === 1 ? "" : "s"}`);
     } else {
       toast.success(
-        `Preview ready: ${insertable} to import, ${duplicates} duplicate${duplicates === 1 ? "" : "s"} skipped`,
+        `Preview ready: ${insertable} to import (${matched} matched to an existing session), ${duplicates} duplicate${duplicates === 1 ? "" : "s"} skipped`,
       );
     }
   }
@@ -1053,7 +1139,10 @@ function PBsCard({
       performance_date: row.performance_date,
       distance_m: row.distance_m,
       time_seconds: row.time_seconds,
-      is_pb: row.is_pb,
+      // is_pb omitted — a DB trigger recomputes it right after insert
+      // against the athlete's full history (previewRow.is_pb is only an
+      // estimate shown before saving; the trigger has the final say).
+      session_id: row.matchedSessionId ?? null,
       context: row.context,
       notes: row.notes,
       event_name: row.event_name,
@@ -1168,7 +1257,7 @@ Geelong`}
             <div className="space-y-2">
               <div className="text-xs text-muted-foreground">
                 Detected: {previewRows.length} rows · {insertableRows.length} new · {duplicateCount} duplicate skipped ·{" "}
-                {errorCount} issue{errorCount === 1 ? "" : "s"}
+                {matchedCount} matched to a session · {errorCount} issue{errorCount === 1 ? "" : "s"}
               </div>
 
               <div className="overflow-x-auto border rounded">
@@ -1183,6 +1272,7 @@ Geelong`}
                       <th className="px-2 py-2">Venue</th>
                       <th className="px-2 py-2">Type</th>
                       <th className="px-2 py-2">PB</th>
+                      <th className="px-2 py-2">Session</th>
                       <th className="px-2 py-2">Status</th>
                     </tr>
                   </thead>
@@ -1205,6 +1295,13 @@ Geelong`}
                         <td className="px-2 py-2 whitespace-nowrap">{row.source_venue || "—"}</td>
                         <td className="px-2 py-2 whitespace-nowrap">{row.race_type}</td>
                         <td className="px-2 py-2 whitespace-nowrap">{row.is_pb ? "Yes" : "No"}</td>
+                        <td className="px-2 py-2 whitespace-nowrap">
+                          {row.matchedSessionId ? (
+                            <span className="text-emerald-600">Linked</span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
                         <td className="px-2 py-2 min-w-40">
                           {row.error ? (
                             <span className="text-destructive">{row.error}</span>
@@ -1284,10 +1381,7 @@ Geelong`}
           <div className="space-y-2">
             <div className="divide-y border rounded">
               {visiblePerformances.map((p) => {
-                const key = `${p.distance_m}-${p.race_type}`;
-                const bestTime = currentBests.get(key);
-                const isCurrentPB = p.time_seconds != null && bestTime != null && p.time_seconds === bestTime;
-                const isPastPB = !isCurrentPB && p.is_pb;
+                const { isCurrentPB, isPastPB } = pbStatusFor(p.id, pbStatusMap);
 
                 return (
                   <div key={p.id} className="flex justify-between items-center gap-3 px-3 py-2 text-sm">
@@ -1315,9 +1409,23 @@ Geelong`}
                       )}
                     </span>
 
-                    <Button variant="ghost" size="sm" onClick={() => remove(p.id)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {/* Edit only offered for standalone results (bulk-
+                          imported or manually entered) — a session-linked
+                          race should stay fixed via that session's own
+                          page instead, so it can't drift out of sync with
+                          the session it came from. This is exactly the gap
+                          that previously left a past PB permanently
+                          uneditable once saved. */}
+                      {!p.session_id && (
+                        <Button variant="ghost" size="sm" onClick={() => setEditingPerformance(p)}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      )}
+                      <Button variant="ghost" size="sm" onClick={() => remove(p.id)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 );
               })}
@@ -1331,6 +1439,16 @@ Geelong`}
           </div>
         )}
       </CardContent>
+
+      <PerformanceEditDialog
+        open={!!editingPerformance}
+        onOpenChange={(o) => !o && setEditingPerformance(null)}
+        performance={editingPerformance}
+        onSaved={() => {
+          setEditingPerformance(null);
+          onChange();
+        }}
+      />
     </Card>
   );
 }
