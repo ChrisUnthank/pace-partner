@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -6,8 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Switch } from "@/components/ui/switch";
 import { clockToSec, secToClock } from "@/lib/format";
 import { toast } from "sonner";
+import { ChevronsUpDown } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 const COMMON_DISTANCES = [
   { m: 800, label: "800m" },
@@ -22,6 +28,7 @@ const COMMON_DISTANCES = [
 
 export type EditablePerformance = {
   id: string;
+  athlete_id: string;
   performance_date: string;
   distance_m: number;
   time_seconds: number;
@@ -29,7 +36,101 @@ export type EditablePerformance = {
   race_type?: string | null;
   overall_place?: number | null;
   notes?: string | null;
+  course_name?: string | null;
+  excluded_from_pb?: boolean | null;
 };
+
+// Combobox for course_name — autocomplete from this athlete's previously
+// used courses (via CommandInput's search-as-you-type filtering), but
+// still lets a brand-new course be typed and used since there's no
+// courses table backing this, just distinct values already on this
+// athlete's rows.
+function CourseCombobox({
+  value,
+  onChange,
+  courses,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  courses: string[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState(value);
+
+  useEffect(() => {
+    setQuery(value);
+  }, [value]);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="w-full justify-between font-normal"
+        >
+          <span className={cn("truncate", !value && "text-muted-foreground")}>
+            {value || "None (not tied to a course)"}
+          </span>
+          <ChevronsUpDown className="h-4 w-4 opacity-50 shrink-0 ml-2" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Search or type a course…" value={query} onValueChange={setQuery} />
+          <CommandList>
+            <CommandEmpty>
+              {query.trim() ? (
+                <button
+                  type="button"
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-accent rounded-sm"
+                  onClick={() => {
+                    onChange(query.trim());
+                    setOpen(false);
+                  }}
+                >
+                  Use "{query.trim()}"
+                </button>
+              ) : (
+                <div className="px-3 py-2 text-sm text-muted-foreground">No courses yet — type to add one.</div>
+              )}
+            </CommandEmpty>
+            <CommandGroup>
+              {value && (
+                <CommandItem
+                  value="__clear__"
+                  onSelect={() => {
+                    onChange("");
+                    setQuery("");
+                    setOpen(false);
+                  }}
+                  className="text-muted-foreground"
+                >
+                  None (not tied to a course)
+                </CommandItem>
+              )}
+              {courses.map((c) => (
+                <CommandItem
+                  key={c}
+                  value={c}
+                  onSelect={() => {
+                    onChange(c);
+                    setQuery(c);
+                    setOpen(false);
+                  }}
+                >
+                  {c}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 // Shared "fix an existing result" dialog — Races page and Profile's PBs
 // card both had an add-a-result form already (left untouched here) but
@@ -40,11 +141,10 @@ export type EditablePerformance = {
 // result created from a session should still go through that session's
 // own page, not here.
 //
-// Deliberately does NOT touch is_pb — the DB trigger
-// (recompute_pb_after_perf_change) recalculates it automatically the
-// instant distance_m/time_seconds/race_type changes, so editing a past
-// result's time here is exactly how a missing historical PB gets
-// recognised without needing a session to exist for it.
+// Deliberately does NOT touch is_pb/is_year_best/is_season_best/
+// is_course_best — the DB trigger (recompute_pb_after_perf_change)
+// recalculates all four automatically the instant distance_m/
+// time_seconds/race_type/course_name/excluded_from_pb changes.
 export function PerformanceEditDialog({
   open,
   onOpenChange,
@@ -65,7 +165,25 @@ export function PerformanceEditDialog({
   const [raceType, setRaceType] = useState("road");
   const [placing, setPlacing] = useState("");
   const [notes, setNotes] = useState("");
+  const [courseName, setCourseName] = useState("");
+  const [excludedFromPb, setExcludedFromPb] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // Courses already used by this athlete, for the combobox — refetched
+  // whenever the dialog opens for a (potentially different) athlete.
+  const { data: courses } = useQuery({
+    queryKey: ["athlete-courses", performance?.athlete_id],
+    enabled: open && !!performance?.athlete_id,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("performances")
+        .select("course_name")
+        .eq("athlete_id", performance!.athlete_id)
+        .not("course_name", "is", null);
+      const names = new Set((data ?? []).map((r: any) => r.course_name as string).filter(Boolean));
+      return Array.from(names).sort();
+    },
+  });
 
   // Dialog stays mounted between opens, so the form has to be re-seeded
   // from whichever row was clicked each time it opens, rather than
@@ -83,6 +201,8 @@ export function PerformanceEditDialog({
     setRaceType(performance.race_type ?? "road");
     setPlacing(performance.overall_place != null ? String(performance.overall_place) : "");
     setNotes(performance.notes ?? "");
+    setCourseName(performance.course_name ?? "");
+    setExcludedFromPb(!!performance.excluded_from_pb);
   }, [open, performance]);
 
   async function save() {
@@ -112,6 +232,8 @@ export function PerformanceEditDialog({
         race_type: raceType || null,
         overall_place: placing ? Number(placing) : null,
         notes: notes || null,
+        course_name: courseName || null,
+        excluded_from_pb: excludedFromPb,
       })
       .eq("id", performance.id);
 
@@ -211,6 +333,15 @@ export function PerformanceEditDialog({
           </div>
 
           <div>
+            <Label className="text-xs">Course</Label>
+            <CourseCombobox value={courseName} onChange={setCourseName} courses={courses ?? []} />
+            <p className="text-xs text-muted-foreground mt-1">
+              Optional — set this to track a Course Best, separate from distance-based PBs. Useful for cross country,
+              where the same "course" rarely measures exactly the same distance race to race.
+            </p>
+          </div>
+
+          <div>
             <Label className="text-xs">Placing</Label>
             <Input type="number" value={placing} onChange={(e) => setPlacing(e.target.value)} placeholder="Optional" />
           </div>
@@ -218,6 +349,18 @@ export function PerformanceEditDialog({
           <div>
             <Label className="text-xs">Notes</Label>
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border border-border p-3">
+            <div>
+              <Label className="text-xs">Exclude from PB calculations</Label>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                For odd/one-off distances (e.g. a cross country course) that shouldn't compete against standard
+                track/road times for PB, Season Best, or Year Best. Course Best still applies if a course is set
+                above.
+              </p>
+            </div>
+            <Switch checked={excludedFromPb} onCheckedChange={setExcludedFromPb} className="shrink-0 ml-3" />
           </div>
         </div>
 
