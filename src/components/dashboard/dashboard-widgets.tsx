@@ -19,6 +19,7 @@ import { listPosts } from "@/lib/noticeboard.functions";
 import { listMessageContacts } from "@/lib/messages.functions";
 import { athleteNavTabs } from "@/lib/athlete-nav-tabs";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { listDashboardAlerts, type DashAlert } from "@/lib/dashboard-alerts.functions";
 import {
   ClipboardList,
   CalendarDays,
@@ -295,6 +296,41 @@ export function HealthVitalsWidget() {
   return <BigLinkCard to="/app/health" icon={HeartPulse} title="Health & Vitals" description={description} />;
 }
 
+function last14Days(): string[] {
+  const days: string[] = [];
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    days.push(d.toISOString().slice(0, 10));
+  }
+  return days;
+}
+
+// TrainingPeaks-style 14-day activity strip — one dot per day, filled red
+// when a completed session lands on that date, a faint outline otherwise,
+// with today marked by a ring rather than a different fill color (keeps
+// "logged today" and "today, nothing yet" visually distinct at a glance).
+function ActivityStrip({ activeDates }: { activeDates: Set<string> | undefined }) {
+  const days = last14Days();
+  const today = todayISO();
+  return (
+    <div className="flex items-center gap-[3px]" title="Activity, last 14 days">
+      {days.map((d) => {
+        const active = activeDates?.has(d);
+        const isToday = d === today;
+        return (
+          <span
+            key={d}
+            className={`h-2 w-2 rounded-full shrink-0 ${
+              active ? "bg-[var(--accent-red)]" : "bg-border"
+            } ${isToday ? "ring-2 ring-[var(--accent-red)]/35 ring-offset-1 ring-offset-background" : ""}`}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 export function YourAthletesWidget() {
   const [selectedAthleteId, setSelectedAthleteId] = useState<string | null>(null);
   const { data: roster } = useHomeRoster();
@@ -319,6 +355,45 @@ export function YourAthletesWidget() {
       return m;
     },
   });
+
+  // Last 14 days of completed sessions per athlete, batched for the whole
+  // roster — feeds the TrainingPeaks-style activity dot strip on each row.
+  const { data: activityByAthlete } = useQuery({
+    queryKey: ["home-roster-activity-14d", athleteIds.join(",")],
+    enabled: athleteIds.length > 0,
+    queryFn: async () => {
+      const since = last14Days()[0];
+      const { data, error } = await supabase
+        .from("sessions")
+        .select("athlete_id, session_date, completed_at")
+        .in("athlete_id", athleteIds)
+        .gte("session_date", since)
+        .not("completed_at", "is", null);
+      if (error) throw error;
+      const m = new Map<string, Set<string>>();
+      for (const s of data ?? []) {
+        if (!m.has(s.athlete_id)) m.set(s.athlete_id, new Set());
+        m.get(s.athlete_id)!.add(s.session_date);
+      }
+      return m;
+    },
+  });
+
+  // Same query key + shape DashboardAlertsList/CoachingInsightsWidget
+  // already use for this exact call — sharing it here is a safe dedup
+  // (identical function, identical DashAlert[] shape) rather than the
+  // roster/readiness key collisions fixed earlier, which mixed two
+  // different shapes under one key.
+  const listAlertsFn = useServerFn(listDashboardAlerts);
+  const { data: alerts } = useQuery({
+    queryKey: ["dashboard-alerts"],
+    queryFn: () => listAlertsFn(),
+  });
+  const alertsByAthlete = new Map<string, DashAlert[]>();
+  for (const a of (alerts ?? []) as DashAlert[]) {
+    if (!alertsByAthlete.has(a.athlete_id)) alertsByAthlete.set(a.athlete_id, []);
+    alertsByAthlete.get(a.athlete_id)!.push(a);
+  }
 
   const selectedAthlete = roster?.find((r: any) => r.athlete_id === selectedAthleteId)?.athletes ?? null;
 
@@ -353,6 +428,7 @@ export function YourAthletesWidget() {
                 const ready = readiness?.find((x) => x.athlete_id === r.athlete_id);
                 const slug = profileSlugs?.get(r.athlete_id) ?? null;
                 const tabs = athleteNavTabs(r.athlete_id, slug);
+                const athleteAlerts = alertsByAthlete.get(r.athlete_id) ?? [];
                 return (
                   <div
                     key={r.athlete_id}
@@ -377,6 +453,15 @@ export function YourAthletesWidget() {
                         </div>
                       </button>
                       <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                        {athleteAlerts.length > 0 && (
+                          <span
+                            title={athleteAlerts.map((a) => a.title).join(" · ")}
+                            className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-600 border border-amber-500/30 bg-amber-500/10 rounded px-1.5 py-0.5"
+                          >
+                            <AlertTriangle className="h-3 w-3" />
+                            {athleteAlerts.length}
+                          </span>
+                        )}
                         <ReadinessBadge
                           status={ready?.readiness_status as any}
                           score={ready?.readiness_score as any}
@@ -401,6 +486,12 @@ export function YourAthletesWidget() {
                           ))}
                         </div>
                       </div>
+                    </div>
+                    {/* TrainingPeaks-style 14-day activity dot strip —
+                        second line, indented to line up under the name
+                        rather than crowding the identity/status row above. */}
+                    <div className="pl-11">
+                      <ActivityStrip activeDates={activityByAthlete?.get(r.athlete_id)} />
                     </div>
                   </div>
                 );
