@@ -166,6 +166,12 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
         { to: "/app/biomechanics", label: "Biomechanics", icon: PersonStanding, show: isAthlete || isCoach },
         { to: "/app/compare", label: "Compare", icon: GitCompare, show: isCoachOrAthlete },
         { to: "/app/reports", label: "Reports", icon: FileText, show: isCoachOrAthlete },
+        // Was fully built (Pace/Race Predictor, Starting Fitness) but never
+        // wired into any nav — reachable only by typing the URL directly.
+        // Added here since both existing calculators are Metrics-shaped
+        // tools (pace/fitness estimation), same audience as the rest of
+        // this bucket.
+        { to: "/app/calculators", label: "Calculators", icon: Calculator, show: isCoachOrAthlete },
       ],
     },
     // Health & Vitals: daily log, diet/fuel, recovery, injury management,
