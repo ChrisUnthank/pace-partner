@@ -207,7 +207,7 @@ export function CalendarDayCell({
         if (e.key === "Enter" || e.key === " ") onMultiClick?.(day);
       }}
       className={cn(
-        "min-h-[110px] border rounded-md bg-background flex flex-col overflow-hidden cursor-pointer hover:bg-accent/20 transition-colors",
+        "min-h-[110px] lg:min-h-[135px] border rounded-md bg-background flex flex-col overflow-hidden cursor-pointer hover:bg-accent/20 transition-colors",
         !inMonth && "opacity-50",
         isToday && "ring-1 ring-primary",
       )}
@@ -350,7 +350,7 @@ export function WeekTotalCell({
 }) {
   const hasData = sessionCount > 0 && (distanceM > 0 || timeS > 0);
   return (
-    <div className="min-h-[110px] border rounded-md bg-muted/30 flex flex-col overflow-hidden">
+    <div className="min-h-[110px] lg:min-h-[135px] border rounded-md bg-muted/30 flex flex-col overflow-hidden">
       <div className="px-1.5 pt-1">
         <span className="text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Total</span>
       </div>
