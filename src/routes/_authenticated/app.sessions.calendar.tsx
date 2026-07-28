@@ -327,6 +327,29 @@ function CalendarPage() {
     },
   });
 
+  // PBs for this date range — entirely independent of `bundle` above, on
+  // purpose. This reads directly from `performances` (is_pb = true,
+  // maintained by the recompute_pb_after_perf_change DB trigger) rather
+  // than joining through sessions, specifically so a PB with no session
+  // behind it at all (bulk-imported or manually entered historical
+  // results) still shows up here. A read-only decoration for the day
+  // cell header — doesn't touch total_distance_m or anything else the
+  // analytics/training-load pipeline reads.
+  const { data: pbPerformances } = useQuery({
+    queryKey: ["calendar-pbs", selectedAthleteId, rangeStart, rangeEnd],
+    enabled: !!selectedAthleteId,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("performances")
+        .select("id, performance_date, distance_m, time_seconds, event_name")
+        .eq("athlete_id", selectedAthleteId)
+        .eq("is_pb", true)
+        .gte("performance_date", rangeStart)
+        .lte("performance_date", rangeEnd);
+      return data ?? [];
+    },
+  });
+
   // Zone profile for target resolution (Phase 3) — keyed by athlete, not
   // range, so switching months doesn't refetch it.
   const { data: zoneProfile } = useQuery({
@@ -388,8 +411,22 @@ function CalendarPage() {
         day.restingHr = v.resting_hr as any;
       }
     }
+    // Merged outside the `if (bundle)` block above since it comes from its
+    // own separate query, not `bundle` — a day can have PBs with no
+    // session at all, so this can't be folded into the sessions loop.
+    for (const p of pbPerformances ?? []) {
+      const day = map.get(p.performance_date);
+      if (!day) continue;
+      day.pbs = day.pbs ?? [];
+      day.pbs.push({
+        id: p.id,
+        distance_m: p.distance_m,
+        time_seconds: p.time_seconds,
+        event_name: p.event_name,
+      });
+    }
     return map;
-  }, [bundle, gridDays, zoneProfile]);
+  }, [bundle, gridDays, zoneProfile, pbPerformances]);
 
   // gridDays always starts on a Monday and is a whole number of weeks (both
   // the month grid's padding and the single-week view guarantee this), so a
