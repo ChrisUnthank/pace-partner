@@ -136,7 +136,7 @@ function RaceHistoryPage() {
   }, [races]);
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <div className="space-y-4 max-w-3xl">
         {isCoach ? (
           <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
@@ -157,10 +157,18 @@ function RaceHistoryPage() {
           </Button>
         )}
 
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <History className="h-5 w-5 text-[var(--accent-red)]" />
-          Race History
-        </h1>
+        <div className="flex items-center gap-3">
+          <div
+            className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+            style={{ background: "var(--accent-red)" }}
+          >
+            <History className="h-5 w-5 text-white" strokeWidth={2} />
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Performances</div>
+            <h1 className="text-2xl font-bold leading-tight">Race History</h1>
+          </div>
+        </div>
 
         {(openingPacePattern || keywordPattern) && (
           <Card>
