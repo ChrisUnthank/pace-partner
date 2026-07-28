@@ -22,10 +22,10 @@ export const Route = createFileRoute("/_authenticated/app/bicarb")({
 function BicarbPage() {
   const { data: athlete, isLoading } = useMyAthlete();
 
-  if (isLoading) return <AppShell><p>Loading…</p></AppShell>;
+  if (isLoading) return <AppShell fullWidth><p>Loading…</p></AppShell>;
   if (!athlete)
     return (
-      <AppShell>
+      <AppShell fullWidth>
         <p className="text-sm">
           No athlete profile linked. Visit <Link to="/app/profile" className="underline">Profile</Link>.
         </p>
@@ -33,13 +33,22 @@ function BicarbPage() {
     );
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <div className="space-y-6 max-w-3xl">
-        <div>
-          <h1 className="text-2xl font-bold">Bicarb</h1>
-          <p className="text-sm text-muted-foreground">
-            Log sodium bicarbonate use, link it to a session, and see whether it's tracking with better sessions.
-          </p>
+        <div className="flex items-center gap-3">
+          <div
+            className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+            style={{ background: "var(--accent-red)" }}
+          >
+            <FlaskConical className="h-5 w-5 text-white" strokeWidth={2} />
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Wellbeing</div>
+            <h1 className="text-2xl font-bold leading-tight">Bicarb</h1>
+            <p className="text-sm text-muted-foreground">
+              Log sodium bicarbonate use, link it to a session, and see whether it's tracking with better sessions.
+            </p>
+          </div>
         </div>
         <BucketTabStrip items={HEALTH_TABS} active="/app/bicarb" />
         <ComparisonCard athleteId={athlete.id} />
