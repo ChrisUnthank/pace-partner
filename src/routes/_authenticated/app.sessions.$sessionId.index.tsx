@@ -641,7 +641,10 @@ function SessionDetail() {
       event_name: session.title || null,
       notes: session.notes || null,
       session_id: sessionId, // ✅ critical
-      is_pb: false,
+      // is_pb intentionally omitted — a DB trigger (recompute_pb_after_perf_change)
+      // recalculates it immediately after insert by comparing against this
+      // athlete's actual history, so this always ends up correct whether or
+      // not this particular race turns out to be a new PB.
       context: "race",
     };
 
@@ -2279,7 +2282,7 @@ function StepBlock({
       event_name: session.title || null,
       notes: session.notes || null,
       session_id: session.id,
-      is_pb: false,
+      // is_pb omitted — recomputed by trigger, see createPerformanceRecord above.
       context: "race",
     });
 
