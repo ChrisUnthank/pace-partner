@@ -16,7 +16,7 @@ import { todayISO } from "@/lib/format";
 import { toast } from "sonner";
 import { DailyLogSessions } from "@/components/daily-log-sessions";
 import { BodyMapPicker } from "@/components/body-map";
-import { ChevronLeft, ChevronRight, ArrowRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, ArrowRight, ClipboardList } from "lucide-react";
 import { BucketTabStrip, HEALTH_TABS } from "@/components/bucket-tab-strip";
 
 export const Route = createFileRoute("/_authenticated/app/daily-log")({
@@ -39,15 +39,24 @@ function DailyLog() {
   // (Calendar's "+", bulk upload) already cover logging a session for a past day.
   const [logDate, setLogDate] = useState(todayISO());
 
-  if (isLoading) return <AppShell><p>Loading…</p></AppShell>;
-  if (!athlete) return <AppShell><p className="text-sm">No athlete profile linked. Visit <Link to="/app/profile" className="underline">Profile</Link>.</p></AppShell>;
+  if (isLoading) return <AppShell fullWidth><p>Loading…</p></AppShell>;
+  if (!athlete) return <AppShell fullWidth><p className="text-sm">No athlete profile linked. Visit <Link to="/app/profile" className="underline">Profile</Link>.</p></AppShell>;
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <div className="space-y-6 max-w-3xl">
         <div className="flex items-start justify-between gap-3 flex-wrap">
-          <div>
-            <h1 className="text-2xl font-bold">Daily Log</h1>
-            <p className="text-sm text-muted-foreground">Vitals, sessions, and your end-of-day reflection — open this any time during the day.</p>
+          <div className="flex items-center gap-3">
+            <div
+              className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+              style={{ background: "var(--accent-red)" }}
+            >
+              <ClipboardList className="h-5 w-5 text-white" strokeWidth={2} />
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Wellbeing</div>
+              <h1 className="text-2xl font-bold leading-tight">Daily Log</h1>
+              <p className="text-sm text-muted-foreground">Vitals, sessions, and your end-of-day reflection — open this any time during the day.</p>
+            </div>
           </div>
           <DateNav date={logDate} onChange={setLogDate} />
         </div>
