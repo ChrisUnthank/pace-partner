@@ -17,6 +17,7 @@ import { TrainingResponseCard } from "@/components/training-response-card";
 import { StrengthsDevelopmentCard } from "@/components/strengths-development-card";
 import { RaceProfileCard } from "@/components/race-profile-card";
 import { AthleteDnaRatingsCard } from "@/components/athlete-dna-ratings-card";
+import { DevelopmentPotentialCard } from "@/components/development-potential-card";
 
 export const Route = createFileRoute("/_authenticated/app/athletes/$athleteId_/performance-profile")({
   component: PerformanceProfilePage,
@@ -148,6 +149,7 @@ function PerformanceProfilePage() {
           <TabsContent value="dna" className="mt-4 space-y-6">
             <StrengthsDevelopmentCard athleteId={athleteId} />
             <AthleteDnaRatingsCard athleteId={athleteId} />
+            <DevelopmentPotentialCard athleteId={athleteId} />
             <PerformanceCurveCard athleteId={athleteId} />
             <TrainingResponseCard athleteId={athleteId} />
             <RaceProfileCard athleteId={athleteId} />
