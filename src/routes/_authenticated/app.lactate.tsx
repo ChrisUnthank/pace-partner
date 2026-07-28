@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { todayISO } from "@/lib/format";
 import { toast } from "sonner";
-import { Trash2 } from "lucide-react";
+import { Trash2, TestTube2 } from "lucide-react";
 import { BucketTabStrip, HEALTH_TABS } from "@/components/bucket-tab-strip";
 import { ResponsiveContainer, ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 
@@ -22,10 +22,10 @@ export const Route = createFileRoute("/_authenticated/app/lactate")({
 function LactatePage() {
   const { data: athlete, isLoading } = useMyAthlete();
 
-  if (isLoading) return <AppShell><p>Loading…</p></AppShell>;
+  if (isLoading) return <AppShell fullWidth><p>Loading…</p></AppShell>;
   if (!athlete)
     return (
-      <AppShell>
+      <AppShell fullWidth>
         <p className="text-sm">
           No athlete profile linked. Visit <Link to="/app/profile" className="underline">Profile</Link>.
         </p>
@@ -33,13 +33,22 @@ function LactatePage() {
     );
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <div className="space-y-6 max-w-3xl">
-        <div>
-          <h1 className="text-2xl font-bold">Lactate</h1>
-          <p className="text-sm text-muted-foreground">
-            Readings taken during sessions, plus standalone spot checks — all in one place.
-          </p>
+        <div className="flex items-center gap-3">
+          <div
+            className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+            style={{ background: "var(--accent-red)" }}
+          >
+            <TestTube2 className="h-5 w-5 text-white" strokeWidth={2} />
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Wellbeing</div>
+            <h1 className="text-2xl font-bold leading-tight">Lactate</h1>
+            <p className="text-sm text-muted-foreground">
+              Readings taken during sessions, plus standalone spot checks — all in one place.
+            </p>
+          </div>
         </div>
         <BucketTabStrip items={HEALTH_TABS} active="/app/lactate" />
         <LactateCurveCard athleteId={athlete.id} />
