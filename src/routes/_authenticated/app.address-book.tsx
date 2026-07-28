@@ -20,7 +20,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Phone, Mail, MapPin, Users, Search } from "lucide-react";
+import { Plus, Phone, Mail, MapPin, Users, Search, BookUser } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -329,21 +329,30 @@ function AddressBookPage() {
 
   if (!isCoach) {
     return (
-      <AppShell>
+      <AppShell fullWidth>
         <p className="text-sm text-muted-foreground">The address book is only available to coaches.</p>
       </AppShell>
     );
   }
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <div className="space-y-4 max-w-4xl">
         <div className="flex items-start justify-between flex-wrap gap-2">
-          <div>
-            <h1 className="text-2xl font-bold">Address Book</h1>
-            <p className="text-sm text-muted-foreground">
-              Athletes and parents populate automatically from your roster — add your own contacts alongside them.
-            </p>
+          <div className="flex items-center gap-3">
+            <div
+              className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+              style={{ background: "var(--accent-red)" }}
+            >
+              <BookUser className="h-5 w-5 text-white" strokeWidth={2} />
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Coaching</div>
+              <h1 className="text-2xl font-bold leading-tight">Address Book</h1>
+              <p className="text-sm text-muted-foreground">
+                Athletes and parents populate automatically from your roster — add your own contacts alongside them.
+              </p>
+            </div>
           </div>
           <Button size="sm" onClick={() => setAddOpen(true)}>
             <Plus className="h-4 w-4 mr-1" />
