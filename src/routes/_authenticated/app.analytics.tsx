@@ -29,7 +29,7 @@ import {
   ReferenceLine,
   ReferenceArea,
 } from "recharts";
-import { ArrowUpRight, ArrowDownRight, ArrowRight, AlertTriangle } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, ArrowRight, AlertTriangle, LineChart } from "lucide-react";
 import { AthleteSubnav } from "@/components/athlete-subnav";
 import { YearlyLoadStrip } from "@/components/yearly-load-strip";
 
@@ -141,7 +141,7 @@ function AnalyticsPage() {
 
   if (isCoach && !selectedAthleteId) {
     return (
-      <AppShell>
+      <AppShell fullWidth>
         <CoachRoster
           range={range}
           onRangeChange={setRange}
@@ -155,14 +155,14 @@ function AnalyticsPage() {
 
   if (!selectedAthleteId) {
     return (
-      <AppShell>
+      <AppShell fullWidth>
         <p className="text-sm text-muted-foreground">No athlete profile yet.</p>
       </AppShell>
     );
   }
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <AthleteAnalytics
         athleteId={selectedAthleteId}
         range={range}
@@ -269,9 +269,18 @@ function CoachRoster({
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold">Roster analytics</h1>
-          <p className="text-sm text-muted-foreground">Readiness band and 14-day fitness trend for every athlete.</p>
+        <div className="flex items-center gap-3">
+          <div
+            className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+            style={{ background: "var(--accent-red)" }}
+          >
+            <LineChart className="h-5 w-5 text-white" strokeWidth={2} />
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Metrics</div>
+            <h1 className="text-2xl font-bold leading-tight">Roster analytics</h1>
+            <p className="text-sm text-muted-foreground">Readiness band and 14-day fitness trend for every athlete.</p>
+          </div>
         </div>
         <RangePicker
           value={range}
