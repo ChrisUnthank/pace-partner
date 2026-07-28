@@ -23,6 +23,7 @@ import { GoalsCard } from "@/components/goals-card";
 import { AthleteIdentityCard } from "@/components/athlete-identity-card";
 import { Badge } from "@/components/ui/badge";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import { computePbStatus, pbStatusFor } from "@/lib/performance-pb";
 
 export const Route = createFileRoute("/_authenticated/app/athletes/$athleteId")({
   component: AthleteDetail,
@@ -269,24 +270,12 @@ function AthleteDetail() {
     },
   });
 
-  // Current best time per (distance, race type) — computed from the full,
-  // unlimited performance history so it's accurate even if the actual PB
-  // predates the most recent 20 rows shown in the "Personal bests" list.
-  const currentBests = useMemo(() => {
-    const map = new Map<string, number>();
-
-    for (const p of progressionPerformances ?? []) {
-      if (p.time_seconds == null) continue;
-      const key = `${p.distance_m}-${p.race_type}`;
-      const cur = map.get(key);
-
-      if (cur == null || p.time_seconds < cur) {
-        map.set(key, p.time_seconds);
-      }
-    }
-
-    return map;
-  }, [progressionPerformances]);
+  // Current-PB / past-PB status for every performance — shared with the
+  // Races page and Profile's PBs card (src/lib/performance-pb.ts).
+  // Computed from the full, unlimited performance history (not the
+  // capped `pbs` list below) so status is accurate even when the actual
+  // PB predates the most recent 20 rows actually shown.
+  const pbStatusMap = useMemo(() => computePbStatus(progressionPerformances ?? []), [progressionPerformances]);
 
   if (!athlete) return <AppShell><p className="text-sm text-muted-foreground">Loading…</p></AppShell>;
   const today = load?.[0];
@@ -381,10 +370,7 @@ function AthleteDetail() {
                 <table className="w-full text-sm">
                   <tbody>
                     {pbs.map((p: any) => {
-                      const key = `${p.distance_m}-${p.race_type}`;
-                      const bestTime = currentBests.get(key);
-                      const isCurrentPB = p.time_seconds != null && bestTime != null && p.time_seconds === bestTime;
-                      const isPastPB = !isCurrentPB && p.is_pb;
+                      const { isCurrentPB, isPastPB } = pbStatusFor(p.id, pbStatusMap);
 
                       return (
                         <tr key={p.id} className="border-t">
