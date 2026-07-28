@@ -414,7 +414,7 @@ function PlansPage() {
 
   if (view === "builder") {
     return (
-      <AppShell>
+      <AppShell fullWidth>
         <div className="space-y-6 max-w-5xl">
           <BucketTabStrip items={COACHING_HUB_TABS} active="/app/plans" />
           <PlanBuilder
@@ -474,17 +474,24 @@ function PlansPage() {
 
   if (view === "landing") {
     return (
-      <AppShell>
+      <AppShell fullWidth>
         <div className="space-y-4">
           <BucketTabStrip items={COACHING_HUB_TABS} active="/app/plans" />
 
-          <div>
-            <h1 className="text-xl font-bold flex items-center gap-2">
-              <CalendarRange className="h-5 w-5" /> Training Plans
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Get training onto your roster's calendars, or manage the templates and groups behind it.
-            </p>
+          <div className="flex items-center gap-3">
+            <div
+              className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+              style={{ background: "var(--accent-red)" }}
+            >
+              <CalendarRange className="h-5 w-5 text-white" strokeWidth={2} />
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Coaching</div>
+              <h1 className="text-2xl font-bold leading-tight">Training Plans</h1>
+              <p className="text-sm text-muted-foreground">
+                Get training onto your roster's calendars, or manage the templates and groups behind it.
+              </p>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
@@ -626,7 +633,7 @@ function PlansPage() {
   }
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <div className="space-y-4">
         <BucketTabStrip items={COACHING_HUB_TABS} active="/app/plans" />
 
