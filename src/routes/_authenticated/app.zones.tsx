@@ -11,7 +11,7 @@ import { ZoneBoundariesCard } from "@/components/zone-boundaries-card";
 import { AthleteSubnav } from "@/components/athlete-subnav";
 import { CoachAthletePicker } from "@/components/coach-athlete-picker";
 import { paceFmt, secToClock } from "@/lib/format";
-import { AlertTriangle, Search } from "lucide-react";
+import { AlertTriangle, Search, Gauge } from "lucide-react";
 import {
   ResponsiveContainer,
   BarChart,
@@ -84,7 +84,7 @@ function ZonesPage() {
   // own athlete row, plus the breadcrumb/tab strip for further navigation.
   if (isCoach && search.athleteId) {
     return (
-      <AppShell>
+      <AppShell fullWidth>
         <CoachAthleteZonesView athleteId={search.athleteId} />
       </AppShell>
     );
@@ -97,14 +97,14 @@ function ZonesPage() {
   // same as everyone else, rather than this page trying to be both at once.
   if (isCoach) {
     return (
-      <AppShell>
+      <AppShell fullWidth>
         <CoachZonesRoster />
       </AppShell>
     );
   }
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <AthleteZonesView />
     </AppShell>
   );
@@ -224,11 +224,20 @@ function AthleteZonesView() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Zones</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Your training zones, how your time breaks down across them, and how your boundaries have shifted over time.
-        </p>
+      <div className="flex items-center gap-3">
+        <div
+          className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+          style={{ background: "var(--accent-red)" }}
+        >
+          <Gauge className="h-5 w-5 text-white" strokeWidth={2} />
+        </div>
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Metrics</div>
+          <h1 className="text-2xl font-bold leading-tight">Zones</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Your training zones, how your time breaks down across them, and how your boundaries have shifted over time.
+          </p>
+        </div>
       </div>
 
       {athlete ? (
@@ -711,9 +720,18 @@ function CoachZonesRoster() {
   return (
     <div className="space-y-6">
       <div className="flex items-end justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold">Zones</h1>
-          <p className="text-sm text-muted-foreground mt-1">Threshold values and recent time-in-zone across your roster.</p>
+        <div className="flex items-center gap-3">
+          <div
+            className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+            style={{ background: "var(--accent-red)" }}
+          >
+            <Gauge className="h-5 w-5 text-white" strokeWidth={2} />
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Metrics</div>
+            <h1 className="text-2xl font-bold leading-tight">Zones</h1>
+            <p className="text-sm text-muted-foreground mt-1">Threshold values and recent time-in-zone across your roster.</p>
+          </div>
         </div>
         <div className="relative w-full sm:w-64">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
