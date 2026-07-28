@@ -6,7 +6,7 @@ import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Pencil, Trash2, Send } from "lucide-react";
+import { Pencil, Trash2, Send, MessageCircle } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { UserAvatar } from "@/components/user-avatar";
@@ -21,7 +21,7 @@ import {
 
 export const Route = createFileRoute("/_authenticated/app/group-chat")({
   component: () => (
-    <AppShell>
+    <AppShell fullWidth>
       <GroupChat />
     </AppShell>
   ),
@@ -101,9 +101,18 @@ function GroupChat() {
 
   return (
     <div className="max-w-3xl space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Group chat</h1>
-        <p className="text-sm text-muted-foreground">One room for the whole squad — coaches, athletes, and parents.</p>
+      <div className="flex items-center gap-3">
+        <div
+          className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+          style={{ background: "var(--accent-red)" }}
+        >
+          <MessageCircle className="h-5 w-5 text-white" strokeWidth={2} />
+        </div>
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Community</div>
+          <h1 className="text-2xl font-bold leading-tight">Group chat</h1>
+          <p className="text-sm text-muted-foreground">One room for the whole squad — coaches, athletes, and parents.</p>
+        </div>
       </div>
 
       <Card>
@@ -111,7 +120,7 @@ function GroupChat() {
           <CardTitle className="text-base">Squad chat</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div ref={scrollRef} className="h-[55vh] overflow-y-auto space-y-3 pr-1">
+          <div ref={scrollRef} className="h-[55vh] overflow-y-auto space-y-3 pr-1 brand-scrollbar">
             {messages.length === 0 && (
               <p className="text-sm text-muted-foreground py-8 text-center">No messages yet — say hello.</p>
             )}
