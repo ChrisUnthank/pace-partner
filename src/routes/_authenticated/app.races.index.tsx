@@ -18,6 +18,9 @@ import { toast } from "sonner";
 import { Trash2, Trophy, Flag, CalendarClock, Medal, TrendingUp } from "lucide-react";
 import { AthleteSubnav } from "@/components/athlete-subnav";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import { computePbStatus, pbStatusFor } from "@/lib/performance-pb";
+import { PerformanceEditDialog, type EditablePerformance } from "@/components/performance-edit-dialog";
+import { Pencil } from "lucide-react";
 
 const searchSchema = z.object({
   athleteId: z.string().optional(),
@@ -268,7 +271,8 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
       race_type: raceType || null,
       overall_place: placing ? Number(placing) : null,
       notes: notes || null,
-      is_pb: false,
+      // is_pb omitted — a DB trigger recomputes it right after insert by
+      // comparing against this athlete's actual history.
       context: "race",
     });
 
@@ -300,14 +304,17 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
     qc.invalidateQueries({ queryKey: ["races", athleteId] });
   }
 
-  // PB per distance
-  const pbByDist = new Map<number, number>();
-  for (const r of races ?? []) {
-    const cur = pbByDist.get(r.distance_m);
-    if (cur == null || r.time_seconds < cur) {
-      pbByDist.set(r.distance_m, r.time_seconds);
-    }
-  }
+  // Current-PB / past-PB status for every race — shared with Profile's
+  // PBs card and the coach Overview page. Replaces a distance-only Map
+  // that didn't account for race_type, so a track 5000m and a road
+  // 5000m were previously treated as competing for the same "PB".
+  const pbStatusMap = useMemo(() => computePbStatus(races ?? []), [races]);
+  const pbCount = useMemo(
+    () => (races ?? []).filter((r: any) => pbStatusFor(r.id, pbStatusMap).isCurrentPB).length,
+    [races, pbStatusMap],
+  );
+
+  const [editingRace, setEditingRace] = useState<EditablePerformance | null>(null);
 
   const stats = useMemo(() => {
     const list = races ?? [];
@@ -320,10 +327,10 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
     return {
       total: list.length,
       thisYear: racesThisYear,
-      pbCount: pbByDist.size,
+      pbCount,
       daysSinceLast,
     };
-  }, [races]);
+  }, [races, pbCount]);
 
   const monthlyFrequency = useMemo(() => buildMonthlyFrequency(races ?? []), [races]);
 
@@ -460,7 +467,7 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
             ) : (
               <div className="divide-y">
                 {races.map((r: any) => {
-                  const isPb = pbByDist.get(r.distance_m) === r.time_seconds;
+                  const { isCurrentPB, isPastPB } = pbStatusFor(r.id, pbStatusMap);
 
                   return (
                     <div
@@ -477,7 +484,12 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
                               {raceTypeLabel(r.race_type)}
                             </Badge>
                           )}
-                          {isPb && <Badge className="bg-emerald-600 text-white">PB</Badge>}
+                          {isCurrentPB && <Badge className="bg-emerald-600 text-white">PB</Badge>}
+                          {isPastPB && (
+                            <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 border-amber-200">
+                              Past PB
+                            </Badge>
+                          )}
                         </div>
 
                         <div className="text-xs text-muted-foreground truncate mt-0.5">
@@ -494,6 +506,19 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
                             View
                           </Link>
                         </Button>
+                        {/* Edit only offered for standalone results (no linked
+                            session) — a session-linked race's time/distance
+                            should stay in sync with the session it came from,
+                            so that one is still fixed via the session's own
+                            page instead of drifting out of step here. This is
+                            exactly the gap that previously left bulk-imported
+                            and manually-entered results with no edit path at
+                            all once saved. */}
+                        {!r.session_id && (
+                          <Button variant="ghost" size="sm" onClick={() => setEditingRace(r)}>
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        )}
                         <Button variant="ghost" size="sm" onClick={() => remove(r.id)}>
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -513,6 +538,17 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
         <RaceFrequencyCard data={monthlyFrequency} />
         <PerformanceProgressionCard races={races ?? []} primaryEvent={primaryEvent} />
       </div>
+
+      <PerformanceEditDialog
+        open={!!editingRace}
+        onOpenChange={(o) => !o && setEditingRace(null)}
+        performance={editingRace}
+        onSaved={() => {
+          setEditingRace(null);
+          qc.invalidateQueries({ queryKey: ["races", athleteId] });
+          qc.invalidateQueries({ queryKey: ["my-pbs", athleteId] });
+        }}
+      />
     </div>
   );
 }
