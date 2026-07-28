@@ -22,7 +22,7 @@ import {
   DAY_TYPE_LABEL,
 } from "@/lib/session-categories";
 import { toast } from "sonner";
-import { Plus, Trash2, GripVertical, ArrowUp, ArrowDown, Lock } from "lucide-react";
+import { Plus, Trash2, GripVertical, ArrowUp, ArrowDown, Lock, CalendarDays } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -577,9 +577,20 @@ function NewSession() {
   }
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <div className="max-w-7xl space-y-6">
-        <h1 className="text-2xl font-bold">New session</h1>
+        <div className="flex items-center gap-3">
+          <div
+            className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+            style={{ background: "var(--accent-red)" }}
+          >
+            <CalendarDays className="h-5 w-5 text-white" strokeWidth={2} />
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Training</div>
+            <h1 className="text-2xl font-bold leading-tight">New session</h1>
+          </div>
+        </div>
 
         {isCoach && (templates ?? []).length > 0 && (
           <Card>
