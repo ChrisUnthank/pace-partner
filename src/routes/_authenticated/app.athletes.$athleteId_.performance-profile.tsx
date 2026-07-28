@@ -16,6 +16,7 @@ import { PerformanceCurveCard } from "@/components/performance-curve-card";
 import { TrainingResponseCard } from "@/components/training-response-card";
 import { StrengthsDevelopmentCard } from "@/components/strengths-development-card";
 import { RaceProfileCard } from "@/components/race-profile-card";
+import { AthleteDnaRatingsCard } from "@/components/athlete-dna-ratings-card";
 
 export const Route = createFileRoute("/_authenticated/app/athletes/$athleteId_/performance-profile")({
   component: PerformanceProfilePage,
@@ -51,71 +52,49 @@ function PerformanceProfilePage() {
   const { data: athlete, isLoading } = useQuery({
     queryKey: ["athlete", athleteId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("athletes").select("*").eq("id", athleteId).single();
+      const { data, error } = await supabase.from("athletes").select("*").eq("id", athleteId).maybeSingle();
       if (error) throw error;
-      return data as any;
+      return data;
     },
   });
 
-  // Rolling actuals instead of a hand-typed "current mileage" field — see
-  // migration comment. Weekly mileage/time already live accurately on
-  // `sessions`; re-asking a coach to retype it would just create a second,
-  // easily-stale copy.
   const { data: last28d } = useQuery({
-    queryKey: ["athlete-rolling-actuals", athleteId],
+    queryKey: ["performance-profile-rolling", athleteId],
     queryFn: async () => {
-      const since = new Date(Date.now() - 28 * 86400000).toISOString().slice(0, 10);
-      const { data, error } = await supabase
-        .from("sessions")
-        .select("total_distance_m, completed_at")
+      const since = new Date();
+      since.setDate(since.getDate() - 28);
+      const { data } = await supabase
+        .from("athlete_load_daily")
+        .select("training_load")
         .eq("athlete_id", athleteId)
-        .gte("session_date", since)
-        .not("completed_at", "is", null);
-      if (error) throw error;
-      const totalM = (data ?? []).reduce((a: number, s: any) => a + (s.total_distance_m ?? 0), 0);
-      return { totalKm: totalM / 1000, weeklyAvgKm: totalM / 1000 / 4, sessionCount: (data ?? []).length };
+        .gte("load_date", since.toISOString().slice(0, 10));
+      return data ?? [];
     },
   });
 
   if (isLoading) {
     return (
       <AppShell fullWidth>
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <div className="p-6 text-sm text-muted-foreground">Loading…</div>
       </AppShell>
     );
   }
 
   return (
     <AppShell fullWidth>
-      <div className="space-y-3 max-w-6xl">
-        {/* Row 1 — breadcrumb + athlete subnav on the left (coach view) or
-            a plain back button (self-service), athlete picker on the
-            right. Same pattern as Calendar/Analytics/Health so a coach
-            always finds the athlete switcher in the same spot. */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-3 min-w-0">
-            {isCoach ? (
-              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground shrink-0">
-                <Link to="/app/athletes" className="hover:text-foreground">
-                  Athletes
-                </Link>
-                <span className="text-border">/</span>
-                <Link to="/app/athletes/$athleteId" params={{ athleteId }} className="hover:text-foreground">
-                  {athlete?.name ?? "Athlete"}
-                </Link>
-              </div>
-            ) : (
-              <Button asChild variant="ghost" size="sm">
-                <Link to="/app/athletes/$athleteId" params={{ athleteId }}>
-                  <ChevronLeft className="h-4 w-4 mr-1" />
-                  Back to profile
-                </Link>
-              </Button>
-            )}
+      <div className="space-y-6 max-w-6xl mx-auto">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Link to="/app/athletes" className="hover:underline flex items-center gap-1">
+              <ChevronLeft className="h-4 w-4" />
+              Athletes
+            </Link>
+            <span>/</span>
+            <span className="text-foreground font-medium">{athlete?.name}</span>
             {isCoach && <AthleteSubnav athleteId={athleteId} active="performance-profile" />}
           </div>
-          {isCoach && (
-            <div className="shrink-0">
+          <div className="flex items-center gap-2">
+            {isCoach && (
               <CoachAthletePicker
                 roster={roster ?? []}
                 myAthlete={myAthlete as any}
@@ -124,25 +103,17 @@ function PerformanceProfilePage() {
                   navigate({ to: "/app/athletes/$athleteId/performance-profile", params: { athleteId: v } })
                 }
               />
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
-        {/* Row 2 — icon + eyebrow heading (always "Performance Profile",
-            never the athlete's name) on the left, status badge on the
-            right. */}
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-3">
-            <div
-              className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
-              style={{ background: "var(--accent-red)" }}
-            >
-              <IdCard className="h-5 w-5 text-white" strokeWidth={2} />
-            </div>
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Profile</div>
-              <h1 className="text-2xl font-bold leading-tight">Performance Profile</h1>
-            </div>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center justify-center h-10 w-10 rounded-lg bg-[var(--accent-red)]/10 text-[var(--accent-red)]">
+            <IdCard className="h-5 w-5" />
+          </div>
+          <div className="flex-1">
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">Athlete Intelligence</div>
+            <h1 className="text-2xl font-bold">Performance Profile</h1>
           </div>
           <Badge variant="outline" className={ATHLETE_STATUS_STYLES[athlete?.athlete_status ?? "active"]}>
             {ATHLETE_STATUS_OPTIONS.find((o) => o.value === athlete?.athlete_status)?.label ?? "Active"}
@@ -152,11 +123,8 @@ function PerformanceProfilePage() {
         <Tabs defaultValue="information" className="w-full">
           <TabsList className="flex flex-wrap h-auto gap-1">
             <TabsTrigger value="information">Athlete Information</TabsTrigger>
-            <TabsTrigger value="physiological">Physiological Profile</TabsTrigger>
-            <TabsTrigger value="performance">Performance Profile</TabsTrigger>
-            <TabsTrigger value="training">Training Profile</TabsTrigger>
-            <TabsTrigger value="strengths">Strengths & Development</TabsTrigger>
-            <TabsTrigger value="race">Race Profile</TabsTrigger>
+            <TabsTrigger value="physiological">Physiological Metrics</TabsTrigger>
+            <TabsTrigger value="dna">Athlete DNA</TabsTrigger>
             <TabsTrigger value="goals">Goals</TabsTrigger>
           </TabsList>
 
@@ -164,23 +132,24 @@ function PerformanceProfilePage() {
             <AthleteIdentityCard athlete={athlete} athleteId={athleteId} canEdit={canEdit} rollingActuals={last28d} />
           </TabsContent>
 
+          {/* Section 1 — objective, measurable values. Unchanged from the
+              existing card for now; the confidence/source/last-updated
+              fields it already tracks per test just need a display pass
+              in a later round. */}
           <TabsContent value="physiological" className="mt-4">
             <PhysiologicalTestingCard athleteId={athleteId} />
           </TabsContent>
 
-          <TabsContent value="performance" className="mt-4">
-            <PerformanceCurveCard athleteId={athleteId} />
-          </TabsContent>
-
-          <TabsContent value="training" className="mt-4">
-            <TrainingResponseCard athleteId={athleteId} />
-          </TabsContent>
-
-          <TabsContent value="strengths" className="mt-4">
+          {/* Section 2 — AI interpretation, not raw numbers. Archetype +
+              the new 10-category ratings up top, then the existing
+              race-tactic and training-response cards folded in underneath
+              as "Recommendations" rather than left as separate unrelated
+              tabs. */}
+          <TabsContent value="dna" className="mt-4 space-y-6">
             <StrengthsDevelopmentCard athleteId={athleteId} />
-          </TabsContent>
-
-          <TabsContent value="race" className="mt-4">
+            <AthleteDnaRatingsCard athleteId={athleteId} />
+            <PerformanceCurveCard athleteId={athleteId} />
+            <TrainingResponseCard athleteId={athleteId} />
             <RaceProfileCard athleteId={athleteId} />
           </TabsContent>
 
