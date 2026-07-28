@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { todayISO } from "@/lib/format";
 import { toast } from "sonner";
-import { Trash2, Upload, QrCode, X } from "lucide-react";
+import { Trash2, Upload, QrCode, X, Ticket } from "lucide-react";
 import { BucketTabStrip, LOCKER_TABS } from "@/components/bucket-tab-strip";
 
 export const Route = createFileRoute("/_authenticated/app/event-entries")({
@@ -39,10 +39,10 @@ const STATUS_VARIANT: Record<string, "default" | "secondary" | "outline" | "dest
 function EventEntriesPage() {
   const { data: athlete, isLoading } = useMyAthlete();
 
-  if (isLoading) return <AppShell><p>Loading…</p></AppShell>;
+  if (isLoading) return <AppShell fullWidth><p>Loading…</p></AppShell>;
   if (!athlete)
     return (
-      <AppShell>
+      <AppShell fullWidth>
         <p className="text-sm">
           No athlete profile linked. Visit <Link to="/app/profile" className="underline">Profile</Link>.
         </p>
@@ -50,14 +50,23 @@ function EventEntriesPage() {
     );
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <div className="space-y-6 max-w-3xl">
-        <div>
-          <h1 className="text-2xl font-bold">Event Entries</h1>
-          <p className="text-sm text-muted-foreground">
-            Entries, bib numbers, and whatever you need on hand for checkin — including a QR code or confirmation
-            screenshot.
-          </p>
+        <div className="flex items-center gap-3">
+          <div
+            className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+            style={{ background: "var(--accent-red)" }}
+          >
+            <Ticket className="h-5 w-5 text-white" strokeWidth={2} />
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Locker</div>
+            <h1 className="text-2xl font-bold leading-tight">Event Entries</h1>
+            <p className="text-sm text-muted-foreground">
+              Entries, bib numbers, and whatever you need on hand for checkin — including a QR code or confirmation
+              screenshot.
+            </p>
+          </div>
         </div>
         <BucketTabStrip items={LOCKER_TABS} active="/app/event-entries" />
         <NewEntryForm athleteId={athlete.id} />
