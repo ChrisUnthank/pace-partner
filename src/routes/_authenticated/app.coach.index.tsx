@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuthUser } from "@/lib/use-auth";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
+import { IdCard } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/app/coach/")({
   component: CoachIndexPage,
@@ -71,12 +72,23 @@ function CoachIndexPage() {
   }
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <div className="max-w-md space-y-4">
         {checking && <p className="text-sm text-muted-foreground">Loading…</p>}
         {needsCreate && (
           <>
-            <h1 className="text-2xl font-bold">Create your coaching page</h1>
+            <div className="flex items-center gap-3">
+              <div
+                className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+                style={{ background: "var(--accent-red)" }}
+              >
+                <IdCard className="h-5 w-5 text-white" strokeWidth={2} />
+              </div>
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Community</div>
+                <h1 className="text-2xl font-bold leading-tight">Create your coaching page</h1>
+              </div>
+            </div>
             <Button onClick={createProfile} disabled={creating}>
               {creating ? "Creating…" : "Create Profile"}
             </Button>
