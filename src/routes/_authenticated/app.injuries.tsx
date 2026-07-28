@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { todayISO } from "@/lib/format";
 import { toast } from "sonner";
-import { Plus, ChevronDown, ChevronUp, Archive, ArchiveRestore, Trash2 } from "lucide-react";
+import { Plus, ChevronDown, ChevronUp, Archive, ArchiveRestore, Trash2, Bandage } from "lucide-react";
 import { BucketTabStrip, HEALTH_TABS } from "@/components/bucket-tab-strip";
 import { BodyMapPicker, BodyMapIcon, regionLabel } from "@/components/body-map";
 
@@ -26,10 +26,10 @@ function InjuriesPage() {
   const { data: athlete, isLoading } = useMyAthlete();
   const [showNewForm, setShowNewForm] = useState(false);
 
-  if (isLoading) return <AppShell><p>Loading…</p></AppShell>;
+  if (isLoading) return <AppShell fullWidth><p>Loading…</p></AppShell>;
   if (!athlete)
     return (
-      <AppShell>
+      <AppShell fullWidth>
         <p className="text-sm">
           No athlete profile linked. Visit <Link to="/app/profile" className="underline">Profile</Link>.
         </p>
@@ -37,14 +37,23 @@ function InjuriesPage() {
     );
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <div className="space-y-6 max-w-3xl">
         <div className="flex items-start justify-between gap-3 flex-wrap">
-          <div>
-            <h1 className="text-2xl font-bold">Injury Management</h1>
-            <p className="text-sm text-muted-foreground">
-              Track a niggle from onset through to resolved, with dated updates along the way.
-            </p>
+          <div className="flex items-center gap-3">
+            <div
+              className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+              style={{ background: "var(--accent-red)" }}
+            >
+              <Bandage className="h-5 w-5 text-white" strokeWidth={2} />
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Wellbeing</div>
+              <h1 className="text-2xl font-bold leading-tight">Injury Management</h1>
+              <p className="text-sm text-muted-foreground">
+                Track a niggle from onset through to resolved, with dated updates along the way.
+              </p>
+            </div>
           </div>
           <Button size="sm" onClick={() => setShowNewForm((v) => !v)}>
             <Plus className="h-4 w-4 mr-1" /> {showNewForm ? "Cancel" : "Log new injury"}
