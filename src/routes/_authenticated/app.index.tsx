@@ -253,8 +253,10 @@ function AppHome() {
               open={pickerOpen}
               onOpenChange={setPickerOpen}
               role={dashboardRole}
+              order={layout.order as DashboardWidgetId[]}
               hidden={layout.hidden}
               onToggle={(id, isHidden) => layout.setHidden(id, isHidden)}
+              onReorder={(next) => layout.reorder(next)}
             />
           </>
         )}
