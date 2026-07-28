@@ -1,234 +1,92 @@
-import { useEffect, useState } from "react";
-import { Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { useServerFn } from "@tanstack/react-start";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { ReactNode, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuthUser, useMyRawRoles } from "@/lib/use-auth";
-import { todayISO } from "@/lib/format";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useMyRoles, useAuthUser } from "@/lib/use-auth";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { ReadinessBadge } from "@/components/readiness-badge";
-import { DashboardAlertsList } from "@/components/dashboard-alerts-panel";
-import { UserAvatar } from "@/components/user-avatar";
-import { RecentReviewsCard } from "@/components/recent-reviews-card";
-import { AthleteSummaryPanel } from "@/components/athlete-summary-panel";
-import { YearlyLoadStrip } from "@/components/yearly-load-strip";
-import { ActivityIcon } from "@/lib/activity-icon";
-import { listPosts } from "@/lib/noticeboard.functions";
-import { listMessageContacts } from "@/lib/messages.functions";
-import { athleteNavTabs } from "@/lib/athlete-nav-tabs";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import {
-  ClipboardList,
   CalendarDays,
+  CalendarRange,
+  Users,
+  User2,
+  LogOut,
+  Home,
+  BookmarkCheck,
+  LineChart,
+  ChevronsLeft,
+  ChevronsRight,
+  ChevronDown,
+  Zap,
+  HeartPulse,
+  Clock,
+  Backpack,
   Megaphone,
   MessageSquare,
   MessageCircle,
-  IdCard,
   Trophy,
-  CalendarRange,
-  LineChart,
-  ArrowRight,
-  HeartPulse,
-  Backpack,
-  AlertTriangle,
-  Sparkles,
-  BookmarkCheck,
+  Gauge,
+  Calculator,
+  GitCompare,
+  IdCard,
+  FileText,
+  Flag,
+  Globe,
+  Map as MapIcon,
+  PersonStanding,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { NotificationBell } from "@/components/notification-bell";
+import { useQuery } from "@tanstack/react-query";
 
-// ---------------------------------------------------------------------
-// Small shared helpers
-// ---------------------------------------------------------------------
+type NavLeaf = { to: string; label: string; icon: any; show: boolean };
+type NavBucket = { id: string; label: string; icon: any; children: NavLeaf[] };
+// Unified ordering type — lets standalone links (leaves) and accordion
+// groups (buckets) interleave in one render pass instead of always
+// rendering "all leaves, then all buckets" as two separate blocks. Needed
+// once Health & Vitals had to sit between the Metrics and Performances
+// buckets rather than up with Home/Athletes/Coaching Hub.
+type NavEntry = ({ kind: "leaf" } & NavLeaf) | ({ kind: "bucket" } & NavBucket);
 
-// Animates a number counting up on mount/change — used for the squad
-// readiness counts. Deliberately hand-rolled (no new dependency) rather
-// than pulling in a motion library for one effect.
-function AnimatedNumber({ value }: { value: number }) {
-  const [display, setDisplay] = useState(0);
-  useEffect(() => {
-    let raf: number;
-    const start = performance.now();
-    const duration = 500;
-    function tick(now: number) {
-      const t = Math.min(1, (now - start) / duration);
-      const eased = 1 - Math.pow(1 - t, 3);
-      setDisplay(Math.round(value * eased));
-      if (t < 1) raf = requestAnimationFrame(tick);
-    }
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [value]);
-  return <span className="tabular-nums">{display}</span>;
+// Plain path.startsWith(to) treats routes as string prefixes, not path
+// segments — "/app/coaching-hub" starts with the literal characters
+// "/app/coach", so the Coach Profile link (and its Community bucket) was
+// lighting up on every Coaching Hub visit. Same class of bug hits
+// "/app/athletes" vs "/app/athlete". Requiring either an exact match or a
+// real "/" boundary after `to` fixes both without touching route paths.
+// "/app" itself is a special case — literally every route is nested under
+// it, so it only ever counts as active on an exact match.
+function isPathActive(current: string, to: string): boolean {
+  if (to === "/app") return current === "/app";
+  return current === to || current.startsWith(to + "/");
 }
 
-function relativeDate(iso: string) {
-  const d = new Date(iso + "T00:00:00");
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const diff = Math.round((d.getTime() - today.getTime()) / 86400000);
-  if (diff === 0) return "Today";
-  if (diff === 1) return "Tomorrow";
-  if (diff > 1 && diff < 7) return d.toLocaleDateString(undefined, { weekday: "long" });
-  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-}
-
-function formatRelative(iso: string) {
-  const diffMs = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diffMs / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
-}
-
-export function QuickTile({
-  to,
-  icon: Icon,
-  label,
-  badge,
-  params,
-  search,
-}: {
-  to: string;
-  icon: any;
-  label: string;
-  badge?: number;
-  params?: Record<string, string>;
-  search?: Record<string, string>;
-}) {
-  return (
-    <Link
-      to={to as any}
-      params={params as any}
-      search={search as any}
-      className="relative rounded-lg border border-border p-4 flex flex-col items-center justify-center gap-2 transition-colors hover:bg-accent/50 hover:border-[var(--accent-red)]/30"
-    >
-      {!!badge && (
-        <span className="absolute top-2 right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--accent-red)] text-[10px] font-bold text-white flex items-center justify-center">
-          {badge > 9 ? "9+" : badge}
-        </span>
-      )}
-      <Icon className="h-5 w-5 text-[var(--accent-red)]" />
-      <span className="text-xs font-medium">{label}</span>
-    </Link>
-  );
-}
-
-function BigLinkCard({ to, icon: Icon, title, description }: { to: string; icon: any; title: string; description: string }) {
-  return (
-    <Link to={to} className="group block">
-      <Card className="h-full transition-colors hover:border-[var(--accent-red)]/40 hover:bg-sidebar-accent/30">
-        <CardContent className="p-5 flex items-center gap-4">
-          <span className="shrink-0 w-11 h-11 rounded-lg bg-[var(--accent-red)]/10 grid place-items-center">
-            <Icon className="h-5 w-5 text-[var(--accent-red)]" />
-          </span>
-          <div className="min-w-0">
-            <div className="font-semibold flex items-center gap-1.5">
-              {title}
-              <ArrowRight className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
-            </div>
-            <div className="text-sm text-muted-foreground">{description}</div>
-          </div>
-        </CardContent>
-      </Card>
-    </Link>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded border border-border p-2">
-      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
-      <div className="text-lg font-semibold tabular-nums">{value}</div>
-    </div>
-  );
-}
-
-// Shared roster + readiness queries — several coach widgets need these.
-// Query keys match what the page used before this was split into
-// widgets, so react-query dedupes the network call across whichever
-// widgets are visible rather than each fetching its own copy.
-function useHomeRoster() {
+export function AppShell({ children, fullWidth = false }: { children: ReactNode; fullWidth?: boolean }) {
+  const navigate = useNavigate();
+  const qc = useQueryClient();
   const { user } = useAuthUser();
-  const { data: rawRoles = [] } = useMyRawRoles();
-  const isManager = rawRoles.includes("manager");
-  return useQuery({
-    queryKey: ["roster", user?.id, isManager],
-    enabled: !!user,
-    queryFn: async () => {
-      if (isManager) {
-        const { data, error } = await supabase
-          .from("athletes")
-          .select("id, name, primary_event, profile_image_url, last_log_at")
-          .order("name");
-        if (error) throw error;
-        return (data ?? []).map((a) => ({ athlete_id: a.id, athletes: a }));
-      }
-      const { data, error } = await supabase
-        .from("coach_athletes")
-        .select("athlete_id, athletes(id, name, primary_event, profile_image_url, last_log_at)")
-        .eq("coach_user_id", user!.id);
-      if (error) throw error;
-      return data;
-    },
-  });
-}
+  const { data: roles = [] } = useMyRoles();
+  const isCoach = roles.includes("coach");
+  const isAthlete = roles.includes("athlete");
+  // Parent Portal: deliberately narrow. Most existing "show: true" items
+  // below were written back when only coach/athlete existed, so "true"
+  // effectively meant "either of the two roles that existed" — now that
+  // parent is a real role too, those need to explicitly exclude it rather
+  // than silently start showing pages that assume a coach's roster or an
+  // athlete's own data exists for the signed-in user.
+  const isParent = roles.includes("parent");
+  const isCoachOrAthlete = isCoach || isAthlete;
+  const path = useRouterState({ select: (s) => s.location.pathname });
+  const [collapsed, setCollapsed] = useState(false);
+  // Manual open/close overrides per bucket — a bucket is open if the user
+  // explicitly opened it OR the current route falls inside it (see
+  // isBucketActive below), UNLESS the user explicitly closed it, in which
+  // case that closure wins even while active. Undefined = no override yet,
+  // defer entirely to "is this bucket active".
+  const [bucketOverrides, setBucketOverrides] = useState<Map<string, boolean>>(new Map());
 
-function useRosterReadiness(roster: any[] | undefined) {
-  return useQuery({
-    queryKey: ["roster-readiness", roster?.map((r) => r.athlete_id).join(",")],
-    enabled: !!roster && roster.length > 0,
-    queryFn: async () => {
-      const today = todayISO();
-      const { data, error } = await supabase
-        .from("athlete_load_daily")
-        .select("athlete_id, readiness_status, readiness_score, confidence, combined_load, ctl, atl, tsb")
-        .in(
-          "athlete_id",
-          roster!.map((r) => r.athlete_id),
-        )
-        .eq("load_date", today);
-      if (error) throw error;
-      return data;
-    },
-  });
-}
-
-// ---------------------------------------------------------------------
-// Coach widgets
-// ---------------------------------------------------------------------
-
-export function QuickActionsWidget() {
-  return (
-    <div className="grid sm:grid-cols-2 gap-3">
-      <BigLinkCard to="/app/sessions/calendar" icon={CalendarRange} title="Calendar" description="See what's planned, day by day." />
-      <BigLinkCard to="/app/analytics" icon={LineChart} title="Analytics" description="Trends, load, and progress over time." />
-    </div>
-  );
-}
-
-// Was QuickTilesWidget (Messages/Noticeboard/Athletes/Health & Vitals) —
-// Athletes and Health & Vitals moved out to their own dedicated widgets, so
-// this narrows to exactly the sidebar's Community bucket: Messages,
-// Noticeboard, Group Chat, and the coach's own public Profile Page (same
-// slug-or-create-flow pattern AthleteSubnav uses for the Athlete Page tab).
-export function CommunityWidget() {
-  const { user } = useAuthUser();
-  const listContacts = useServerFn(listMessageContacts);
-  const { data: contacts } = useQuery({
-    queryKey: ["msg-contacts-home"],
-    queryFn: () => listContacts(),
-  });
-  const unreadCount = (contacts ?? []).reduce((sum: number, c: any) => sum + (c.unread ?? 0), 0);
-
-  // Same query key AppShell uses for its own coach-profile-slug lookup, so
-  // this dedupes against that call instead of firing a second one.
   const { data: coachProfile } = useQuery({
     queryKey: ["my-coach-profile-slug", user?.id],
-    enabled: !!user,
+    enabled: !!user && isCoach,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("coach_profiles")
@@ -240,613 +98,411 @@ export function CommunityWidget() {
     },
   });
 
-  return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-      <QuickTile to="/app/messages" icon={MessageSquare} label="Messages" badge={unreadCount} />
-      <QuickTile to="/app/noticeboard" icon={Megaphone} label="Noticeboard" />
-      <QuickTile to="/app/group-chat" icon={MessageCircle} label="Group Chat" />
-      {coachProfile?.slug ? (
-        <QuickTile to="/app/coach/$slug" params={{ slug: coachProfile.slug }} icon={IdCard} label="Profile Page" />
-      ) : (
-        <QuickTile to="/app/coach" icon={IdCard} label="Profile Page" />
-      )}
-    </div>
-  );
-}
+  async function signOut() {
+    await qc.cancelQueries();
+    qc.clear();
+    await supabase.auth.signOut();
+    navigate({ to: "/auth", replace: true });
+  }
 
-// Covers the Coaching Hub sidebar leaf — previously the only widget-grid
-// coverage for it was none at all.
-export function CoachingHubWidget() {
-  return (
-    <BigLinkCard
-      to="/app/coaching-hub"
-      icon={BookmarkCheck}
-      title="Coaching Hub"
-      description="Session templates, plan templates, and active plans."
-    />
-  );
-}
+  // Standalone top-level items — these deliberately stay outside any
+  // bucket. Athletes already has its own Overview + AthleteSubnav pattern
+  // once you're inside a specific athlete, so it doesn't need a second
+  // layer of grouping here. Profile is account settings only — not a
+  // bucket, just like Home and Athletes.
+  //
+  // Profile stays standalone too, but renders after everything else (its
+  // original position at the end of the nav) rather than up top with
+  // Home/Athletes — it's the account-settings page, not a frequent
+  // destination the way Home is.
+  const accountItems: NavLeaf[] = [{ to: "/app/profile", label: "Profile", icon: User2, show: true }];
 
-// Covers the Health & Vitals sidebar leaf. Shows a live active-injury
-// count across the roster when there's anything worth flagging, same
-// query shape as the roster-wide injury flag on the Athletes page, so the
-// two stay consistent with each other.
-export function HealthVitalsWidget() {
-  const { data: roster } = useHomeRoster();
-  const { data: injuryCount } = useQuery({
-    queryKey: ["home-injury-count", roster?.map((r) => r.athlete_id).join(",")],
-    enabled: !!roster && roster.length > 0,
-    queryFn: async () => {
-      const { count, error } = await supabase
-        .from("injuries")
-        .select("id", { count: "exact", head: true })
-        .in(
-          "athlete_id",
-          roster!.map((r) => r.athlete_id),
-        )
-        .neq("status", "resolved");
-      if (error) throw error;
-      return count ?? 0;
+  // Single ordered list — this array's order IS the sidebar's visual
+  // order, so leaves and buckets can be interleaved (Health & Vitals sits
+  // after the Metrics bucket and before Performances, per Chris's ask,
+  // rather than being grouped with the other standalone leaves up top).
+  const navEntries: NavEntry[] = [
+    { kind: "leaf", to: "/app", label: "Home", icon: Home, show: true },
+    { kind: "leaf", to: "/app/athletes", label: "Athletes", icon: Users, show: isCoach },
+    // Coaching Hub: session templates, plan templates, active plans — and
+    // room to grow into a session library / phase builder later. Gets its
+    // own Overview + tab-strip (BucketTabStrip, same component the
+    // sidebar buckets use) rather than living inside the Training
+    // accordion, since — like Athletes — it has a real landing dashboard
+    // to earn that treatment, not just a handful of unrelated tools.
+    { kind: "leaf", to: "/app/coaching-hub", label: "Coaching Hub", icon: BookmarkCheck, show: isCoach },
+    {
+      kind: "bucket",
+      id: "training",
+      label: "Training",
+      icon: CalendarDays,
+      children: [
+        { to: "/app/sessions", label: "Sessions", icon: CalendarDays, show: isCoachOrAthlete },
+        { to: "/app/sessions/calendar", label: "Calendar", icon: CalendarRange, show: isCoachOrAthlete },
+        // Open to everyone — coach, athlete, and parent alike. This is
+        // also what surfaces the Training bucket in a parent's sidebar
+        // for the first time, since Sessions/Calendar stay hidden from
+        // them. (Daily Log moved to Health & Vitals; My Schedule moved
+        // to the new Locker area.)
+        { to: "/app/training-schedule", label: "Training Schedule", icon: Clock, show: true },
+        // Placeholder page for now (coming soon) — placed here rather than
+        // its own bucket since a route library is fundamentally a training-
+        // planning tool, same audience as Sessions/Calendar/Schedule.
+        { to: "/app/maps", label: "Maps & Routes", icon: MapIcon, show: isCoachOrAthlete },
+      ],
     },
-  });
-  const description = injuryCount
-    ? `${injuryCount} active injur${injuryCount === 1 ? "y" : "ies"} across your roster.`
-    : "Daily logs, injuries, and recovery across your roster.";
-  return <BigLinkCard to="/app/health" icon={HeartPulse} title="Health & Vitals" description={description} />;
-}
-
-export function YourAthletesWidget() {
-  const [selectedAthleteId, setSelectedAthleteId] = useState<string | null>(null);
-  const { data: roster } = useHomeRoster();
-  const { data: readiness } = useRosterReadiness(roster);
-
-  // Public Athlete Page slugs, batched the same way the Roster page does
-  // it — needed so each row's "Athlete Page" icon can link straight to the
-  // existing public page when one exists, same as the Roster page and
-  // AthleteSubnav.
-  const athleteIds = (roster ?? []).map((r: any) => r.athlete_id);
-  const { data: profileSlugs } = useQuery({
-    queryKey: ["roster-athlete-slugs", athleteIds.join(",")],
-    enabled: athleteIds.length > 0,
-    queryFn: async () => {
-      const { data, error } = await (supabase as any)
-        .from("athlete_profiles")
-        .select("athlete_id, slug")
-        .in("athlete_id", athleteIds);
-      if (error) throw error;
-      const m = new Map<string, string>();
-      for (const p of data ?? []) m.set(p.athlete_id, p.slug);
-      return m;
+    {
+      kind: "bucket",
+      id: "metrics",
+      label: "Metrics",
+      icon: LineChart,
+      children: [
+        { to: "/app/analytics", label: "Analytics", icon: LineChart, show: isCoachOrAthlete },
+        { to: "/app/zones", label: "Zones", icon: Gauge, show: isAthlete || isCoach },
+        // Placeholder page for now (coming soon) — grouped with the other
+        // athlete-performance-data pages rather than Health & Vitals,
+        // since form/gait metrics sit alongside pace/HR/load analysis
+        // rather than being a wellbeing or injury-log concern.
+        { to: "/app/biomechanics", label: "Biomechanics", icon: PersonStanding, show: isAthlete || isCoach },
+        { to: "/app/compare", label: "Compare", icon: GitCompare, show: isCoachOrAthlete },
+        { to: "/app/reports", label: "Reports", icon: FileText, show: isCoachOrAthlete },
+      ],
     },
-  });
+    // Health & Vitals: daily log, diet/fuel, recovery, injury management,
+    // bicarb, lactate — a cross-cutting per-athlete area. Sits right after
+    // Metrics and before Performances/Community, rather than up with
+    // Athletes/Coaching Hub. Coach and athlete both see it; a coach
+    // reaches a specific athlete's data via the Health tab on that
+    // athlete's own view (AthleteSubnav), same as Zones/Analytics. Own
+    // Overview + tab-strip, same pattern as Coaching Hub.
+    { kind: "leaf", to: "/app/health", label: "Health & Vitals", icon: HeartPulse, show: isCoachOrAthlete },
+    // Locker: personal schedule, gear, credentials, event entries — same
+    // standalone-leaf-with-its-own-tab-strip treatment as Health & Vitals
+    // and Coaching Hub. Athlete/parent only for now, matching what My
+    // Schedule (now its first tab) has always been restricted to — not
+    // coach-visible, since the schedule itself mixes in private personal
+    // calendar entries. Revisit this visibility once Gear is built, since
+    // a coach may reasonably want to see an athlete's gear/usage even
+    // though the Schedule tab stays private.
+    { kind: "leaf", to: "/app/my-schedule", label: "Locker", icon: Backpack, show: isAthlete || isParent },
+    {
+      kind: "bucket",
+      id: "performances",
+      label: "Performances",
+      icon: Trophy,
+      children: [
+        // Coach-visible too: both index pages are already fully coach-aware
+        // (all-athletes listing, per-athlete filter, AthleteSubnav when
+        // filtered) — these were show: isAthlete only, which is why coaches
+        // had no sidebar path to Races/Race Tactics at all.
+        { to: "/app/races", label: "Races", icon: Trophy, show: isCoachOrAthlete },
+        { to: "/app/race-tactics", label: "Race Tactics", icon: Flag, show: isCoachOrAthlete },
+      ],
+    },
+    {
+      kind: "bucket",
+      id: "community",
+      label: "Community",
+      icon: MessageSquare,
+      children: [
+        { to: "/app/noticeboard", label: "Noticeboard", icon: Megaphone, show: true },
+        { to: "/app/group-chat", label: "Group Chat", icon: MessageCircle, show: true },
+        // Messages stays 1:1 coach<->athlete for now — no parent
+        // "observer" concept exists on direct_messages yet, so kept out
+        // of the parent portal's scope rather than exposing a broken/
+        // empty inbox.
+        { to: "/app/messages", label: "Messages", icon: MessageSquare, show: isCoachOrAthlete },
+        { to: "/app/coach", label: "Coach Profile", icon: IdCard, show: isCoach },
+        { to: "/app/athlete", label: "Athlete Page", icon: Globe, show: isAthlete },
+      ],
+    },
+  ];
 
-  const selectedAthlete = roster?.find((r: any) => r.athlete_id === selectedAthleteId)?.athletes ?? null;
+  const visibleAccountItems = accountItems.filter((n) => n.show);
+  // Buckets drop hidden children first; empty buckets and hidden leaves
+  // are then filtered out — same visibility rules as before, just applied
+  // across one interleaved list instead of two separate ones.
+  const visibleEntries: NavEntry[] = navEntries
+    .map((e) => (e.kind === "bucket" ? { ...e, children: e.children.filter((c) => c.show) } : e))
+    .filter((e) => (e.kind === "bucket" ? e.children.length > 0 : e.show));
 
-  return (
-    <>
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Your athletes</CardTitle>
-          {/* Solid button + icon (same ClipboardList icon the Community
-              widget's old Athletes tile used) so this reads as the clear,
-              obvious way into full roster management, not a secondary
-              ghost/outline action. */}
-          <Button asChild size="sm">
-            <Link to="/app/athletes">
-              <ClipboardList className="h-4 w-4 mr-1.5" />
-              Manage Athletes
-            </Link>
-          </Button>
-        </CardHeader>
-        <CardContent>
-          {!roster || roster.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No athletes yet.{" "}
-              <Link to="/app/athletes" className="underline">
-                Add your first one
-              </Link>
-              .
-            </p>
-          ) : (
-            <div className="divide-y max-h-[420px] overflow-y-auto brand-scrollbar pr-1">
-              {roster.map((r: any) => {
-                const ready = readiness?.find((x) => x.athlete_id === r.athlete_id);
-                const slug = profileSlugs?.get(r.athlete_id) ?? null;
-                const tabs = athleteNavTabs(r.athlete_id, slug);
-                return (
-                  <div
-                    key={r.athlete_id}
-                    className={`flex flex-col gap-2 py-3 px-2 rounded gap-y-1 ${
-                      selectedAthleteId === r.athlete_id ? "bg-accent/60" : ""
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-3 flex-wrap">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedAthleteId(r.athlete_id)}
-                        title="Quick view"
-                        className="flex items-center gap-3 min-w-0 text-left hover:opacity-80 transition-opacity"
-                      >
-                        <UserAvatar name={r.athletes?.name} imageUrl={r.athletes?.profile_image_url} size="sm" />
-                        <div className="min-w-0">
-                          <div className="font-medium truncate">{r.athletes?.name}</div>
-                          <div className="text-xs text-muted-foreground truncate">
-                            {r.athletes?.primary_event ?? "—"}
-                            {r.athletes?.last_log_at && <> · last log {formatRelative(r.athletes.last_log_at)}</>}
-                          </div>
-                        </div>
-                      </button>
-                      <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-                        <ReadinessBadge
-                          status={ready?.readiness_status as any}
-                          score={ready?.readiness_score as any}
-                          confidence={ready?.confidence as any}
-                        />
-                        {/* Same sub-page jump strip as the Roster page —
-                            one icon per athlete page, always red. */}
-                        <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar">
-                          {tabs.map((t) => (
-                            <Button
-                              key={t.key}
-                              asChild
-                              size="icon"
-                              variant="ghost"
-                              title={t.label}
-                              className="h-7 w-7 text-[var(--accent-red)] hover:bg-[var(--accent-red)]/10 hover:text-[var(--accent-red)]"
-                            >
-                              <Link to={t.to as any} params={(t as any).params as any} search={(t as any).search as any}>
-                                <t.icon className="h-3.5 w-3.5" />
-                              </Link>
-                            </Button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+  function isBucketActive(bucket: NavBucket) {
+    return bucket.children.some((c) => isPathActive(path, c.to));
+  }
 
-      {/* Quick-view — a fixed side panel (Sheet), same as the Roster
-          page's, rather than an in-flow block that used to render below
-          the whole list — on a longer roster that meant scrolling down
-          past the list to see it. */}
-      <Sheet open={!!selectedAthlete} onOpenChange={(o) => !o && setSelectedAthleteId(null)}>
-        <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto brand-scrollbar">
-          <SheetHeader>
-            <SheetTitle className="sr-only">Athlete quick view</SheetTitle>
-          </SheetHeader>
-          <AthleteSummaryPanel athlete={selectedAthlete} embedded onClose={() => setSelectedAthleteId(null)} />
-        </SheetContent>
-      </Sheet>
-    </>
+  function isBucketOpen(bucket: NavBucket) {
+    const override = bucketOverrides.get(bucket.id);
+    if (override !== undefined) return override;
+    return isBucketActive(bucket);
+  }
+
+  function toggleBucket(bucket: NavBucket) {
+    setBucketOverrides((prev) => {
+      const next = new Map(prev);
+      next.set(bucket.id, !isBucketOpen(bucket));
+      return next;
+    });
+  }
+
+  // Breadcrumb label — longest-matching `to` wins (rather than relying on
+  // array order) so e.g. "/app/sessions/calendar" resolves to "Calendar"
+  // and not the shorter "/app/sessions" → "Sessions" match.
+  const allLeaves = useMemo(
+    () => [...visibleEntries.flatMap((e) => (e.kind === "bucket" ? e.children : [e])), ...visibleAccountItems],
+    [visibleEntries, visibleAccountItems],
   );
-}
+  const crumb = (() => {
+    const matches = allLeaves.filter((n) => isPathActive(path, n.to));
+    if (matches.length === 0) return "Strider";
+    return matches.reduce((best, n) => (n.to.length > best.to.length ? n : best)).label;
+  })();
 
-// Combines the old separate Squad Readiness and Needs Attention widgets
-// into one card — the readiness counts row sits above the flagged-athletes
-// list, both under a single "Coaching Insights" header. Built as
-// independent sections (readiness row, then the alerts list) rather than
-// one interleaved block, specifically so a third section can be added
-// later without restructuring what's already here.
-export function CoachingInsightsWidget() {
-  const { data: roster } = useHomeRoster();
-  const { data: readiness } = useRosterReadiness(roster);
-
-  const counts = { green: 0, amber: 0, red: 0 };
-  (readiness ?? []).forEach((r: any) => {
-    if (r.readiness_status && counts[r.readiness_status as "green" | "amber" | "red"] !== undefined) {
-      counts[r.readiness_status as "green" | "amber" | "red"]++;
-    }
-  });
-  const loggedToday = (readiness ?? []).length;
+  // Mobile bottom nav: buckets collapse to a single tap target — their
+  // first visible child — since a bottom bar can't show an expanded
+  // accordion. Tapping it lands on that page, whose own top tab-strip
+  // (added in phase 2) lets you switch to a sibling from there. Order
+  // mirrors the sidebar's visibleEntries, so Health still lands between
+  // Metrics and Performances here too.
+  const mobileItems: (NavLeaf & { bucketActive?: boolean })[] = [
+    ...visibleEntries.map((e) =>
+      e.kind === "bucket"
+        ? { to: e.children[0].to, label: e.label, icon: e.icon, show: true, bucketActive: isBucketActive(e) }
+        : e,
+    ),
+    ...visibleAccountItems,
+  ];
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Sparkles className="h-4 w-4 text-[var(--accent-red)]" /> Coaching Insights
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {roster && roster.length > 0 && (
-          <div className="flex flex-wrap items-center gap-4 text-sm rounded-lg border border-border px-4 py-3">
-            <div className="flex items-center gap-2">
-              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-              <AnimatedNumber value={counts.green} /> ready
-              <span className="h-2.5 w-2.5 rounded-full bg-amber-500 ml-2" />
-              <AnimatedNumber value={counts.amber} /> caution
-              <span className="h-2.5 w-2.5 rounded-full bg-red-500 ml-2" />
-              <AnimatedNumber value={counts.red} /> recover
-            </div>
-            <span className="text-muted-foreground">
-              · <AnimatedNumber value={loggedToday} /> of {roster.length} logged today
-            </span>
-          </div>
+    <div className="min-h-screen flex bg-background text-foreground">
+      {/* Sidebar */}
+      <aside
+        className={cn(
+          "hidden md:flex flex-col shrink-0 border-r border-border bg-sidebar transition-[width] duration-200 sticky top-0 h-screen overflow-y-auto brand-scrollbar print:hidden",
+          collapsed ? "w-16" : "w-60",
         )}
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2 flex items-center gap-1.5">
-            <AlertTriangle className="h-3.5 w-3.5" /> Needs attention
-          </div>
-          <DashboardAlertsList embedded />
+      >
+        <div className={cn("h-14 flex items-center border-b border-border", collapsed ? "justify-center" : "px-5")}>
+          <Link to="/app" className="flex items-center gap-2 group">
+            <span className="w-7 h-7 grid place-items-center rounded-md bg-[var(--accent-red)] shadow-[0_0_18px_-4px_var(--accent-red)]">
+              <Zap className="h-4 w-4 text-white" strokeWidth={2.5} />
+            </span>
+            {!collapsed && (
+              <span className="font-display text-base font-extrabold tracking-tight uppercase">Strider</span>
+            )}
+          </Link>
         </div>
-      </CardContent>
-    </Card>
-  );
-}
+        <nav className="flex-1 px-2 py-4 space-y-0.5">
+          {/* Single interleaved pass — order comes straight from
+              visibleEntries, so Health & Vitals (a leaf) renders between
+              the Metrics and Performances buckets exactly as listed above. */}
+          {visibleEntries.map((entry) => {
+            if (entry.kind === "leaf") {
+              const active = isPathActive(path, entry.to);
+              return (
+                <Link
+                  key={entry.to}
+                  to={entry.to}
+                  title={collapsed ? entry.label : undefined}
+                  className={cn(
+                    "relative flex items-center gap-3 rounded-md text-sm font-medium transition-colors",
+                    collapsed ? "justify-center h-10" : "px-3 h-10",
+                    active
+                      ? "bg-sidebar-accent text-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/60",
+                  )}
+                >
+                  {active && (
+                    <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-[var(--accent-red)]" />
+                  )}
+                  <entry.icon className={cn("h-4 w-4", active && "text-[var(--accent-red)]")} />
+                  {!collapsed && <span>{entry.label}</span>}
+                </Link>
+              );
+            }
 
-export function UpcomingRacesWidget() {
-  const { data: roster } = useHomeRoster();
-  const { data: upcomingRaces } = useQuery({
-    queryKey: ["upcoming-races", roster?.map((r) => r.athlete_id).join(",")],
-    enabled: !!roster && roster.length > 0,
-    queryFn: async () => {
-      const today = todayISO();
-      const twoWeeksOut = new Date();
-      twoWeeksOut.setDate(twoWeeksOut.getDate() + 14);
-      const { data, error } = await supabase
-        .from("sessions")
-        .select("id, title, session_date, athlete_id")
-        .in(
-          "athlete_id",
-          roster!.map((r) => r.athlete_id),
-        )
-        .eq("day_type", "race")
-        .gte("session_date", today)
-        .lte("session_date", twoWeeksOut.toISOString().slice(0, 10))
-        .order("session_date", { ascending: true })
-        .limit(6);
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
+            // Bucket — accordion. When the sidebar itself is collapsed to
+            // icon-only width, it falls back to acting like a flat icon
+            // link to its first child (an accordion can't really work at
+            // 64px wide) rather than being unusable.
+            const bucket = entry;
+            const active = isBucketActive(bucket);
+            const open = collapsed ? false : isBucketOpen(bucket);
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Trophy className="h-4 w-4 text-[var(--accent-red)]" /> Upcoming races
-        </CardTitle>
-      </CardHeader>
-      <CardContent className={upcomingRaces && upcomingRaces.length > 0 ? "space-y-1" : undefined}>
-        {!upcomingRaces || upcomingRaces.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Nothing in the next two weeks.</p>
-        ) : (
-          upcomingRaces.map((race: any) => {
-            const athleteName = roster?.find((r) => r.athlete_id === race.athlete_id)?.athletes?.name;
+            if (collapsed) {
+              const first = bucket.children[0];
+              return (
+                <Link
+                  key={bucket.id}
+                  to={first.to}
+                  title={bucket.label}
+                  className={cn(
+                    "relative flex items-center justify-center h-10 rounded-md text-sm font-medium transition-colors",
+                    active
+                      ? "bg-sidebar-accent text-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/60",
+                  )}
+                >
+                  {active && (
+                    <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-[var(--accent-red)]" />
+                  )}
+                  <bucket.icon className={cn("h-4 w-4", active && "text-[var(--accent-red)]")} />
+                </Link>
+              );
+            }
+
             return (
-              // race.id here is a sessions.id (this queries the sessions
-              // table), so it links to the session page, not
-              // /app/races/$raceId (which takes a performances.id — an
-              // upcoming race has no performances row yet).
+              <div key={bucket.id}>
+                <button
+                  type="button"
+                  onClick={() => toggleBucket(bucket)}
+                  className={cn(
+                    "relative w-full flex items-center gap-3 px-3 h-10 rounded-md text-sm font-medium transition-colors",
+                    active
+                      ? "text-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/60",
+                  )}
+                  aria-expanded={open}
+                >
+                  {active && (
+                    <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-[var(--accent-red)]" />
+                  )}
+                  <bucket.icon className={cn("h-4 w-4", active && "text-[var(--accent-red)]")} />
+                  <span className="flex-1 text-left">{bucket.label}</span>
+                  <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")} />
+                </button>
+                {open && (
+                  <div className="ml-3.5 pl-3 border-l border-border space-y-0.5 py-0.5">
+                    {bucket.children.map((n) => {
+                      const childActive = isPathActive(path, n.to);
+                      return (
+                        <Link
+                          key={n.to}
+                          to={n.to}
+                          className={cn(
+                            "flex items-center gap-2.5 px-2.5 h-8 rounded-md text-[13px] font-medium transition-colors",
+                            childActive
+                              ? "bg-sidebar-accent text-foreground"
+                              : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/60",
+                          )}
+                        >
+                          <n.icon className={cn("h-3.5 w-3.5", childActive && "text-[var(--accent-red)]")} />
+                          <span>{n.label}</span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Standalone account item (Profile) — same simple link style as
+              Home/Athletes, deliberately rendered after the buckets since
+              it's a settings destination, not a frequent one. */}
+          {visibleAccountItems.map((n) => {
+            const active = isPathActive(path, n.to);
+            return (
               <Link
-                key={race.id}
-                to="/app/sessions/$sessionId"
-                params={{ sessionId: race.id }}
-                className="flex items-center justify-between py-1.5 text-sm hover:bg-accent/50 rounded px-1 -mx-1"
+                key={n.to}
+                to={n.to}
+                title={collapsed ? n.label : undefined}
+                className={cn(
+                  "relative flex items-center gap-3 rounded-md text-sm font-medium transition-colors",
+                  collapsed ? "justify-center h-10" : "px-3 h-10",
+                  active
+                    ? "bg-sidebar-accent text-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/60",
+                )}
               >
-                <div className="min-w-0">
-                  <div className="font-medium truncate">{race.title ?? "Race"}</div>
-                  <div className="text-xs text-muted-foreground truncate">{athleteName}</div>
-                </div>
-                <span className="text-xs text-muted-foreground shrink-0 ml-2">{relativeDate(race.session_date)}</span>
+                {active && (
+                  <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-[var(--accent-red)]" />
+                )}
+                <n.icon className={cn("h-4 w-4", active && "text-[var(--accent-red)]")} />
+                {!collapsed && <span>{n.label}</span>}
               </Link>
             );
-          })
-        )}
-      </CardContent>
-    </Card>
-  );
-}
+          })}
+        </nav>
+        <div className="border-t border-border p-2">
+          <button
+            onClick={() => setCollapsed((c) => !c)}
+            className={cn(
+              "w-full flex items-center gap-2 h-9 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/60 transition-colors",
+              collapsed ? "justify-center" : "px-3",
+            )}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {collapsed ? (
+              <ChevronsRight className="h-4 w-4" />
+            ) : (
+              <>
+                <ChevronsLeft className="h-4 w-4" /> Collapse
+              </>
+            )}
+          </button>
+        </div>
+      </aside>
 
-export function RecentReviewsWidget() {
-  return <RecentReviewsCard />;
-}
+      {/* Main column */}
+      <div className="flex-1 flex flex-col min-w-0">
+        <header className="h-14 sticky top-0 z-10 border-b border-border bg-background/80 backdrop-blur-md flex items-center justify-between px-4 md:px-6 print:hidden">
+          <div className="flex items-center gap-3 min-w-0">
+            <Link to="/app" className="md:hidden flex items-center gap-2">
+              <span className="w-6 h-6 grid place-items-center rounded-md bg-[var(--accent-red)]">
+                <Zap className="h-3.5 w-3.5 text-white" strokeWidth={2.5} />
+              </span>
+            </Link>
+            <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+              <span>Strider</span>
+              <span className="text-border">/</span>
+              <span className="text-foreground">{crumb}</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <NotificationBell />
+            {isParent && (
+              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground border border-border rounded px-1.5 py-0.5">
+                Parent view
+              </span>
+            )}
+            <span className="text-xs text-muted-foreground hidden sm:inline truncate max-w-[180px]">{user?.email}</span>
+            <Button variant="ghost" size="sm" onClick={signOut} title="Sign out">
+              <LogOut className="h-4 w-4" />
+            </Button>
+          </div>
+        </header>
 
-// ---------------------------------------------------------------------
-// Athlete widgets
-// ---------------------------------------------------------------------
+        {/* Mobile bottom nav — buckets collapse to their first visible
+            child (see mobileItems above); the in-page tab-strip (phase 2)
+            is what lets someone switch to a sibling from there. */}
+        <nav className="md:hidden order-last sticky bottom-0 z-10 border-t border-border bg-background/95 backdrop-blur-md flex overflow-x-auto print:hidden">
+          {mobileItems.map((n) => {
+            const active = n.bucketActive ?? isPathActive(path, n.to);
+            return (
+              <Link
+                key={n.to}
+                to={n.to}
+                className={cn(
+                  "flex flex-col items-center gap-0.5 px-3 py-2 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap min-w-[64px]",
+                  active ? "text-[var(--accent-red)]" : "text-muted-foreground",
+                )}
+              >
+                <n.icon className="h-4 w-4" />
+                {n.label}
+              </Link>
+            );
+          })}
+        </nav>
 
-export function AthleteLoadStripWidget({ athleteId }: { athleteId: string }) {
-  return (
-    <div>
-      <YearlyLoadStrip athleteId={athleteId} compact />
-      <div className="flex justify-end mt-1">
-        <Link to="/app/analytics" className="text-xs text-muted-foreground hover:text-foreground underline">
-          Open in Analytics →
-        </Link>
+        <main
+          className={cn(
+            "flex-1 px-4 md:px-8 py-6 md:py-8 w-full mx-auto print:p-0 print:max-w-none",
+            fullWidth ? "max-w-none" : "max-w-7xl",
+          )}
+        >
+          {children}
+        </main>
       </div>
     </div>
-  );
-}
-
-export function AthleteTodayWidget({ athleteId }: { athleteId: string }) {
-  const today = todayISO();
-
-  const { data: vitals } = useQuery({
-    queryKey: ["home-vitals", athleteId, today],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("daily_vitals")
-        .select("sleep_hours, resting_hr, hydration")
-        .eq("athlete_id", athleteId)
-        .eq("vitals_date", today)
-        .maybeSingle();
-      return data;
-    },
-  });
-
-  const { data: readiness } = useQuery({
-    queryKey: ["home-readiness", athleteId, today],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("athlete_load_daily")
-        .select("readiness_status, readiness_score, confidence")
-        .eq("athlete_id", athleteId)
-        .eq("load_date", today)
-        .maybeSingle();
-      return data;
-    },
-  });
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Today</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="text-sm text-muted-foreground">Readiness</div>
-          {readiness?.readiness_status ? (
-            <ReadinessBadge
-              status={readiness.readiness_status as any}
-              score={readiness.readiness_score as any}
-              confidence={readiness.confidence as any}
-            />
-          ) : (
-            <Link to="/app/daily-log" className="text-xs underline text-muted-foreground">
-              Log vitals to see readiness
-            </Link>
-          )}
-        </div>
-        <div className="grid grid-cols-3 gap-2">
-          <Stat label="Sleep" value={vitals?.sleep_hours != null ? `${vitals.sleep_hours}h` : "—"} />
-          <Stat label="Resting HR" value={vitals?.resting_hr != null ? `${vitals.resting_hr}` : "—"} />
-          <Stat label="Hydration" value={vitals?.hydration != null ? `${vitals.hydration}/5` : "—"} />
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-// Personal, simpler equivalent of the coach's Needs Attention widget —
-// just this one athlete, no dismiss/severity machinery. Renders nothing
-// when there's genuinely nothing to flag, same philosophy as the coach
-// version's "all on track" state — deliberately kept as an invisible
-// grid slot rather than an empty-state card, since "nothing wrong" isn't
-// something worth taking up space to say.
-export function AthleteAttentionWidget({ athleteId }: { athleteId: string }) {
-  const { data: injuries } = useQuery({
-    queryKey: ["home-injuries", athleteId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("injuries")
-        .select("body_part, side, status")
-        .eq("athlete_id", athleteId)
-        .neq("status", "resolved");
-      if (error) throw error;
-      return (data ?? []) as any[];
-    },
-  });
-
-  const { data: soonEvent } = useQuery({
-    queryKey: ["home-next-event", athleteId],
-    queryFn: async () => {
-      const today = todayISO();
-      const soon = new Date();
-      soon.setDate(soon.getDate() + 7);
-      const { data, error } = await supabase
-        .from("event_entries")
-        .select("event_name, event_date")
-        .eq("athlete_id", athleteId)
-        .gte("event_date", today)
-        .lte("event_date", soon.toISOString().slice(0, 10))
-        .order("event_date", { ascending: true })
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
-    },
-  });
-
-  const { data: wornGear } = useQuery({
-    queryKey: ["home-gear-retirement", athleteId],
-    queryFn: async () => {
-      const { data: items, error } = await supabase
-        .from("gear_items")
-        .select("id, brand, model, nickname, retirement_target_km")
-        .eq("athlete_id", athleteId)
-        .eq("is_retired", false)
-        .not("retirement_target_km", "is", null);
-      if (error) throw error;
-      if (!items || items.length === 0) return [] as any[];
-      const ids = items.map((i) => i.id);
-      const { data: links, error: linkErr } = await supabase
-        .from("session_gear")
-        .select("gear_id, sessions(total_distance_m)")
-        .in("gear_id", ids);
-      if (linkErr) throw linkErr;
-      const usage = new Map<string, number>();
-      for (const l of (links ?? []) as any[]) {
-        const m = Number(l.sessions?.total_distance_m ?? 0);
-        usage.set(l.gear_id, (usage.get(l.gear_id) ?? 0) + m);
-      }
-      return items
-        .map((i: any) => ({ ...i, km: (usage.get(i.id) ?? 0) / 1000 }))
-        .filter((i: any) => i.km >= Number(i.retirement_target_km) * 0.9);
-    },
-  });
-
-  const hasAnything = (injuries?.length ?? 0) > 0 || !!soonEvent || (wornGear?.length ?? 0) > 0;
-  if (!hasAnything) return null;
-
-  return (
-    <Card className="border-l-4 border-l-amber-500">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base flex items-center gap-2">
-          <AlertTriangle className="h-4 w-4 text-amber-500" /> Worth a look
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-2 text-sm">
-        {(injuries ?? []).map((i: any, idx: number) => (
-          <div key={idx} className="flex items-center justify-between gap-2">
-            <span className="capitalize truncate">
-              Active injury — {i.body_part} {i.side && i.side !== "n/a" ? `(${i.side})` : ""}
-            </span>
-            <Link to="/app/injuries" className="text-xs text-[var(--accent-red)] hover:underline shrink-0">
-              Open →
-            </Link>
-          </div>
-        ))}
-        {soonEvent && (
-          <div className="flex items-center justify-between gap-2">
-            <span className="truncate">
-              {soonEvent.event_name} — {relativeDate(soonEvent.event_date)}
-            </span>
-            <Link to="/app/event-entries" className="text-xs text-[var(--accent-red)] hover:underline shrink-0">
-              Open →
-            </Link>
-          </div>
-        )}
-        {(wornGear ?? []).map((g: any, idx: number) => (
-          <div key={idx} className="flex items-center justify-between gap-2">
-            <span className="truncate">
-              {g.nickname || `${g.brand} ${g.model}`} — {g.km.toFixed(0)}/{g.retirement_target_km}km
-            </span>
-            <Link to="/app/gear" className="text-xs text-[var(--accent-red)] hover:underline shrink-0">
-              Open →
-            </Link>
-          </div>
-        ))}
-      </CardContent>
-    </Card>
-  );
-}
-
-export function AthleteNextSessionWidget({ athleteId }: { athleteId: string }) {
-  const today = todayISO();
-  const { data: nextSession } = useQuery({
-    queryKey: ["home-next-session", athleteId, today],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("sessions")
-        .select("id, title, session_date, day_type, intent, activity_type")
-        .eq("athlete_id", athleteId)
-        .gte("session_date", today)
-        .is("completed_at", null)
-        .order("session_date", { ascending: true })
-        .limit(1)
-        .maybeSingle();
-      return data;
-    },
-  });
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Next session</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {nextSession ? (
-          <Link
-            to="/app/sessions/$sessionId"
-            params={{ sessionId: nextSession.id }}
-            className="flex items-center justify-between gap-3 hover:bg-accent/50 rounded p-2 -m-2"
-          >
-            <div className="flex items-center gap-2 min-w-0">
-              <ActivityIcon session={nextSession as any} size={20} className="text-muted-foreground shrink-0" />
-              <div className="min-w-0">
-                <div className="text-xs text-muted-foreground">{relativeDate(nextSession.session_date)}</div>
-                <div className="font-medium truncate">{nextSession.title ?? "Session"}</div>
-              </div>
-            </div>
-            <div className="flex gap-1">
-              {nextSession.day_type && (
-                <Badge variant="outline" className="capitalize">
-                  {String(nextSession.day_type).replace("_", " ")}
-                </Badge>
-              )}
-              {nextSession.intent && (
-                <Badge variant="outline" className="capitalize">
-                  {nextSession.intent}
-                </Badge>
-              )}
-            </div>
-          </Link>
-        ) : (
-          <p className="text-sm text-muted-foreground">No upcoming sessions scheduled.</p>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-export function AthleteQuickTilesWidget() {
-  return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
-      <QuickTile to="/app/daily-log" icon={ClipboardList} label="Daily Log" />
-      <QuickTile to="/app/sessions" icon={CalendarDays} label="Sessions" />
-      <QuickTile to="/app/health" icon={HeartPulse} label="Health & Vitals" />
-      <QuickTile to="/app/my-schedule" icon={Backpack} label="Locker" />
-      <QuickTile to="/app/noticeboard" icon={Megaphone} label="Noticeboard" />
-      <QuickTile to="/app/messages" icon={MessageSquare} label="Messages" />
-    </div>
-  );
-}
-
-export function AthleteRecentNoticesWidget({ athleteId }: { athleteId: string }) {
-  const list = useServerFn(listPosts);
-  const { data: posts } = useQuery({
-    queryKey: ["home-notices", athleteId],
-    queryFn: async () => (await list()).slice(0, 3),
-  });
-
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle>Recent notices</CardTitle>
-        <Button asChild size="sm" variant="ghost">
-          <Link to="/app/noticeboard">View all</Link>
-        </Button>
-      </CardHeader>
-      <CardContent>
-        {!posts || posts.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No recent notices.</p>
-        ) : (
-          <div className="divide-y">
-            {posts.map((p: any) => (
-              <Link
-                key={p.id}
-                to="/app/noticeboard"
-                className="flex items-center justify-between py-2 gap-3 hover:bg-accent/50 rounded px-2 -mx-2"
-              >
-                <div className="min-w-0">
-                  <div className="font-medium truncate text-sm">{p.title}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {p.author_name} · {formatRelative(p.created_at)}
-                  </div>
-                </div>
-                <Badge variant="outline" className="capitalize text-[10px]">
-                  {(p.post_type ?? "").replace("_", " ")}
-                </Badge>
-              </Link>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
   );
 }
