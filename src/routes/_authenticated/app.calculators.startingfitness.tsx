@@ -150,7 +150,7 @@ function StartingFitnessPage() {
   }
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <div className="space-y-6 max-w-3xl">
         <div>
           <Link
@@ -159,10 +159,19 @@ function StartingFitnessPage() {
           >
             <ChevronLeft className="h-3.5 w-3.5" /> Calculators
           </Link>
-          <h1 className="text-2xl font-bold mt-1 flex items-center gap-2">
-            <Gauge className="h-5 w-5" /> Starting Fitness
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <div className="flex items-center gap-3 mt-1">
+            <div
+              className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+              style={{ background: "var(--accent-red)" }}
+            >
+              <Gauge className="h-5 w-5 text-white" strokeWidth={2} />
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Metrics</div>
+              <h1 className="text-2xl font-bold leading-tight">Starting Fitness</h1>
+            </div>
+          </div>
+          <p className="text-sm text-muted-foreground mt-2">
             A brand-new athlete profile starts Fitness/Fatigue at zero, even if they've actually been training for
             months or years. This gives them a real starting point instead.
           </p>
