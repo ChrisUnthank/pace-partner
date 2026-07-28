@@ -79,43 +79,43 @@ function PerformanceProfilePage() {
 
   if (isLoading) {
     return (
-      <AppShell>
+      <AppShell fullWidth>
         <p className="text-sm text-muted-foreground">Loading…</p>
       </AppShell>
     );
   }
 
   return (
-    <AppShell>
-      <div className="space-y-4 max-w-5xl">
-        <div className="flex items-center gap-2 flex-wrap">
-          {isCoach ? (
-            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
-              <Link to="/app/athletes" className="hover:text-foreground">
-                Athletes
-              </Link>
-              <span className="text-border">/</span>
-              <Link to="/app/athletes/$athleteId" params={{ athleteId }} className="hover:text-foreground">
-                {athlete?.name ?? "Athlete"}
-              </Link>
-            </div>
-          ) : (
-            <Button asChild variant="ghost" size="sm">
-              <Link to="/app/athletes/$athleteId" params={{ athleteId }}>
-                <ChevronLeft className="h-4 w-4 mr-1" />
-                Back to profile
-              </Link>
-            </Button>
-          )}
-        </div>
-
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-2">
-            <IdCard className="h-5 w-5 text-[var(--accent-red)]" />
-            <h1 className="text-2xl font-bold">{athlete?.name} — Performance Profile</h1>
+    <AppShell fullWidth>
+      <div className="space-y-3 max-w-6xl">
+        {/* Row 1 — breadcrumb + athlete subnav on the left (coach view) or
+            a plain back button (self-service), athlete picker on the
+            right. Same pattern as Calendar/Analytics/Health so a coach
+            always finds the athlete switcher in the same spot. */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3 min-w-0">
+            {isCoach ? (
+              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground shrink-0">
+                <Link to="/app/athletes" className="hover:text-foreground">
+                  Athletes
+                </Link>
+                <span className="text-border">/</span>
+                <Link to="/app/athletes/$athleteId" params={{ athleteId }} className="hover:text-foreground">
+                  {athlete?.name ?? "Athlete"}
+                </Link>
+              </div>
+            ) : (
+              <Button asChild variant="ghost" size="sm">
+                <Link to="/app/athletes/$athleteId" params={{ athleteId }}>
+                  <ChevronLeft className="h-4 w-4 mr-1" />
+                  Back to profile
+                </Link>
+              </Button>
+            )}
+            {isCoach && <AthleteSubnav athleteId={athleteId} active="performance-profile" />}
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            {isCoach && (
+          {isCoach && (
+            <div className="shrink-0">
               <CoachAthletePicker
                 roster={roster ?? []}
                 myAthlete={myAthlete as any}
@@ -124,14 +124,30 @@ function PerformanceProfilePage() {
                   navigate({ to: "/app/athletes/$athleteId/performance-profile", params: { athleteId: v } })
                 }
               />
-            )}
-            <Badge variant="outline" className={ATHLETE_STATUS_STYLES[athlete?.athlete_status ?? "active"]}>
-              {ATHLETE_STATUS_OPTIONS.find((o) => o.value === athlete?.athlete_status)?.label ?? "Active"}
-            </Badge>
-          </div>
+            </div>
+          )}
         </div>
 
-        {isCoach && <AthleteSubnav athleteId={athleteId} active="performance-profile" />}
+        {/* Row 2 — icon + eyebrow heading (always "Performance Profile",
+            never the athlete's name) on the left, status badge on the
+            right. */}
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-3">
+            <div
+              className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+              style={{ background: "var(--accent-red)" }}
+            >
+              <IdCard className="h-5 w-5 text-white" strokeWidth={2} />
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Profile</div>
+              <h1 className="text-2xl font-bold leading-tight">Performance Profile</h1>
+            </div>
+          </div>
+          <Badge variant="outline" className={ATHLETE_STATUS_STYLES[athlete?.athlete_status ?? "active"]}>
+            {ATHLETE_STATUS_OPTIONS.find((o) => o.value === athlete?.athlete_status)?.label ?? "Active"}
+          </Badge>
+        </div>
 
         <Tabs defaultValue="information" className="w-full">
           <TabsList className="flex flex-wrap h-auto gap-1">
