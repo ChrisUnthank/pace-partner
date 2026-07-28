@@ -363,7 +363,7 @@ function AthletesPage() {
           </div>
           <div>
             <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Coaching</div>
-            <h1 className="text-xl font-bold leading-tight">Athletes</h1>
+            <h1 className="text-2xl font-bold leading-tight">Athletes</h1>
           </div>
         </div>
 
