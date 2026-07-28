@@ -846,13 +846,16 @@ function CalendarPage() {
   return (
     <AppShell fullWidth>
       <div className="space-y-3">
-        {/* Breadcrumb (coach only) paired with the athlete/child search —
-            right-aligned on the same line, rather than the picker having
-            its own row further down. */}
-        {((isCoach && selectedAthleteId) || (isParent && !isCoach && parentRoster.length > 0)) && (
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            {isCoach && selectedAthleteId ? (
-              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+        {/* Row 1 — breadcrumb + athlete subnav together on the left,
+            athlete/child picker on the right. The subnav used to share a
+            row with the page heading further down; moving it up here and
+            merging that heading row with the Today/Prev/Next controls
+            (below) drops the header from three rows to two, freeing real
+            vertical room for the calendar grid itself. */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3 min-w-0">
+            {isCoach && selectedAthleteId && (
+              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground shrink-0">
                 <Link to="/app/athletes" className="hover:text-foreground">
                   Athletes
                 </Link>
@@ -865,9 +868,21 @@ function CalendarPage() {
                   {selectedAthleteName ?? "Athlete"}
                 </Link>
               </div>
-            ) : (
-              <div />
             )}
+            {isCoach && selectedAthleteId ? (
+              <AthleteSubnav athleteId={selectedAthleteId} active="calendar" />
+            ) : (
+              !isParent && (
+                <BucketTabStrip
+                  items={TRAINING_TABS.filter((t) =>
+                    t.to === "/app/daily-log" || t.to === "/app/my-schedule" ? roles.includes("athlete") : true,
+                  )}
+                  active="/app/sessions/calendar"
+                />
+              )
+            )}
+          </div>
+          <div className="shrink-0">
             {isCoach &&
               roster &&
               roster.length > 0 &&
@@ -938,59 +953,41 @@ function CalendarPage() {
               </div>
             )}
           </div>
-        )}
-
-        {/* Icon + eyebrow heading, matching the pattern used elsewhere in
-            the app — paired on the same row as the athlete tab strip
-            (right-aligned) instead of each taking its own row. */}
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div
-              className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
-              style={{ background: "var(--accent-red)" }}
-            >
-              <CalendarRange className="h-5 w-5 text-white" strokeWidth={2} />
-            </div>
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Training</div>
-              <h1 className="text-xl font-bold leading-tight">Calendar</h1>
-              {!isCoach && !isParent && (
-                <p className="text-xs text-muted-foreground">Sessions by date · color = intent / day type</p>
-              )}
-            </div>
-          </div>
-          {isCoach && selectedAthleteId ? (
-            <AthleteSubnav athleteId={selectedAthleteId} active="calendar" />
-          ) : (
-            !isParent && (
-              <BucketTabStrip
-                items={TRAINING_TABS.filter((t) =>
-                  t.to === "/app/daily-log" || t.to === "/app/my-schedule" ? roles.includes("athlete") : true,
-                )}
-                active="/app/sessions/calendar"
-              />
-            )
-          )}
         </div>
 
-        {/* Today/Prev/Next + every toggle/action now share one row — Month/
-            Week, "Copy this month → next month", and List view all live
-            here instead of being split across a separate row of their own.
-            "Copy period forward" (the full dialog with progression rules)
-            has been removed from Calendar entirely — it already exists as
-            a "Build training" option on the Plans page. */}
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-1">
-            <Button variant="outline" size="icon" onClick={() => shift(-1)}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" size="sm" onClick={goToday}>
-              Today
-            </Button>
-            <Button variant="outline" size="icon" onClick={() => shift(1)}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-            <span className="ml-2 text-sm font-medium">{view === "month" ? monthLabel : weekLabel}</span>
+        {/* Row 2 — icon + eyebrow heading, Today/Prev/Next and the current
+            month/week label all on the left (heading and date controls
+            side by side rather than stacked on separate rows), Month/Week
+            toggle + Copy + List view on the right. */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-3">
+              <div
+                className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+                style={{ background: "var(--accent-red)" }}
+              >
+                <CalendarRange className="h-5 w-5 text-white" strokeWidth={2} />
+              </div>
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Training</div>
+                <h1 className="text-xl font-bold leading-tight">Calendar</h1>
+                {!isCoach && !isParent && (
+                  <p className="text-xs text-muted-foreground">Sessions by date · color = intent / day type</p>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button variant="outline" size="icon" onClick={() => shift(-1)}>
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button variant="outline" size="sm" onClick={goToday}>
+                Today
+              </Button>
+              <Button variant="outline" size="icon" onClick={() => shift(1)}>
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+              <span className="ml-2 text-sm font-medium">{view === "month" ? monthLabel : weekLabel}</span>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <div className="inline-flex rounded-md border overflow-hidden">
