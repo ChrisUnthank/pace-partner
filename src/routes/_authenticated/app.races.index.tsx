@@ -18,7 +18,7 @@ import { toast } from "sonner";
 import { Trash2, Trophy, Flag, CalendarClock, Medal, TrendingUp } from "lucide-react";
 import { AthleteSubnav } from "@/components/athlete-subnav";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
-import { computePbStatus, pbStatusFor } from "@/lib/performance-pb";
+import { computePbStatus, pbStatusFor, PB_BADGE_LABEL, PB_BADGE_CLASS } from "@/lib/performance-pb";
 import { PerformanceEditDialog, type EditablePerformance } from "@/components/performance-edit-dialog";
 import { Pencil } from "lucide-react";
 
@@ -467,7 +467,7 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
             ) : (
               <div className="divide-y">
                 {races.map((r: any) => {
-                  const { isCurrentPB, isPastPB } = pbStatusFor(r.id, pbStatusMap);
+                  const { badge } = pbStatusFor(r.id, pbStatusMap);
 
                   return (
                     <div
@@ -484,12 +484,7 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
                               {raceTypeLabel(r.race_type)}
                             </Badge>
                           )}
-                          {isCurrentPB && <Badge className="bg-emerald-600 text-white">PB</Badge>}
-                          {isPastPB && (
-                            <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 border-amber-200">
-                              Past PB
-                            </Badge>
-                          )}
+                          {badge && <Badge className={PB_BADGE_CLASS[badge]}>{PB_BADGE_LABEL[badge]}</Badge>}
                         </div>
 
                         <div className="text-xs text-muted-foreground truncate mt-0.5">
