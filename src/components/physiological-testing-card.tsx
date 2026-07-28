@@ -19,7 +19,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Plus, FlaskConical, Zap, Trash2 } from "lucide-react";
+import { Plus, FlaskConical, Zap, Trash2, ArrowUpRight, ArrowDownRight, Minus } from "lucide-react";
 
 // One row per athlete+metric — adding a new measurement replaces whatever
 // was previously recorded for that metric (per Chris's call), rather than
@@ -112,6 +112,31 @@ function roundForEntry(metric: string, value: number): number {
   return Number.isInteger(value) ? value : Math.round(value * 10) / 10;
 }
 
+type TrendDirection = "up" | "down" | "flat";
+
+// Deliberately neutral (slate, not green/red) — whether "up" is good
+// depends on the metric (resting HR down is good, VO2max up is good,
+// threshold pace down is good), and this card doesn't have that
+// per-metric judgment table yet. Just reports direction + magnitude,
+// leaves "is that good" to the coach reading it.
+function computeTrend(row: TestRow): { direction: TrendDirection; previousLabel: string } | null {
+  if (row.previous_value == null) return null;
+  const prev = Number(row.previous_value);
+  if (prev === 0 || Number.isNaN(prev)) return null;
+  const pctChange = ((row.value - prev) / Math.abs(prev)) * 100;
+  const direction: TrendDirection = Math.abs(pctChange) < 0.5 ? "flat" : pctChange > 0 ? "up" : "down";
+  const previousLabel = `${formatMeasurementValue(row.metric, prev, row.unit)}${
+    row.previous_test_date ? ` \u00b7 ${row.previous_test_date}` : ""
+  }`;
+  return { direction, previousLabel };
+}
+
+function TrendIcon({ direction }: { direction: TrendDirection }) {
+  if (direction === "up") return <ArrowUpRight className="h-3.5 w-3.5 text-slate-500" />;
+  if (direction === "down") return <ArrowDownRight className="h-3.5 w-3.5 text-slate-500" />;
+  return <Minus className="h-3.5 w-3.5 text-slate-500" />;
+}
+
 // Same labels the Zones page's own Method dropdown uses
 // (zone-boundaries-card.tsx's METHOD_LABEL) — kept in sync manually since
 // this is a read-only display copy, not a shared import, to avoid coupling
@@ -141,6 +166,8 @@ type TestRow = {
   method: string | null;
   confidence: string;
   notes: string | null;
+  previous_value: number | null;
+  previous_test_date: string | null;
 };
 
 export function PhysiologicalTestingCard({ athleteId }: { athleteId: string }) {
@@ -227,7 +254,9 @@ export function PhysiologicalTestingCard({ athleteId }: { athleteId: string }) {
           </p>
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {Array.from(latestByMetric.values()).map((row) => (
+            {Array.from(latestByMetric.values()).map((row) => {
+              const trend = computeTrend(row);
+              return (
               <div key={row.metric} className="rounded-md border p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="text-xs text-muted-foreground uppercase tracking-wide">{metricLabel(row.metric)}</div>
@@ -242,8 +271,15 @@ export function PhysiologicalTestingCard({ athleteId }: { athleteId: string }) {
                     </button>
                   )}
                 </div>
-                <div className="text-lg font-semibold tabular-nums mt-0.5">
-                  {formatMeasurementValue(row.metric, row.value, row.unit)}
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <div className="text-lg font-semibold tabular-nums">
+                    {formatMeasurementValue(row.metric, row.value, row.unit)}
+                  </div>
+                  {trend && (
+                    <span title={`Previous: ${trend.previousLabel}`}>
+                      <TrendIcon direction={trend.direction} />
+                    </span>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-1.5 mt-2">
                   <Badge variant="outline" className={TYPE_STYLES[row.measurement_type] ?? ""}>
@@ -257,7 +293,8 @@ export function PhysiologicalTestingCard({ athleteId }: { athleteId: string }) {
                   {sourceLabel(row.source)} · {row.test_date}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -528,6 +565,24 @@ function AddTestDialog({
     // backs this (the table still allows multiple rows per metric), so
     // it's enforced here: delete any existing row(s) for this metric, then
     // insert the new one.
+    //
+    // Before deleting, grab whatever's currently on record so it can ride
+    // along on the new row as previous_value/previous_test_date — gives
+    // the Trend indicator one real step of history without turning this
+    // back into a full audit log.
+    const { data: existingRows, error: existingError } = await supabase
+      .from("athlete_physiological_tests" as any)
+      .select("value, test_date")
+      .eq("athlete_id", athleteId)
+      .eq("metric", metric)
+      .limit(1);
+    if (existingError) {
+      setSaving(false);
+      toast.error(existingError.message);
+      return;
+    }
+    const existing = (existingRows ?? [])[0] as { value: number; test_date: string } | undefined;
+
     const { error: deleteError } = await supabase
       .from("athlete_physiological_tests" as any)
       .delete()
@@ -549,6 +604,8 @@ function AddTestDialog({
       confidence,
       method: method.trim() || null,
       notes: notes.trim() || null,
+      previous_value: existing?.value ?? null,
+      previous_test_date: existing?.test_date ?? null,
     });
     setSaving(false);
     if (error) {
