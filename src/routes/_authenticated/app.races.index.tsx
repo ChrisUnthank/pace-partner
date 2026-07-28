@@ -145,8 +145,8 @@ function RacesPage() {
     activeAthleteId === myAthlete?.id ? myAthlete : (roster ?? []).find((a: any) => a.id === activeAthleteId);
 
   return (
-    <AppShell>
-      <div className="space-y-6 max-w-6xl">
+    <AppShell fullWidth>
+      <div className="space-y-6">
         {isCoach && (
           <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
             <Link to="/app/athletes" className="hover:text-foreground">
@@ -167,9 +167,17 @@ function RacesPage() {
           </div>
         )}
         <div className="flex items-center justify-between gap-2 flex-wrap">
-          <div className="flex items-center gap-2">
-            <Trophy className="h-5 w-5 text-[var(--accent-red)]" />
-            <h1 className="text-2xl font-bold">Race results</h1>
+          <div className="flex items-center gap-3">
+            <div
+              className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+              style={{ background: "var(--accent-red)" }}
+            >
+              <Trophy className="h-5 w-5 text-white" strokeWidth={2} />
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Performances</div>
+              <h1 className="text-2xl font-bold leading-tight">Race results</h1>
+            </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {isCoach && (
