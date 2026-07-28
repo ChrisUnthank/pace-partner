@@ -12,7 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { metersFmt, secToClock, clockToSec } from "@/lib/format";
 import { toast } from "sonner";
-import { Trash2, Sparkles } from "lucide-react";
+import { Trash2, Sparkles, User2 } from "lucide-react";
 import { ProfileImageUploader } from "@/components/profile-image-uploader";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { setStoredUnits } from "@/lib/units";
@@ -81,9 +81,20 @@ function Profile() {
   });
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <div className="space-y-6 max-w-6xl">
-        <h1 className="text-2xl font-bold">Profile</h1>
+        <div className="flex items-center gap-3">
+          <div
+            className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+            style={{ background: "var(--accent-red)" }}
+          >
+            <User2 className="h-5 w-5 text-white" strokeWidth={2} />
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Account</div>
+            <h1 className="text-2xl font-bold leading-tight">Profile</h1>
+          </div>
+        </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
           {/* Left column: athlete details up top, roles underneath, AI fills the gap */}
