@@ -29,15 +29,6 @@ import {
   Mail,
   UserMinus,
   UserPlus,
-  LayoutGrid,
-  IdCard,
-  Gauge,
-  CalendarRange,
-  CalendarDays,
-  LineChart,
-  Trophy,
-  Globe,
-  HeartPulse,
   Bandage,
 } from "lucide-react";
 import { AthleteSummaryPanel } from "@/components/athlete-summary-panel";
@@ -46,6 +37,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TIMEZONE_OPTIONS, guessLocalTimezone } from "@/lib/timezones";
 import { todayISO } from "@/lib/format";
+import { athleteNavTabs } from "@/lib/athlete-nav-tabs";
 
 export const Route = createFileRoute("/_authenticated/app/athletes/")({
   component: AthletesPage,
@@ -64,35 +56,6 @@ function formatRelative(iso: string) {
   if (hrs < 24) return `${hrs}h ago`;
   const days = Math.floor(hrs / 24);
   return `${days}d ago`;
-}
-
-// Same nine destinations as AthleteSubnav (the tab strip shown once a coach
-// is already inside a single athlete's pages), just rendered as a bare icon
-// row here so the whole roster can jump straight to any one of them without
-// opening the athlete first. Kept as a plain function (not a shared import)
-// because this version never needs "active tab" highlighting — every icon
-// here always renders the same (red), whereas AthleteSubnav's icons only
-// turn red when active.
-function athleteNavTabs(athleteId: string, slug?: string | null) {
-  return [
-    { key: "overview", label: "Overview", icon: LayoutGrid, to: "/app/athletes/$athleteId", params: { athleteId } },
-    { key: "calendar", label: "Calendar", icon: CalendarRange, to: "/app/sessions/calendar", search: { athleteId } },
-    { key: "sessions", label: "Sessions", icon: CalendarDays, to: "/app/sessions", search: { athleteId } },
-    { key: "analytics", label: "Analytics", icon: LineChart, to: "/app/analytics", search: { athleteId } },
-    { key: "health", label: "Health", icon: HeartPulse, to: "/app/health", search: { athleteId } },
-    {
-      key: "performance-profile",
-      label: "Performance Profile",
-      icon: IdCard,
-      to: "/app/athletes/$athleteId/performance-profile",
-      params: { athleteId },
-    },
-    { key: "zones", label: "Zones", icon: Gauge, to: "/app/zones", search: { athleteId } },
-    { key: "races", label: "Races", icon: Trophy, to: "/app/races", search: { athleteId } },
-    slug
-      ? { key: "athlete-page", label: "Athlete Page", icon: Globe, to: "/app/athlete/$slug", params: { slug } }
-      : { key: "athlete-page", label: "Athlete Page", icon: Globe, to: "/app/athlete", search: { athleteId } },
-  ] as const;
 }
 
 function AthletesPage() {
@@ -636,7 +599,7 @@ function AthletesPage() {
           scrolling back up to see it. Closes on outside click, Esc, or its
           own close button. */}
       <Sheet open={!!selectedAthlete} onOpenChange={(o) => !o && setSelectedAthleteId(null)}>
-        <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
+        <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto brand-scrollbar">
           <SheetHeader>
             <SheetTitle className="sr-only">Athlete quick view</SheetTitle>
           </SheetHeader>
