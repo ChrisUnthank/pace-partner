@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { AthleteSubnav } from "@/components/athlete-subnav";
 import { CoachAthletePicker } from "@/components/coach-athlete-picker";
+import { Globe } from "lucide-react";
 
 const searchSchema = z.object({
   // Present when arriving via the athlete-context tab strip (a specific
@@ -213,7 +214,7 @@ function AthleteProfileIndexPage() {
   );
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <div className="max-w-lg space-y-6">
         {isCoach && filterAthleteId && (
           <>
@@ -241,7 +242,18 @@ function AthleteProfileIndexPage() {
 
         {!checking && selfAthlete && (!filterAthleteId || filterAthleteId === selfAthlete.id) && (
           <div className="space-y-3">
-            <h1 className="text-2xl font-bold">Create your athlete page</h1>
+            <div className="flex items-center gap-3">
+              <div
+                className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+                style={{ background: "var(--accent-red)" }}
+              >
+                <Globe className="h-5 w-5 text-white" strokeWidth={2} />
+              </div>
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Community</div>
+                <h1 className="text-2xl font-bold leading-tight">Create your athlete page</h1>
+              </div>
+            </div>
             <Button onClick={createSelfProfile} disabled={creatingId === selfAthlete.id}>
               {creatingId === selfAthlete.id ? "Creating…" : "Create Profile"}
             </Button>
