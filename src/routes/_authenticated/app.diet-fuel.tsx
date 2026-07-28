@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { todayISO } from "@/lib/format";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, Droplet, Flame } from "lucide-react";
+import { ChevronLeft, ChevronRight, Droplet, Flame, Apple } from "lucide-react";
 import { BucketTabStrip, HEALTH_TABS } from "@/components/bucket-tab-strip";
 
 export const Route = createFileRoute("/_authenticated/app/diet-fuel")({
@@ -26,10 +26,10 @@ function DietFuel() {
   // this date, same as how Daily Log's own sessions section works.
   const [logDate, setLogDate] = useState(todayISO());
 
-  if (isLoading) return <AppShell><p>Loading…</p></AppShell>;
+  if (isLoading) return <AppShell fullWidth><p>Loading…</p></AppShell>;
   if (!athlete)
     return (
-      <AppShell>
+      <AppShell fullWidth>
         <p className="text-sm">
           No athlete profile linked. Visit <Link to="/app/profile" className="underline">Profile</Link>.
         </p>
@@ -37,14 +37,23 @@ function DietFuel() {
     );
 
   return (
-    <AppShell>
+    <AppShell fullWidth>
       <div className="space-y-6 max-w-3xl">
         <div className="flex items-start justify-between gap-3 flex-wrap">
-          <div>
-            <h1 className="text-2xl font-bold">Diet & Fuel</h1>
-            <p className="text-sm text-muted-foreground">
-              Daily nutrition totals, plus each session's fueling — fueling itself is logged on the session.
-            </p>
+          <div className="flex items-center gap-3">
+            <div
+              className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+              style={{ background: "var(--accent-red)" }}
+            >
+              <Apple className="h-5 w-5 text-white" strokeWidth={2} />
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Wellbeing</div>
+              <h1 className="text-2xl font-bold leading-tight">Diet & Fuel</h1>
+              <p className="text-sm text-muted-foreground">
+                Daily nutrition totals, plus each session's fueling — fueling itself is logged on the session.
+              </p>
+            </div>
           </div>
           <DateNav date={logDate} onChange={setLogDate} />
         </div>
