@@ -21,6 +21,7 @@ import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContai
 import { computePbStatus, pbStatusFor, PB_BADGE_LABEL, PB_BADGE_CLASS } from "@/lib/performance-pb";
 import { PerformanceEditDialog, type EditablePerformance } from "@/components/performance-edit-dialog";
 import { Pencil } from "lucide-react";
+import { parseBulkPerformances, performanceKey, distanceWithinTolerance, type BulkImportRow } from "@/lib/bulk-performance-import";
 
 const searchSchema = z.object({
   athleteId: z.string().optional(),
@@ -245,6 +246,12 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
   const [placing, setPlacing] = useState("");
   const [notes, setNotes] = useState("");
 
+  // Bulk import — moved here from the old Profile page's PBs card, merged
+  // into the same "Add race" card rather than kept as a separate one.
+  const [bulkText, setBulkText] = useState("");
+  const [previewRows, setPreviewRows] = useState<BulkImportRow[]>([]);
+  const [importing, setImporting] = useState(false);
+
   async function add() {
     setScrollY(window.scrollY);
 
@@ -302,6 +309,155 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
     }
 
     qc.invalidateQueries({ queryKey: ["races", athleteId] });
+  }
+
+  // --- Bulk import (moved from the old Profile page PBs card) ---
+
+  const existingKeys = useMemo(() => {
+    return new Set((races ?? []).map((p: any) => performanceKey(p)));
+  }, [races]);
+
+  const duplicateCount = previewRows.filter((row) => row.duplicate).length;
+  const errorCount = previewRows.filter((row) => row.error).length;
+  const matchedCount = previewRows.filter((row) => row.matchedSessionId).length;
+  const insertableRows = previewRows.filter((row) => !row.error && !row.duplicate);
+
+  async function previewImport() {
+    if (!bulkText.trim()) {
+      toast.error("Paste performances first");
+      return;
+    }
+
+    const parsed = parseBulkPerformances(bulkText, athleteId, races ?? []);
+
+    const validDates = parsed.filter((r) => !r.error).map((r) => r.performance_date);
+    let sessionsByDate = new Map<string, { id: string; total_distance_m: number | null }[]>();
+
+    // Session matching — same athlete, same date, distance within
+    // tolerance. Only sessions that don't already have a linked
+    // performance are eligible, so this can't create a second race record
+    // competing for the same session. Scoped to just the dates actually
+    // present in this paste rather than the athlete's whole session
+    // history.
+    if (validDates.length > 0) {
+      const minDate = validDates.reduce((a, b) => (a < b ? a : b));
+      const maxDate = validDates.reduce((a, b) => (a > b ? a : b));
+      const alreadyLinkedSessionIds = new Set((races ?? []).map((p: any) => p.session_id).filter(Boolean));
+
+      const { data: candidateSessions } = await supabase
+        .from("sessions")
+        .select("id, session_date, total_distance_m")
+        .eq("athlete_id", athleteId)
+        .gte("session_date", minDate)
+        .lte("session_date", maxDate);
+
+      sessionsByDate = new Map();
+      for (const s of candidateSessions ?? []) {
+        if (alreadyLinkedSessionIds.has(s.id)) continue;
+        const list = sessionsByDate.get(s.session_date) ?? [];
+        list.push({ id: s.id, total_distance_m: s.total_distance_m });
+        sessionsByDate.set(s.session_date, list);
+      }
+    }
+
+    const rows = parsed.map((row) => {
+      const duplicate = !row.error && existingKeys.has(performanceKey(row));
+
+      let matchedSessionId: string | null = null;
+      if (!row.error && !duplicate) {
+        const candidates = sessionsByDate.get(row.performance_date) ?? [];
+        // If more than one session on the same day is within tolerance,
+        // take the closest distance match rather than just the first.
+        let best: { id: string; diff: number } | null = null;
+        for (const s of candidates) {
+          if (s.total_distance_m == null) continue;
+          if (!distanceWithinTolerance(row.distance_m, s.total_distance_m)) continue;
+          const diff = Math.abs(row.distance_m - s.total_distance_m);
+          if (!best || diff < best.diff) best = { id: s.id, diff };
+        }
+        matchedSessionId = best?.id ?? null;
+      }
+
+      return { ...row, duplicate, matchedSessionId };
+    });
+
+    setPreviewRows(rows);
+
+    const errors = rows.filter((r) => r.error).length;
+    const duplicates = rows.filter((r) => r.duplicate).length;
+    const matched = rows.filter((r) => r.matchedSessionId).length;
+    const insertable = rows.filter((r) => !r.error && !r.duplicate).length;
+
+    if (rows.length === 0) {
+      toast.error("No rows detected. Paste the AV results again, including dates.");
+      return;
+    }
+
+    if (errors > 0) {
+      toast.error(`Preview created with ${errors} row issue${errors === 1 ? "" : "s"}`);
+    } else {
+      toast.success(
+        `Preview ready: ${insertable} to import (${matched} matched to an existing session), ${duplicates} duplicate${duplicates === 1 ? "" : "s"} skipped`,
+      );
+    }
+  }
+
+  async function bulkImport() {
+    if (previewRows.length === 0) {
+      previewImport();
+      return;
+    }
+
+    if (errorCount > 0) {
+      toast.error("Fix row errors before importing");
+      return;
+    }
+
+    if (insertableRows.length === 0) {
+      toast.error("No new performances to import");
+      return;
+    }
+
+    const payload = insertableRows
+      .filter((row): row is typeof row & { time_seconds: number } => row.time_seconds != null)
+      .map((row) => ({
+        athlete_id: row.athlete_id,
+        performance_date: row.performance_date,
+        distance_m: row.distance_m,
+        time_seconds: row.time_seconds,
+        // is_pb omitted — a DB trigger recomputes it right after insert
+        // against the athlete's full history (previewRow.is_pb is only an
+        // estimate shown before saving; the trigger has the final say).
+        session_id: row.matchedSessionId ?? null,
+        context: row.context,
+        notes: row.notes,
+        event_name: row.event_name,
+        age_group: row.age_group,
+        race_type: row.race_type,
+        distance_adjustment_mode: row.distance_adjustment_mode,
+      }));
+
+    setImporting(true);
+
+    const { error } = await supabase.from("performances").insert(payload);
+
+    setImporting(false);
+
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+
+    toast.success(`Imported ${payload.length} performance${payload.length === 1 ? "" : "s"}`);
+    setBulkText("");
+    setPreviewRows([]);
+    qc.invalidateQueries({ queryKey: ["races", athleteId] });
+    qc.invalidateQueries({ queryKey: ["my-pbs", athleteId] });
+  }
+
+  function clearBulk() {
+    setBulkText("");
+    setPreviewRows([]);
   }
 
   // Current-PB / past-PB status for every race — shared with Profile's
@@ -447,6 +603,122 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
             <Button onClick={add} className="w-full">
               Add race
             </Button>
+
+            <div className="space-y-3 border rounded p-3">
+              <div>
+                <Label className="text-sm font-medium">Bulk import performances</Label>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Paste AV results exactly as copied, or use: YYYY-MM-DD | Event | Performance | Venue
+                </p>
+              </div>
+
+              <textarea
+                className="w-full min-h-40 rounded-md border bg-background px-3 py-2 text-sm font-mono"
+                placeholder={`2026-06-28
+7.4km (XC Relay)
+21:44
+Calder Park
+
+2026-05-10
+5km (Road)
+14:41
+Albert Park
+
+2021-12-18
+100m
+13.22
+(2.6)
+Geelong`}
+                value={bulkText}
+                onChange={(e) => setBulkText(e.target.value)}
+              />
+
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" onClick={previewImport} disabled={!bulkText.trim()}>
+                  Preview import
+                </Button>
+
+                <Button
+                  size="sm"
+                  onClick={bulkImport}
+                  disabled={importing || previewRows.length === 0 || insertableRows.length === 0 || errorCount > 0}
+                >
+                  {importing ? "Importing..." : `Import ${insertableRows.length} performances`}
+                </Button>
+
+                <Button size="sm" variant="ghost" onClick={clearBulk}>
+                  Clear
+                </Button>
+              </div>
+
+              {previewRows.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs text-muted-foreground">
+                    Detected: {previewRows.length} rows · {insertableRows.length} new · {duplicateCount} duplicate skipped ·{" "}
+                    {matchedCount} matched to a session · {errorCount} issue{errorCount === 1 ? "" : "s"}
+                  </div>
+
+                  <div className="overflow-x-auto border rounded">
+                    <table className="w-full text-xs">
+                      <thead className="bg-muted/50">
+                        <tr className="text-left">
+                          <th className="px-2 py-2">Date</th>
+                          <th className="px-2 py-2">Event</th>
+                          <th className="px-2 py-2">Distance</th>
+                          <th className="px-2 py-2">Original</th>
+                          <th className="px-2 py-2">Seconds</th>
+                          <th className="px-2 py-2">Venue</th>
+                          <th className="px-2 py-2">Type</th>
+                          <th className="px-2 py-2">PB</th>
+                          <th className="px-2 py-2">Session</th>
+                          <th className="px-2 py-2">Status</th>
+                        </tr>
+                      </thead>
+
+                      <tbody className="divide-y">
+                        {previewRows.map((row, i) => (
+                          <tr
+                            key={`${row.performance_date}-${row.event_name}-${i}`}
+                            className={row.error ? "bg-destructive/10" : row.duplicate ? "bg-muted/40" : ""}
+                          >
+                            <td className="px-2 py-2 whitespace-nowrap">{row.performance_date || "—"}</td>
+                            <td className="px-2 py-2 min-w-36">{row.source_event || "—"}</td>
+                            <td className="px-2 py-2 whitespace-nowrap">
+                              {row.distance_m ? metersFmt(row.distance_m) : "—"}
+                            </td>
+                            <td className="px-2 py-2 whitespace-nowrap tabular-nums">{row.source_perf || "—"}</td>
+                            <td className="px-2 py-2 whitespace-nowrap tabular-nums">
+                              {row.time_seconds == null ? "—" : row.time_seconds}
+                            </td>
+                            <td className="px-2 py-2 whitespace-nowrap">{row.source_venue || "—"}</td>
+                            <td className="px-2 py-2 whitespace-nowrap">{row.race_type}</td>
+                            <td className="px-2 py-2 whitespace-nowrap">{row.is_pb ? "Yes" : "No"}</td>
+                            <td className="px-2 py-2 whitespace-nowrap">
+                              {row.matchedSessionId ? (
+                                <span className="text-emerald-600">Linked</span>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </td>
+                            <td className="px-2 py-2 min-w-40">
+                              {row.error ? (
+                                <span className="text-destructive">{row.error}</span>
+                              ) : row.duplicate ? (
+                                <span className="text-muted-foreground">Duplicate skipped</span>
+                              ) : row.notes ? (
+                                <span className="text-muted-foreground">{row.notes}</span>
+                              ) : (
+                                <span className="text-emerald-600">Ready</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
       </div>
