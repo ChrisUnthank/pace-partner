@@ -11,15 +11,27 @@ import { toast } from "sonner";
 export const Route = createFileRoute("/claim/$token")({
   head: () => ({
     meta: [
-      { title: "Claim your athlete invite — Strider" },
+      { title: "Claim your invite — Strider" },
       { name: "robots", content: "noindex" },
     ],
   }),
   component: ClaimPage,
 });
 
+// Two invite kinds now share this one claim page — an athlete invite
+// (claim_athlete_invite, links the athlete record itself to the signed-in
+// user) and a parent invite (claim_parent_invite, adds a
+// parent_athlete_links row + the 'parent' role instead, without touching
+// the athlete record at all). get_invite_by_token now checks both
+// athlete_invites and parent_invites and reports which one this token
+// belongs to via `kind`. Previously this page only ever knew about
+// athlete_invites — every parent invite ever sent landed on "This invite
+// link isn't valid" with no indication why.
+type InviteKind = "athlete" | "parent";
+
 type InviteInfo = {
   status: "valid" | "claimed" | "expired" | "invalid";
+  kind: InviteKind | null;
   athlete_name: string | null;
   invited_email: string | null;
   coach_name: string | null;
@@ -39,19 +51,32 @@ function ClaimPage() {
       const { data, error } = await supabase.rpc("get_invite_by_token", { _token: token });
       if (error) throw error;
       const row = Array.isArray(data) ? data[0] : data;
-      return (row ?? { status: "invalid", athlete_name: null, invited_email: null, coach_name: null }) as InviteInfo;
+      return (row ?? {
+        status: "invalid",
+        kind: null,
+        athlete_name: null,
+        invited_email: null,
+        coach_name: null,
+      }) as InviteInfo;
     },
   });
+
+  const isParentInvite = invite?.kind === "parent";
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSignedInEmail(data.session?.user.email ?? null);
-      if (invite?.athlete_name) setFullName((n) => n || invite.athlete_name!);
+      // Only pre-fill the "your name" field for an athlete invite — the
+      // athlete's own name makes sense as a default there. A parent
+      // invite's fullName field is the PARENT's name, which has nothing
+      // to do with the athlete_name on the invite.
+      if (invite?.athlete_name && invite.kind === "athlete") setFullName((n) => n || invite.athlete_name!);
     });
-  }, [invite?.athlete_name]);
+  }, [invite?.athlete_name, invite?.kind]);
 
   async function finalizeClaim() {
-    const { data, error } = await supabase.rpc("claim_athlete_invite", { _token: token });
+    const rpcName = isParentInvite ? "claim_parent_invite" : "claim_athlete_invite";
+    const { data, error } = await supabase.rpc(rpcName, { _token: token });
     if (error) { toast.error(error.message); return false; }
     const res = data as { ok: boolean; error?: string; invited_email?: string };
     if (!res.ok) {
@@ -60,7 +85,7 @@ function ClaimPage() {
       } else if (res.error === "claimed") {
         toast.error("This invite was already claimed.");
       } else if (res.error === "expired") {
-        toast.error("This invite has expired. Ask your coach for a new one.");
+        toast.error("This invite has expired. Ask them to send a new one.");
       } else {
         toast.error("Could not claim invite.");
       }
@@ -120,12 +145,18 @@ function ClaimPage() {
     <div className="min-h-screen flex items-center justify-center bg-muted/30 px-4 py-12">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle className="text-2xl">Claim your account</CardTitle>
+          <CardTitle className="text-2xl">Claim your invite</CardTitle>
           {isLoading ? (
             <CardDescription>Loading invite…</CardDescription>
+          ) : invite?.status === "valid" && isParentInvite ? (
+            <CardDescription>
+              {invite.coach_name ? `${invite.coach_name} invited you` : "You've been invited"} to follow{" "}
+              <strong>{invite.athlete_name}</strong>'s training as a parent/guardian.
+            </CardDescription>
           ) : invite?.status === "valid" ? (
             <CardDescription>
-              {invite.coach_name ? `${invite.coach_name} invited you` : "You've been invited"} to join Strider as <strong>{invite.athlete_name}</strong>.
+              {invite.coach_name ? `${invite.coach_name} invited you` : "You've been invited"} to join Strider as{" "}
+              <strong>{invite.athlete_name}</strong>.
             </CardDescription>
           ) : null}
         </CardHeader>
@@ -134,7 +165,7 @@ function ClaimPage() {
 
           {!isLoading && invite?.status === "invalid" && (
             <>
-              <p className="text-sm">This invite link isn't valid. Double-check the link your coach sent, or ask them to send a new one.</p>
+              <p className="text-sm">This invite link isn't valid. Double-check the link you were sent, or ask for a new one.</p>
               <Button asChild variant="outline" className="w-full"><Link to="/">Back to home</Link></Button>
             </>
           )}
@@ -148,7 +179,7 @@ function ClaimPage() {
 
           {!isLoading && invite?.status === "expired" && (
             <>
-              <p className="text-sm">This invite link has expired (invites are valid for 30 days). Ask your coach to send a fresh one.</p>
+              <p className="text-sm">This invite link has expired (invites are valid for 30 days). Ask for a fresh one.</p>
               <Button asChild variant="outline" className="w-full"><Link to="/">Back to home</Link></Button>
             </>
           )}
@@ -157,7 +188,15 @@ function ClaimPage() {
             <>
               {signedInEmail && signedInEmail.toLowerCase() === invite.invited_email?.toLowerCase() ? (
                 <>
-                  <p className="text-sm">You're signed in as <strong>{signedInEmail}</strong>. Tap below to link this athlete profile to your account.</p>
+                  <p className="text-sm">
+                    You're signed in as <strong>{signedInEmail}</strong>. Tap below to{" "}
+                    {isParentInvite ? (
+                      <>link <strong>{invite.athlete_name}</strong> to your account as a parent/guardian</>
+                    ) : (
+                      <>link this athlete profile to your account</>
+                    )}
+                    . This adds to your account — it won't remove any roles or links you already have.
+                  </p>
                   <Button className="w-full" disabled={busy} onClick={claimAsSignedIn}>Accept invite</Button>
                 </>
               ) : signedInEmail ? (
@@ -177,7 +216,11 @@ function ClaimPage() {
                   </div>
                   <div>
                     <Label>Your name</Label>
-                    <Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder={invite.athlete_name ?? ""} />
+                    <Input
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      placeholder={isParentInvite ? "Your name" : invite.athlete_name ?? ""}
+                    />
                   </div>
                   <div>
                     <Label>Password</Label>
@@ -186,6 +229,12 @@ function ClaimPage() {
                   <Button className="w-full" disabled={busy} onClick={createAccountAndClaim}>Create account & accept invite</Button>
                   <div className="text-center text-xs text-muted-foreground">Already have an account?</div>
                   <Button variant="outline" className="w-full" disabled={busy} onClick={signInAndClaim}>Sign in & accept invite</Button>
+                  {isParentInvite && (
+                    <p className="text-xs text-muted-foreground text-center">
+                      Already coach or athlete on Strider? Sign in above with that same account instead of creating a
+                      new one — this invite just adds to it.
+                    </p>
+                  )}
                 </>
               )}
             </>
