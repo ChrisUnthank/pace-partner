@@ -9,10 +9,14 @@
 // client-side, same reasoning as before: a DB trigger can't drift out
 // of sync with itself the way N different client call sites can.
 //
-// "Past PB" is the one exception with no stored equivalent — is_pb only
-// ever reflects "fastest right now", not "used to be". That's
-// reconstructed here by walking the athlete's full history in date
-// order per (distance, race_type), same as before.
+// "Past PB" is the one exception with no stored equivalent, and means
+// exactly one thing: the single fastest result that ISN'T the current PB,
+// per (distance, race_type) — i.e. the athlete's outright runner-up. Not
+// "every result that was once a PB before being superseded" (that would
+// tag one row per rung of an athlete's whole improvement history, which
+// is what this used to do and is not what the badge is for). Recomputed
+// fresh from the current data every time this runs, so it moves
+// automatically as new results come in — nothing about it is stored.
 
 export type PbBadge = "pb" | "season_best" | "year_best" | "course_best" | "past_pb" | null;
 
@@ -44,30 +48,45 @@ export type PbCandidate = {
 
 export function computePbStatus<T extends PbCandidate>(performances: T[]): Map<string, PbStatus> {
   const result = new Map<string, PbStatus>();
-  const bestSoFar = new Map<string, number>();
 
-  const timed = performances.filter((p) => p.time_seconds != null);
-  const sorted = [...timed].sort((a, b) => a.performance_date.localeCompare(b.performance_date));
+  const eligible = performances.filter((p) => p.time_seconds != null && !p.excluded_from_pb);
 
-  for (const p of sorted) {
+  // Group eligible results by event category — each (distance, race_type)
+  // runs its own completely independent PB/runner-up, same as the DB
+  // trigger already does for is_pb itself (a track 5000m and a road 5km
+  // are different record categories, not the same "5k").
+  const byKey = new Map<string, T[]>();
+  for (const p of eligible) {
     const key = `${p.distance_m}-${p.race_type}`;
-    const cur = bestSoFar.get(key);
-    // Ties count as "was a PB at the time" too — matches how the DB
-    // trigger treats an exact-time tie as PB on both rows. Excluded
-    // rows never participate in this history at all — they were never
-    // part of the distance-based PB conversation in the first place,
-    // so they can't be a "past" PB either.
-    const wasPbWhenSet = !p.excluded_from_pb && (cur == null || p.time_seconds! <= cur);
+    const list = byKey.get(key) ?? [];
+    list.push(p);
+    byKey.set(key, list);
+  }
 
-    if (!p.excluded_from_pb && (cur == null || p.time_seconds! < cur)) {
-      bestSoFar.set(key, p.time_seconds!);
-    }
+  // For each category, find the fastest result that ISN'T the current PB
+  // — that one result is "Past PB". Everything else that used to hold the
+  // PB before being superseded gets no special badge once something else
+  // has taken over as the outright 2nd-best.
+  const runnerUpIdByKey = new Map<string, string>();
+  for (const [key, list] of byKey) {
+    const candidates = list.filter((p) => !p.is_pb);
+    if (candidates.length === 0) continue;
+    const fastest = [...candidates].sort((a, b) => {
+      if (a.time_seconds !== b.time_seconds) return a.time_seconds! - b.time_seconds!;
+      // Tie-break on equal times: earliest date wins the runner-up slot,
+      // so a tie never leaves the "correct" answer ambiguous.
+      return a.performance_date.localeCompare(b.performance_date);
+    })[0];
+    runnerUpIdByKey.set(key, fastest.id);
+  }
 
+  for (const p of performances) {
     const isCurrentPB = !!p.is_pb;
     const isSeasonBest = !!p.is_season_best;
     const isYearBest = !!p.is_year_best;
     const isCourseBest = !!p.is_course_best;
-    const isPastPB = wasPbWhenSet && !isCurrentPB;
+    const key = `${p.distance_m}-${p.race_type}`;
+    const isPastPB = p.time_seconds != null && !p.excluded_from_pb && runnerUpIdByKey.get(key) === p.id;
 
     let badge: PbBadge = null;
     if (isCurrentPB) badge = "pb";
