@@ -4,6 +4,7 @@ import { z } from "zod";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyAthlete, useMyRoles, useCoachRoster } from "@/lib/use-auth";
+import { useEffectiveRole } from "@/lib/view-mode";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -37,11 +38,15 @@ function HealthPage() {
   const search = Route.useSearch();
   const { data: roles = [] } = useMyRoles();
   const isCoach = roles.includes("coach");
+  const { isCoachView } = useEffectiveRole();
 
   // Coach arriving for a specific athlete (via that athlete's tab strip) —
   // same snapshot the athlete sees for themselves below, just
   // parameterized by the given athleteId instead of the logged-in user's
-  // own athlete row, plus the AthleteSubnav for further navigation.
+  // own athlete row, plus the AthleteSubnav for further navigation. Left
+  // on the real isCoach role — an explicit athleteId in the URL is a
+  // deliberate coach action and should keep working regardless of this
+  // coach's own header toggle state.
   if (isCoach && search.athleteId) {
     return (
       <AppShell fullWidth>
@@ -52,8 +57,9 @@ function HealthPage() {
 
   // Coaches get a roster overview instead of the self-service snapshot
   // below — same page, same nav entry, branching by role like Zones and
-  // Analytics already do.
-  if (isCoach) {
+  // Analytics already do. Uses the effective view (isCoachView), not the
+  // raw role — see the identical fix on Zones for why.
+  if (isCoachView) {
     return (
       <AppShell fullWidth>
         <CoachHealthRoster />
@@ -388,7 +394,7 @@ function AthleteHealthView() {
   if (!athlete)
     return (
       <p className="text-sm">
-        No athlete profile linked. Visit <Link to="/app/profile" className="underline">Profile</Link>.
+        No athlete profile linked. Visit <Link to="/app/account" className="underline">Account</Link>.
       </p>
     );
 
