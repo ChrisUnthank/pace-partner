@@ -12,6 +12,7 @@ import { CoachAthletePicker } from "@/components/coach-athlete-picker";
 import { GoalsCard } from "@/components/goals-card";
 import { PhysiologicalTestingCard } from "@/components/physiological-testing-card";
 import { AthleteIdentityCard, ATHLETE_STATUS_OPTIONS, ATHLETE_STATUS_STYLES } from "@/components/athlete-identity-card";
+import { AthleteSeasonsCard } from "@/components/athlete-seasons-card";
 import { PerformanceCurveCard } from "@/components/performance-curve-card";
 import { TrainingResponseCard } from "@/components/training-response-card";
 import { StrengthsDevelopmentCard } from "@/components/strengths-development-card";
@@ -189,8 +190,13 @@ function PerformanceProfilePage() {
             <RaceProfileCard athleteId={athleteId} />
           </TabsContent>
 
-          <TabsContent value="goals" className="mt-4">
+          <TabsContent value="goals" className="mt-4 space-y-6">
             <GoalsCard athleteId={athleteId} />
+            {/* Moved here from the old Profile/Account page — season
+                windows feed the PB/Season Best/Year Best/Course Best
+                badges Races now owns, and belong with an athlete's other
+                self-defined planning info rather than account settings. */}
+            <AthleteSeasonsCard athleteId={athleteId} />
           </TabsContent>
         </Tabs>
       </div>
