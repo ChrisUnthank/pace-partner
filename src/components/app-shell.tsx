@@ -33,10 +33,12 @@ import {
   Globe,
   Map as MapIcon,
   PersonStanding,
+  UserCircle2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NotificationBell } from "@/components/notification-bell";
 import { useQuery } from "@tanstack/react-query";
+import { useViewMode } from "@/lib/view-mode";
 
 type NavLeaf = { to: string; label: string; icon: any; show: boolean };
 type NavBucket = { id: string; label: string; icon: any; children: NavLeaf[] };
@@ -67,6 +69,13 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
   const { data: roles = [] } = useMyRoles();
   const isCoach = roles.includes("coach");
   const isAthlete = roles.includes("athlete");
+  // View-mode flags — use these (not isCoach/isAthlete) for anything that
+  // decides WHICH VIEW to show. For a single-role user these always equal
+  // their real role; for a dual-role user (coach who's also an athlete)
+  // they follow the header toggle below instead, so the sidebar and every
+  // page that reads them shows one coherent view at a time rather than a
+  // merged coach+athlete nav neither role actually wants.
+  const { isCoachView, isAthleteView, isDualRole, viewMode, setViewMode } = useViewMode();
   // Parent Portal: deliberately narrow. Most existing "show: true" items
   // below were written back when only coach/athlete existed, so "true"
   // effectively meant "either of the two roles that existed" — now that
@@ -108,14 +117,20 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
   // Standalone top-level items — these deliberately stay outside any
   // bucket. Athletes already has its own Overview + AthleteSubnav pattern
   // once you're inside a specific athlete, so it doesn't need a second
-  // layer of grouping here. Profile is account settings only — not a
-  // bucket, just like Home and Athletes.
+  // layer of grouping here. Account is login/settings/subscription only —
+  // not a bucket, just like Home and Athletes. Deliberately renamed from
+  // "Profile" — that word was doing double (triple, really) duty against
+  // the public Athlete Profile Page and Performance Profile/Athlete
+  // Intelligence, which made it genuinely ambiguous in conversation and
+  // in nav. Athlete-specific training data that used to live here (Zone
+  // Boundaries, Goals, Seasons) moved to the athlete's own Athlete Info
+  // page instead — see the new /app/athlete-info nav item below.
   //
-  // Profile stays standalone too, but renders after everything else (its
+  // Account stays standalone too, but renders after everything else (its
   // original position at the end of the nav) rather than up top with
   // Home/Athletes — it's the account-settings page, not a frequent
   // destination the way Home is.
-  const accountItems: NavLeaf[] = [{ to: "/app/profile", label: "Profile", icon: User2, show: true }];
+  const accountItems: NavLeaf[] = [{ to: "/app/account", label: "Account", icon: User2, show: true }];
 
   // Single ordered list — this array's order IS the sidebar's visual
   // order, so leaves and buckets can be interleaved (Health & Vitals sits
@@ -123,14 +138,22 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
   // rather than being grouped with the other standalone leaves up top).
   const navEntries: NavEntry[] = [
     { kind: "leaf", to: "/app", label: "Home", icon: Home, show: true },
-    { kind: "leaf", to: "/app/athletes", label: "Athletes", icon: Users, show: isCoach },
+    { kind: "leaf", to: "/app/athletes", label: "Athletes", icon: Users, show: isCoachView },
+    // Self-service equivalent of the coach's "Athletes" roster above —
+    // never both visible at once (the two flags are mutually exclusive).
+    // Redirects to this athlete's own Athlete Info tabs (Athlete
+    // Information / Physiological Metrics / Athlete DNA / Goals), the
+    // same page a coach sees for any one athlete on their roster, instead
+    // of a separate bespoke self-service page. Identity/Goals/Zones/
+    // Seasons moved here from the old Profile/Account page.
+    { kind: "leaf", to: "/app/athlete-info", label: "Athlete Info", icon: UserCircle2, show: isAthleteView },
     // Coaching Hub: session templates, plan templates, active plans — and
     // room to grow into a session library / phase builder later. Gets its
     // own Overview + tab-strip (BucketTabStrip, same component the
     // sidebar buckets use) rather than living inside the Training
     // accordion, since — like Athletes — it has a real landing dashboard
     // to earn that treatment, not just a handful of unrelated tools.
-    { kind: "leaf", to: "/app/coaching-hub", label: "Coaching Hub", icon: BookmarkCheck, show: isCoach },
+    { kind: "leaf", to: "/app/coaching-hub", label: "Coaching Hub", icon: BookmarkCheck, show: isCoachView },
     {
       kind: "bucket",
       id: "training",
@@ -158,12 +181,12 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
       icon: LineChart,
       children: [
         { to: "/app/analytics", label: "Analytics", icon: LineChart, show: isCoachOrAthlete },
-        { to: "/app/zones", label: "Zones", icon: Gauge, show: isAthlete || isCoach },
+        { to: "/app/zones", label: "Zones", icon: Gauge, show: isAthleteView || isCoachView },
         // Placeholder page for now (coming soon) — grouped with the other
         // athlete-performance-data pages rather than Health & Vitals,
         // since form/gait metrics sit alongside pace/HR/load analysis
         // rather than being a wellbeing or injury-log concern.
-        { to: "/app/biomechanics", label: "Biomechanics", icon: PersonStanding, show: isAthlete || isCoach },
+        { to: "/app/biomechanics", label: "Biomechanics", icon: PersonStanding, show: isAthleteView || isCoachView },
         { to: "/app/compare", label: "Compare", icon: GitCompare, show: isCoachOrAthlete },
         { to: "/app/reports", label: "Reports", icon: FileText, show: isCoachOrAthlete },
         // Was fully built (Pace/Race Predictor, Starting Fitness) but never
@@ -190,7 +213,7 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
     // calendar entries. Revisit this visibility once Gear is built, since
     // a coach may reasonably want to see an athlete's gear/usage even
     // though the Schedule tab stays private.
-    { kind: "leaf", to: "/app/my-schedule", label: "Locker", icon: Backpack, show: isAthlete || isParent },
+    { kind: "leaf", to: "/app/my-schedule", label: "Locker", icon: Backpack, show: isAthleteView || isParent },
     {
       kind: "bucket",
       id: "performances",
@@ -218,8 +241,8 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
         // of the parent portal's scope rather than exposing a broken/
         // empty inbox.
         { to: "/app/messages", label: "Messages", icon: MessageSquare, show: isCoachOrAthlete },
-        { to: "/app/coach", label: "Coach Profile", icon: IdCard, show: isCoach },
-        { to: "/app/athlete", label: "Athlete Page", icon: Globe, show: isAthlete },
+        { to: "/app/coach", label: "Coach Profile", icon: IdCard, show: isCoachView },
+        { to: "/app/athlete", label: "Athlete Page", icon: Globe, show: isAthleteView },
       ],
     },
   ];
@@ -466,6 +489,38 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
           </div>
           <div className="flex items-center gap-3">
             <NotificationBell />
+            {isDualRole && (
+              <div
+                className="hidden sm:flex items-center rounded-md border border-border p-0.5 text-[11px] font-bold uppercase tracking-wider"
+                role="group"
+                aria-label="View as"
+              >
+                <button
+                  type="button"
+                  onClick={() => setViewMode("coach")}
+                  className={cn(
+                    "px-2.5 h-6 rounded transition-colors",
+                    viewMode === "coach"
+                      ? "bg-[var(--accent-red)] text-white"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  Coach
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("athlete")}
+                  className={cn(
+                    "px-2.5 h-6 rounded transition-colors",
+                    viewMode === "athlete"
+                      ? "bg-[var(--accent-red)] text-white"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  Athlete
+                </button>
+              </div>
+            )}
             {isParent && (
               <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground border border-border rounded px-1.5 py-0.5">
                 Parent view
