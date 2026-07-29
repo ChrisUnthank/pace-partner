@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuthUser, useMyRawRoles, type AppRole } from "@/lib/use-auth";
+import { useAuthUser, useMyRawRoles, useMyAthlete, type AppRole } from "@/lib/use-auth";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import { TIMEZONE_OPTIONS, guessLocalTimezone } from "@/lib/timezones";
 import { ContactDetailsCard } from "@/components/contact-details-card";
 import { Link } from "@tanstack/react-router";
 import { UserCircle2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/app/account")({
   component: Account,
@@ -78,6 +79,7 @@ function Account() {
             {/* Self-service contact details — feeds the coach's address book.
                 Shown to every signed-in user (athlete or parent alike). */}
             {user && <ContactDetailsCard userId={user.id} />}
+            {isAthlete && <InviteParentCard />}
             {user && <RolesCard userId={user.id} roles={roles} email={user.email ?? ""} />}
             {user && (
               <AiAccessCard
@@ -130,10 +132,24 @@ function PreferencesCard({ userId }: { userId: string }) {
 
   const [units, setUnits] = useState<string>((profile?.units as string) ?? "metric");
   const [tz, setTz] = useState<string>((profile?.timezone as string) ?? guessLocalTimezone());
+  // Guards the one-time sync below so it only ever pulls the saved value
+  // in FROM the database once, right after it loads — never again after
+  // that. The previous version re-ran this check on every render and only
+  // fired when the local `units` value happened to currently equal
+  // "metric", which meant picking "Metric" in the dropdown when the saved
+  // preference was "Imperial" got silently snapped back to Imperial on
+  // the very next render, before Save could ever be clicked — the bug
+  // this was reported as. A plain useEffect that only runs once when the
+  // query first resolves has no such directional bias.
+  const [syncedFromProfile, setSyncedFromProfile] = useState(false);
 
-  if (profile && profile.units && profile.units !== units && units === "metric") {
-    setUnits(profile.units);
-  }
+  useEffect(() => {
+    if (profile && !syncedFromProfile) {
+      setUnits((profile.units as string) ?? "metric");
+      setTz((profile.timezone as string) ?? guessLocalTimezone());
+      setSyncedFromProfile(true);
+    }
+  }, [profile, syncedFromProfile]);
 
   async function save() {
     const { error } = await supabase.from("profiles").update({ units, timezone: tz }).eq("id", userId);
@@ -342,11 +358,96 @@ function JoinRequestsInbox({ userId }: { userId: string }) {
   );
 }
 
+// Self-service equivalent of the coach Roster page's "Invite Parent"
+// button — lets an athlete invite their own parent/guardian directly,
+// without needing a coach to do it for them (an athlete may not have a
+// coach yet, or may simply want to send it themselves). Goes through the
+// create_parent_invite RPC rather than a raw table insert since
+// parent_invites.coach_user_id may need to be null here (no coach in the
+// loop) and this keeps that authorization check server-side rather than
+// relying on an RLS policy this component can't see.
+function InviteParentCard() {
+  const { data: athlete } = useMyAthlete();
+  const [email, setEmail] = useState("");
+  const [sending, setSending] = useState(false);
+  const [lastLink, setLastLink] = useState<string | null>(null);
+
+  async function send() {
+    if (!athlete?.id) return;
+    if (!email.trim() || !email.includes("@")) {
+      toast.error("Enter a valid email address");
+      return;
+    }
+
+    setSending(true);
+    const { data, error } = await (supabase.rpc as any)("create_parent_invite", {
+      _athlete_id: athlete.id,
+      _email: email.trim(),
+    });
+    setSending(false);
+
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+
+    const res = data as { ok: boolean; token?: string; error?: string };
+    if (!res.ok || !res.token) {
+      toast.error(
+        res.error === "not_authorized" ? "Couldn't create that invite for this account." : res.error ?? "Failed",
+      );
+      return;
+    }
+
+    const link = `${window.location.origin}/claim/${res.token}`;
+    setLastLink(link);
+    try {
+      await navigator.clipboard.writeText(link);
+      toast.success("Invite link copied — send it to your parent/guardian");
+    } catch {
+      toast.success("Invite created");
+    }
+    setEmail("");
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Invite a parent or guardian</CardTitle>
+        <CardDescription>
+          They'll get read-only access to your schedule and results through the Parent Portal.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-wrap items-end gap-2">
+        <div className="flex-1 min-w-[200px]">
+          <Label className="text-xs">Their email</Label>
+          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="parent@example.com" />
+        </div>
+        <Button onClick={send} disabled={sending || !athlete?.id}>
+          {sending ? "Sending…" : "Send invite"}
+        </Button>
+        {lastLink && (
+          <p className="w-full text-xs text-muted-foreground break-all">Link copied: {lastLink}</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function RolesCard({ userId, roles, email }: { userId: string; roles: AppRole[]; email: string }) {
   const qc = useQueryClient();
   const has = (r: AppRole) => roles.includes(r);
 
   async function toggle(r: "athlete" | "coach" | "manager", on: boolean) {
+    // Matches the disabled checkbox below — belt-and-suspenders in case
+    // this ever gets called some other way. Real enforcement still needs
+    // to live in RLS once the premium-plan check exists server-side;
+    // this alone doesn't stop a direct API call.
+    if (r === "coach" && on && !has("coach")) {
+      toast.error("Coach access requires a premium plan — get in touch to upgrade.");
+      return;
+    }
+
     if (on) {
       const { error } = await supabase.from("user_roles").insert({ user_id: userId, role: r });
 
@@ -393,15 +494,43 @@ function RolesCard({ userId, roles, email }: { userId: string; roles: AppRole[];
       </CardHeader>
 
       <CardContent className="space-y-3">
-        {items.map((it) => (
-          <label key={it.role} className="flex items-start gap-3 cursor-pointer">
-            <Checkbox checked={has(it.role)} onCheckedChange={(v) => toggle(it.role, !!v)} className="mt-0.5" />
-            <div>
-              <div className="text-sm font-medium">{it.label}</div>
-              <div className="text-xs text-muted-foreground">{it.desc}</div>
-            </div>
-          </label>
-        ))}
+        {items.map((it) => {
+          // Coach is a premium plan — self-service can only ever turn it
+          // OFF for someone who already has it (e.g. downgrading), never
+          // ON from Athlete/Parent/Manager. This is a UI-level guard only;
+          // it stops the toggle here but doesn't by itself stop a direct
+          // API call, so the real boundary still needs to live in RLS (or
+          // wherever the eventual subscription check runs) once that
+          // exists — flagging that rather than implying this closes it.
+          const isLockedCoach = it.role === "coach" && !has("coach");
+
+          return (
+            <label
+              key={it.role}
+              className={cn("flex items-start gap-3", isLockedCoach ? "cursor-not-allowed" : "cursor-pointer")}
+            >
+              <Checkbox
+                checked={has(it.role)}
+                disabled={isLockedCoach}
+                onCheckedChange={(v) => toggle(it.role, !!v)}
+                className="mt-0.5"
+              />
+              <div>
+                <div className="text-sm font-medium flex items-center gap-1.5">
+                  {it.label}
+                  {isLockedCoach && (
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground border border-border rounded px-1.5 py-0.5">
+                      Premium
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {isLockedCoach ? "Coach access requires a premium plan — get in touch to upgrade." : it.desc}
+                </div>
+              </div>
+            </label>
+          );
+        })}
       </CardContent>
     </Card>
   );
