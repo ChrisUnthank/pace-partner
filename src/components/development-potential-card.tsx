@@ -115,12 +115,20 @@ const ELITE_FLOOR_SECONDS: Record<number, { male: number; female: number }> = {
   42195: { male: 7524, female: 8108 },
 };
 
+// Sex unknown/not set on the athlete record -> use the FASTER (men's)
+// floor as the universal cap, not the slower one. This is the actual safe
+// choice: the men's floor is always harder to reach than the women's, so
+// capping everyone at it can never be too generous for anyone regardless
+// of their real sex. Using the slower (women's-based) floor as the
+// fallback was the bug — for a fast athlete with sex unset, that looser
+// floor could sit slower than their own current time, making the model
+// think there was zero room left and flag "near ceiling" on every row.
 function eliteFloorSeconds(distanceM: number, sex: string | null | undefined): number {
   const entry = ELITE_FLOOR_SECONDS[distanceM];
   if (!entry) return 0;
   if (sex === "Male") return entry.male;
   if (sex === "Female") return entry.female;
-  return Math.max(entry.male, entry.female); // unknown sex — use the slower/safer floor
+  return Math.min(entry.male, entry.female); // unknown sex — use the faster/stricter floor
 }
 
 type PerfRow = {
@@ -263,37 +271,75 @@ export function DevelopmentPotentialCard({ athleteId }: { athleteId: string }) {
     const headroomPct = developmentHeadroomPct(ageYears, trainingAgeYears);
     const sex = athlete?.sex ?? null;
 
+    // Predicting off the fastest-ever performance at a distance, however
+    // old, silently echoes stale history back as if it were "today's
+    // projection" — a PB from 8 months ago shows up identical to what the
+    // model claims they could run right now. Same 12-month recency window
+    // athlete_zone_profiles' best_effort_3k_plus method already uses
+    // elsewhere in the app. Prefer sources within that window; only fall
+    // back to older data when nothing recent exists, and flag it plainly
+    // when that happens rather than presenting old data as current.
+    const now = Date.now();
+    const RECENT_WINDOW_MS = 365 * 86400000;
+    const recentSourcePoints = sourcePoints.filter(
+      (p) => now - new Date(p.performance_date).getTime() <= RECENT_WINDOW_MS,
+    );
+    const candidatePoints = recentSourcePoints.length > 0 ? recentSourcePoints : sourcePoints;
+
     return POTENTIAL_DISTANCES.map((target) => {
-      if (sourcePoints.length === 0) return null;
-      // Nearest logged PB in log-distance space — predicting a marathon
-      // off an 800m PB (or vice versa) is a much weaker extrapolation
-      // than predicting off something closer, so prefer the closest one.
-      const source = sourcePoints.reduce((best, p) =>
+      if (candidatePoints.length === 0) return null;
+      // Nearest logged PB in log-distance space, chosen from the recency-
+      // filtered pool where possible — predicting a marathon off an 800m
+      // PB (or vice versa) is a much weaker extrapolation than predicting
+      // off something closer, so prefer the closest one within whichever
+      // pool applies.
+      const source = candidatePoints.reduce((best, p) =>
         Math.abs(Math.log(p.distance_m) - Math.log(target.m)) < Math.abs(Math.log(best.distance_m) - Math.log(target.m))
           ? p
           : best,
       );
       const predicted = predictTimeWithExponent(source.time_seconds, source.distance_m, target.m, exponent);
+      const sourceMonthsAgo = Math.round((now - new Date(source.performance_date).getTime()) / (30 * 86400000));
+      const staleSource = recentSourcePoints.length === 0;
 
-      // Damp the age/training-age headroom down as the athlete's current
-      // predicted time approaches the elite floor for this distance —
-      // never assume more than half the remaining gap to that floor
-      // closes in 12-24 months, and the optimistic edge can mathematically
-      // never cross the floor itself.
+      // Apply the full age/training-age headroom, only pulling back if it
+      // would cross the elite floor — a straight clamp, not a pre-emptive
+      // dampening that shrinks the range well before the floor is
+      // actually reached. That earlier dampening was itself part of the
+      // bug: it punished already-fast young athletes (exactly the
+      // "genuinely still improving" case) by treating "fast now" as
+      // "close to lifetime ceiling," which conflates two different
+      // things. The floor should only ever act as a backstop.
       const floor = eliteFloorSeconds(target.m, sex);
-      const availableGapPct = Math.max(0, ((predicted - floor) / predicted) * 100);
-      const effectiveHeadroomPct = Math.min(headroomPct, availableGapPct * 0.5);
-      const nearCeiling = availableGapPct < headroomPct;
-
-      const lower = predicted * (1 - effectiveHeadroomPct / 2 / 100);
-      const upper = predicted * (1 - effectiveHeadroomPct / 100);
+      const unclampedUpper = predicted * (1 - headroomPct / 100);
+      const upper = Math.max(unclampedUpper, floor);
+      // Conservative edge is always the midpoint between today's predicted
+      // time and the (already-clamped) optimistic edge — guarantees it
+      // can never land faster than upper even after clamping.
+      const lower = predicted - (predicted - upper) * 0.5;
+      // Only genuinely worth flagging when the clamp left very little
+      // real room (<3% of current time) — not just "the clamp fired at
+      // all," which was the earlier over-triggering version of this flag.
+      const nearCeiling = (predicted - upper) / predicted < 0.03;
       const currentPb = bestByDistance.get(target.m)?.time_seconds ?? null;
 
       let confidence: "High" | "Moderate" | "Low" = "Low";
       if (calibrated && ageYears != null && trainingAgeYears != null) confidence = "High";
       else if (calibrated || (ageYears != null && trainingAgeYears != null)) confidence = "Moderate";
+      if (staleSource) confidence = confidence === "High" ? "Moderate" : "Low";
 
-      return { label: target.label, currentPb, predicted, lower, upper, calibrated, confidence, nearCeiling };
+      return {
+        label: target.label,
+        currentPb,
+        predicted,
+        lower,
+        upper,
+        calibrated,
+        confidence,
+        nearCeiling,
+        sourceMonthsAgo,
+        staleSource,
+      };
     }).filter((r): r is NonNullable<typeof r> => r != null);
   }, [performances, ageYears, trainingAgeYears, athlete?.sex]);
 
@@ -376,7 +422,13 @@ export function DevelopmentPotentialCard({ athleteId }: { athleteId: string }) {
                   <div className="font-medium">{r.label}</div>
                   <div className="tabular-nums text-right">{r.currentPb != null ? secToClock(r.currentPb) : "—"}</div>
                   <div className="flex items-center justify-end gap-1.5">
-                    <span className="tabular-nums">{secToClock(r.predicted)}</span>
+                    <div className="text-right">
+                      <span className="tabular-nums">{secToClock(r.predicted)}</span>
+                      <div className="text-[9px] text-muted-foreground font-normal normal-case">
+                        {r.sourceMonthsAgo <= 1 ? "from this month" : `from ${r.sourceMonthsAgo}mo ago`}
+                        {r.staleSource && " — stale"}
+                      </div>
+                    </div>
                     <Badge variant={r.calibrated ? "default" : "outline"} className="text-[9px] shrink-0">
                       {r.calibrated ? "Calibrated" : "Generic"}
                     </Badge>
