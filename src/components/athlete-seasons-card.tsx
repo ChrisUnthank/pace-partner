@@ -6,9 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Plus, Trash2, CalendarRange } from "lucide-react";
+import { Plus, Trash2, CalendarRange, CopyPlus } from "lucide-react";
 
 type SeasonType = "indoor" | "outdoor" | "cross_country";
 
@@ -33,6 +34,45 @@ const SEASON_TYPE_STYLES: Record<SeasonType, string> = {
   cross_country: "bg-amber-100 text-amber-700 border-amber-200",
 };
 
+// Shifts a YYYY-MM-DD string by whole years (positive or negative),
+// preserving the exact month/day — used both by the "repeat across years"
+// bulk-add and the per-row "Duplicate to next year" action. Shifting the
+// actual entered dates (rather than recomputing from a month/day
+// template) is what makes this correctly handle a season that crosses a
+// calendar year boundary (e.g. a Southern Hemisphere Outdoor season
+// running Oct–Mar) — the gap between start and end is preserved
+// automatically, no separate cross-year-boundary logic needed, and it
+// works identically whether shifting forward into future years or back
+// into past ones.
+function shiftYears(dateStr: string, years: number): string {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setFullYear(d.getFullYear() + years);
+  return d.toISOString().slice(0, 10);
+}
+
+// "2025" for a season that starts and ends in the same calendar year,
+// "2025/26" for one that crosses a year boundary — matches the format
+// people were already typing by hand (see the old placeholder text).
+function yearSuffixFor(startDate: string, endDate: string): string {
+  const startYear = Number(startDate.slice(0, 4));
+  const endYear = Number(endDate.slice(0, 4));
+  return startYear === endYear ? String(startYear) : `${startYear}/${String(endYear).slice(-2)}`;
+}
+
+// Trailing "2025" or "2025/26" on an existing label gets replaced with the
+// new window's year suffix; a label with no such pattern gets the new
+// suffix appended in parentheses instead, so "Duplicate to next year"
+// never silently produces a wrong-but-plausible-looking label — worst
+// case it's a little verbose and the athlete renames it.
+function shiftLabelYear(label: string, newStartDate: string, newEndDate: string): string {
+  const suffix = yearSuffixFor(newStartDate, newEndDate);
+  const trailingYearPattern = /\s\d{4}(\/\d{2})?$/;
+  if (trailingYearPattern.test(label)) {
+    return label.replace(trailingYearPattern, ` ${suffix}`);
+  }
+  return `${label} (${suffix})`;
+}
+
 // Deliberately athlete-set date ranges rather than a fixed calendar —
 // Southern and Northern hemisphere athletes have "summer"/"winter" (and
 // therefore indoor/outdoor) on completely different months, and even
@@ -49,6 +89,17 @@ export function AthleteSeasonsCard({ athleteId }: { athleteId: string }) {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // Repeat-across-years — off by default, so single-season add behaves
+  // exactly as before. When on, `label` becomes a base name (no year) and
+  // each generated row gets its own year suffix appended automatically.
+  // Both directions are supported: yearsBack creates seasons BEFORE the
+  // entered template (for backfilling history), yearsForward creates
+  // seasons AFTER it (for setting up years ahead of time) — either or
+  // both can be used together.
+  const [repeatMode, setRepeatMode] = useState(false);
+  const [yearsBack, setYearsBack] = useState(0);
+  const [yearsForward, setYearsForward] = useState(3);
 
   const { data: seasons, isLoading } = useQuery({
     queryKey: ["athlete-seasons", athleteId],
@@ -84,14 +135,35 @@ export function AthleteSeasonsCard({ athleteId }: { athleteId: string }) {
       return;
     }
 
-    setSaving(true);
-    const { error } = await supabase.from("athlete_seasons").insert({
-      athlete_id: athleteId,
-      season_type: seasonType,
-      label: label.trim(),
-      start_date: startDate,
-      end_date: endDate,
+    const back = repeatMode ? Math.max(0, Math.min(20, Math.round(yearsBack) || 0)) : 0;
+    const forward = repeatMode ? Math.max(0, Math.min(20, Math.round(yearsForward) || 0)) : 0;
+
+    if (repeatMode && back === 0 && forward === 0) {
+      toast.error("Enter at least one year back or forward, or turn off repeat");
+      return;
+    }
+
+    // Offsets run from -back through +forward, e.g. back=2, forward=3
+    // creates 6 seasons total: 2 previous years, the entered template
+    // year itself, and 3 future years.
+    const offsets: number[] = [];
+    for (let i = -back; i <= forward; i++) offsets.push(i);
+    if (!repeatMode) offsets.length = 0, offsets.push(0);
+
+    const rows = offsets.map((offset) => {
+      const s = shiftYears(startDate, offset);
+      const e = shiftYears(endDate, offset);
+      return {
+        athlete_id: athleteId,
+        season_type: seasonType,
+        label: repeatMode ? `${label.trim()} ${yearSuffixFor(s, e)}` : label.trim(),
+        start_date: s,
+        end_date: e,
+      };
     });
+
+    setSaving(true);
+    const { error } = await supabase.from("athlete_seasons").insert(rows);
     setSaving(false);
 
     if (error) {
@@ -99,11 +171,39 @@ export function AthleteSeasonsCard({ athleteId }: { athleteId: string }) {
       return;
     }
 
-    toast.success("Season added");
+    toast.success(rows.length > 1 ? `Added ${rows.length} seasons` : "Season added");
     setLabel("");
     setStartDate("");
     setEndDate("");
+    setRepeatMode(false);
+    setYearsBack(0);
+    setYearsForward(3);
     setAdding(false);
+    invalidateAffected();
+  }
+
+  // Quick per-row action for ongoing maintenance once years are already
+  // set up — shifts this one season's dates (and label, best-effort) a
+  // year forward and inserts it directly, without reopening the form or
+  // retyping anything.
+  async function duplicateToNextYear(s: Season) {
+    const newStart = shiftYears(s.start_date, 1);
+    const newEnd = shiftYears(s.end_date, 1);
+
+    const { error } = await supabase.from("athlete_seasons").insert({
+      athlete_id: athleteId,
+      season_type: s.season_type,
+      label: shiftLabelYear(s.label, newStart, newEnd),
+      start_date: newStart,
+      end_date: newEnd,
+    });
+
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+
+    toast.success("Added next year's season — check the label and dates");
     invalidateAffected();
   }
 
@@ -115,6 +215,10 @@ export function AthleteSeasonsCard({ athleteId }: { athleteId: string }) {
     }
     invalidateAffected();
   }
+
+  const totalToCreate = repeatMode
+    ? Math.max(0, Math.min(20, Math.round(yearsBack) || 0)) + Math.max(0, Math.min(20, Math.round(yearsForward) || 0)) + 1
+    : 1;
 
   return (
     <Card>
@@ -152,26 +256,68 @@ export function AthleteSeasonsCard({ athleteId }: { athleteId: string }) {
                 </Select>
               </div>
               <div>
-                <Label className="text-xs">Label</Label>
+                <Label className="text-xs">{repeatMode ? "Season name (no year)" : "Label"}</Label>
                 <Input
                   value={label}
                   onChange={(e) => setLabel(e.target.value)}
-                  placeholder="e.g. Outdoor 2025/26"
+                  placeholder={repeatMode ? "e.g. Outdoor" : "e.g. Outdoor 2025/26"}
                 />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className="text-xs">Start date</Label>
+                <Label className="text-xs">{repeatMode ? "Template start date" : "Start date"}</Label>
                 <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
               </div>
               <div>
-                <Label className="text-xs">End date</Label>
+                <Label className="text-xs">{repeatMode ? "Template end date" : "End date"}</Label>
                 <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
               </div>
             </div>
+
+            <div className="rounded-md border border-dashed border-border p-2.5 space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox checked={repeatMode} onCheckedChange={(v) => setRepeatMode(!!v)} />
+                <span className="text-xs font-medium">
+                  Repeat this window across multiple years
+                </span>
+              </label>
+              {repeatMode && (
+                <div className="pl-6 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-xs whitespace-nowrap w-28">Years before</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={20}
+                      value={yearsBack}
+                      onChange={(e) => setYearsBack(Number(e.target.value))}
+                      className="w-20"
+                    />
+                    <span className="text-xs text-muted-foreground">additional past years</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label className="text-xs whitespace-nowrap w-28">Years after</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={20}
+                      value={yearsForward}
+                      onChange={(e) => setYearsForward(Number(e.target.value))}
+                      className="w-20"
+                    />
+                    <span className="text-xs text-muted-foreground">additional future years</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Same month/day span every year, shifted — e.g. an Oct–Mar template stays Oct–Mar each year, just
+                    earlier or later. The template dates above count as one of the years created.
+                  </p>
+                </div>
+              )}
+            </div>
+
             <Button size="sm" onClick={addSeason} disabled={saving}>
-              {saving ? "Saving…" : "Save season"}
+              {saving ? "Saving…" : totalToCreate > 1 ? `Save ${totalToCreate} seasons` : "Save season"}
             </Button>
           </div>
         )}
@@ -196,9 +342,19 @@ export function AthleteSeasonsCard({ athleteId }: { athleteId: string }) {
                   {s.start_date} – {s.end_date}
                 </span>
               </div>
-              <Button variant="ghost" size="sm" onClick={() => removeSeason(s.id)}>
-                <Trash2 className="h-4 w-4" />
-              </Button>
+              <div className="flex items-center gap-1 shrink-0">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  title="Duplicate to next year"
+                  onClick={() => duplicateToNextYear(s)}
+                >
+                  <CopyPlus className="h-4 w-4" />
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => removeSeason(s.id)}>
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           ))}
         </div>
