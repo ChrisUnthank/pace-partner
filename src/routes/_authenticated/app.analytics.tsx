@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuthUser, useMyAthlete, useMyRoles, useMyRawRoles } from "@/lib/use-auth";
+import { useEffectiveRole } from "@/lib/view-mode";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -125,12 +126,16 @@ function AnalyticsPage() {
   const { data: roles = [] } = useMyRoles();
   const { data: myAthlete } = useMyAthlete();
   const isCoach = roles.includes("coach");
+  const { isCoachView } = useEffectiveRole();
   const range: RangeKey = (search.range ?? "3m") as RangeKey;
   const customFrom = search.from;
   const customTo = search.to;
 
-  // Athlete view if athleteId is set, or if user is athlete-only
-  const selectedAthleteId = search.athleteId ?? (!isCoach ? myAthlete?.id : undefined);
+  // Athlete view if athleteId is set, or if the effective view is
+  // athlete (not the raw role) — a dual-role coach who's switched their
+  // header toggle to "Athlete" sees their own data here, same as a
+  // single-role athlete always has.
+  const selectedAthleteId = search.athleteId ?? (!isCoachView ? myAthlete?.id : undefined);
 
   function setRange(r: RangeKey) {
     navigate({ search: (prev: any) => ({ ...prev, range: r, from: undefined, to: undefined }) });
@@ -139,7 +144,7 @@ function AnalyticsPage() {
     navigate({ search: (prev: any) => ({ ...prev, from, to }) });
   }
 
-  if (isCoach && !selectedAthleteId) {
+  if (isCoachView && !selectedAthleteId) {
     return (
       <AppShell fullWidth>
         <CoachRoster
