@@ -50,27 +50,34 @@ function shiftYears(dateStr: string, years: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-// "2025" for a season that starts and ends in the same calendar year,
-// "2025/26" for one that crosses a year boundary — matches the format
-// people were already typing by hand (see the old placeholder text).
-function yearSuffixFor(startDate: string, endDate: string): string {
+// Detects a trailing year token already in the label — "2025", "2025/26",
+// "2025-26", "2025/2026", "2025-2026" — and replaces just that part with
+// the correct years for the shifted dates, preserving whatever separator
+// and digit-length style was actually used ("Track 2025-2026" shifted
+// back 4 years becomes "Track 2021-2022", not "Track 2025-2026" unchanged
+// and not forced into a different format like "2021/22"). Used by both
+// the "repeat across years" bulk-add and "Duplicate to next year" — a
+// label with no year pattern at all still gets one appended (hyphen,
+// full 4-digit years) rather than silently staying identical across every
+// generated row, which was the actual bug being fixed here.
+const TRAILING_YEAR_PATTERN = /\s+(\d{4})(?:([/-])(\d{2,4}))?\s*$/;
+
+function deriveYearedLabel(rawLabel: string, startDate: string, endDate: string): string {
   const startYear = Number(startDate.slice(0, 4));
   const endYear = Number(endDate.slice(0, 4));
-  return startYear === endYear ? String(startYear) : `${startYear}/${String(endYear).slice(-2)}`;
-}
+  const match = rawLabel.match(TRAILING_YEAR_PATTERN);
 
-// Trailing "2025" or "2025/26" on an existing label gets replaced with the
-// new window's year suffix; a label with no such pattern gets the new
-// suffix appended in parentheses instead, so "Duplicate to next year"
-// never silently produces a wrong-but-plausible-looking label — worst
-// case it's a little verbose and the athlete renames it.
-function shiftLabelYear(label: string, newStartDate: string, newEndDate: string): string {
-  const suffix = yearSuffixFor(newStartDate, newEndDate);
-  const trailingYearPattern = /\s\d{4}(\/\d{2})?$/;
-  if (trailingYearPattern.test(label)) {
-    return label.replace(trailingYearPattern, ` ${suffix}`);
+  if (match && match.index != null) {
+    const base = rawLabel.slice(0, match.index).trimEnd();
+    if (startYear === endYear) return `${base} ${startYear}`;
+    const sep = match[2] ?? "-";
+    const secondPartIsShort = (match[3]?.length ?? 4) === 2;
+    const secondPart = secondPartIsShort ? String(endYear).slice(-2) : String(endYear);
+    return `${base} ${startYear}${sep}${secondPart}`;
   }
-  return `${label} (${suffix})`;
+
+  // No year pattern found in the typed label at all.
+  return startYear === endYear ? `${rawLabel} ${startYear}` : `${rawLabel} ${startYear}-${endYear}`;
 }
 
 // Deliberately athlete-set date ranges rather than a fixed calendar —
@@ -156,7 +163,7 @@ export function AthleteSeasonsCard({ athleteId }: { athleteId: string }) {
       return {
         athlete_id: athleteId,
         season_type: seasonType,
-        label: repeatMode ? `${label.trim()} ${yearSuffixFor(s, e)}` : label.trim(),
+        label: repeatMode ? deriveYearedLabel(label.trim(), s, e) : label.trim(),
         start_date: s,
         end_date: e,
       };
@@ -193,7 +200,7 @@ export function AthleteSeasonsCard({ athleteId }: { athleteId: string }) {
     const { error } = await supabase.from("athlete_seasons").insert({
       athlete_id: athleteId,
       season_type: s.season_type,
-      label: shiftLabelYear(s.label, newStart, newEnd),
+      label: deriveYearedLabel(s.label, newStart, newEnd),
       start_date: newStart,
       end_date: newEnd,
     });
@@ -256,12 +263,18 @@ export function AthleteSeasonsCard({ athleteId }: { athleteId: string }) {
                 </Select>
               </div>
               <div>
-                <Label className="text-xs">{repeatMode ? "Season name (no year)" : "Label"}</Label>
+                <Label className="text-xs">Label</Label>
                 <Input
                   value={label}
                   onChange={(e) => setLabel(e.target.value)}
-                  placeholder={repeatMode ? "e.g. Outdoor" : "e.g. Outdoor 2025/26"}
+                  placeholder="e.g. Track 2025-2026"
                 />
+                {repeatMode && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Include the year like above and it'll be swapped for the right year on each one generated —
+                    "Track 2025-2026" becomes "Track 2021-2022", "Track 2029-2030", etc.
+                  </p>
+                )}
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
