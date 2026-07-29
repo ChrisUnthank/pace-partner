@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useMyAthlete, useAuthUser, useMyRawRoles, type AppRole } from "@/lib/use-auth";
+import { useAuthUser, useMyRawRoles, type AppRole } from "@/lib/use-auth";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,34 +15,18 @@ import { ProfileImageUploader } from "@/components/profile-image-uploader";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { setStoredUnits } from "@/lib/units";
 import { TIMEZONE_OPTIONS, guessLocalTimezone } from "@/lib/timezones";
-import { ZoneBoundariesCard } from "@/components/zone-boundaries-card";
-import { GoalsCard } from "@/components/goals-card";
-import { AthleteSeasonsCard } from "@/components/athlete-seasons-card";
-import { AthleteIdentityCard } from "@/components/athlete-identity-card";
 import { ContactDetailsCard } from "@/components/contact-details-card";
+import { Link } from "@tanstack/react-router";
+import { UserCircle2 } from "lucide-react";
 
-export const Route = createFileRoute("/_authenticated/app/profile")({
-  component: Profile,
+export const Route = createFileRoute("/_authenticated/app/account")({
+  component: Account,
 });
 
-function Profile() {
+function Account() {
   const { user } = useAuthUser();
   const { data: roles = [] } = useMyRawRoles();
-  const { data: athlete } = useMyAthlete();
-  const qc = useQueryClient();
-
-  const { data: zones } = useQuery({
-    queryKey: ["zone-profile", athlete?.id],
-    enabled: !!athlete,
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("athlete_zone_profiles")
-        .select("*")
-        .eq("athlete_id", athlete!.id)
-        .maybeSingle();
-      return data;
-    },
-  });
+  const isAthlete = roles.includes("athlete");
 
   return (
     <AppShell fullWidth>
@@ -56,14 +40,41 @@ function Profile() {
           </div>
           <div>
             <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Account</div>
-            <h1 className="text-2xl font-bold leading-tight">Profile</h1>
+            <h1 className="text-2xl font-bold leading-tight">Account</h1>
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
           {/* Left column: athlete details up top, roles underneath, AI fills the gap */}
           <div className="space-y-6">
-            {athlete && <AthleteIdentityCard athlete={athlete} athleteId={athlete.id} canEdit={true} />}
+            {/* Athlete-specific training data (Identity, Goals, Zones,
+                Seasons) lives on the athlete's own Athlete Info page now,
+                not here — Account is login/settings/subscription only.
+                This card is purely a discoverability pointer since that
+                content used to live on this exact page. */}
+            {isAthlete && (
+              <Card>
+                <CardContent className="pt-6">
+                  <Link
+                    to="/app/athlete-info"
+                    className="flex items-center gap-3 group"
+                  >
+                    <div
+                      className="h-9 w-9 shrink-0 rounded-lg grid place-items-center"
+                      style={{ background: "var(--accent-red)" }}
+                    >
+                      <UserCircle2 className="h-4.5 w-4.5 text-white" strokeWidth={2} />
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold group-hover:underline">Athlete Info</div>
+                      <div className="text-xs text-muted-foreground">
+                        Identity, physiological metrics, goals, and season windows
+                      </div>
+                    </div>
+                  </Link>
+                </CardContent>
+              </Card>
+            )}
             {/* Self-service contact details — feeds the coach's address book.
                 Shown to every signed-in user (athlete or parent alike). */}
             {user && <ContactDetailsCard userId={user.id} />}
@@ -101,15 +112,6 @@ function Profile() {
             {user && <PreferencesCard userId={user.id} />}
           </div>
         </div>
-
-        {/* Full width: goals lead training decisions, so they sit first */}
-        {athlete && <GoalsCard athleteId={athlete.id} />}
-
-        {/* Full width: zone boundaries */}
-        {athlete && <ZoneBoundariesCard athleteId={athlete.id} profile={zones} />}
-
-        {/* Full width: season windows feed Race results' Season Best badges */}
-        {athlete && <AthleteSeasonsCard athleteId={athlete.id} />}
       </div>
     </AppShell>
   );
