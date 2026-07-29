@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TIMEZONE_OPTIONS, guessLocalTimezone } from "@/lib/timezones";
 import { toast } from "sonner";
+import { AlertTriangle } from "lucide-react";
 
 // Single source of truth for athlete-identity fields (name/gender/DOB/HR/
 // timezone/etc). Both app.athletes.$athleteId.tsx (the main profile page)
@@ -98,6 +99,36 @@ export function AthleteIdentityCard({
         ? `${Number(athlete.weight).toFixed(1)} kg (baseline)`
         : "not yet logged";
 
+  // This athlete's own account-level display timezone (profiles.timezone),
+  // fetched purely to power the mismatch warning below — this card never
+  // reads or writes this value otherwise. Only queried when the athlete
+  // actually has a linked login (user_id); an athlete with no account yet
+  // has nothing to compare against.
+  const { data: linkedProfile } = useQuery({
+    queryKey: ["athlete-linked-profile-timezone", athlete?.user_id],
+    enabled: !!athlete?.user_id,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("profiles")
+        .select("timezone")
+        .eq("id", athlete.user_id)
+        .maybeSingle();
+      return data;
+    },
+  });
+
+  // Two separate timezone settings exist in this app on purpose (account
+  // display preference vs. session classification), but that's a genuine
+  // footgun — someone setting one reasonably assumes it covers both. Flag
+  // it rather than let it silently produce wrong session dates/titles on
+  // every FIT upload. Only fires when both values are actually present and
+  // differ — an athlete who's never touched either field isn't "wrong,"
+  // just unset.
+  const timezoneMismatch =
+    !!athlete?.timezone &&
+    !!linkedProfile?.timezone &&
+    athlete.timezone !== linkedProfile.timezone;
+
   const ageYears = athlete?.dob
     ? Math.floor((Date.now() - new Date(athlete.dob).getTime()) / (365.25 * 24 * 3600 * 1000))
     : null;
@@ -162,6 +193,7 @@ export function AthleteIdentityCard({
     // harmless no-op, so this is safe to always do rather than needing an
     // extra prop just for that one page.
     qc.invalidateQueries({ queryKey: ["my-athlete"] });
+    qc.invalidateQueries({ queryKey: ["athlete-linked-profile-timezone", athlete?.user_id] });
   }
 
   const rows: Array<[string, string]> = [
@@ -206,6 +238,19 @@ export function AthleteIdentityCard({
         </div>
       </CardHeader>
       <CardContent>
+        {timezoneMismatch && (
+          <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
+            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-600" />
+            <div>
+              <span className="font-medium">Time zone mismatch.</span> This athlete's account display time zone is{" "}
+              <span className="font-medium">{linkedProfile?.timezone}</span>, but the time zone used below to
+              classify FIT uploads (calendar date, Morning/Afternoon/Evening title) is{" "}
+              <span className="font-medium">{athlete?.timezone}</span>. If {athlete?.timezone} isn't actually
+              correct, update the "Time zone" field below — it's the one that matters for session dates, not the
+              account display setting.
+            </div>
+          </div>
+        )}
         {!editing ? (
           <dl className="grid sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
             {rows.map(([k, v]) => (
@@ -314,6 +359,10 @@ export function AthleteIdentityCard({
                   ))}
                 </SelectContent>
               </Select>
+              <p className="text-xs text-muted-foreground mt-1">
+                This is what determines FIT upload calendar dates and titles — separate from the account's own
+                display time zone in Profile → Display preferences.
+              </p>
             </div>
 
             <div className="flex gap-2 pt-1">
