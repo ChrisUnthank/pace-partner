@@ -7,7 +7,15 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Activity, EyeOff, Eye, Plus, Trash2 } from "lucide-react";
+import { Activity, EyeOff, Eye, Plus, Trash2, Radar as RadarIcon } from "lucide-react";
+import {
+  Radar,
+  RadarChart,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+  ResponsiveContainer,
+} from "recharts";
 
 // Phase 3 — Training Response Profile. Every observation here is computed
 // client-side from data that already exists (sessions, daily_vitals,
@@ -49,6 +57,46 @@ function addDays(dateStr: string, days: number) {
 
 const HARD_INTENTS = new Set(["vo2", "anaerobic", "threshold", "speed", "time_trial"]);
 
+// Response by Training Stimulus — the doc's spec asks for 9 categories
+// (Threshold/VO2/Tempo/Long Run/Strength/Hills/Speed/Sprint/Recovery).
+// Scoped down to the 7 with a real data source, same call as dropping
+// Strength/Climbing Ability from the DNA ratings earlier: Hills has no
+// terrain-specific tracking anywhere in the schema (sessions.terrain
+// covers track/road/trail, not hill-specific), and Speed/Sprint aren't
+// distinguished from each other at the schema level (both fall under the
+// single `speed` session_intent), so they're shown as one combined
+// category rather than inventing a split the data can't actually support.
+type StimulusKey = "threshold" | "vo2" | "tempo" | "long_run" | "speed" | "recovery" | "strength";
+
+const STIMULUS_META: Record<StimulusKey, { label: string }> = {
+  threshold: { label: "Threshold" },
+  vo2: { label: "VO2" },
+  tempo: { label: "Tempo" },
+  long_run: { label: "Long Run" },
+  speed: { label: "Speed / Sprint" },
+  recovery: { label: "Recovery" },
+  strength: { label: "Strength" },
+};
+
+function matchesStimulus(s: any, key: StimulusKey): boolean {
+  switch (key) {
+    case "threshold":
+      return s.intent === "threshold";
+    case "vo2":
+      return s.intent === "vo2";
+    case "tempo":
+      return s.intent === "tempo";
+    case "long_run":
+      return !!s.is_long_run;
+    case "speed":
+      return s.intent === "speed" || s.intent === "anaerobic";
+    case "recovery":
+      return s.day_type === "recovery" || s.intent === "easy";
+    case "strength":
+      return s.activity_type === "gym";
+  }
+}
+
 type Observation = {
   key: string;
   title: string;
@@ -68,7 +116,7 @@ export function TrainingResponseCard({ athleteId }: { athleteId: string }) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sessions")
-        .select("session_date, intent, rpe, completed_at")
+        .select("session_date, intent, rpe, completed_at, is_long_run, day_type, activity_type")
         .eq("athlete_id", athleteId)
         .gte("session_date", since)
         .not("completed_at", "is", null);
@@ -317,7 +365,42 @@ export function TrainingResponseCard({ athleteId }: { athleteId: string }) {
     };
   }, [loadDaily]);
 
+  // ---- Response by Training Stimulus ----
+  // Same evidence-gated approach as the observations above, just bucketed
+  // per stimulus type instead of one blended "hard sessions" category:
+  // for each completed session matching a stimulus, checks readiness
+  // status 1-2 days later against this athlete's own logged data. High
+  // Response = mostly green within that window, Moderate = mixed, Low =
+  // mostly amber/red. Needs at least 3 instances with follow-up readiness
+  // data per stimulus, same minimum-sample-size gate as every other
+  // observation on this card — shows "not enough data" rather than a
+  // guess below that.
+  const stimulusResponses = useMemo(() => {
+    const loadByDate = new Map((loadDaily ?? []).map((d) => [d.load_date, d]));
+    const keys: StimulusKey[] = ["threshold", "vo2", "tempo", "long_run", "speed", "recovery", "strength"];
+    return keys.map((key) => {
+      const matched = (sessions ?? []).filter((s) => matchesStimulus(s, key));
+      let checked = 0;
+      let good = 0;
+      for (const s of matched) {
+        const d1 = loadByDate.get(addDays(s.session_date, 1));
+        const d2 = loadByDate.get(addDays(s.session_date, 2));
+        const status = d1?.readiness_status ?? d2?.readiness_status;
+        if (!status) continue;
+        checked++;
+        if (status === "green") good++;
+      }
+      if (checked < 3) {
+        return { key, label: STIMULUS_META[key].label, level: null as "High" | "Moderate" | "Low" | null, pct: null as number | null, n: checked };
+      }
+      const pct = Math.round((good / checked) * 100);
+      const level: "High" | "Moderate" | "Low" = pct >= 70 ? "High" : pct >= 40 ? "Moderate" : "Low";
+      return { key, label: STIMULUS_META[key].label, level, pct, n: checked };
+    });
+  }, [sessions, loadDaily]);
+
   const observations = [hrRecovery, loadStreakReadiness, volumeTolerance];
+
   const overrideByKey = new Map((overrides ?? []).map((o) => [o.observation_key, o]));
 
   async function toggleDismiss(key: string, dismissed: boolean) {
@@ -334,6 +417,52 @@ export function TrainingResponseCard({ athleteId }: { athleteId: string }) {
 
   return (
     <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <RadarIcon className="h-4 w-4 text-[var(--accent-red)]" />
+            Response by Training Stimulus
+          </CardTitle>
+          <CardDescription>
+            How this athlete's readiness typically holds up 1-2 days after each type of session, over the last 12
+            weeks. Needs at least 3 instances with follow-up readiness data per stimulus — shown as "Not enough
+            data" below that, never a guess.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {stimulusResponses.some((r) => r.level != null) && (
+            <div className="h-64 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <RadarChart data={stimulusResponses.map((r) => ({ stimulus: r.label, pct: r.pct ?? 0 }))} outerRadius="75%">
+                  <PolarGrid />
+                  <PolarAngleAxis dataKey="stimulus" tick={{ fontSize: 11 }} />
+                  <PolarRadiusAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
+                  <Radar name="Response" dataKey="pct" stroke="var(--accent-red)" fill="var(--accent-red)" fillOpacity={0.35} />
+                </RadarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2">
+            {stimulusResponses.map((r) => (
+              <div key={r.key} className="border rounded-lg p-2.5 text-center">
+                <div className="text-xs text-muted-foreground">{r.label}</div>
+                {r.level != null ? (
+                  <>
+                    <div className="text-lg font-bold tabular-nums mt-0.5">{r.level}</div>
+                    <div className="text-[10px] text-muted-foreground">{r.pct}% · {r.n} instances</div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-lg font-bold text-muted-foreground mt-0.5">—</div>
+                    <div className="text-[10px] text-muted-foreground">Not enough data{r.n > 0 ? ` (${r.n})` : ""}</div>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
