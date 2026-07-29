@@ -22,6 +22,7 @@ import { computePbStatus, pbStatusFor, PB_BADGE_LABEL, PB_BADGE_CLASS } from "@/
 import { PerformanceEditDialog, type EditablePerformance } from "@/components/performance-edit-dialog";
 import { Pencil } from "lucide-react";
 import { parseBulkPerformances, performanceKey, distanceWithinTolerance, type BulkImportRow } from "@/lib/bulk-performance-import";
+import { cn } from "@/lib/utils";
 
 const searchSchema = z.object({
   athleteId: z.string().optional(),
@@ -95,6 +96,20 @@ function addLinearTrend<T extends { date: string; seconds: number }>(data: T[]):
   const slope = (n * sumXY - sumX * sumY) / denom;
   const intercept = (sumY - slope * sumX) / n;
   return data.map((d, i) => ({ ...d, trend: slope * xs[i] + intercept }));
+}
+
+// Age as of a given race date — whole years, accounting for whether the
+// birthday has actually passed yet that year, not just year subtraction.
+// Powers the progression list's Age column (World Athletics-style
+// year/age/mark progression table).
+function ageAt(dob: string | null | undefined, dateStr: string): number | null {
+  if (!dob) return null;
+  const birth = new Date(dob + "T00:00:00");
+  const target = new Date(dateStr + "T00:00:00");
+  let age = target.getFullYear() - birth.getFullYear();
+  const monthDiff = target.getMonth() - birth.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && target.getDate() < birth.getDate())) age--;
+  return age;
 }
 
 // Buckets races into the last 12 calendar months (including empty months)
@@ -235,6 +250,40 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
       window.scrollTo({ top: scrollY });
     }
   }, [races]);
+
+  // DOB for the progression list's Age column — fetched directly rather
+  // than trusting a parent-passed athlete object, since the coach-roster
+  // query that can supply activeAthlete only selects id/name/primary_event
+  // (no dob), while the self-service athlete query does. This works
+  // identically either way this page is reached.
+  const { data: athleteDob } = useQuery({
+    queryKey: ["athlete-dob", athleteId],
+    enabled: !!athleteId,
+    queryFn: async () => {
+      const { data } = await supabase.from("athletes").select("dob").eq("id", athleteId).maybeSingle();
+      return data?.dob as string | null;
+    },
+  });
+
+  const { data: seasons } = useQuery({
+    queryKey: ["athlete-seasons", athleteId],
+    enabled: !!athleteId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("athlete_seasons")
+        .select("*")
+        .eq("athlete_id", athleteId)
+        .order("start_date", { ascending: false });
+      if (error) return [];
+      return data ?? [];
+    },
+  });
+
+  // Results filters — all default to "all", purely client-side over the
+  // already-fetched races list.
+  const [filterYear, setFilterYear] = useState<string>("all");
+  const [filterSeasonId, setFilterSeasonId] = useState<string>("all");
+  const [filterBadge, setFilterBadge] = useState<string>("all");
 
   const [date, setDate] = useState(todayISO());
   const [distance, setDistance] = useState<number>(5000);
@@ -472,6 +521,35 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
 
   const [editingRace, setEditingRace] = useState<EditablePerformance | null>(null);
 
+  // Distinct years actually present in this athlete's results, newest
+  // first — powers the Year filter dropdown.
+  const yearOptions = useMemo(() => {
+    const years = new Set<string>();
+    for (const r of races ?? []) years.add(String(r.performance_date).slice(0, 4));
+    return Array.from(years).sort((a, b) => Number(b) - Number(a));
+  }, [races]);
+
+  const filteredRaces = useMemo(() => {
+    let list = races ?? [];
+
+    if (filterYear !== "all") {
+      list = list.filter((r: any) => String(r.performance_date).slice(0, 4) === filterYear);
+    }
+
+    if (filterSeasonId !== "all") {
+      const season = (seasons ?? []).find((s: any) => s.id === filterSeasonId);
+      if (season) {
+        list = list.filter((r: any) => r.performance_date >= season.start_date && r.performance_date <= season.end_date);
+      }
+    }
+
+    if (filterBadge !== "all") {
+      list = list.filter((r: any) => pbStatusFor(r.id, pbStatusMap).badge === filterBadge);
+    }
+
+    return list;
+  }, [races, filterYear, filterSeasonId, filterBadge, seasons, pbStatusMap]);
+
   const stats = useMemo(() => {
     const list = races ?? [];
     const currentYear = new Date().getFullYear();
@@ -505,11 +583,15 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
       </div>
 
       {/* Add race (left third) + Results (right two-thirds) — same row.
-          Results is capped to roughly the Add race form's height and
-          scrolls internally past that, instead of stretching the row. */}
-      <div className="grid gap-6 lg:grid-cols-[380px_1fr] items-start">
-      <div className="order-2 lg:order-1">
-        <Card>
+          Grid columns stretch to equal height by default (no items-start),
+          and both Cards below opt into that height via lg:h-full +
+          flex flex-col, so Results is always exactly as tall as Add race
+          renders to be, not an approximation of it. Results' CardContent
+          is the flex-1 + min-h-0 child so it's the one that scrolls once
+          content exceeds that height, instead of growing the row. */}
+      <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
+      <div className="order-2 lg:order-1 lg:h-full">
+        <Card className="lg:h-full lg:flex lg:flex-col">
           <CardHeader>
             <CardTitle className="text-base">Add race (manual)</CardTitle>
             <CardDescription>
@@ -723,22 +805,83 @@ Geelong`}
         </Card>
       </div>
 
-      {/* Results — right two-thirds on desktop. Capped to roughly the Add
-          race form's height so the two cards read as one row; the list
-          scrolls internally once it's longer than that. */}
-      <div className="order-1 lg:order-2 min-w-0">
-        <Card>
+      {/* Results — right two-thirds on desktop. Height now matches Add
+          race exactly (see comment above) instead of a fixed max-height
+          guess — this one grid's content is what determines the row
+          height, and Results just fills + scrolls within it. */}
+      <div className="order-1 lg:order-2 min-w-0 lg:h-full">
+        <Card className="lg:h-full lg:flex lg:flex-col">
           <CardHeader>
             <CardTitle>Results</CardTitle>
             <CardDescription>Race results and personal bests</CardDescription>
+            <div className="flex flex-wrap items-center gap-2 pt-2">
+              <Select value={filterYear} onValueChange={setFilterYear}>
+                <SelectTrigger className="h-8 w-[110px] text-xs">
+                  <SelectValue placeholder="Year" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All years</SelectItem>
+                  {yearOptions.map((y) => (
+                    <SelectItem key={y} value={y}>
+                      {y}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select value={filterSeasonId} onValueChange={setFilterSeasonId}>
+                <SelectTrigger className="h-8 w-[150px] text-xs">
+                  <SelectValue placeholder="Season" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All seasons</SelectItem>
+                  {(seasons ?? []).map((s: any) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select value={filterBadge} onValueChange={setFilterBadge}>
+                <SelectTrigger className="h-8 w-[130px] text-xs">
+                  <SelectValue placeholder="Badge" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All results</SelectItem>
+                  <SelectItem value="pb">PB</SelectItem>
+                  <SelectItem value="season_best">Season Best</SelectItem>
+                  <SelectItem value="year_best">Year Best</SelectItem>
+                  <SelectItem value="course_best">Course Best</SelectItem>
+                  <SelectItem value="past_pb">Past PB</SelectItem>
+                </SelectContent>
+              </Select>
+
+              {(filterYear !== "all" || filterSeasonId !== "all" || filterBadge !== "all") && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 text-xs"
+                  onClick={() => {
+                    setFilterYear("all");
+                    setFilterSeasonId("all");
+                    setFilterBadge("all");
+                  }}
+                >
+                  Clear filters
+                </Button>
+              )}
+            </div>
           </CardHeader>
 
-          <CardContent className="p-0 lg:max-h-[620px] lg:overflow-y-auto">
-            {!races?.length ? (
-              <p className="p-6 text-sm text-muted-foreground">No races yet.</p>
+          <CardContent className="p-0 lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
+            {!filteredRaces?.length ? (
+              <p className="p-6 text-sm text-muted-foreground">
+                {!races?.length ? "No races yet." : "No races match these filters."}
+              </p>
             ) : (
               <div className="divide-y">
-                {races.map((r: any) => {
+                {filteredRaces.map((r: any) => {
                   const { badge } = pbStatusFor(r.id, pbStatusMap);
 
                   return (
@@ -803,7 +946,7 @@ Geelong`}
       {/* Frequency + progression — 50/50, full width, below everything */}
       <div className="grid md:grid-cols-2 gap-6">
         <RaceFrequencyCard data={monthlyFrequency} />
-        <PerformanceProgressionCard races={races ?? []} primaryEvent={primaryEvent} />
+        <PerformanceProgressionCard races={races ?? []} primaryEvent={primaryEvent} dob={athleteDob ?? null} />
       </div>
 
       <PerformanceEditDialog
@@ -868,8 +1011,17 @@ function RaceFrequencyCard({ data }: { data: { key: string; label: string; count
   );
 }
 
-function PerformanceProgressionCard({ races, primaryEvent }: { races: any[]; primaryEvent: string | null }) {
+function PerformanceProgressionCard({
+  races,
+  primaryEvent,
+  dob,
+}: {
+  races: any[];
+  primaryEvent: string | null;
+  dob: string | null;
+}) {
   const [selectedEventKey, setSelectedEventKey] = useState<string>("");
+  const [view, setView] = useState<"chart" | "list">("chart");
   const primaryDistanceM = useMemo(() => primaryEventDistanceM(primaryEvent), [primaryEvent]);
 
   const eventOptions = useMemo(() => {
@@ -916,11 +1068,62 @@ function PerformanceProgressionCard({ races, primaryEvent }: { races: any[]; pri
     return addLinearTrend(points);
   }, [races, selectedEventKey]);
 
+  // Year-by-year best progression — World Athletics-style "Progression"
+  // table (year / age / mark). Reuses is_year_best directly rather than
+  // recomputing "best per year" client-side — that flag is already
+  // maintained by the same DB trigger the PB badges use, scoped to
+  // exactly this distance + race_type combination, so it's already
+  // exactly "this athlete's best result in that calendar year for this
+  // event." Newest year first, matching the Results list's own default
+  // order.
+  const progressionRows = useMemo(() => {
+    if (!selectedEventKey) return [];
+    return races
+      .filter((p) => `${p.distance_m}-${p.race_type ?? "none"}` === selectedEventKey && p.time_seconds != null && p.is_year_best)
+      .slice()
+      .sort((a, b) => b.performance_date.localeCompare(a.performance_date))
+      .map((p) => ({
+        year: String(p.performance_date).slice(0, 4),
+        age: ageAt(dob, p.performance_date),
+        mark: secToClock(p.time_seconds),
+        date: p.performance_date,
+        venue: p.event_name ?? null,
+      }));
+  }, [races, selectedEventKey, dob]);
+
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Performance progression</CardTitle>
-        <CardDescription>Race times over time, by event.</CardDescription>
+      <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
+        <div>
+          <CardTitle className="text-base">Performance progression</CardTitle>
+          <CardDescription>
+            {view === "chart" ? "Race times over time, by event." : "Best mark each year, by event — year and age."}
+          </CardDescription>
+        </div>
+        {eventOptions.length > 0 && (
+          <div className="flex items-center rounded-md border border-border p-0.5 text-xs font-medium shrink-0">
+            <button
+              type="button"
+              onClick={() => setView("chart")}
+              className={cn(
+                "px-2.5 h-6 rounded transition-colors",
+                view === "chart" ? "bg-[var(--accent-red)] text-white" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              Chart
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("list")}
+              className={cn(
+                "px-2.5 h-6 rounded transition-colors",
+                view === "list" ? "bg-[var(--accent-red)] text-white" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              List
+            </button>
+          </div>
+        )}
       </CardHeader>
       <CardContent className="space-y-3">
         {eventOptions.length === 0 ? (
@@ -940,38 +1143,67 @@ function PerformanceProgressionCard({ races, primaryEvent }: { races: any[]; pri
               </SelectContent>
             </Select>
 
-            {chartData.length > 1 ? (
-              <div className="h-56">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                    <XAxis dataKey="date" tickFormatter={formatChartDate} tick={{ fontSize: 11 }} />
-                    <YAxis
-                      reversed
-                      tickFormatter={(v) => secToClock(v)}
-                      tick={{ fontSize: 11 }}
-                      width={55}
-                      domain={["dataMin", "dataMax"]}
-                    />
-                    <Tooltip formatter={(value: number, name: string) => [secToClock(value), name]} />
-                    <Line type="monotone" dataKey="seconds" name="Actual" stroke="#2563eb" strokeWidth={2} dot={{ r: 3 }} />
-                    <Line
-                      type="linear"
-                      dataKey="trend"
-                      name="Trend"
-                      stroke="#94a3b8"
-                      strokeWidth={2}
-                      strokeDasharray="6 4"
-                      dot={false}
-                      isAnimationActive={false}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
+            {view === "chart" ? (
+              chartData.length > 1 ? (
+                <div className="h-56">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                      <XAxis dataKey="date" tickFormatter={formatChartDate} tick={{ fontSize: 11 }} />
+                      <YAxis
+                        reversed
+                        tickFormatter={(v) => secToClock(v)}
+                        tick={{ fontSize: 11 }}
+                        width={55}
+                        domain={["dataMin", "dataMax"]}
+                      />
+                      <Tooltip formatter={(value: number, name: string) => [secToClock(value), name]} />
+                      <Line type="monotone" dataKey="seconds" name="Actual" stroke="#2563eb" strokeWidth={2} dot={{ r: 3 }} />
+                      <Line
+                        type="linear"
+                        dataKey="trend"
+                        name="Trend"
+                        stroke="#94a3b8"
+                        strokeWidth={2}
+                        strokeDasharray="6 4"
+                        dot={false}
+                        isAnimationActive={false}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Need at least 2 performances for this event to chart progression.
+                </p>
+              )
+            ) : progressionRows.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No year-best results logged yet for this event.</p>
             ) : (
-              <p className="text-xs text-muted-foreground">
-                Need at least 2 performances for this event to chart progression.
-              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs text-muted-foreground border-b">
+                      <th className="py-1.5 pr-3 font-medium">Year</th>
+                      <th className="py-1.5 pr-3 font-medium">Age</th>
+                      <th className="py-1.5 pr-3 font-medium">Mark</th>
+                      <th className="py-1.5 pr-3 font-medium">Date</th>
+                      <th className="py-1.5 font-medium">Venue</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {progressionRows.map((row) => (
+                      <tr key={row.year}>
+                        <td className="py-1.5 pr-3 font-semibold tabular-nums">{row.year}</td>
+                        <td className="py-1.5 pr-3 tabular-nums text-muted-foreground">{row.age ?? "—"}</td>
+                        <td className="py-1.5 pr-3 tabular-nums font-medium">{row.mark}</td>
+                        <td className="py-1.5 pr-3 text-muted-foreground whitespace-nowrap">{row.date}</td>
+                        <td className="py-1.5 text-muted-foreground truncate max-w-[160px]">{row.venue ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </>
         )}
