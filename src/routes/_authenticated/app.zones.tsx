@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyAthlete, useMyRoles, useCoachRoster } from "@/lib/use-auth";
+import { useEffectiveRole } from "@/lib/view-mode";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -77,11 +78,17 @@ function ZonesPage() {
   const search = Route.useSearch();
   const { data: roles = [] } = useMyRoles();
   const isCoach = roles.includes("coach");
+  const { isCoachView } = useEffectiveRole();
 
   // Coach arriving for a specific athlete (via that athlete's tab strip) —
   // same editor + charts the athlete gets for themselves below, just
   // parameterized by the given athleteId instead of the logged-in user's
   // own athlete row, plus the breadcrumb/tab strip for further navigation.
+  // Left on the real isCoach role rather than the view toggle — an
+  // explicit athleteId in the URL is a deliberate coach action (a link
+  // someone clicked), not ambient view selection, and should keep
+  // working even if this coach has switched their own header toggle to
+  // "Athlete" for browsing their own data.
   if (isCoach && search.athleteId) {
     return (
       <AppShell fullWidth>
@@ -92,10 +99,13 @@ function ZonesPage() {
 
   // Coaches get a roster overview instead of the self-service editor below —
   // same page, same nav entry, branching by role like the Analytics page
-  // already does. Deliberately not a second route: a coach who is also an
-  // athlete edits their own zones from their athlete row / Profile page,
-  // same as everyone else, rather than this page trying to be both at once.
-  if (isCoach) {
+  // already does. Uses the effective view (isCoachView), not the raw
+  // isCoach role — a coach who is also an athlete and has switched to
+  // "Athlete" view via the header toggle lands on their own self-service
+  // editor below instead, closing what used to be a real gap: with the
+  // raw role check, a dual-role coach had no way to reach their own zones
+  // through this page at all.
+  if (isCoachView) {
     return (
       <AppShell fullWidth>
         <CoachZonesRoster />
