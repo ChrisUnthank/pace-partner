@@ -40,7 +40,7 @@ function DailyLog() {
   const [logDate, setLogDate] = useState(todayISO());
 
   if (isLoading) return <AppShell fullWidth><p>Loading…</p></AppShell>;
-  if (!athlete) return <AppShell fullWidth><p className="text-sm">No athlete profile linked. Visit <Link to="/app/profile" className="underline">Profile</Link>.</p></AppShell>;
+  if (!athlete) return <AppShell fullWidth><p className="text-sm">No athlete profile linked. Visit <Link to="/app/account" className="underline">Account</Link>.</p></AppShell>;
   return (
     <AppShell fullWidth>
       <div className="space-y-6 max-w-3xl">
