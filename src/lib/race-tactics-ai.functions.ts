@@ -128,7 +128,7 @@ function normalizeForSchema(input: unknown): unknown {
   return remapped;
 }
 
-const RACE_STRATEGY_SYSTEM_PROMPT = `You are an experienced middle-distance and distance running coach, specializing in race tactics and pacing strategy. You are given a specific race a coach is planning for one of their athletes, along with that athlete's performance history, strengths, and race-tactical tendencies. Recommend one primary pacing strategy and one alternative, each with reasoning tied specifically to the data given — never generic advice that could apply to any athlete. Flag concrete risks of the primary strategy. Suggest 2-6 tactical decision points (distance, trigger, action) appropriate to this exact race distance and this athlete's known tendencies. If the data given is sparse for a signal, say so plainly in your reasoning rather than inventing a pattern that isn't there.
+const RACE_STRATEGY_SYSTEM_PROMPT = `You are an experienced middle-distance and distance running coach, specializing in race tactics and pacing strategy. You are given a specific race a coach is planning for one of their athletes, along with that athlete's performance history, strengths, physiological profile, Athlete DNA ratings (athleteDna/athleteDnaLegend), and race-tactical tendencies. Recommend one primary pacing strategy and one alternative, each with reasoning tied specifically to the data given — never generic advice that could apply to any athlete. Ground your reasoning in the athlete's actual DNA ratings where they're available (e.g. a low Speed score relative to Endurance supports a more controlled opening; a low Endurance score supports flagging late-race fade risk) rather than defaulting to physiologicalProfile alone. Flag concrete risks of the primary strategy. Suggest 2-6 tactical decision points (distance, trigger, action) appropriate to this exact race distance and this athlete's known tendencies. If the data given is sparse for a signal, say so plainly in your reasoning rather than inventing a pattern that isn't there.
 
 For primaryStrategy and alternativeStrategy, output EXACTLY one of these five literal lowercase strings, with underscores, nothing else: even_pace, negative_split, positive_split, fast_start, controlled_start. Put the friendly name (e.g. "Controlled Opening") only in primaryStrategyLabel/alternativeStrategyLabel, never in the strategy fields themselves.`;
 
@@ -148,7 +148,7 @@ export const generateRaceStrategySuggestion = createServerFn({ method: "POST" })
 
     const athleteId = plan.athlete_id;
 
-    const [physioRes, strengthsRes, raceObsRes, zoneRes, perfRes, decisionRes] = await Promise.all([
+    const [physioRes, strengthsRes, raceObsRes, zoneRes, perfRes, decisionRes, dnaRes] = await Promise.all([
       sb.from("athlete_physio_profile").select("*").eq("athlete_id", athleteId).maybeSingle(),
       sb.from("athlete_strengths_ratings").select("category, rating, note").eq("athlete_id", athleteId),
       sb
@@ -165,6 +165,19 @@ export const generateRaceStrategySuggestion = createServerFn({ method: "POST" })
         .order("time_seconds", { ascending: true })
         .limit(8),
       sb.from("race_tactics_decision_points").select("distance_m, trigger_text, action_text").eq("plan_id", data.planId),
+      // Athlete DNA ratings (Update 23) — the same 5 data-backed 0-100
+      // scores/buckets already fed to the AI Coach's other features
+      // (`ai.functions.ts`). Race Tactics previously only read the older
+      // `athlete_physio_profile` archetype/aerobic-split fields; this adds
+      // the newer, more specific ratings alongside them rather than
+      // replacing anything.
+      sb
+        .from("athlete_dna_ratings" as any)
+        .select(
+          "endurance_score, endurance_bucket, speed_score, speed_bucket, aerobic_capacity_score, aerobic_capacity_bucket, anaerobic_capacity_score, anaerobic_capacity_bucket, consistency_score, consistency_bucket, status",
+        )
+        .eq("athlete_id", athleteId)
+        .maybeSingle(),
     ]);
 
     const physio = physioRes.data as any;
@@ -191,6 +204,9 @@ export const generateRaceStrategySuggestion = createServerFn({ method: "POST" })
               speedReserveBucket: physio.speed_reserve_bucket,
             }
           : null,
+      athleteDna: dnaRes.data ?? null,
+      athleteDnaLegend:
+        "0-100 scores with Low/Developing/Good/Excellent/Elite buckets across this athlete's 5 best-supported development categories (Endurance, Speed, Aerobic Capacity, Anaerobic Capacity, Consistency) — status 'insufficient_pbs' means not enough PBs logged yet to score, treat as no signal rather than a weakness. A low Speed score relative to Endurance supports a more conservative/controlled opening; a low Endurance score relative to Speed supports flagging late-race fade risk regardless of chosen strategy.",
       thresholds: zoneRes.data ?? null,
       strengths: (strengthsRes.data ?? []).filter((s: any) => s.rating !== "not_assessed"),
       raceProfileObservations: raceObsRes.data ?? [],
