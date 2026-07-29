@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyRoles, useMyRawRoles, useMyAthlete, useAuthUser } from "@/lib/use-auth";
+import { useEffectiveRole } from "@/lib/view-mode";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -41,6 +42,7 @@ function AppHome() {
   const isCoach = roles.includes("coach");
   const isAthlete = roles.includes("athlete");
   const isManager = rawRoles.includes("manager");
+  const { isCoachView, isAthleteView } = useEffectiveRole();
 
   const { data: myProfile } = useQuery({
     queryKey: ["my-profile-image", user?.id],
@@ -59,7 +61,11 @@ function AppHome() {
   // (coach branch takes priority over the athlete-only branch). A pure
   // parent account (neither coach nor athlete) gets neither, matching
   // the previous behaviour where that combination rendered nothing here.
-  const dashboardRole: DashboardRole | null = isCoach ? "coach" : isAthlete && athlete ? "athlete" : null;
+  // Uses the effective view (isCoachView/isAthleteView), not raw roles —
+  // a dual-role coach who's switched to "Athlete" view via the header
+  // toggle should land on their own athlete dashboard here, not the
+  // roster one, even though they still hold the coach role.
+  const dashboardRole: DashboardRole | null = isCoachView ? "coach" : isAthleteView && athlete ? "athlete" : null;
 
   const [editMode, setEditMode] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -148,7 +154,7 @@ function AppHome() {
                 sidebar → Training → Sessions → New session, or via a
                 calendar day. Hidden while customizing so it doesn't sit
                 next to the edit-mode controls. */}
-            {isCoach && !editMode && (
+            {isCoachView && !editMode && (
               <Button asChild size="sm">
                 <Link to="/app/sessions/new">
                   <Plus className="h-4 w-4 mr-1" />
@@ -284,7 +290,10 @@ function AppHome() {
                 <Link to="/app/sessions">All sessions</Link>
               </Button>
               <Button asChild variant="outline">
-                <Link to="/app/profile">PBs & zones</Link>
+                <Link to="/app/races">Races &amp; PBs</Link>
+              </Button>
+              <Button asChild variant="outline">
+                <Link to="/app/zones">Zones</Link>
               </Button>
             </CardContent>
           </Card>
