@@ -27,7 +27,7 @@ function BicarbPage() {
     return (
       <AppShell fullWidth>
         <p className="text-sm">
-          No athlete profile linked. Visit <Link to="/app/profile" className="underline">Profile</Link>.
+          No athlete profile linked. Visit <Link to="/app/account" className="underline">Account</Link>.
         </p>
       </AppShell>
     );
