@@ -138,6 +138,22 @@ type PerfRow = {
   performance_date: string;
 };
 
+// Longer distances need years of accumulated high mileage to develop —
+// speed and neuromuscular gains at 800m can come faster than the aerobic
+// base a marathon requires, especially for a still-developing young
+// athlete who hasn't built up multi-year mileage yet. Scales the applied
+// headroom down as target distance increases, so a 12-24 month marathon
+// projection isn't as aggressive as an 800m one even for the same athlete.
+function distanceHeadroomFactor(distanceM: number): number {
+  if (distanceM <= 800) return 1.0;
+  if (distanceM <= 1500) return 0.95;
+  if (distanceM <= 3000) return 0.8;
+  if (distanceM <= 5000) return 0.7;
+  if (distanceM <= 10000) return 0.6;
+  if (distanceM <= 21097) return 0.5;
+  return 0.4; // marathon
+}
+
 // Same age/training-age buckets already used for age_shift/ta_shift in
 // recompute_physio_profile — repurposed here as expected physiological
 // headroom rather than an anaerobic-ratio correction. Capped 2-35%: no
@@ -279,11 +295,27 @@ export function DevelopmentPotentialCard({ athleteId }: { athleteId: string }) {
     // elsewhere in the app. Prefer sources within that window; only fall
     // back to older data when nothing recent exists, and flag it plainly
     // when that happens rather than presenting old data as current.
+    //
+    // Built from the full `rows` list (every performance), not just
+    // lifetime bests-per-distance — a distance whose all-time PB happened
+    // 2 years ago can still have a genuinely recent (if slower) run that
+    // should count as "recent form" for that distance.
+    function bestInWindow(windowStartMs: number, windowEndMs: number): PerfRow[] {
+      const map = new Map<number, PerfRow>();
+      for (const p of rows) {
+        const t = new Date(p.performance_date).getTime();
+        if (t < windowStartMs || t >= windowEndMs) continue;
+        const existing = map.get(p.distance_m);
+        if (!existing || p.time_seconds < existing.time_seconds) map.set(p.distance_m, p);
+      }
+      return Array.from(map.values());
+    }
     const now = Date.now();
     const RECENT_WINDOW_MS = 365 * 86400000;
-    const recentSourcePoints = sourcePoints.filter(
-      (p) => now - new Date(p.performance_date).getTime() <= RECENT_WINDOW_MS,
-    );
+    const recentSourcePoints = bestInWindow(now - RECENT_WINDOW_MS, now + 1);
+    // The window before that — this year's baseline for detecting whether
+    // a big jump already happened recently (see below).
+    const priorSourcePoints = bestInWindow(now - 2 * RECENT_WINDOW_MS, now - RECENT_WINDOW_MS);
     const candidatePoints = recentSourcePoints.length > 0 ? recentSourcePoints : sourcePoints;
 
     return POTENTIAL_DISTANCES.map((target) => {
@@ -302,21 +334,55 @@ export function DevelopmentPotentialCard({ athleteId }: { athleteId: string }) {
       const sourceMonthsAgo = Math.round((now - new Date(source.performance_date).getTime()) / (30 * 86400000));
       const staleSource = recentSourcePoints.length === 0;
 
-      // Apply the full age/training-age headroom, only pulling back if it
+      // A big improvement already logged in the last year often precedes
+      // a plateau, not another big jump right on top of it — don't assume
+      // steady, stackable improvement. Only checked when the current
+      // source itself is genuinely recent (comparing a stale source
+      // against an even-older prior point isn't meaningful).
+      let recentJumpFactor = 1.0;
+      let bigRecentImprovement = false;
+      if (!staleSource && priorSourcePoints.length > 0) {
+        const priorSource = priorSourcePoints.reduce((best, p) =>
+          Math.abs(Math.log(p.distance_m) - Math.log(target.m)) <
+          Math.abs(Math.log(best.distance_m) - Math.log(target.m))
+            ? p
+            : best,
+        );
+        const priorPredicted = predictTimeWithExponent(
+          priorSource.time_seconds,
+          priorSource.distance_m,
+          target.m,
+          exponent,
+        );
+        const improvementPct = ((priorPredicted - predicted) / priorPredicted) * 100;
+        if (improvementPct > 8) {
+          recentJumpFactor = 0.6;
+          bigRecentImprovement = true;
+        }
+      }
+
+      // Apply the full age/training-age headroom, scaled down for longer
+      // distances (distanceHeadroomFactor) and further if a big jump just
+      // happened (recentJumpFactor), only pulling back further still if it
       // would cross the elite floor — a straight clamp, not a pre-emptive
       // dampening that shrinks the range well before the floor is
-      // actually reached. That earlier dampening was itself part of the
-      // bug: it punished already-fast young athletes (exactly the
-      // "genuinely still improving" case) by treating "fast now" as
-      // "close to lifetime ceiling," which conflates two different
-      // things. The floor should only ever act as a backstop.
+      // actually reached. That earlier flat dampening was itself part of
+      // the original bug: it punished already-fast young athletes (exactly
+      // the "genuinely still improving" case) by treating "fast now" as
+      // "close to lifetime ceiling," which conflates two different things.
+      // The floor should only ever act as a backstop.
       const floor = eliteFloorSeconds(target.m, sex);
-      const unclampedUpper = predicted * (1 - headroomPct / 100);
+      const adjustedHeadroomPct = headroomPct * distanceHeadroomFactor(target.m) * recentJumpFactor;
+      const unclampedUpper = predicted * (1 - adjustedHeadroomPct / 100);
       const upper = Math.max(unclampedUpper, floor);
-      // Conservative edge is always the midpoint between today's predicted
-      // time and the (already-clamped) optimistic edge — guarantees it
-      // can never land faster than upper even after clamping.
-      const lower = predicted - (predicted - upper) * 0.5;
+      // Conservative edge deliberately stays close to today's predicted
+      // time (only 20% of the way to the optimistic edge) rather than the
+      // midpoint — per Chris's call, real development often plateaus for
+      // a year or two before a jump rather than improving on a smooth
+      // line, so the cautious end of the range should reflect "might
+      // barely move" as a real possibility, not just "somewhat less than
+      // the best case."
+      const lower = predicted - (predicted - upper) * 0.2;
       // Only genuinely worth flagging when the clamp left very little
       // real room (<3% of current time) — not just "the clamp fired at
       // all," which was the earlier over-triggering version of this flag.
@@ -339,6 +405,7 @@ export function DevelopmentPotentialCard({ athleteId }: { athleteId: string }) {
         nearCeiling,
         sourceMonthsAgo,
         staleSource,
+        bigRecentImprovement,
       };
     }).filter((r): r is NonNullable<typeof r> => r != null);
   }, [performances, ageYears, trainingAgeYears, athlete?.sex]);
@@ -437,6 +504,11 @@ export function DevelopmentPotentialCard({ athleteId }: { athleteId: string }) {
                     {secToClock(r.upper)}–{secToClock(r.lower)}
                     {r.nearCeiling && (
                       <div className="text-[9px] text-muted-foreground font-normal normal-case">near elite ceiling</div>
+                    )}
+                    {r.bigRecentImprovement && (
+                      <div className="text-[9px] text-muted-foreground font-normal normal-case">
+                        big jump last year — conservative
+                      </div>
                     )}
                   </div>
                   <div className="text-right">
