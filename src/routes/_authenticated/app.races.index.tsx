@@ -1,5 +1,5 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -550,6 +550,34 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
     return list;
   }, [races, filterYear, filterSeasonId, filterBadge, seasons, pbStatusMap]);
 
+  // Results is made to exactly match Add race's real rendered height —
+  // not the other way around. Plain CSS grid stretch can't do this on its
+  // own: with a long results list and no cap, Results' own content is
+  // what the grid row auto-sizes to (grid rows size to the tallest
+  // content among their items), which then stretches Add race to match
+  // Results instead of the intended direction. Measuring Add race's
+  // actual height and applying it as an explicit height on the Results
+  // Card (which then scrolls internally via flex-1 + min-h-0 + overflow)
+  // is what actually makes Add race the one driving the row height, with
+  // Results conforming to it either way — capped-and-scrolling when
+  // there are more results than fit, or just shorter with empty space
+  // below when there are fewer.
+  const addRaceCardRef = useRef<HTMLDivElement>(null);
+  const [addRaceHeight, setAddRaceHeight] = useState<number | null>(null);
+
+  useEffect(() => {
+    const el = addRaceCardRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setAddRaceHeight(entry.contentRect.height);
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+
   const stats = useMemo(() => {
     const list = races ?? [];
     const currentYear = new Date().getFullYear();
@@ -583,15 +611,18 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
       </div>
 
       {/* Add race (left third) + Results (right two-thirds) — same row.
-          Grid columns stretch to equal height by default (no items-start),
-          and both Cards below opt into that height via lg:h-full +
-          flex flex-col, so Results is always exactly as tall as Add race
-          renders to be, not an approximation of it. Results' CardContent
-          is the flex-1 + min-h-0 child so it's the one that scrolls once
-          content exceeds that height, instead of growing the row. */}
-      <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
-      <div className="order-2 lg:order-1 lg:h-full">
-        <Card className="lg:h-full lg:flex lg:flex-col">
+          items-start on the grid + a ResizeObserver measuring Add race's
+          real rendered height (see addRaceCardRef/addRaceHeight above),
+          applied to Results via a CSS variable — plain grid stretch can't
+          do this on its own, since with an unbounded results list the
+          row's auto height would just track Results' own (much taller)
+          content instead of Add race's. This way Add race always drives
+          the height, and Results conforms to it exactly, scrolling
+          internally past that point (or just showing whitespace below a
+          short list, rather than shrinking the row). */}
+      <div className="grid gap-6 lg:grid-cols-[380px_1fr] lg:items-start">
+      <div className="order-2 lg:order-1" ref={addRaceCardRef}>
+        <Card>
           <CardHeader>
             <CardTitle className="text-base">Add race (manual)</CardTitle>
             <CardDescription>
@@ -805,12 +836,17 @@ Geelong`}
         </Card>
       </div>
 
-      {/* Results — right two-thirds on desktop. Height now matches Add
-          race exactly (see comment above) instead of a fixed max-height
-          guess — this one grid's content is what determines the row
-          height, and Results just fills + scrolls within it. */}
-      <div className="order-1 lg:order-2 min-w-0 lg:h-full">
-        <Card className="lg:h-full lg:flex lg:flex-col">
+      {/* Results — right two-thirds on desktop. Height is measured live
+          from Add race (see ResizeObserver above) and applied here as an
+          explicit height via a CSS variable, so Add race is what actually
+          drives the row height — Results conforms to it and scrolls
+          internally past that point, rather than its own content being
+          what the row sizes to. */}
+      <div className="order-1 lg:order-2 min-w-0">
+        <Card
+          className="lg:flex lg:flex-col lg:[height:var(--add-race-h)]"
+          style={addRaceHeight ? ({ "--add-race-h": `${addRaceHeight}px` } as any) : undefined}
+        >
           <CardHeader>
             <CardTitle>Results</CardTitle>
             <CardDescription>Race results and personal bests</CardDescription>
