@@ -84,6 +84,45 @@ const POTENTIAL_DISTANCES: Array<{ label: string; m: number }> = [
   { label: "Marathon", m: 42195 },
 ];
 
+// Hard physiological floor — the bug this fixes: the original headroom
+// model only looked at age/training-age and had no idea how close an
+// athlete's *current* times already were to human limits, so an already
+// near-elite athlete (e.g. a 3:45 1500m) got the same 20-30% headroom as
+// a beginner and came out with a "potential range" faster than the men's
+// world record. That's not a planning range, that's nonsense, and it's
+// exactly the kind of authoritative-looking-but-wrong number this card
+// exists to avoid.
+//
+// These are approximate world-record-class times (men's/women's, current
+// as of this build) with a deliberate ~4% safety margin already baked in
+// on top — not the literal record, something safely slower than it, so
+// this stays defensible even as actual records move over time. The
+// projection is never allowed to cross this floor, and the headroom
+// applied is damped down the closer an athlete's current level already
+// is to it, so someone already near the floor correctly gets a narrow
+// range instead of a wide one clipped at the last second.
+//
+// Sex unknown/not set on the athlete record -> use the more conservative
+// (slower) of the two floors, so an unknown-sex athlete is never shown a
+// physically-impossible-for-anyone projection.
+const ELITE_FLOOR_SECONDS: Record<number, { male: number; female: number }> = {
+  800: { male: 105, female: 118 },
+  1500: { male: 214, female: 238 },
+  3000: { male: 459, female: 505 },
+  5000: { male: 785, female: 874 },
+  10000: { male: 1634, female: 1811 },
+  21097: { male: 3589, female: 3923 },
+  42195: { male: 7524, female: 8108 },
+};
+
+function eliteFloorSeconds(distanceM: number, sex: string | null | undefined): number {
+  const entry = ELITE_FLOOR_SECONDS[distanceM];
+  if (!entry) return 0;
+  if (sex === "Male") return entry.male;
+  if (sex === "Female") return entry.female;
+  return Math.max(entry.male, entry.female); // unknown sex — use the slower/safer floor
+}
+
 type PerfRow = {
   distance_m: number;
   time_seconds: number;
@@ -222,6 +261,7 @@ export function DevelopmentPotentialCard({ athleteId }: { athleteId: string }) {
     }
 
     const headroomPct = developmentHeadroomPct(ageYears, trainingAgeYears);
+    const sex = athlete?.sex ?? null;
 
     return POTENTIAL_DISTANCES.map((target) => {
       if (sourcePoints.length === 0) return null;
@@ -234,17 +274,28 @@ export function DevelopmentPotentialCard({ athleteId }: { athleteId: string }) {
           : best,
       );
       const predicted = predictTimeWithExponent(source.time_seconds, source.distance_m, target.m, exponent);
-      const lower = predicted * (1 - headroomPct / 2 / 100);
-      const upper = predicted * (1 - headroomPct / 100);
+
+      // Damp the age/training-age headroom down as the athlete's current
+      // predicted time approaches the elite floor for this distance —
+      // never assume more than half the remaining gap to that floor
+      // closes in 12-24 months, and the optimistic edge can mathematically
+      // never cross the floor itself.
+      const floor = eliteFloorSeconds(target.m, sex);
+      const availableGapPct = Math.max(0, ((predicted - floor) / predicted) * 100);
+      const effectiveHeadroomPct = Math.min(headroomPct, availableGapPct * 0.5);
+      const nearCeiling = availableGapPct < headroomPct;
+
+      const lower = predicted * (1 - effectiveHeadroomPct / 2 / 100);
+      const upper = predicted * (1 - effectiveHeadroomPct / 100);
       const currentPb = bestByDistance.get(target.m)?.time_seconds ?? null;
 
       let confidence: "High" | "Moderate" | "Low" = "Low";
       if (calibrated && ageYears != null && trainingAgeYears != null) confidence = "High";
       else if (calibrated || (ageYears != null && trainingAgeYears != null)) confidence = "Moderate";
 
-      return { label: target.label, currentPb, predicted, lower, upper, calibrated, confidence };
+      return { label: target.label, currentPb, predicted, lower, upper, calibrated, confidence, nearCeiling };
     }).filter((r): r is NonNullable<typeof r> => r != null);
-  }, [performances, ageYears, trainingAgeYears]);
+  }, [performances, ageYears, trainingAgeYears, athlete?.sex]);
 
   return (
     <div className="space-y-4">
@@ -301,7 +352,8 @@ export function DevelopmentPotentialCard({ athleteId }: { athleteId: string }) {
           </CardTitle>
           <CardDescription>
             Predicted PB is today's projection from the current curve. Potential Range assumes continued, consistent
-            training over the next 12-24 months — a planning range, not a guarantee and not a lifetime ceiling.
+            training over the next 12-24 months — a planning range, not a guarantee, capped so it can never suggest a
+            time beyond realistic elite limits.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -331,6 +383,9 @@ export function DevelopmentPotentialCard({ athleteId }: { athleteId: string }) {
                   </div>
                   <div className="tabular-nums text-right whitespace-nowrap">
                     {secToClock(r.upper)}–{secToClock(r.lower)}
+                    {r.nearCeiling && (
+                      <div className="text-[9px] text-muted-foreground font-normal normal-case">near elite ceiling</div>
+                    )}
                   </div>
                   <div className="text-right">
                     <Badge variant="outline" className="text-[10px]">
