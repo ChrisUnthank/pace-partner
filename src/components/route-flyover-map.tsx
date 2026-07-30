@@ -137,7 +137,7 @@ function buildStyle(routeCoords: [number, number][], enableTerrain: boolean): St
               id: "hillshade-layer",
               type: "hillshade" as const,
               source: "terrain-dem-hillshade",
-              paint: { "hillshade-exaggeration": 0.15 },
+              paint: { "hillshade-exaggeration": 0.08 },
             },
           ]
         : []),
@@ -192,7 +192,7 @@ function buildStyle(routeCoords: [number, number][], enableTerrain: boolean): St
     // courses — a limitation of the free data source, not this rendering
     // setup. A lower exaggeration meaningfully softens it (at some cost to
     // how dramatic real elevation looks on genuinely hilly courses).
-    ...(enableTerrain ? { terrain: { source: "terrain-dem", exaggeration: 0.3 } } : {}),
+    ...(enableTerrain ? { terrain: { source: "terrain-dem", exaggeration: 0.15 } } : {}),
     sky: {
       "sky-color": "#8ecdf5",
       "horizon-color": "#dceaf5",
@@ -230,7 +230,7 @@ function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t;
 }
 
-const FLYOVER_ZOOM = 16.6;
+const FLYOVER_ZOOM = 15.6; // one zoom level out from the original 16.6 — roughly a quarter as many tile requests to cover the same ground while the chase-cam is moving fast, which was outrunning tile loads and flashing the fallback background color
 const FLYOVER_PITCH = 66; // MapLibre's documented range is 0-60; up to ~75-80 works but is "experimental" per its own docs
 const LOOK_AHEAD_POINTS = 10; // ~10 samples ahead sets the direction of travel for camera bearing
 const HEADING_SMOOTHING = 0.12; // per-frame EMA factor — keeps bearing from whipping on noisy GPS
@@ -278,7 +278,11 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
       center: coords[0],
       zoom: 13,
       pitch: 0,
-      attributionControl: { compact: true },
+      attributionControl: false,
+      // Default cache sizing is based on current viewport only, which keeps
+      // evicting/re-fetching tiles as the chase-cam sweeps across a whole
+      // route — holding more tiles in memory reduces those visible reloads.
+      maxTileCacheSize: 300,
     });
     mapRef.current = map;
     if (hasTerrain) map.setMaxPitch(80);
@@ -436,61 +440,64 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
   }
 
   return (
-    <div
-      className="relative rounded overflow-hidden border"
-      style={heightPx ? { height: heightPx } : { height: "100%", minHeight: 400, flex: 1 }}
-    >
-      <div
-        ref={containerRef}
-        style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, width: "100%", height: "100%" }}
-      />
-
-      {!ready && (
-        <div className="absolute inset-0 flex items-center justify-center bg-background/80 text-sm text-muted-foreground z-10">
-          Loading terrain…
-        </div>
-      )}
-
-      {tileError && (
-        <div className="absolute top-2 left-2 right-2 z-10 text-xs border border-destructive/40 bg-destructive/10 text-destructive rounded-md px-3 py-2">
-          Map tile error: {tileError}
-        </div>
-      )}
-
-      <div className="absolute top-2 right-2 z-10">
+    <div className="flex flex-col gap-2" style={heightPx ? undefined : { flex: 1, minHeight: 400 }}>
+      <div className="flex items-center justify-end">
         <Button size="sm" variant="outline" onClick={handlePlayPause} disabled={!ready}>
           {playing ? "Pause" : finished ? "▶ Replay" : "▶ Fly route"}
         </Button>
       </div>
 
-      {hud && (playing || finished) && (
-        <div className="absolute bottom-2 left-2 right-2 z-10 flex gap-4 text-sm border rounded-md px-3 py-2 bg-background/85 backdrop-blur-sm flex-wrap">
-          {hud.elapsed_s != null && (
-            <div>
-              <span className="text-muted-foreground">Elapsed: </span>
-              <span className="tabular-nums font-medium">{secToClock(hud.elapsed_s)}</span>
-            </div>
-          )}
-          {hud.distance_m != null && (
-            <div>
-              <span className="text-muted-foreground">Distance: </span>
-              <span className="tabular-nums font-medium">{metersFmt(hud.distance_m)}</span>
-            </div>
-          )}
-          {hud.pace != null && (
-            <div>
-              <span className="text-muted-foreground">Pace: </span>
-              <span className="tabular-nums font-medium">{paceFmt(hud.pace)}</span>
-            </div>
-          )}
-          {hud.hr != null && (
-            <div>
-              <span className="text-muted-foreground">HR: </span>
-              <span className="tabular-nums font-medium">{hud.hr} bpm</span>
-            </div>
-          )}
+      <div
+        className="relative rounded overflow-hidden border"
+        style={heightPx ? { height: heightPx } : { flex: 1, minHeight: 360 }}
+      >
+        <div
+          ref={containerRef}
+          style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, width: "100%", height: "100%" }}
+        />
+
+        {!ready && (
+          <div className="absolute inset-0 flex items-center justify-center bg-background/80 text-sm text-muted-foreground z-10">
+            Loading terrain…
+          </div>
+        )}
+
+        {tileError && (
+          <div className="absolute top-2 left-2 right-2 z-10 text-xs border border-destructive/40 bg-destructive/10 text-destructive rounded-md px-3 py-2">
+            Map tile error: {tileError}
+          </div>
+        )}
+
+        {/* Fixed, non-interactive attribution caption in place of MapLibre's
+            built-in AttributionControl — Esri and the AWS terrain tiles both
+            require attribution, but the built-in control renders as an
+            expandable panel the person has to click open/closed, which is
+            unnecessary friction for text nobody needs to interact with. */}
+        <div className="absolute bottom-0 left-0 right-0 z-10 px-2 py-0.5 text-[10px] leading-tight text-white/70 bg-black/30 truncate">
+          {SATELLITE_ATTRIBUTION} · {TERRAIN_ATTRIBUTION}
         </div>
-      )}
+      </div>
+
+      <div className="flex gap-4 text-sm border rounded-md px-3 py-2 bg-card flex-wrap">
+        <div>
+          <span className="text-muted-foreground">Elapsed: </span>
+          <span className="tabular-nums font-medium">{hud?.elapsed_s != null ? secToClock(hud.elapsed_s) : "–"}</span>
+        </div>
+        <div>
+          <span className="text-muted-foreground">Distance: </span>
+          <span className="tabular-nums font-medium">
+            {hud?.distance_m != null ? metersFmt(hud.distance_m) : "–"}
+          </span>
+        </div>
+        <div>
+          <span className="text-muted-foreground">Pace: </span>
+          <span className="tabular-nums font-medium">{hud?.pace != null ? paceFmt(hud.pace) : "–"}</span>
+        </div>
+        <div>
+          <span className="text-muted-foreground">HR: </span>
+          <span className="tabular-nums font-medium">{hud?.hr != null ? `${hud.hr} bpm` : "–"}</span>
+        </div>
+      </div>
     </div>
   );
 }
