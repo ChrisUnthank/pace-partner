@@ -12,6 +12,7 @@ import { metersFmt, secToClock, clockToSec, paceFmt } from "@/lib/format";
 import { reconstructTrack, buildSplitsFromCorrectedPoints, smoothSeries } from "@/lib/gps-reconstruction";
 import { MapContainer, TileLayer, Polyline, CircleMarker } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
+import { RouteFlyoverMap } from "@/components/route-flyover-map";
 import { useMyRoles } from "@/lib/use-auth";
 import { AthleteSubnav } from "@/components/athlete-subnav";
 
@@ -756,6 +757,7 @@ function RaceMapPanel({
   const [playing, setPlaying] = useState(false);
   const [playIndex, setPlayIndex] = useState(0);
   const [speed, setSpeed] = useState<(typeof SPEED_OPTIONS)[number]>(1);
+  const [use3D, setUse3D] = useState(false);
   const rafRef = useRef<number | null>(null);
   const startTimeRef = useRef<number | null>(null);
   // How much playback time has elapsed so far, preserved across pauses so
@@ -869,6 +871,13 @@ function RaceMapPanel({
             </div>
             <Button
               size="sm"
+              variant={use3D ? "default" : "outline"}
+              onClick={() => setUse3D((v) => !v)}
+            >
+              {use3D ? "2D Map" : "3D Flyover"}
+            </Button>
+            <Button
+              size="sm"
               variant="outline"
               onClick={() => {
                 if (playing) {
@@ -936,6 +945,16 @@ function RaceMapPanel({
           </div>
         )}
 
+        {use3D ? (
+          <RouteFlyoverMap
+            points={safePoints}
+            heightPx={450}
+            pointColor={(p) => {
+              const zone = hrToZone(p.hr ?? null, zoneProfile);
+              return zone ? ZONE_COLORS[zone] : "#FF004C";
+            }}
+          />
+        ) : (
         <div className="rounded overflow-hidden border" style={{ height: 450 }}>
           <MapContainer
             center={center}
@@ -978,6 +997,7 @@ function RaceMapPanel({
             )}
           </MapContainer>
         </div>
+        )}
       </CardContent>
     </Card>
   );
