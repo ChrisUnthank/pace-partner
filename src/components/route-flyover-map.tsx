@@ -137,7 +137,7 @@ function buildStyle(routeCoords: [number, number][], enableTerrain: boolean): St
               id: "hillshade-layer",
               type: "hillshade" as const,
               source: "terrain-dem-hillshade",
-              paint: { "hillshade-exaggeration": 0.3 },
+              paint: { "hillshade-exaggeration": 0.15 },
             },
           ]
         : []),
@@ -192,7 +192,7 @@ function buildStyle(routeCoords: [number, number][], enableTerrain: boolean): St
     // courses — a limitation of the free data source, not this rendering
     // setup. A lower exaggeration meaningfully softens it (at some cost to
     // how dramatic real elevation looks on genuinely hilly courses).
-    ...(enableTerrain ? { terrain: { source: "terrain-dem", exaggeration: 0.6 } } : {}),
+    ...(enableTerrain ? { terrain: { source: "terrain-dem", exaggeration: 0.3 } } : {}),
     sky: {
       "sky-color": "#8ecdf5",
       "horizon-color": "#dceaf5",
@@ -234,7 +234,7 @@ const FLYOVER_ZOOM = 16.6;
 const FLYOVER_PITCH = 66; // MapLibre's documented range is 0-60; up to ~75-80 works but is "experimental" per its own docs
 const LOOK_AHEAD_POINTS = 10; // ~10 samples ahead sets the direction of travel for camera bearing
 const HEADING_SMOOTHING = 0.12; // per-frame EMA factor — keeps bearing from whipping on noisy GPS
-const FULL_FLIGHT_MS = 22000; // full route flyover takes ~22s regardless of actual session/race duration
+const FULL_FLIGHT_MS = 30000; // full route flyover takes ~30s regardless of actual session/race duration
 
 export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
