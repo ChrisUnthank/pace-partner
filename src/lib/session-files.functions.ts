@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { computeRefinedContinuousZoneTime, hrZoneFor, type HrZoneBoundaries } from "@/lib/intensity-segments";
 
 async function fetchWeather(lat: number, lon: number, timestamp: string) {
   try {
@@ -2113,6 +2114,121 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
     const { hour: localHour } = getLocalDateAndHour(new Date(anchorMs), athleteTimezone);
     const timeLabel = localHour < 11 ? "Morning" : localHour < 16 ? "Afternoon" : "Evening";
     recomputedTitle = `${timeLabel} session`;
+  }
+
+  // ── Refined HR zone-time for continuous blocks ──────────────────────────
+  // recompute_session_zones (DB trigger, already fired by the
+  // interval_results insert above) wrote a first-pass session_zone_time
+  // using plain per-block-average HR against threshold — including a
+  // continuous-effort cap that folds sustained drift down into
+  // "threshold" for any single continuous block (steps.reps <= 1) running
+  // longer than 12 minutes, so a long race sitting in the top HR zone
+  // purely from cardiac drift doesn't inflate vo2/rep time.
+  //
+  // That cap is block-average-only though — it can't see a genuine kick
+  // embedded within an otherwise-drifted block. This refines it further:
+  // for any continuous block long enough to trigger the cap, walk that
+  // block's own raw point trace (Time at Intensity + HR-rise slope +
+  // pace-surge confirmation, splitting out a within-run kick when the
+  // drift transitions straight into one with no zone dip in between) to
+  // tell a genuine embedded surge apart from ordinary drift — see
+  // src/lib/intensity-segments.ts for the full reasoning and tests.
+  //
+  // Best-effort: never lets a refinement failure block the rebuild itself
+  // — worst case, the trigger's already-correct-for-the-common-case
+  // baseline stands.
+  try {
+    const { data: zoneProfileForHr } = await sb
+      .from("athlete_zone_profiles")
+      .select("hr_z1_max, hr_z2_max, hr_z3_max, hr_z4_max")
+      .eq("athlete_id", sess.athlete_id)
+      .maybeSingle();
+
+    if (zoneProfileForHr?.hr_z1_max != null) {
+      const zones: HrZoneBoundaries = {
+        z1Max: zoneProfileForHr.hr_z1_max,
+        z2Max: zoneProfileForHr.hr_z2_max,
+        z3Max: zoneProfileForHr.hr_z3_max,
+        z4Max: zoneProfileForHr.hr_z4_max,
+      };
+
+      // Continuous blocks only — a step with reps <= 1 that isn't a
+      // recovery segment. Genuine interval/rep work (reps > 1) already
+      // classifies fine per-rep and is untouched by any of this.
+      const { data: continuousSteps } = await sb
+        .from("steps")
+        .select("id")
+        .eq("session_id", sessionId)
+        .neq("kind", "recovery")
+        .lte("reps", 1);
+
+      for (const step of continuousSteps ?? []) {
+        const { data: repRow } = await sb
+          .from("interval_results")
+          .select("hr_avg, actual_time_seconds")
+          .eq("step_id", step.id)
+          .maybeSingle();
+
+        if (repRow?.hr_avg == null || !repRow?.actual_time_seconds) continue;
+
+        const { data: stepPoints } = await sb
+          .from("raw_session_points")
+          .select("elapsed_s, hr, pace_sec_per_km")
+          .eq("step_id", step.id)
+          .order("elapsed_s", { ascending: true });
+
+        if (!stepPoints || stepPoints.length < 2) continue;
+
+        const points = stepPoints.map((p: any) => ({
+          elapsedS: p.elapsed_s,
+          hr: p.hr,
+          paceSecPerKm: p.pace_sec_per_km,
+        }));
+
+        const refined = computeRefinedContinuousZoneTime(points, zones, 12);
+
+        // No detected runs means either the block was under the 12-minute
+        // cap (nothing to refine, the trigger's per-point-equivalent
+        // value already stands) or nothing in it ever reached vo2/rep at
+        // all — either way, nothing to change.
+        if (refined.detectedRuns.length === 0) continue;
+
+        // Exactly mirror what the DB trigger's capped block-average logic
+        // wrote for this specific block, so it can be swapped out below
+        // without touching any other block's contribution to this
+        // session's zone-time.
+        let originalZone = hrZoneFor(Number(repRow.hr_avg), zones);
+        if ((originalZone === "vo2" || originalZone === "rep") && Number(repRow.actual_time_seconds) / 60 > 12) {
+          originalZone = "threshold";
+        }
+
+        const { data: existingRows } = await sb
+          .from("session_zone_time")
+          .select("zone, seconds")
+          .eq("session_id", sessionId)
+          .eq("source", "hr");
+
+        const totals = new Map<string, number>((existingRows ?? []).map((r: any) => [r.zone, Number(r.seconds)]));
+
+        totals.set(originalZone, Math.max(0, (totals.get(originalZone) ?? 0) - Number(repRow.actual_time_seconds)));
+
+        for (const [zoneKey, addSeconds] of Object.entries(refined.seconds)) {
+          if (addSeconds > 0) totals.set(zoneKey, (totals.get(zoneKey) ?? 0) + addSeconds);
+        }
+
+        const upsertRows = Array.from(totals.entries())
+          .filter(([, seconds]) => seconds > 0)
+          .map(([zone, seconds]) => ({ session_id: sessionId, athlete_id: sess.athlete_id, zone, seconds, source: "hr" }));
+
+        await sb.from("session_zone_time").delete().eq("session_id", sessionId).eq("source", "hr");
+        if (upsertRows.length > 0) {
+          const { error: zoneInsertErr } = await sb.from("session_zone_time").insert(upsertRows as any);
+          if (zoneInsertErr) console.error("Refined zone-time insert failed", zoneInsertErr);
+        }
+      }
+    }
+  } catch (refineErr) {
+    console.error("Continuous-block zone-time refinement failed (non-fatal, trigger baseline stands)", refineErr);
   }
 
   const { error: updErr } = await sb
