@@ -16,7 +16,7 @@ import { AlertTriangle } from "lucide-react";
 // and app.athletes.$athleteId_.performance-profile.tsx (Athlete
 // Information tab) render this same component, so there's only one form
 // to keep correct — the two pages can no longer drift apart on which
-// fields are editable, since it's the same code either place. Both pages
+// fields are editable, since it's the same code either place. Both pagesF
 // also query the athlete row under the same ["athlete", athleteId] key,
 // so a save on either page invalidates and refreshes both.
 
@@ -187,7 +187,7 @@ export function AthleteIdentityCard({
     // manual refresh.
     qc.invalidateQueries({ queryKey: ["athlete", athleteId] });
     // Also invalidate useMyAthlete's key (["my-athlete", userId]) — used
-    // only by the self-service Profile page (app.profile.tsx), which
+    // only by the self-service Profile page (app.account.tsx), which
     // fetches the athlete row a different way (by user_id, not athleteId).
     // Invalidating a prefix with no matching active query elsewhere is a
     // harmless no-op, so this is safe to always do rather than needing an
