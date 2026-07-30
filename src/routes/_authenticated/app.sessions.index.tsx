@@ -977,4 +977,4 @@ function SessionsList() {
       </Dialog>
     </AppShell>
   );
-} 
+}
