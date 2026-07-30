@@ -354,18 +354,34 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
     // touch every tile along the way without literally visiting every GPS
     // sample (neighboring samples usually share a tile at this zoom anyway).
     async function prefetchRouteTiles() {
-      const step = Math.max(1, Math.floor(coords.length / 60));
+      // Denser than the original 60 — this is the actual safety margin
+      // against a sharp turn falling between two sampled points, not the
+      // zoom level (tiles are zoom-level-specific: a lower-zoom tile is a
+      // different image entirely, not a reusable coarser version of the
+      // real one, so prefetching at any zoom other than FLYOVER_ZOOM itself
+      // would just fetch tiles the real flight can't use at all).
+      const step = Math.max(1, Math.floor(coords.length / 140));
+      let prevHeading: number | null = null;
       for (let i = 0; i < coords.length; i += step) {
         if (cancelled) return;
-        map.jumpTo({ center: coords[i], zoom: FLYOVER_ZOOM });
-        await new Promise((r) => setTimeout(r, 15));
+        const aheadIdx = Math.min(i + LOOK_AHEAD_POINTS, safePoints.length - 1);
+        const heading: number =
+          aheadIdx !== i ? bearingBetween(safePoints[i], safePoints[aheadIdx]) : (prevHeading ?? 0);
+        prevHeading = heading;
+        // Matching bearing AND pitch here matters, not just center/zoom — a
+        // rotated, tilted viewport covers a different (larger, offset) set
+        // of tiles at its corners than a flat bearing-0 view of the same
+        // point, which is exactly the gap that caused blue squares
+        // specifically on turns even though the route itself was prefetched.
+        map.jumpTo({ center: coords[i], zoom: FLYOVER_ZOOM, bearing: heading, pitch: flyoverPitch });
+        await new Promise((r) => setTimeout(r, 10));
       }
       if (cancelled) return;
-      map.jumpTo({ center: coords[coords.length - 1], zoom: FLYOVER_ZOOM });
+      map.jumpTo({ center: coords[coords.length - 1], zoom: FLYOVER_ZOOM, pitch: flyoverPitch });
       // A bounded settle window for in-flight requests to land in cache —
       // not waiting for a guaranteed "everything loaded" signal, since a
       // single slow/failed tile shouldn't hold the whole flyover hostage.
-      await new Promise((r) => setTimeout(r, 700));
+      await new Promise((r) => setTimeout(r, 800));
     }
 
     async function onLoad() {
