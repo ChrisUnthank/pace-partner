@@ -2120,10 +2120,15 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   // recompute_session_zones (DB trigger, already fired by the
   // interval_results insert above) wrote a first-pass session_zone_time
   // using plain per-block-average HR against threshold — including a
-  // continuous-effort cap that folds sustained drift down into
-  // "threshold" for any single continuous block (steps.reps <= 1) running
-  // longer than 12 minutes, so a long race sitting in the top HR zone
-  // purely from cardiac drift doesn't inflate vo2/rep time.
+  // continuous-effort cap that folds sustained drift down into z4
+  // (Threshold) for any single continuous block (steps.reps <= 1) running
+  // longer than 12 minutes, so a long race sitting in z5/z6 purely from
+  // cardiac drift doesn't inflate VO2/Anaerobic time. Zone keys (z1-z6)
+  // and the session_zone_time row shape (meters + boundary-snapshot
+  // columns alongside seconds) match the real live function, confirmed
+  // via pg_get_functiondef before writing this — an earlier version of
+  // this code was built against a stale 5-zone migration file that had
+  // been superseded and was never actually live.
   //
   // That cap is block-average-only though — it can't see a genuine kick
   // embedded within an otherwise-drifted block. This refines it further:
@@ -2140,7 +2145,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   try {
     const { data: zoneProfileForHr } = await sb
       .from("athlete_zone_profiles")
-      .select("hr_z1_max, hr_z2_max, hr_z3_max, hr_z4_max")
+      .select("hr_z1_max, hr_z2_max, hr_z3_max, hr_z4_max, hr_z5_max")
       .eq("athlete_id", sess.athlete_id)
       .maybeSingle();
 
@@ -2150,6 +2155,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
         z2Max: zoneProfileForHr.hr_z2_max,
         z3Max: zoneProfileForHr.hr_z3_max,
         z4Max: zoneProfileForHr.hr_z4_max,
+        z5Max: zoneProfileForHr.hr_z5_max,
       };
 
       // Continuous blocks only — a step with reps <= 1 that isn't a
@@ -2165,7 +2171,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
       for (const step of continuousSteps ?? []) {
         const { data: repRow } = await sb
           .from("interval_results")
-          .select("hr_avg, actual_time_seconds")
+          .select("hr_avg, actual_time_seconds, actual_distance_m")
           .eq("step_id", step.id)
           .maybeSingle();
 
@@ -2173,7 +2179,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
 
         const { data: stepPoints } = await sb
           .from("raw_session_points")
-          .select("elapsed_s, hr, pace_sec_per_km")
+          .select("elapsed_s, hr, pace_sec_per_km, distance_m")
           .eq("step_id", step.id)
           .order("elapsed_s", { ascending: true });
 
@@ -2183,14 +2189,15 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
           elapsedS: p.elapsed_s,
           hr: p.hr,
           paceSecPerKm: p.pace_sec_per_km,
+          distanceM: p.distance_m,
         }));
 
         const refined = computeRefinedContinuousZoneTime(points, zones, 12);
 
         // No detected runs means either the block was under the 12-minute
-        // cap (nothing to refine, the trigger's per-point-equivalent
-        // value already stands) or nothing in it ever reached vo2/rep at
-        // all — either way, nothing to change.
+        // cap (nothing to refine, the trigger's value already stands) or
+        // nothing in it ever reached z5/z6 at all — either way, nothing
+        // to change.
         if (refined.detectedRuns.length === 0) continue;
 
         // Exactly mirror what the DB trigger's capped block-average logic
@@ -2198,27 +2205,50 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
         // without touching any other block's contribution to this
         // session's zone-time.
         let originalZone = hrZoneFor(Number(repRow.hr_avg), zones);
-        if ((originalZone === "vo2" || originalZone === "rep") && Number(repRow.actual_time_seconds) / 60 > 12) {
-          originalZone = "threshold";
+        if ((originalZone === "z5" || originalZone === "z6") && Number(repRow.actual_time_seconds) / 60 > 12) {
+          originalZone = "z4";
         }
+        const originalMeters = Number(repRow.actual_distance_m ?? 0);
 
         const { data: existingRows } = await sb
           .from("session_zone_time")
-          .select("zone, seconds")
+          .select("zone, seconds, meters")
           .eq("session_id", sessionId)
           .eq("source", "hr");
 
-        const totals = new Map<string, number>((existingRows ?? []).map((r: any) => [r.zone, Number(r.seconds)]));
+        const secondsTotals = new Map<string, number>((existingRows ?? []).map((r: any) => [r.zone, Number(r.seconds)]));
+        const metersTotals = new Map<string, number>((existingRows ?? []).map((r: any) => [r.zone, Number(r.meters ?? 0)]));
 
-        totals.set(originalZone, Math.max(0, (totals.get(originalZone) ?? 0) - Number(repRow.actual_time_seconds)));
+        secondsTotals.set(
+          originalZone,
+          Math.max(0, (secondsTotals.get(originalZone) ?? 0) - Number(repRow.actual_time_seconds)),
+        );
+        metersTotals.set(originalZone, Math.max(0, (metersTotals.get(originalZone) ?? 0) - originalMeters));
 
         for (const [zoneKey, addSeconds] of Object.entries(refined.seconds)) {
-          if (addSeconds > 0) totals.set(zoneKey, (totals.get(zoneKey) ?? 0) + addSeconds);
+          if (addSeconds > 0) secondsTotals.set(zoneKey, (secondsTotals.get(zoneKey) ?? 0) + addSeconds);
+        }
+        for (const [zoneKey, addMeters] of Object.entries(refined.meters)) {
+          if (addMeters > 0) metersTotals.set(zoneKey, (metersTotals.get(zoneKey) ?? 0) + addMeters);
         }
 
-        const upsertRows = Array.from(totals.entries())
-          .filter(([, seconds]) => seconds > 0)
-          .map(([zone, seconds]) => ({ session_id: sessionId, athlete_id: sess.athlete_id, zone, seconds, source: "hr" }));
+        const allZoneKeys = new Set<string>([...secondsTotals.keys(), ...metersTotals.keys()]);
+        const upsertRows = Array.from(allZoneKeys)
+          .filter((zone) => (secondsTotals.get(zone) ?? 0) > 0)
+          .map((zone) => ({
+            session_id: sessionId,
+            athlete_id: sess.athlete_id,
+            zone,
+            seconds: secondsTotals.get(zone) ?? 0,
+            meters: metersTotals.get(zone) ?? 0,
+            source: "hr",
+            hr_z1_max: zones.z1Max,
+            hr_z2_max: zones.z2Max,
+            hr_z3_max: zones.z3Max,
+            hr_z4_max: zones.z4Max,
+            hr_z5_max: zones.z5Max,
+            boundaries_computed_at: new Date().toISOString(),
+          }));
 
         await sb.from("session_zone_time").delete().eq("session_id", sessionId).eq("source", "hr");
         if (upsertRows.length > 0) {
