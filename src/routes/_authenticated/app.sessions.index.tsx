@@ -864,20 +864,22 @@ function SessionsList() {
                                 const rpeLogged = s.rpe != null;
                                 return (
                                   <span className="flex items-center gap-1">
-                                    <HeartPulse
-                                      className={cn(
-                                        "h-3.5 w-3.5",
-                                        vitalsLogged ? "text-emerald-600" : "text-muted-foreground/30",
-                                      )}
-                                      title={vitalsLogged ? "Vitals logged" : "Vitals not logged"}
-                                    />
-                                    <Flag
-                                      className={cn(
-                                        "h-3.5 w-3.5",
-                                        rpeLogged ? "text-emerald-600" : "text-muted-foreground/30",
-                                      )}
-                                      title={rpeLogged ? "RPE logged" : "RPE not logged"}
-                                    />
+                                    <span title={vitalsLogged ? "Vitals logged" : "Vitals not logged"}>
+                                      <HeartPulse
+                                        className={cn(
+                                          "h-3.5 w-3.5",
+                                          vitalsLogged ? "text-emerald-600" : "text-muted-foreground/30",
+                                        )}
+                                      />
+                                    </span>
+                                    <span title={rpeLogged ? "RPE logged" : "RPE not logged"}>
+                                      <Flag
+                                        className={cn(
+                                          "h-3.5 w-3.5",
+                                          rpeLogged ? "text-emerald-600" : "text-muted-foreground/30",
+                                        )}
+                                      />
+                                    </span>
                                   </span>
                                 );
                               })()}
