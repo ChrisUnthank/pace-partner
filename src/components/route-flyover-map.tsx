@@ -230,9 +230,31 @@ function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t;
 }
 
+function haversineMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const R = 6371000;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
 const FLYOVER_ZOOM = 15.6; // one zoom level out from the original 16.6 — roughly a quarter as many tile requests to cover the same ground while the chase-cam is moving fast, which was outrunning tile loads and flashing the fallback background color
 const FLYOVER_PITCH = 66; // MapLibre's documented range is 0-60; up to ~75-80 works but is "experimental" per its own docs
 const LOOK_AHEAD_POINTS = 10; // ~10 samples ahead sets the direction of travel for camera bearing
+// Bounding-box diagonal below this is treated as a track/tight-loop session
+// rather than a point-to-point route — a standard 400m track's bounding
+// diagonal is roughly 150-170m, so this comfortably covers ovals up to a
+// small park loop while staying well clear of any real point-to-point route.
+const LOOP_TRACK_DIAGONAL_M = 350;
+// "Infield spectator" camera for loop tracks: parked over the centroid,
+// fixed bearing, never rotating — the chase-cam's per-frame bearing changes
+// are what caused the dizzying spin on tight turns, so loop mode skips that
+// entirely and just watches the marker go around from a stable vantage
+// point, the way someone standing infield would.
+const LOOP_ZOOM = 17.3;
+const LOOP_PITCH = 55;
 const HEADING_SMOOTHING = 0.12; // per-frame EMA factor — keeps bearing from whipping on noisy GPS
 const FULL_FLIGHT_MS = 30000; // full route flyover takes ~30s regardless of actual session/race duration
 
@@ -264,6 +286,28 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
   // just stares almost edge-on at a flat plane, so keep it within MapLibre's
   // normal (non-experimental) pitch range for a flat-map fallback.
   const flyoverPitch = hasTerrain ? FLYOVER_PITCH : 55;
+
+  const { isLoopTrack, loopCenter } = useMemo(() => {
+    if (safePoints.length < 2) return { isLoopTrack: false, loopCenter: null as [number, number] | null };
+    let minLat = Infinity;
+    let maxLat = -Infinity;
+    let minLng = Infinity;
+    let maxLng = -Infinity;
+    let sumLat = 0;
+    let sumLng = 0;
+    for (const p of safePoints) {
+      if (p.lat < minLat) minLat = p.lat;
+      if (p.lat > maxLat) maxLat = p.lat;
+      if (p.lng < minLng) minLng = p.lng;
+      if (p.lng > maxLng) maxLng = p.lng;
+      sumLat += p.lat;
+      sumLng += p.lng;
+    }
+    const diagonal = haversineMeters({ lat: minLat, lng: minLng }, { lat: maxLat, lng: maxLng });
+    const loop = diagonal > 0 && diagonal < LOOP_TRACK_DIAGONAL_M;
+    const center: [number, number] = [sumLng / safePoints.length, sumLat / safePoints.length];
+    return { isLoopTrack: loop, loopCenter: loop ? center : null };
+  }, [safePoints]);
 
   // Map is created once per mount and never rebuilt on subsequent point
   // updates — this component only ever mounts when the parent's route data
@@ -300,11 +344,43 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
     resizeObserver.observe(containerRef.current);
     map.resize();
 
-    function onLoad() {
-      setReady(true);
-      // Gentle opening move into the flyover framing rather than snapping
-      // straight to the steep chase-cam angle on first paint.
-      map.jumpTo({ center: coords[0], zoom: FLYOVER_ZOOM, pitch: flyoverPitch, bearing: 0 });
+    let cancelled = false;
+
+    // Fetches tiles for the whole route up front, before the visible flight
+    // starts, instead of only ever fetching a tile the instant the chase-cam
+    // reaches it — that live-fetch-while-flying approach is what caused the
+    // fallback-color "blue square" flashes when the network couldn't keep
+    // up with the camera. Sampling ~60 points across the route is enough to
+    // touch every tile along the way without literally visiting every GPS
+    // sample (neighboring samples usually share a tile at this zoom anyway).
+    async function prefetchRouteTiles() {
+      const step = Math.max(1, Math.floor(coords.length / 60));
+      for (let i = 0; i < coords.length; i += step) {
+        if (cancelled) return;
+        map.jumpTo({ center: coords[i], zoom: FLYOVER_ZOOM });
+        await new Promise((r) => setTimeout(r, 15));
+      }
+      if (cancelled) return;
+      map.jumpTo({ center: coords[coords.length - 1], zoom: FLYOVER_ZOOM });
+      // A bounded settle window for in-flight requests to land in cache —
+      // not waiting for a guaranteed "everything loaded" signal, since a
+      // single slow/failed tile shouldn't hold the whole flyover hostage.
+      await new Promise((r) => setTimeout(r, 700));
+    }
+
+    async function onLoad() {
+      if (isLoopTrack && loopCenter) {
+        // A loop track's camera never moves once framed, so there's nothing
+        // to prefetch ahead of — the initial framing tiles are all it needs.
+        map.jumpTo({ center: loopCenter, zoom: LOOP_ZOOM, pitch: LOOP_PITCH, bearing: 0 });
+      } else {
+        await prefetchRouteTiles();
+        if (cancelled) return;
+        // Gentle opening move into the flyover framing rather than snapping
+        // straight to the steep chase-cam angle on first paint.
+        map.jumpTo({ center: coords[0], zoom: FLYOVER_ZOOM, pitch: flyoverPitch, bearing: 0 });
+      }
+      if (!cancelled) setReady(true);
     }
     map.on("load", onLoad);
 
@@ -321,6 +397,7 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
     map.on("error", onError);
 
     return () => {
+      cancelled = true;
       resizeObserver.disconnect();
       map.off("load", onLoad);
       map.off("error", onError);
@@ -356,20 +433,22 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
       const curLat = lerp(p0.lat, p1.lat, frac);
       const curLng = lerp(p0.lng, p1.lng, frac);
 
-      const aheadIdx = Math.min(i0 + LOOK_AHEAD_POINTS, safePoints.length - 1);
-      const ahead = safePoints[aheadIdx];
-      const targetHeading =
-        aheadIdx !== i0 ? bearingBetween({ lat: curLat, lng: curLng }, ahead) : (headingRef.current ?? 0);
-      headingRef.current =
-        headingRef.current == null ? targetHeading : lerpHeading(headingRef.current, targetHeading, HEADING_SMOOTHING);
+      if (!isLoopTrack) {
+        const aheadIdx = Math.min(i0 + LOOK_AHEAD_POINTS, safePoints.length - 1);
+        const ahead = safePoints[aheadIdx];
+        const targetHeading =
+          aheadIdx !== i0 ? bearingBetween({ lat: curLat, lng: curLng }, ahead) : (headingRef.current ?? 0);
+        headingRef.current =
+          headingRef.current == null ? targetHeading : lerpHeading(headingRef.current, targetHeading, HEADING_SMOOTHING);
 
+        mapRef.current!.jumpTo({
+          center: [curLng, curLat],
+          zoom: FLYOVER_ZOOM,
+          pitch: flyoverPitch,
+          bearing: headingRef.current,
+        });
+      }
       const map2 = mapRef.current!;
-      map2.jumpTo({
-        center: [curLng, curLat],
-        zoom: FLYOVER_ZOOM,
-        pitch: flyoverPitch,
-        bearing: headingRef.current,
-      });
 
       const color = colorFn(p0);
       const travSrc = map2.getSource("route-traveled") as maplibregl.GeoJSONSource | undefined;
