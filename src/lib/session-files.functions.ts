@@ -2007,6 +2007,19 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   // preferred, this just decides which one this session's intent is
   // derived from. Defaults to pace if the profile predates this column or
   // was never explicitly set (matches the column's own DB default).
+  //
+  // TIME-WEIGHTED, not fastest-lap — changed after a real example exposed
+  // the previous "classify by the single fastest work lap" rule's failure
+  // mode: a deliberately-easier session (e.g. a post-race Threshold
+  // recovery flush prescribed as 20x400m) with one rep that happened to
+  // run faster than planned got the WHOLE session labelled by that one
+  // outlier rep, rather than by where the actual training stimulus came
+  // from. Per direct confirmation: time in zone is what actually drives
+  // the training response, independent of a coach's plan label or one
+  // rep's excursion — so intent is now whichever zone holds the
+  // PLURALITY of actual work-only time, not the hardest single moment
+  // reached. Recovery/warmup/cooldown time never counts toward this,
+  // matching the previous fastest-lap version's own scope (workLaps only).
   let derivedIntent: string | null = null;
   if (workLaps.length > 0) {
     const { data: zoneProfile } = await sb
@@ -2036,11 +2049,19 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
 
     const useHr = zoneProfile?.preferred_zone_basis === "hr";
 
+    // Accumulates seconds of work-only time per zone rank, keyed 1-6 —
+    // whichever rank ends up holding the most time wins, not whichever
+    // rank was merely touched by the single fastest rep.
+    const workSecondsByRank = new Map<number, number>();
+
     if (useHr && zoneProfile?.hr_z1_max != null) {
-      let fastestRank = 0;
       for (const lap of workLaps) {
         const lapHr = lap.avg_heart_rate != null ? Number(lap.avg_heart_rate) : null;
         if (lapHr == null) continue;
+
+        const stopped = stoppedSecondsByLapIndex.get(lap.index) ?? 0;
+        const lapDurationS = Math.max(0, Number(lap.total_elapsed_time ?? 0) - stopped);
+        if (lapDurationS <= 0) continue;
 
         // Ascending "higher bpm = harder zone" bucketing, opposite
         // direction from pace (where slower sec/km = easier) since HR and
@@ -2059,19 +2080,16 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
                     ? "z5"
                     : "z6";
 
-        fastestRank = Math.max(fastestRank, ZONE_RANK[zone]);
-      }
-      if (fastestRank > 0) {
-        derivedIntent = RANK_TO_INTENT[fastestRank];
+        const rank = ZONE_RANK[zone];
+        workSecondsByRank.set(rank, (workSecondsByRank.get(rank) ?? 0) + lapDurationS);
       }
     } else if (!useHr && zoneProfile?.pace_z1_max_sec_per_km != null) {
-      let fastestRank = 0;
       for (const lap of workLaps) {
         const stopped = stoppedSecondsByLapIndex.get(lap.index) ?? 0;
         const movingTime = Math.max(0, Number(lap.total_elapsed_time ?? 0) - stopped);
         const lapDistance = Number(lap.total_distance ?? 0);
         const lapPace = lapDistance > 0 && movingTime > 0 ? (movingTime / lapDistance) * 1000 : null;
-        if (lapPace == null) continue;
+        if (lapPace == null || movingTime <= 0) continue;
 
         // Same ascending "slower sec/km = easier zone" bucketing as
         // recompute_session_zones in the DB.
@@ -2088,11 +2106,28 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
                     ? "z5"
                     : "z6";
 
-        fastestRank = Math.max(fastestRank, ZONE_RANK[zone]);
+        const rank = ZONE_RANK[zone];
+        workSecondsByRank.set(rank, (workSecondsByRank.get(rank) ?? 0) + movingTime);
       }
+    }
 
-      if (fastestRank > 0) {
-        derivedIntent = RANK_TO_INTENT[fastestRank];
+    if (workSecondsByRank.size > 0) {
+      let bestRank = 0;
+      let bestSeconds = -1;
+      for (const [rank, seconds] of workSecondsByRank) {
+        // Strict > means an earlier (easier) rank wins any tie rather
+        // than an arbitrary later one — a session split evenly between
+        // two zones reads as the easier of the two, matching the
+        // conservative "don't overstate the session" bias the fastest-
+        // lap rule always had by only ever rounding UP to the hardest
+        // zone touched; time-weighting keeps a similar bias on ties.
+        if (seconds > bestSeconds) {
+          bestSeconds = seconds;
+          bestRank = rank;
+        }
+      }
+      if (bestRank > 0) {
+        derivedIntent = RANK_TO_INTENT[bestRank];
       }
     }
   }
