@@ -249,6 +249,19 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
     mapRef.current = map;
     map.setMaxPitch(80);
 
+    // Same class of bug as the Leaflet map elsewhere in this app: inside a
+    // flex layout, the container can still be mid-layout (zero or stale
+    // size) at the instant MapLibre measures it here, leaving the WebGL
+    // canvas permanently sized wrong — which renders as a silent black
+    // rectangle with no console errors at all, since nothing actually
+    // failed, it just never got the right dimensions. A ResizeObserver
+    // catches the container settling into its real size and tells MapLibre
+    // to re-measure; the immediate resize() call below is a same-tick nudge
+    // for the common case where it's already sized correctly by paint time.
+    const resizeObserver = new ResizeObserver(() => map.resize());
+    resizeObserver.observe(containerRef.current);
+    map.resize();
+
     function onLoad() {
       setReady(true);
       // Gentle opening move into the flyover framing rather than snapping
@@ -270,6 +283,7 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
     map.on("error", onError);
 
     return () => {
+      resizeObserver.disconnect();
       map.off("load", onLoad);
       map.off("error", onError);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
