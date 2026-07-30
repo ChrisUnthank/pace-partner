@@ -137,7 +137,7 @@ function buildStyle(routeCoords: [number, number][], enableTerrain: boolean): St
               id: "hillshade-layer",
               type: "hillshade" as const,
               source: "terrain-dem-hillshade",
-              paint: { "hillshade-exaggeration": 0.6 },
+              paint: { "hillshade-exaggeration": 0.3 },
             },
           ]
         : []),
@@ -186,7 +186,13 @@ function buildStyle(routeCoords: [number, number][], enableTerrain: boolean): St
         },
       },
     ],
-    ...(enableTerrain ? { terrain: { source: "terrain-dem", exaggeration: 1.3 } } : {}),
+    // The free AWS terrain tiles are SRTM/GMTED2010-derived, with real
+    // vertical accuracy of only a few meters globally. At the close chase-cam
+    // zoom used here, that noise reads as visible waviness on genuinely flat
+    // courses — a limitation of the free data source, not this rendering
+    // setup. A lower exaggeration meaningfully softens it (at some cost to
+    // how dramatic real elevation looks on genuinely hilly courses).
+    ...(enableTerrain ? { terrain: { source: "terrain-dem", exaggeration: 0.6 } } : {}),
     sky: {
       "sky-color": "#8ecdf5",
       "horizon-color": "#dceaf5",
