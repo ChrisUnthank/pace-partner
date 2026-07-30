@@ -30,6 +30,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { computeContinuousFatigue } from "@/lib/ai.functions";
 import { useMyRoles } from "@/lib/use-auth";
 import { AthleteSubnav } from "@/components/athlete-subnav";
+import { computeWorkRestSparsity, type RepBlock } from "@/lib/intensity-segments";
 import {
   normalizeVO,
   formatVO,
@@ -285,6 +286,42 @@ function SessionAnalysis() {
     safeResults,
     safeSteps,
   );
+
+  // Work:rest sparsity — a secondary, descriptive signal for genuine
+  // interval/rep sessions (not shown for continuous efforts, which have
+  // no rest structure to characterize). Pairs each 'work' rep with the
+  // rep immediately following it, when that one is a 'recovery' rep — the
+  // same ordering safeResults is already fetched in (set_number, then
+  // rep_number), so adjacency here reflects real chronological order.
+  // Purely descriptive: this never changes intent, structure, or any
+  // stored classification — see computeWorkRestSparsity in
+  // src/lib/intensity-segments.ts for the full reasoning.
+  const stepKindById = useMemo(() => new Map(safeSteps.map((s: any) => [s.id, s.kind])), [safeSteps]);
+
+  const workRestSparsity = useMemo(() => {
+    const rows = safeResults.map((r: any) => ({ ...r, kind: stepKindById.get(r.step_id) }));
+    const blocks: RepBlock[] = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      if (rows[i].kind !== "work") continue;
+      const work = rows[i];
+      const rest = rows[i + 1]?.kind === "recovery" ? rows[i + 1] : null;
+
+      blocks.push({
+        workDurationS: Number(work.actual_time_seconds ?? 0),
+        workAvgHr: work.hr_avg != null ? Number(work.hr_avg) : null,
+        restDurationS: rest ? Number(rest.actual_time_seconds ?? 0) : null,
+        // hr_end_recovery is the HR reading at the END of the recovery —
+        // the lowest point reached before the next rep starts, i.e.
+        // exactly "how deep did recovery get," same field the Recovery
+        // panel's own HR-drop chart already uses.
+        restMinHr: rest?.hr_end_recovery != null ? Number(rest.hr_end_recovery) : (rest?.hr_avg ?? null),
+      });
+    }
+
+    if (blocks.length < 3) return null; // too few reps to characterize meaningfully
+    return computeWorkRestSparsity(blocks);
+  }, [safeResults, stepKindById]);
 
   const computeFatigue = useServerFn(computeContinuousFatigue);
 
@@ -1041,6 +1078,25 @@ function SessionAnalysis() {
           </div>
         </div>
         {/* ✅ END 2-COLUMN LAYOUT */}
+
+        {/* Work:rest sparsity — purely descriptive (never affects intent or
+            structure), shown only when there's a genuine rep pattern to
+            characterize. Distinguishes short-burst/full-recovery anaerobic
+            reps from longer-burst/incomplete-recovery VO2 intervals, which
+            each session's overall intent label doesn't capture on its own. */}
+        {workRestSparsity && workRestSparsity.character !== "unknown" && (
+          <div className="mt-6 flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm">
+            <span className="font-medium">
+              {workRestSparsity.character === "anaerobic_reps" ? "Anaerobic reps" : "VO2 intervals"}
+            </span>
+            <span className="text-muted-foreground">
+              — ~{Math.round(workRestSparsity.avgWorkDurationS)}s work
+              {workRestSparsity.avgRestDurationS != null && `, ~${Math.round(workRestSparsity.avgRestDurationS)}s rest`}
+              {workRestSparsity.recoveryDepthBpm != null && `, ${Math.round(workRestSparsity.recoveryDepthBpm)}bpm recovery drop`}
+              {" "}(work:rest structure, not the session's overall intent label above)
+            </span>
+          </div>
+        )}
 
         {/* Pace/HR zones moved out of the sidebar and underneath the map — full
             width, 50/50 side by side, rather than stacked in the narrower
