@@ -24,11 +24,11 @@ import { Route as AuthenticatedAppTemplatesRouteImport } from './routes/_authent
 import { Route as AuthenticatedAppSessionsRouteImport } from './routes/_authenticated/app.sessions'
 import { Route as AuthenticatedAppRecoveryRouteImport } from './routes/_authenticated/app.recovery'
 import { Route as AuthenticatedAppRacesRouteImport } from './routes/_authenticated/app.races'
-import { Route as AuthenticatedAppProfileRouteImport } from './routes/_authenticated/app.profile'
 import { Route as AuthenticatedAppPlansRouteImport } from './routes/_authenticated/app.plans'
 import { Route as AuthenticatedAppNoticeboardRouteImport } from './routes/_authenticated/app.noticeboard'
 import { Route as AuthenticatedAppMyScheduleRouteImport } from './routes/_authenticated/app.my-schedule'
 import { Route as AuthenticatedAppMessagesRouteImport } from './routes/_authenticated/app.messages'
+import { Route as AuthenticatedAppMapsRouteImport } from './routes/_authenticated/app.maps'
 import { Route as AuthenticatedAppLactateRouteImport } from './routes/_authenticated/app.lactate'
 import { Route as AuthenticatedAppInjuriesRouteImport } from './routes/_authenticated/app.injuries'
 import { Route as AuthenticatedAppHealthRouteImport } from './routes/_authenticated/app.health'
@@ -43,10 +43,13 @@ import { Route as AuthenticatedAppCoachingHubRouteImport } from './routes/_authe
 import { Route as AuthenticatedAppCoachDiaryRouteImport } from './routes/_authenticated/app.coach-diary'
 import { Route as AuthenticatedAppCheckoutRouteImport } from './routes/_authenticated/app.checkout'
 import { Route as AuthenticatedAppCalculatorsRouteImport } from './routes/_authenticated/app.calculators'
+import { Route as AuthenticatedAppBiomechanicsRouteImport } from './routes/_authenticated/app.biomechanics'
 import { Route as AuthenticatedAppBicarbRouteImport } from './routes/_authenticated/app.bicarb'
 import { Route as AuthenticatedAppAthletesRouteImport } from './routes/_authenticated/app.athletes'
+import { Route as AuthenticatedAppAthleteInfoRouteImport } from './routes/_authenticated/app.athlete-info'
 import { Route as AuthenticatedAppAnalyticsRouteImport } from './routes/_authenticated/app.analytics'
 import { Route as AuthenticatedAppAddressBookRouteImport } from './routes/_authenticated/app.address-book'
+import { Route as AuthenticatedAppAccountRouteImport } from './routes/_authenticated/app.account'
 import { Route as AuthenticatedAppSessionsIndexRouteImport } from './routes/_authenticated/app.sessions.index'
 import { Route as AuthenticatedAppReportsIndexRouteImport } from './routes/_authenticated/app.reports.index'
 import { Route as AuthenticatedAppRacesIndexRouteImport } from './routes/_authenticated/app.races.index'
@@ -68,6 +71,7 @@ import { Route as AuthenticatedAppCalculatorsStartingfitnessRouteImport } from '
 import { Route as AuthenticatedAppCalculatorsPacepredictorRouteImport } from './routes/_authenticated/app.calculators.pacepredictor'
 import { Route as AuthenticatedAppAthletesAthleteIdRouteImport } from './routes/_authenticated/app.athletes.$athleteId'
 import { Route as AuthenticatedAppAthleteSlugRouteImport } from './routes/_authenticated/app.athlete.$slug'
+import { Route as AuthenticatedAppSessionsSessionIdIndexRouteImport } from './routes/_authenticated/app.sessions.$sessionId.index'
 import { Route as AuthenticatedAppRacesRaceIdIndexRouteImport } from './routes/_authenticated/app.races.$raceId.index'
 import { Route as AuthenticatedAppSessionsSessionIdAnalysisRouteImport } from './routes/_authenticated/app.sessions.$sessionId.analysis'
 import { Route as AuthenticatedAppReportsCoachWeeklyRouteImport } from './routes/_authenticated/app.reports.coach.weekly'
@@ -155,11 +159,6 @@ const AuthenticatedAppRacesRoute = AuthenticatedAppRacesRouteImport.update({
   path: '/app/races',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedAppProfileRoute = AuthenticatedAppProfileRouteImport.update({
-  id: '/app/profile',
-  path: '/app/profile',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
 const AuthenticatedAppPlansRoute = AuthenticatedAppPlansRouteImport.update({
   id: '/app/plans',
   path: '/app/plans',
@@ -183,6 +182,11 @@ const AuthenticatedAppMessagesRoute =
     path: '/app/messages',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAppMapsRoute = AuthenticatedAppMapsRouteImport.update({
+  id: '/app/maps',
+  path: '/app/maps',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedAppLactateRoute = AuthenticatedAppLactateRouteImport.update({
   id: '/app/lactate',
   path: '/app/lactate',
@@ -263,6 +267,12 @@ const AuthenticatedAppCalculatorsRoute =
     path: '/app/calculators',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAppBiomechanicsRoute =
+  AuthenticatedAppBiomechanicsRouteImport.update({
+    id: '/app/biomechanics',
+    path: '/app/biomechanics',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAppBicarbRoute = AuthenticatedAppBicarbRouteImport.update({
   id: '/app/bicarb',
   path: '/app/bicarb',
@@ -272,6 +282,12 @@ const AuthenticatedAppAthletesRoute =
   AuthenticatedAppAthletesRouteImport.update({
     id: '/app/athletes',
     path: '/app/athletes',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppAthleteInfoRoute =
+  AuthenticatedAppAthleteInfoRouteImport.update({
+    id: '/app/athlete-info',
+    path: '/app/athlete-info',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedAppAnalyticsRoute =
@@ -286,6 +302,11 @@ const AuthenticatedAppAddressBookRoute =
     path: '/app/address-book',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAppAccountRoute = AuthenticatedAppAccountRouteImport.update({
+  id: '/app/account',
+  path: '/app/account',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedAppSessionsIndexRoute =
   AuthenticatedAppSessionsIndexRouteImport.update({
     id: '/',
@@ -412,6 +433,12 @@ const AuthenticatedAppAthleteSlugRoute =
     path: '/app/athlete/$slug',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAppSessionsSessionIdIndexRoute =
+  AuthenticatedAppSessionsSessionIdIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedAppSessionsSessionIdRoute,
+  } as any)
 const AuthenticatedAppRacesRaceIdIndexRoute =
   AuthenticatedAppRacesRaceIdIndexRouteImport.update({
     id: '/',
@@ -467,10 +494,13 @@ export interface FileRoutesByFullPath {
   '/a/$slug': typeof ASlugRoute
   '/c/$slug': typeof CSlugRoute
   '/claim/$token': typeof ClaimTokenRoute
+  '/app/account': typeof AuthenticatedAppAccountRoute
   '/app/address-book': typeof AuthenticatedAppAddressBookRoute
   '/app/analytics': typeof AuthenticatedAppAnalyticsRoute
+  '/app/athlete-info': typeof AuthenticatedAppAthleteInfoRoute
   '/app/athletes': typeof AuthenticatedAppAthletesRouteWithChildren
   '/app/bicarb': typeof AuthenticatedAppBicarbRoute
+  '/app/biomechanics': typeof AuthenticatedAppBiomechanicsRoute
   '/app/calculators': typeof AuthenticatedAppCalculatorsRouteWithChildren
   '/app/checkout': typeof AuthenticatedAppCheckoutRoute
   '/app/coach-diary': typeof AuthenticatedAppCoachDiaryRoute
@@ -485,11 +515,11 @@ export interface FileRoutesByFullPath {
   '/app/health': typeof AuthenticatedAppHealthRoute
   '/app/injuries': typeof AuthenticatedAppInjuriesRoute
   '/app/lactate': typeof AuthenticatedAppLactateRoute
+  '/app/maps': typeof AuthenticatedAppMapsRoute
   '/app/messages': typeof AuthenticatedAppMessagesRoute
   '/app/my-schedule': typeof AuthenticatedAppMyScheduleRoute
   '/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
   '/app/plans': typeof AuthenticatedAppPlansRoute
-  '/app/profile': typeof AuthenticatedAppProfileRoute
   '/app/races': typeof AuthenticatedAppRacesRouteWithChildren
   '/app/recovery': typeof AuthenticatedAppRecoveryRoute
   '/app/sessions': typeof AuthenticatedAppSessionsRouteWithChildren
@@ -528,6 +558,7 @@ export interface FileRoutesByFullPath {
   '/app/reports/coach/weekly': typeof AuthenticatedAppReportsCoachWeeklyRoute
   '/app/sessions/$sessionId/analysis': typeof AuthenticatedAppSessionsSessionIdAnalysisRoute
   '/app/races/$raceId/': typeof AuthenticatedAppRacesRaceIdIndexRoute
+  '/app/sessions/$sessionId/': typeof AuthenticatedAppSessionsSessionIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -535,9 +566,12 @@ export interface FileRoutesByTo {
   '/a/$slug': typeof ASlugRoute
   '/c/$slug': typeof CSlugRoute
   '/claim/$token': typeof ClaimTokenRoute
+  '/app/account': typeof AuthenticatedAppAccountRoute
   '/app/address-book': typeof AuthenticatedAppAddressBookRoute
   '/app/analytics': typeof AuthenticatedAppAnalyticsRoute
+  '/app/athlete-info': typeof AuthenticatedAppAthleteInfoRoute
   '/app/bicarb': typeof AuthenticatedAppBicarbRoute
+  '/app/biomechanics': typeof AuthenticatedAppBiomechanicsRoute
   '/app/checkout': typeof AuthenticatedAppCheckoutRoute
   '/app/coach-diary': typeof AuthenticatedAppCoachDiaryRoute
   '/app/coaching-hub': typeof AuthenticatedAppCoachingHubRoute
@@ -551,11 +585,11 @@ export interface FileRoutesByTo {
   '/app/health': typeof AuthenticatedAppHealthRoute
   '/app/injuries': typeof AuthenticatedAppInjuriesRoute
   '/app/lactate': typeof AuthenticatedAppLactateRoute
+  '/app/maps': typeof AuthenticatedAppMapsRoute
   '/app/messages': typeof AuthenticatedAppMessagesRoute
   '/app/my-schedule': typeof AuthenticatedAppMyScheduleRoute
   '/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
   '/app/plans': typeof AuthenticatedAppPlansRoute
-  '/app/profile': typeof AuthenticatedAppProfileRoute
   '/app/recovery': typeof AuthenticatedAppRecoveryRoute
   '/app/templates': typeof AuthenticatedAppTemplatesRoute
   '/app/today': typeof AuthenticatedAppTodayRoute
@@ -570,7 +604,6 @@ export interface FileRoutesByTo {
   '/app/coach/$slug': typeof AuthenticatedAppCoachSlugRoute
   '/app/race-tactics/$planId': typeof AuthenticatedAppRaceTacticsPlanIdRoute
   '/app/race-tactics/new': typeof AuthenticatedAppRaceTacticsNewRoute
-  '/app/sessions/$sessionId': typeof AuthenticatedAppSessionsSessionIdRouteWithChildren
   '/app/sessions/calendar': typeof AuthenticatedAppSessionsCalendarRoute
   '/app/sessions/new': typeof AuthenticatedAppSessionsNewRoute
   '/api/public/hooks/dispatch-push': typeof ApiPublicHooksDispatchPushRoute
@@ -591,6 +624,7 @@ export interface FileRoutesByTo {
   '/app/reports/coach/weekly': typeof AuthenticatedAppReportsCoachWeeklyRoute
   '/app/sessions/$sessionId/analysis': typeof AuthenticatedAppSessionsSessionIdAnalysisRoute
   '/app/races/$raceId': typeof AuthenticatedAppRacesRaceIdIndexRoute
+  '/app/sessions/$sessionId': typeof AuthenticatedAppSessionsSessionIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -600,10 +634,13 @@ export interface FileRoutesById {
   '/a/$slug': typeof ASlugRoute
   '/c/$slug': typeof CSlugRoute
   '/claim/$token': typeof ClaimTokenRoute
+  '/_authenticated/app/account': typeof AuthenticatedAppAccountRoute
   '/_authenticated/app/address-book': typeof AuthenticatedAppAddressBookRoute
   '/_authenticated/app/analytics': typeof AuthenticatedAppAnalyticsRoute
+  '/_authenticated/app/athlete-info': typeof AuthenticatedAppAthleteInfoRoute
   '/_authenticated/app/athletes': typeof AuthenticatedAppAthletesRouteWithChildren
   '/_authenticated/app/bicarb': typeof AuthenticatedAppBicarbRoute
+  '/_authenticated/app/biomechanics': typeof AuthenticatedAppBiomechanicsRoute
   '/_authenticated/app/calculators': typeof AuthenticatedAppCalculatorsRouteWithChildren
   '/_authenticated/app/checkout': typeof AuthenticatedAppCheckoutRoute
   '/_authenticated/app/coach-diary': typeof AuthenticatedAppCoachDiaryRoute
@@ -618,11 +655,11 @@ export interface FileRoutesById {
   '/_authenticated/app/health': typeof AuthenticatedAppHealthRoute
   '/_authenticated/app/injuries': typeof AuthenticatedAppInjuriesRoute
   '/_authenticated/app/lactate': typeof AuthenticatedAppLactateRoute
+  '/_authenticated/app/maps': typeof AuthenticatedAppMapsRoute
   '/_authenticated/app/messages': typeof AuthenticatedAppMessagesRoute
   '/_authenticated/app/my-schedule': typeof AuthenticatedAppMyScheduleRoute
   '/_authenticated/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
   '/_authenticated/app/plans': typeof AuthenticatedAppPlansRoute
-  '/_authenticated/app/profile': typeof AuthenticatedAppProfileRoute
   '/_authenticated/app/races': typeof AuthenticatedAppRacesRouteWithChildren
   '/_authenticated/app/recovery': typeof AuthenticatedAppRecoveryRoute
   '/_authenticated/app/sessions': typeof AuthenticatedAppSessionsRouteWithChildren
@@ -661,6 +698,7 @@ export interface FileRoutesById {
   '/_authenticated/app/reports/coach/weekly': typeof AuthenticatedAppReportsCoachWeeklyRoute
   '/_authenticated/app/sessions/$sessionId/analysis': typeof AuthenticatedAppSessionsSessionIdAnalysisRoute
   '/_authenticated/app/races/$raceId/': typeof AuthenticatedAppRacesRaceIdIndexRoute
+  '/_authenticated/app/sessions/$sessionId/': typeof AuthenticatedAppSessionsSessionIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -670,10 +708,13 @@ export interface FileRouteTypes {
     | '/a/$slug'
     | '/c/$slug'
     | '/claim/$token'
+    | '/app/account'
     | '/app/address-book'
     | '/app/analytics'
+    | '/app/athlete-info'
     | '/app/athletes'
     | '/app/bicarb'
+    | '/app/biomechanics'
     | '/app/calculators'
     | '/app/checkout'
     | '/app/coach-diary'
@@ -688,11 +729,11 @@ export interface FileRouteTypes {
     | '/app/health'
     | '/app/injuries'
     | '/app/lactate'
+    | '/app/maps'
     | '/app/messages'
     | '/app/my-schedule'
     | '/app/noticeboard'
     | '/app/plans'
-    | '/app/profile'
     | '/app/races'
     | '/app/recovery'
     | '/app/sessions'
@@ -731,6 +772,7 @@ export interface FileRouteTypes {
     | '/app/reports/coach/weekly'
     | '/app/sessions/$sessionId/analysis'
     | '/app/races/$raceId/'
+    | '/app/sessions/$sessionId/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -738,9 +780,12 @@ export interface FileRouteTypes {
     | '/a/$slug'
     | '/c/$slug'
     | '/claim/$token'
+    | '/app/account'
     | '/app/address-book'
     | '/app/analytics'
+    | '/app/athlete-info'
     | '/app/bicarb'
+    | '/app/biomechanics'
     | '/app/checkout'
     | '/app/coach-diary'
     | '/app/coaching-hub'
@@ -754,11 +799,11 @@ export interface FileRouteTypes {
     | '/app/health'
     | '/app/injuries'
     | '/app/lactate'
+    | '/app/maps'
     | '/app/messages'
     | '/app/my-schedule'
     | '/app/noticeboard'
     | '/app/plans'
-    | '/app/profile'
     | '/app/recovery'
     | '/app/templates'
     | '/app/today'
@@ -773,7 +818,6 @@ export interface FileRouteTypes {
     | '/app/coach/$slug'
     | '/app/race-tactics/$planId'
     | '/app/race-tactics/new'
-    | '/app/sessions/$sessionId'
     | '/app/sessions/calendar'
     | '/app/sessions/new'
     | '/api/public/hooks/dispatch-push'
@@ -794,6 +838,7 @@ export interface FileRouteTypes {
     | '/app/reports/coach/weekly'
     | '/app/sessions/$sessionId/analysis'
     | '/app/races/$raceId'
+    | '/app/sessions/$sessionId'
   id:
     | '__root__'
     | '/'
@@ -802,10 +847,13 @@ export interface FileRouteTypes {
     | '/a/$slug'
     | '/c/$slug'
     | '/claim/$token'
+    | '/_authenticated/app/account'
     | '/_authenticated/app/address-book'
     | '/_authenticated/app/analytics'
+    | '/_authenticated/app/athlete-info'
     | '/_authenticated/app/athletes'
     | '/_authenticated/app/bicarb'
+    | '/_authenticated/app/biomechanics'
     | '/_authenticated/app/calculators'
     | '/_authenticated/app/checkout'
     | '/_authenticated/app/coach-diary'
@@ -820,11 +868,11 @@ export interface FileRouteTypes {
     | '/_authenticated/app/health'
     | '/_authenticated/app/injuries'
     | '/_authenticated/app/lactate'
+    | '/_authenticated/app/maps'
     | '/_authenticated/app/messages'
     | '/_authenticated/app/my-schedule'
     | '/_authenticated/app/noticeboard'
     | '/_authenticated/app/plans'
-    | '/_authenticated/app/profile'
     | '/_authenticated/app/races'
     | '/_authenticated/app/recovery'
     | '/_authenticated/app/sessions'
@@ -863,6 +911,7 @@ export interface FileRouteTypes {
     | '/_authenticated/app/reports/coach/weekly'
     | '/_authenticated/app/sessions/$sessionId/analysis'
     | '/_authenticated/app/races/$raceId/'
+    | '/_authenticated/app/sessions/$sessionId/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -983,13 +1032,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppRacesRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/app/profile': {
-      id: '/_authenticated/app/profile'
-      path: '/app/profile'
-      fullPath: '/app/profile'
-      preLoaderRoute: typeof AuthenticatedAppProfileRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
     '/_authenticated/app/plans': {
       id: '/_authenticated/app/plans'
       path: '/app/plans'
@@ -1016,6 +1058,13 @@ declare module '@tanstack/react-router' {
       path: '/app/messages'
       fullPath: '/app/messages'
       preLoaderRoute: typeof AuthenticatedAppMessagesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/maps': {
+      id: '/_authenticated/app/maps'
+      path: '/app/maps'
+      fullPath: '/app/maps'
+      preLoaderRoute: typeof AuthenticatedAppMapsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/app/lactate': {
@@ -1116,6 +1165,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppCalculatorsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/app/biomechanics': {
+      id: '/_authenticated/app/biomechanics'
+      path: '/app/biomechanics'
+      fullPath: '/app/biomechanics'
+      preLoaderRoute: typeof AuthenticatedAppBiomechanicsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/app/bicarb': {
       id: '/_authenticated/app/bicarb'
       path: '/app/bicarb'
@@ -1130,6 +1186,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppAthletesRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/app/athlete-info': {
+      id: '/_authenticated/app/athlete-info'
+      path: '/app/athlete-info'
+      fullPath: '/app/athlete-info'
+      preLoaderRoute: typeof AuthenticatedAppAthleteInfoRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/app/analytics': {
       id: '/_authenticated/app/analytics'
       path: '/app/analytics'
@@ -1142,6 +1205,13 @@ declare module '@tanstack/react-router' {
       path: '/app/address-book'
       fullPath: '/app/address-book'
       preLoaderRoute: typeof AuthenticatedAppAddressBookRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/account': {
+      id: '/_authenticated/app/account'
+      path: '/app/account'
+      fullPath: '/app/account'
+      preLoaderRoute: typeof AuthenticatedAppAccountRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/app/sessions/': {
@@ -1291,6 +1361,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppAthleteSlugRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/app/sessions/$sessionId/': {
+      id: '/_authenticated/app/sessions/$sessionId/'
+      path: '/'
+      fullPath: '/app/sessions/$sessionId/'
+      preLoaderRoute: typeof AuthenticatedAppSessionsSessionIdIndexRouteImport
+      parentRoute: typeof AuthenticatedAppSessionsSessionIdRoute
+    }
     '/_authenticated/app/races/$raceId/': {
       id: '/_authenticated/app/races/$raceId/'
       path: '/'
@@ -1430,12 +1507,15 @@ const AuthenticatedAppRacesRouteWithChildren =
 
 interface AuthenticatedAppSessionsSessionIdRouteChildren {
   AuthenticatedAppSessionsSessionIdAnalysisRoute: typeof AuthenticatedAppSessionsSessionIdAnalysisRoute
+  AuthenticatedAppSessionsSessionIdIndexRoute: typeof AuthenticatedAppSessionsSessionIdIndexRoute
 }
 
 const AuthenticatedAppSessionsSessionIdRouteChildren: AuthenticatedAppSessionsSessionIdRouteChildren =
   {
     AuthenticatedAppSessionsSessionIdAnalysisRoute:
       AuthenticatedAppSessionsSessionIdAnalysisRoute,
+    AuthenticatedAppSessionsSessionIdIndexRoute:
+      AuthenticatedAppSessionsSessionIdIndexRoute,
   }
 
 const AuthenticatedAppSessionsSessionIdRouteWithChildren =
@@ -1466,10 +1546,13 @@ const AuthenticatedAppSessionsRouteWithChildren =
   )
 
 interface AuthenticatedRouteRouteChildren {
+  AuthenticatedAppAccountRoute: typeof AuthenticatedAppAccountRoute
   AuthenticatedAppAddressBookRoute: typeof AuthenticatedAppAddressBookRoute
   AuthenticatedAppAnalyticsRoute: typeof AuthenticatedAppAnalyticsRoute
+  AuthenticatedAppAthleteInfoRoute: typeof AuthenticatedAppAthleteInfoRoute
   AuthenticatedAppAthletesRoute: typeof AuthenticatedAppAthletesRouteWithChildren
   AuthenticatedAppBicarbRoute: typeof AuthenticatedAppBicarbRoute
+  AuthenticatedAppBiomechanicsRoute: typeof AuthenticatedAppBiomechanicsRoute
   AuthenticatedAppCalculatorsRoute: typeof AuthenticatedAppCalculatorsRouteWithChildren
   AuthenticatedAppCheckoutRoute: typeof AuthenticatedAppCheckoutRoute
   AuthenticatedAppCoachDiaryRoute: typeof AuthenticatedAppCoachDiaryRoute
@@ -1484,11 +1567,11 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAppHealthRoute: typeof AuthenticatedAppHealthRoute
   AuthenticatedAppInjuriesRoute: typeof AuthenticatedAppInjuriesRoute
   AuthenticatedAppLactateRoute: typeof AuthenticatedAppLactateRoute
+  AuthenticatedAppMapsRoute: typeof AuthenticatedAppMapsRoute
   AuthenticatedAppMessagesRoute: typeof AuthenticatedAppMessagesRoute
   AuthenticatedAppMyScheduleRoute: typeof AuthenticatedAppMyScheduleRoute
   AuthenticatedAppNoticeboardRoute: typeof AuthenticatedAppNoticeboardRoute
   AuthenticatedAppPlansRoute: typeof AuthenticatedAppPlansRoute
-  AuthenticatedAppProfileRoute: typeof AuthenticatedAppProfileRoute
   AuthenticatedAppRacesRoute: typeof AuthenticatedAppRacesRouteWithChildren
   AuthenticatedAppRecoveryRoute: typeof AuthenticatedAppRecoveryRoute
   AuthenticatedAppSessionsRoute: typeof AuthenticatedAppSessionsRouteWithChildren
@@ -1512,10 +1595,13 @@ interface AuthenticatedRouteRouteChildren {
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedAppAccountRoute: AuthenticatedAppAccountRoute,
   AuthenticatedAppAddressBookRoute: AuthenticatedAppAddressBookRoute,
   AuthenticatedAppAnalyticsRoute: AuthenticatedAppAnalyticsRoute,
+  AuthenticatedAppAthleteInfoRoute: AuthenticatedAppAthleteInfoRoute,
   AuthenticatedAppAthletesRoute: AuthenticatedAppAthletesRouteWithChildren,
   AuthenticatedAppBicarbRoute: AuthenticatedAppBicarbRoute,
+  AuthenticatedAppBiomechanicsRoute: AuthenticatedAppBiomechanicsRoute,
   AuthenticatedAppCalculatorsRoute:
     AuthenticatedAppCalculatorsRouteWithChildren,
   AuthenticatedAppCheckoutRoute: AuthenticatedAppCheckoutRoute,
@@ -1531,11 +1617,11 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAppHealthRoute: AuthenticatedAppHealthRoute,
   AuthenticatedAppInjuriesRoute: AuthenticatedAppInjuriesRoute,
   AuthenticatedAppLactateRoute: AuthenticatedAppLactateRoute,
+  AuthenticatedAppMapsRoute: AuthenticatedAppMapsRoute,
   AuthenticatedAppMessagesRoute: AuthenticatedAppMessagesRoute,
   AuthenticatedAppMyScheduleRoute: AuthenticatedAppMyScheduleRoute,
   AuthenticatedAppNoticeboardRoute: AuthenticatedAppNoticeboardRoute,
   AuthenticatedAppPlansRoute: AuthenticatedAppPlansRoute,
-  AuthenticatedAppProfileRoute: AuthenticatedAppProfileRoute,
   AuthenticatedAppRacesRoute: AuthenticatedAppRacesRouteWithChildren,
   AuthenticatedAppRecoveryRoute: AuthenticatedAppRecoveryRoute,
   AuthenticatedAppSessionsRoute: AuthenticatedAppSessionsRouteWithChildren,
@@ -1578,3 +1664,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
