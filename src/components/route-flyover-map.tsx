@@ -65,6 +65,19 @@ function buildStyle(routeCoords: [number, number][]): StyleSpecification {
         maxzoom: 15,
         attribution: TERRAIN_ATTRIBUTION,
       },
+      // Same tiles as "terrain-dem" above, under a separate source id —
+      // MapLibre warns (harmlessly) if a hillshade layer and the 3D terrain
+      // mesh share one source id, recommending two. This avoids the console
+      // warning at essentially zero extra cost (same URLs, browser cache
+      // dedupes the actual tile requests).
+      "terrain-dem-hillshade": {
+        type: "raster-dem",
+        tiles: TERRAIN_DEM_TILES,
+        tileSize: 256,
+        encoding: "terrarium",
+        maxzoom: 15,
+        attribution: TERRAIN_ATTRIBUTION,
+      },
       "route-full": {
         type: "geojson",
         data: {
@@ -103,7 +116,7 @@ function buildStyle(routeCoords: [number, number][]): StyleSpecification {
       {
         id: "hillshade-layer",
         type: "hillshade",
-        source: "terrain-dem",
+        source: "terrain-dem-hillshade",
         paint: { "hillshade-exaggeration": 0.6 },
       },
       { id: "satellite-layer", type: "raster", source: "satellite" },
