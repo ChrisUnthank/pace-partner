@@ -91,6 +91,21 @@ function buildStyle(routeCoords: [number, number][]): StyleSpecification {
       },
     },
     layers: [
+      // Fallback #1: if every raster source fails to load, MapLibre's raw
+      // WebGL canvas clears to black by default — this guarantees a neutral
+      // sky-toned background instead, so a tile failure looks like "flat
+      // map" rather than "broken screen".
+      { id: "background-layer", type: "background", paint: { "background-color": "#7fa8c9" } },
+      // Fallback #2: shaded terrain relief from the same DEM source used for
+      // the 3D mesh itself. If the satellite imagery fails to load but the
+      // terrain tiles are fine, this still shows real hillshaded terrain
+      // instead of a flat color.
+      {
+        id: "hillshade-layer",
+        type: "hillshade",
+        source: "terrain-dem",
+        paint: { "hillshade-exaggeration": 0.6 },
+      },
       { id: "satellite-layer", type: "raster", source: "satellite" },
       {
         id: "route-full-line",
@@ -191,6 +206,7 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
   const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [finished, setFinished] = useState(false);
+  const [tileError, setTileError] = useState<string | null>(null);
   const [hud, setHud] = useState<{ elapsed_s?: number; distance_m?: number; pace?: number | null; hr?: number | null } | null>(
     null,
   );
@@ -228,8 +244,21 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
     }
     map.on("load", onLoad);
 
+    // Tile/source failures (blocked request, CORS, bad response) otherwise
+    // fail silently and just render as a black canvas — surface them so a
+    // failure is visible and diagnosable instead of a mystery blank screen.
+    function onError(e: any) {
+      const sourceId = e?.sourceId ? ` (source: ${e.sourceId})` : "";
+      const message = e?.error?.message || String(e?.error || "unknown error");
+      // eslint-disable-next-line no-console
+      console.error("[RouteFlyoverMap] tile/style error" + sourceId, e?.error ?? e);
+      setTileError(`${message}${sourceId}`);
+    }
+    map.on("error", onError);
+
     return () => {
       map.off("load", onLoad);
+      map.off("error", onError);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       map.remove();
       mapRef.current = null;
@@ -355,6 +384,12 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
       {!ready && (
         <div className="absolute inset-0 flex items-center justify-center bg-background/80 text-sm text-muted-foreground z-10">
           Loading terrain…
+        </div>
+      )}
+
+      {tileError && (
+        <div className="absolute top-2 left-2 right-2 z-10 text-xs border border-destructive/40 bg-destructive/10 text-destructive rounded-md px-3 py-2">
+          Map tile error: {tileError}
         </div>
       )}
 
