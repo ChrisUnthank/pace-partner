@@ -3157,6 +3157,29 @@ function SessionSummary({
       if (!wasAlreadyComplete) onCompleted?.();
     }
   }
+
+  // Backdated sessions (e.g. added to the calendar for a past date) still
+  // land here needing RPE + feel before they can be marked done, which is
+  // unnecessary friction when there's simply no reflection to give — this
+  // skips straight to completed_at with no RPE/feel written, and does NOT
+  // fire onCompleted, so it never chains into the "How did that session
+  // feel?" follow-up modal either.
+  async function completeWithoutReflection() {
+    const wasAlreadyComplete = !!session.completed_at;
+    if (wasAlreadyComplete) return;
+
+    const { error } = await supabase
+      .from("sessions")
+      .update({ completed_at: new Date().toISOString() })
+      .eq("id", session.id);
+
+    if (error) {
+      toast.error(error.message);
+    } else {
+      toast.success("No session reflection completed");
+      onSaved();
+    }
+  }
   return (
     <Card>
       <CardHeader>
@@ -3182,6 +3205,17 @@ function SessionSummary({
             <FeelFaces value={feel} onChange={setFeel} />
           </div>
         </div>
+
+        {!session.completed_at && (
+          <Button
+            onClick={completeWithoutReflection}
+            size="sm"
+            variant="ghost"
+            className="text-xs text-muted-foreground h-auto py-1 px-2 -ml-2"
+          >
+            Mark complete without reflection
+          </Button>
+        )}
       </CardContent>
     </Card>
   );
