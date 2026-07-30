@@ -46,7 +46,24 @@ const SATELLITE_TILES = [
 ];
 const SATELLITE_ATTRIBUTION = "Esri, Maxar, Earthstar Geographics, and the GIS User Community";
 
-function buildStyle(routeCoords: [number, number][]): StyleSpecification {
+// MapLibre's 3D terrain (and hillshade, which shares the same DEM-decoding
+// render path) requires WebGL2. When terrain is enabled in the style,
+// MapLibre also routes ordinary 2D layers (including plain satellite
+// raster) through the terrain-aware render path so they drape correctly —
+// so if WebGL2 isn't available, NOTHING terrain-aware paints, not just the
+// elevation mesh itself, even though the plain "background" layer (which
+// bypasses that path entirely) still shows. Detect it up front and fall
+// back to a flat (non-terrain) style rather than an invisible one.
+function supportsWebGL2(): boolean {
+  try {
+    const canvas = document.createElement("canvas");
+    return !!canvas.getContext("webgl2");
+  } catch {
+    return false;
+  }
+}
+
+function buildStyle(routeCoords: [number, number][], enableTerrain: boolean): StyleSpecification {
   return {
     version: 8,
     sources: {
@@ -112,13 +129,18 @@ function buildStyle(routeCoords: [number, number][]): StyleSpecification {
       // Fallback #2: shaded terrain relief from the same DEM source used for
       // the 3D mesh itself. If the satellite imagery fails to load but the
       // terrain tiles are fine, this still shows real hillshaded terrain
-      // instead of a flat color.
-      {
-        id: "hillshade-layer",
-        type: "hillshade",
-        source: "terrain-dem-hillshade",
-        paint: { "hillshade-exaggeration": 0.6 },
-      },
+      // instead of a flat color. Only included when WebGL2 (and therefore
+      // terrain) is actually usable — otherwise it would never paint anyway.
+      ...(enableTerrain
+        ? [
+            {
+              id: "hillshade-layer",
+              type: "hillshade" as const,
+              source: "terrain-dem-hillshade",
+              paint: { "hillshade-exaggeration": 0.6 },
+            },
+          ]
+        : []),
       { id: "satellite-layer", type: "raster", source: "satellite" },
       {
         id: "route-full-line",
@@ -164,7 +186,7 @@ function buildStyle(routeCoords: [number, number][]): StyleSpecification {
         },
       },
     ],
-    terrain: { source: "terrain-dem", exaggeration: 1.3 },
+    ...(enableTerrain ? { terrain: { source: "terrain-dem", exaggeration: 1.3 } } : {}),
     sky: {
       "sky-color": "#8ecdf5",
       "horizon-color": "#dceaf5",
@@ -230,6 +252,12 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
   );
   const coords = useMemo<[number, number][]>(() => safePoints.map((p) => [p.lng, p.lat]), [safePoints]);
   const colorFn = pointColor ?? (() => BRAND_RED);
+  // Computed once per mount — WebGL2 support doesn't change mid-session.
+  const hasTerrain = useMemo(() => supportsWebGL2(), []);
+  // Without terrain there's no elevation to look "into" — an extreme pitch
+  // just stares almost edge-on at a flat plane, so keep it within MapLibre's
+  // normal (non-experimental) pitch range for a flat-map fallback.
+  const flyoverPitch = hasTerrain ? FLYOVER_PITCH : 55;
 
   // Map is created once per mount and never rebuilt on subsequent point
   // updates — this component only ever mounts when the parent's route data
@@ -240,14 +268,14 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: buildStyle(coords),
+      style: buildStyle(coords, hasTerrain),
       center: coords[0],
       zoom: 13,
       pitch: 0,
       attributionControl: { compact: true },
     });
     mapRef.current = map;
-    map.setMaxPitch(80);
+    if (hasTerrain) map.setMaxPitch(80);
 
     // Same class of bug as the Leaflet map elsewhere in this app: inside a
     // flex layout, the container can still be mid-layout (zero or stale
@@ -266,7 +294,7 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
       setReady(true);
       // Gentle opening move into the flyover framing rather than snapping
       // straight to the steep chase-cam angle on first paint.
-      map.jumpTo({ center: coords[0], zoom: FLYOVER_ZOOM, pitch: FLYOVER_PITCH, bearing: 0 });
+      map.jumpTo({ center: coords[0], zoom: FLYOVER_ZOOM, pitch: flyoverPitch, bearing: 0 });
     }
     map.on("load", onLoad);
 
@@ -329,7 +357,7 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
       map2.jumpTo({
         center: [curLng, curLat],
         zoom: FLYOVER_ZOOM,
-        pitch: FLYOVER_PITCH,
+        pitch: flyoverPitch,
         bearing: headingRef.current,
       });
 
@@ -406,7 +434,10 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
       className="relative rounded overflow-hidden border"
       style={heightPx ? { height: heightPx } : { height: "100%", minHeight: 400, flex: 1 }}
     >
-      <div ref={containerRef} className="absolute inset-0" />
+      <div
+        ref={containerRef}
+        style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, width: "100%", height: "100%" }}
+      />
 
       {!ready && (
         <div className="absolute inset-0 flex items-center justify-center bg-background/80 text-sm text-muted-foreground z-10">
