@@ -18,6 +18,7 @@ import {
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, useMap, Tooltip as LeafletTooltip } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { RouteFlyoverMap, type FlyoverPoint } from "@/components/route-flyover-map";
 import { FEEL_LEVELS } from "@/components/feel-faces";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -1553,7 +1554,7 @@ function MapPanel({
   points,
   terrain,
 }: {
-  points: { lat?: number; lng?: number; stepKind?: string; t?: number; d?: number }[];
+  points: { lat?: number; lng?: number; stepKind?: string; t?: number; d?: number; hr?: number; elev?: number }[];
   terrain?: string | null;
 }) {
   const safePoints = useMemo(() => {
@@ -1571,6 +1572,23 @@ function MapPanel({
   // the line itself only draws geoPoints.
   const { outdoorPoints, indoorRuns } = useMemo(() => splitIndoorRuns(safePoints, terrain), [safePoints, terrain]);
   const geoPoints = outdoorPoints.length >= 2 ? outdoorPoints : safePoints;
+
+  // Same source points, reshaped for the 3D flyover — that component takes
+  // a deliberately loose {lat,lng,elapsed_s,distance_m,hr,elev} shape shared
+  // with Race Analysis rather than this page's t/d field names.
+  const flyoverPoints = useMemo<FlyoverPoint[]>(
+    () =>
+      geoPoints.map((p: any) => ({
+        lat: Number(p.lat),
+        lng: Number(p.lng),
+        elapsed_s: p.t,
+        distance_m: p.d,
+        hr: p.hr ?? null,
+        elev: p.elev ?? null,
+      })),
+    [geoPoints],
+  );
+  const [use3D, setUse3D] = useState(false);
 
   const [playing, setPlaying] = useState(false);
   const [playIndex, setPlayIndex] = useState(0);
@@ -1752,6 +1770,13 @@ function MapPanel({
             </div>
             <Button
               size="sm"
+              variant={use3D ? "default" : "outline"}
+              onClick={() => setUse3D((v) => !v)}
+            >
+              {use3D ? "2D Map" : "3D Flyover"}
+            </Button>
+            <Button
+              size="sm"
               variant="outline"
               onClick={() => {
                 if (playing) {
@@ -1786,6 +1811,9 @@ function MapPanel({
           )}
         </div>
 
+        {use3D ? (
+          <RouteFlyoverMap points={flyoverPoints} />
+        ) : (
         <div className="flex-1 min-h-[400px] rounded overflow-hidden border">
           <MapContainer center={center} zoom={15} scrollWheelZoom style={{ height: "100%", width: "100%" }}>
             <FitBounds bounds={bounds} />
@@ -1827,6 +1855,7 @@ function MapPanel({
             )}
           </MapContainer>
         </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -1982,7 +2011,15 @@ function buildSamples(
 
     const gpsPoints = samples
       .filter((s) => s.lat != null && s.lng != null)
-      .map((s) => ({ lat: s.lat as number, lng: s.lng as number, stepKind: s.stepKind || "work", t: s.t, d: s.d }));
+      .map((s) => ({
+        lat: s.lat as number,
+        lng: s.lng as number,
+        stepKind: s.stepKind || "work",
+        t: s.t,
+        d: s.d,
+        hr: s.hr,
+        elev: s.elev,
+      }));
 
     const bands: { kind: string; t1: number; t2: number; d1: number; d2: number }[] = [];
 
