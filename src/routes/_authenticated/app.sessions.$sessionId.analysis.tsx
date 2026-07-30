@@ -3164,4 +3164,4 @@ function addFadeFlags(rows: SplitRow[]): SplitRow[] {
       fadeFlag,
     };
   });
-}
+} 
