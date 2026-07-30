@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { metersFmt, secToClock } from "@/lib/format";
 import { sessionClassificationLabel, SESSION_INTENTS, INTENT_LABEL, DAY_TYPE_LABEL } from "@/lib/session-categories";
-import { Plus, Upload, Users, Search, Eye, Trash2, Download, RefreshCw, X, CalendarDays } from "lucide-react";
+import { Plus, Upload, Users, Search, Eye, Trash2, Download, RefreshCw, X, CalendarDays, HeartPulse, Flag } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ActivityIcon } from "@/lib/activity-icon";
@@ -281,6 +281,34 @@ function SessionsList() {
         }
       }
       return earliest;
+    },
+  });
+
+  // Whether the athlete logged vitals (daily_vitals) for a given session's
+  // day — vitals live on the day, not the session, so this is a single
+  // batched lookup across every athlete/date combo currently loaded rather
+  // than a per-row query. Keyed as "athleteId|date" since the same date can
+  // appear for multiple athletes on a coach's roster view.
+  const sessionDates = useMemo(() => Array.from(new Set(sessions.map((s: any) => s.session_date))), [sessions]);
+  const sessionAthleteIdsForVitals = useMemo(
+    () => Array.from(new Set(sessions.map((s: any) => s.athlete_id).filter(Boolean))),
+    [sessions],
+  );
+  const { data: vitalsLoggedSet } = useQuery({
+    queryKey: ["session-list-vitals", sessionAthleteIdsForVitals.join(","), sessionDates.join(",")],
+    enabled: sessionAthleteIdsForVitals.length > 0 && sessionDates.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("daily_vitals")
+        .select("athlete_id, vitals_date")
+        .in("athlete_id", sessionAthleteIdsForVitals)
+        .in("vitals_date", sessionDates);
+      if (error) throw error;
+      const set = new Set<string>();
+      for (const v of data ?? []) {
+        set.add(`${v.athlete_id}|${v.vitals_date}`);
+      }
+      return set;
     },
   });
 
@@ -831,6 +859,28 @@ function SessionsList() {
                               {s.total_time_seconds && (
                                 <span className="text-muted-foreground">{secToClock(s.total_time_seconds)}</span>
                               )}
+                              {(() => {
+                                const vitalsLogged = vitalsLoggedSet?.has(`${s.athlete_id}|${s.session_date}`) ?? false;
+                                const rpeLogged = s.rpe != null;
+                                return (
+                                  <span className="flex items-center gap-1">
+                                    <HeartPulse
+                                      className={cn(
+                                        "h-3.5 w-3.5",
+                                        vitalsLogged ? "text-emerald-600" : "text-muted-foreground/30",
+                                      )}
+                                      title={vitalsLogged ? "Vitals logged" : "Vitals not logged"}
+                                    />
+                                    <Flag
+                                      className={cn(
+                                        "h-3.5 w-3.5",
+                                        rpeLogged ? "text-emerald-600" : "text-muted-foreground/30",
+                                      )}
+                                      title={rpeLogged ? "RPE logged" : "RPE not logged"}
+                                    />
+                                  </span>
+                                );
+                              })()}
                               <Badge variant={s.completed_at ? "default" : "outline"}>
                                 {s.completed_at ? "Done" : "Planned"}
                               </Badge>
