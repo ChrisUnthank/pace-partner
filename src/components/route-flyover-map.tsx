@@ -282,10 +282,6 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
   const colorFn = pointColor ?? (() => BRAND_RED);
   // Computed once per mount — WebGL2 support doesn't change mid-session.
   const hasTerrain = useMemo(() => supportsWebGL2(), []);
-  // Without terrain there's no elevation to look "into" — an extreme pitch
-  // just stares almost edge-on at a flat plane, so keep it within MapLibre's
-  // normal (non-experimental) pitch range for a flat-map fallback.
-  const flyoverPitch = hasTerrain ? FLYOVER_PITCH : 55;
 
   const { isLoopTrack, loopCenter } = useMemo(() => {
     if (safePoints.length < 2) return { isLoopTrack: false, loopCenter: null as [number, number] | null };
@@ -329,6 +325,11 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
     const center: [number, number] = [coreSumLng / coreCount, coreSumLat / coreCount];
     return { isLoopTrack: true, loopCenter: center };
   }, [safePoints]);
+
+  // Without terrain there's no elevation to look "into" — an extreme pitch
+  // just stares almost edge-on at a flat plane, so keep it within MapLibre's
+  // normal (non-experimental) pitch range for a flat-map fallback.
+  const flyoverPitch = hasTerrain ? FLYOVER_PITCH : 55;
 
   // Map is created once per mount and never rebuilt on subsequent point
   // updates — this component only ever mounts when the parent's route data
@@ -398,11 +399,28 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
     // fast-loading low-zoom tiles first gives MapLibre something to fall
     // back to automatically, without needing to eliminate every possible
     // loading gap through prefetch timing alone.
+    // Genuinely waits until MapLibre reports every source's tiles for the
+    // current view are loaded, instead of guessing a fixed delay was
+    // "probably enough" — real network conditions vary, and a guessed
+    // delay either wastes time when the network is fast or, worse, isn't
+    // long enough when it's slow (which is exactly the failure mode that
+    // kept showing up despite lengthening the guessed delays repeatedly).
+    // Bounded by maxWaitMs so a single genuinely stuck/failed tile can't
+    // hang the whole prefetch pass indefinitely.
+    async function waitForTilesLoaded(maxWaitMs: number) {
+      const start = Date.now();
+      while (!map.areTilesLoaded()) {
+        if (cancelled) return;
+        if (Date.now() - start > maxWaitMs) return;
+        await new Promise((r) => setTimeout(r, 30));
+      }
+    }
+
     async function seedLowZoomFallback() {
       if (cancelled) return;
       const midIdx = Math.floor(coords.length / 2);
       map.jumpTo({ center: coords[midIdx], zoom: 11, bearing: 0, pitch: 0 });
-      await new Promise((r) => setTimeout(r, 500));
+      await waitForTilesLoaded(1500);
     }
 
     async function prefetchRouteTiles() {
@@ -429,7 +447,7 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
         const idx = sampleIdxs[k];
         const heading = headings[k] as number;
         map.jumpTo({ center: coords[idx], zoom: FLYOVER_ZOOM, bearing: heading, pitch: flyoverPitch });
-        await new Promise((r) => setTimeout(r, 10));
+        await waitForTilesLoaded(900);
 
         // The live flight doesn't snap straight to a new heading at a turn —
         // HEADING_SMOOTHING sweeps through it over the next several frames,
@@ -446,16 +464,15 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
             if (cancelled) return;
             const midBearing = prevHeading + (delta * s) / (extraSteps + 1);
             map.jumpTo({ center: coords[idx], zoom: FLYOVER_ZOOM, bearing: midBearing, pitch: flyoverPitch });
-            await new Promise((r) => setTimeout(r, 10));
+            await waitForTilesLoaded(500);
           }
         }
       }
       if (cancelled) return;
       map.jumpTo({ center: coords[coords.length - 1], zoom: FLYOVER_ZOOM, pitch: flyoverPitch });
-      // A bounded settle window for in-flight requests to land in cache —
-      // not waiting for a guaranteed "everything loaded" signal, since a
-      // single slow/failed tile shouldn't hold the whole flyover hostage.
-      await new Promise((r) => setTimeout(r, 1300));
+      // Bounded — a single genuinely slow/failed tile shouldn't hold the
+      // whole flyover hostage waiting for it forever.
+      await waitForTilesLoaded(1500);
     }
 
     async function onLoad() {
