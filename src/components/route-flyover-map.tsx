@@ -289,24 +289,45 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
 
   const { isLoopTrack, loopCenter } = useMemo(() => {
     if (safePoints.length < 2) return { isLoopTrack: false, loopCenter: null as [number, number] | null };
-    let minLat = Infinity;
-    let maxLat = -Infinity;
-    let minLng = Infinity;
-    let maxLng = -Infinity;
+
+    // A raw min/max bounding box breaks the moment there's a warm-up or
+    // cool-down straight before/after the actual loop (e.g. jogging out to
+    // the track and back) — that alone stretches the box across the whole
+    // route and makes real track laps look like a big point-to-point route.
+    // Instead: measure every point's distance from a rough centroid, and
+    // only require the bulk of them (80th percentile) to sit within a tight
+    // radius — tolerating up to ~20% of points being an outlier tail
+    // without that tail alone defeating loop detection.
     let sumLat = 0;
     let sumLng = 0;
     for (const p of safePoints) {
-      if (p.lat < minLat) minLat = p.lat;
-      if (p.lat > maxLat) maxLat = p.lat;
-      if (p.lng < minLng) minLng = p.lng;
-      if (p.lng > maxLng) maxLng = p.lng;
       sumLat += p.lat;
       sumLng += p.lng;
     }
-    const diagonal = haversineMeters({ lat: minLat, lng: minLng }, { lat: maxLat, lng: maxLng });
-    const loop = diagonal > 0 && diagonal < LOOP_TRACK_DIAGONAL_M;
-    const center: [number, number] = [sumLng / safePoints.length, sumLat / safePoints.length];
-    return { isLoopTrack: loop, loopCenter: loop ? center : null };
+    const roughCenter = { lat: sumLat / safePoints.length, lng: sumLng / safePoints.length };
+    const dists = safePoints.map((p) => haversineMeters(roughCenter, p));
+    const sortedDists = [...dists].sort((a, b) => a - b);
+    const coreRadius = sortedDists[Math.floor(sortedDists.length * 0.8)];
+
+    if (!(coreRadius > 0 && coreRadius < LOOP_TRACK_DIAGONAL_M / 2)) {
+      return { isLoopTrack: false, loopCenter: null as [number, number] | null };
+    }
+
+    // Recenter using only the core cluster (excludes the warm-up/cool-down
+    // tail) so the fixed camera actually frames the loop itself, rather
+    // than a centroid dragged out toward wherever the warm-up happened.
+    let coreSumLat = 0;
+    let coreSumLng = 0;
+    let coreCount = 0;
+    for (let i = 0; i < safePoints.length; i++) {
+      if (dists[i] <= coreRadius) {
+        coreSumLat += safePoints[i].lat;
+        coreSumLng += safePoints[i].lng;
+        coreCount++;
+      }
+    }
+    const center: [number, number] = [coreSumLng / coreCount, coreSumLat / coreCount];
+    return { isLoopTrack: true, loopCenter: center };
   }, [safePoints]);
 
   // Map is created once per mount and never rebuilt on subsequent point
