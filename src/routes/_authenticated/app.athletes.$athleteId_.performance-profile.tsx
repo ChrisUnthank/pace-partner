@@ -21,6 +21,7 @@ import { AthleteDnaRatingsCard } from "@/components/athlete-dna-ratings-card";
 import { DevelopmentPotentialCard } from "@/components/development-potential-card";
 import { EventSuitabilityCard } from "@/components/event-suitability-card";
 import { DevelopmentTimelineCard } from "@/components/development-timeline-card";
+import { RecordsMilestonesCard } from "@/components/records-milestones-card";
 
 export const Route = createFileRoute("/_authenticated/app/athletes/$athleteId_/performance-profile")({
   component: PerformanceProfilePage,
@@ -159,6 +160,7 @@ function PerformanceProfilePage() {
             <TabsTrigger value="information">Athlete Information</TabsTrigger>
             <TabsTrigger value="physiological">Physiological Metrics</TabsTrigger>
             <TabsTrigger value="dna">Athlete DNA</TabsTrigger>
+            <TabsTrigger value="history">Athlete History</TabsTrigger>
             <TabsTrigger value="goals">Goals</TabsTrigger>
           </TabsList>
 
@@ -188,6 +190,16 @@ function PerformanceProfilePage() {
             <PerformanceCurveCard athleteId={athleteId} />
             <TrainingResponseCard athleteId={athleteId} />
             <RaceProfileCard athleteId={athleteId} />
+          </TabsContent>
+
+          {/* Phase 1 of 3 — Records & Milestones only for now. Race
+              highlights (a small "pulled live, not copied" strip linking
+              out to the full Races page) and the Fitness History List
+              (TrainingPeaks-style chronological session feed, All/Notable
+              toggle) land here in a follow-up pass rather than shipping
+              placeholder cards. */}
+          <TabsContent value="history" className="mt-4 space-y-6">
+            <RecordsMilestonesCard athleteId={athleteId} />
           </TabsContent>
 
           <TabsContent value="goals" className="mt-4 space-y-6">
