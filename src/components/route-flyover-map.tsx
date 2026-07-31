@@ -31,6 +31,37 @@ type RouteFlyoverMapProps = {
 };
 
 const BRAND_RED = "#FF004C";
+const FALLBACK_PATTERN_ID = "flyover-fallback-pattern";
+
+// The fallback shows through in exactly the moments a tile hasn't loaded
+// yet — a flat sky-blue rectangle reads as an obvious glitch there. A soft,
+// mottled grey-green blur reads much more like an out-of-focus patch of
+// aerial ground, blending into whatever satellite/terrain imagery is
+// actually around it instead of standing out as an error.
+function createFallbackPatternImageData(): ImageData {
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+
+  ctx.fillStyle = "#8a9184";
+  ctx.fillRect(0, 0, size, size);
+
+  ctx.filter = "blur(14px)";
+  const blobColors = ["#7c8a6f", "#96a08a", "#7d8577", "#8f9a82", "#828c78"];
+  for (let i = 0; i < 8; i++) {
+    ctx.fillStyle = blobColors[i % blobColors.length];
+    ctx.beginPath();
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const r = 22 + Math.random() * 26;
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  return ctx.getImageData(0, 0, size, size);
+}
 
 // AWS Open Data "Terrain Tiles" (Terrarium-encoded elevation PNGs, aggregating
 // 3DEP/SRTM/GMTED2010 and other public elevation sources) — free, no API key,
@@ -126,7 +157,7 @@ function buildStyle(routeCoords: [number, number][], enableTerrain: boolean): St
       // WebGL canvas clears to black by default — this guarantees a neutral
       // sky-toned background instead, so a tile failure looks like "flat
       // map" rather than "broken screen".
-      { id: "background-layer", type: "background", paint: { "background-color": "#7fa8c9" } },
+      { id: "background-layer", type: "background", paint: { "background-pattern": FALLBACK_PATTERN_ID } },
       // Fallback #2: shaded terrain relief from the same DEM source used for
       // the 3D mesh itself. If the satellite imagery fails to load but the
       // terrain tiles are fine, this still shows real hillshaded terrain
@@ -500,6 +531,9 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
     }
 
     async function onLoad() {
+      if (!map.hasImage(FALLBACK_PATTERN_ID)) {
+        map.addImage(FALLBACK_PATTERN_ID, createFallbackPatternImageData());
+      }
       if (isLoopTrack && loopCenter) {
         await seedLowZoomFallback();
         if (cancelled) return;
@@ -511,8 +545,6 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
         if (cancelled) return;
         await prefetchRouteTiles();
         if (cancelled) return;
-        // Gentle opening move into the flyover framing rather than snapping
-        // straight to the steep chase-cam angle on first paint.
         // Gentle opening move into the flyover framing rather than snapping
         // straight to the steep chase-cam angle on first paint.
         map.jumpTo({ center: coords[0], zoom: FLYOVER_ZOOM, pitch: flyoverPitch, bearing: 0 });
