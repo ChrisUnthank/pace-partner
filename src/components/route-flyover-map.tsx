@@ -4,6 +4,7 @@ import type { StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { Button } from "@/components/ui/button";
 import { secToClock, metersFmt, paceFmt } from "@/lib/format";
+import { smoothSeries } from "@/lib/gps-reconstruction";
 
 // ── Data contract ──────────────────────────────────────────────────────────
 // Deliberately loose/optional beyond lat/lng: Session Analysis and Race
@@ -279,6 +280,29 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
     [points],
   );
   const coords = useMemo<[number, number][]>(() => safePoints.map((p) => [p.lng, p.lat]), [safePoints]);
+  // Real recorded GPS traces have small jitter (satellite bounce, tree
+  // cover, urban canyon) that's invisible on the static drawn line but
+  // reads as a jerky, wobbly camera when used directly to drive a moving
+  // close-up shot. Smoothing only the camera/marker's own path — not the
+  // "route-full-line" background layer, which stays on the raw, precise
+  // trace — keeps the drawn route geometrically accurate while making the
+  // flight itself feel smooth.
+  const smoothedPoints = useMemo(() => {
+    if (safePoints.length < 3) return safePoints;
+    const lats = smoothSeries(
+      safePoints.map((p) => p.lat),
+      7,
+    );
+    const lngs = smoothSeries(
+      safePoints.map((p) => p.lng),
+      7,
+    );
+    return safePoints.map((p, i) => ({ ...p, lat: lats[i], lng: lngs[i] }));
+  }, [safePoints]);
+  const smoothedCoords = useMemo<[number, number][]>(
+    () => smoothedPoints.map((p) => [p.lng, p.lat]),
+    [smoothedPoints],
+  );
   const colorFn = pointColor ?? (() => BRAND_RED);
   // Computed once per mount — WebGL2 support doesn't change mid-session.
   const hasTerrain = useMemo(() => supportsWebGL2(), []);
@@ -436,8 +460,8 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
       if (sampleIdxs[sampleIdxs.length - 1] !== coords.length - 1) sampleIdxs.push(coords.length - 1);
 
       const headings = sampleIdxs.map((i) => {
-        const aheadIdx = Math.min(i + LOOK_AHEAD_POINTS, safePoints.length - 1);
-        return aheadIdx !== i ? bearingBetween(safePoints[i], safePoints[aheadIdx]) : null;
+        const aheadIdx = Math.min(i + LOOK_AHEAD_POINTS, smoothedPoints.length - 1);
+        return aheadIdx !== i ? bearingBetween(smoothedPoints[i], smoothedPoints[aheadIdx]) : null;
       });
       for (let k = 1; k < headings.length; k++) if (headings[k] == null) headings[k] = headings[k - 1];
       if (headings[0] == null) headings[0] = 0;
@@ -446,8 +470,8 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
         if (cancelled) return;
         const idx = sampleIdxs[k];
         const heading = headings[k] as number;
-        map.jumpTo({ center: coords[idx], zoom: FLYOVER_ZOOM, bearing: heading, pitch: flyoverPitch });
-        await waitForTilesLoaded(900);
+        map.jumpTo({ center: smoothedCoords[idx], zoom: FLYOVER_ZOOM, bearing: heading, pitch: flyoverPitch });
+        await waitForTilesLoaded(1200);
 
         // The live flight doesn't snap straight to a new heading at a turn —
         // HEADING_SMOOTHING sweeps through it over the next several frames,
@@ -463,13 +487,13 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
           for (let s = 1; s <= extraSteps; s++) {
             if (cancelled) return;
             const midBearing = prevHeading + (delta * s) / (extraSteps + 1);
-            map.jumpTo({ center: coords[idx], zoom: FLYOVER_ZOOM, bearing: midBearing, pitch: flyoverPitch });
-            await waitForTilesLoaded(500);
+            map.jumpTo({ center: smoothedCoords[idx], zoom: FLYOVER_ZOOM, bearing: midBearing, pitch: flyoverPitch });
+            await waitForTilesLoaded(700);
           }
         }
       }
       if (cancelled) return;
-      map.jumpTo({ center: coords[coords.length - 1], zoom: FLYOVER_ZOOM, pitch: flyoverPitch });
+      map.jumpTo({ center: smoothedCoords[smoothedCoords.length - 1], zoom: FLYOVER_ZOOM, pitch: flyoverPitch });
       // Bounded — a single genuinely slow/failed tile shouldn't hold the
       // whole flyover hostage waiting for it forever.
       await waitForTilesLoaded(1500);
@@ -489,7 +513,7 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
         if (cancelled) return;
         // Gentle opening move into the flyover framing rather than snapping
         // straight to the steep chase-cam angle on first paint.
-        map.jumpTo({ center: coords[0], zoom: FLYOVER_ZOOM, pitch: flyoverPitch, bearing: 0 });
+        map.jumpTo({ center: smoothedCoords[0], zoom: FLYOVER_ZOOM, pitch: flyoverPitch, bearing: 0 });
       }
       if (!cancelled) setReady(true);
     }
@@ -535,18 +559,18 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
       elapsedMsRef.current = elapsed;
       const progress = Math.min(1, elapsed / FULL_FLIGHT_MS);
 
-      const rawIdx = progress * (safePoints.length - 1);
+      const rawIdx = progress * (smoothedPoints.length - 1);
       const i0 = Math.floor(rawIdx);
-      const i1 = Math.min(i0 + 1, safePoints.length - 1);
+      const i1 = Math.min(i0 + 1, smoothedPoints.length - 1);
       const frac = rawIdx - i0;
-      const p0 = safePoints[i0];
-      const p1 = safePoints[i1];
+      const p0 = smoothedPoints[i0];
+      const p1 = smoothedPoints[i1];
       const curLat = lerp(p0.lat, p1.lat, frac);
       const curLng = lerp(p0.lng, p1.lng, frac);
 
       if (!isLoopTrack) {
-        const aheadIdx = Math.min(i0 + LOOK_AHEAD_POINTS, safePoints.length - 1);
-        const ahead = safePoints[aheadIdx];
+        const aheadIdx = Math.min(i0 + LOOK_AHEAD_POINTS, smoothedPoints.length - 1);
+        const ahead = smoothedPoints[aheadIdx];
         const targetHeading =
           aheadIdx !== i0 ? bearingBetween({ lat: curLat, lng: curLng }, ahead) : (headingRef.current ?? 0);
         headingRef.current =
@@ -566,7 +590,7 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
       travSrc?.setData({
         type: "Feature",
         properties: {},
-        geometry: { type: "LineString", coordinates: [...coords.slice(0, i0 + 1), [curLng, curLat]] },
+        geometry: { type: "LineString", coordinates: [...smoothedCoords.slice(0, i0 + 1), [curLng, curLat]] },
       });
       const markerSrc = map2.getSource("marker") as maplibregl.GeoJSONSource | undefined;
       markerSrc?.setData({
@@ -606,7 +630,7 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playing, ready, safePoints, coords]);
+  }, [playing, ready, safePoints, coords, smoothedPoints, smoothedCoords]);
 
   function handlePlayPause() {
     if (playing) {
