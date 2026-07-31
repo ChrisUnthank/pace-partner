@@ -241,7 +241,7 @@ function haversineMeters(a: { lat: number; lng: number }, b: { lat: number; lng:
 }
 
 const FLYOVER_ZOOM = 15.6; // one zoom level out from the original 16.6 — roughly a quarter as many tile requests to cover the same ground while the chase-cam is moving fast, which was outrunning tile loads and flashing the fallback background color
-const FLYOVER_PITCH = 45; // was 66 — a steep pitch sees much further into the distance, meaning a genuinely larger ground footprint (more tiles) has to be resolved for every single frame; that's the real driver behind the tile-loading lag on turns and on high-DPR mobile screens, not prefetch timing
+const FLYOVER_PITCH = 40; // was 66, then 45 — confirmed improvement each step down, pushing further in the same direction rather than a different mechanism
 const LOOK_AHEAD_POINTS = 10; // ~10 samples ahead sets the direction of travel for camera bearing
 // Bounding-box diagonal below this is treated as a track/tight-loop session
 // rather than a point-to-point route — a standard 400m track's bounding
@@ -418,8 +418,8 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
         // no matter how dense the position-based sampling got.
         const prevHeading = k > 0 ? (headings[k - 1] as number) : heading;
         const delta = ((heading - prevHeading + 540) % 360) - 180;
-        if (Math.abs(delta) > 20) {
-          const extraSteps = 5;
+        if (Math.abs(delta) > 12) {
+          const extraSteps = 7;
           for (let s = 1; s <= extraSteps; s++) {
             if (cancelled) return;
             const midBearing = prevHeading + (delta * s) / (extraSteps + 1);
@@ -433,7 +433,7 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
       // A bounded settle window for in-flight requests to land in cache —
       // not waiting for a guaranteed "everything loaded" signal, since a
       // single slow/failed tile shouldn't hold the whole flyover hostage.
-      await new Promise((r) => setTimeout(r, 900));
+      await new Promise((r) => setTimeout(r, 1300));
     }
 
     async function onLoad() {
