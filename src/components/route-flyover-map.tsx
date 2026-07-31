@@ -241,7 +241,7 @@ function haversineMeters(a: { lat: number; lng: number }, b: { lat: number; lng:
 }
 
 const FLYOVER_ZOOM = 15.6; // one zoom level out from the original 16.6 — roughly a quarter as many tile requests to cover the same ground while the chase-cam is moving fast, which was outrunning tile loads and flashing the fallback background color
-const FLYOVER_PITCH = 66; // MapLibre's documented range is 0-60; up to ~75-80 works but is "experimental" per its own docs
+const FLYOVER_PITCH = 45; // was 66 — a steep pitch sees much further into the distance, meaning a genuinely larger ground footprint (more tiles) has to be resolved for every single frame; that's the real driver behind the tile-loading lag on turns and on high-DPR mobile screens, not prefetch timing
 const LOOK_AHEAD_POINTS = 10; // ~10 samples ahead sets the direction of travel for camera bearing
 // Bounding-box diagonal below this is treated as a track/tight-loop session
 // rather than a point-to-point route — a standard 400m track's bounding
@@ -254,7 +254,7 @@ const LOOP_TRACK_DIAGONAL_M = 350;
 // entirely and just watches the marker go around from a stable vantage
 // point, the way someone standing infield would.
 const LOOP_ZOOM = 17.3;
-const LOOP_PITCH = 55;
+const LOOP_PITCH = 48;
 const HEADING_SMOOTHING = 0.12; // per-frame EMA factor — keeps bearing from whipping on noisy GPS
 const FULL_FLIGHT_MS = 30000; // full route flyover takes ~30s regardless of actual session/race duration
 
@@ -391,27 +391,49 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
       // real one, so prefetching at any zoom other than FLYOVER_ZOOM itself
       // would just fetch tiles the real flight can't use at all).
       const step = Math.max(1, Math.floor(coords.length / 140));
-      let prevHeading: number | null = null;
-      for (let i = 0; i < coords.length; i += step) {
-        if (cancelled) return;
+      const sampleIdxs: number[] = [];
+      for (let i = 0; i < coords.length; i += step) sampleIdxs.push(i);
+      if (sampleIdxs[sampleIdxs.length - 1] !== coords.length - 1) sampleIdxs.push(coords.length - 1);
+
+      const headings = sampleIdxs.map((i) => {
         const aheadIdx = Math.min(i + LOOK_AHEAD_POINTS, safePoints.length - 1);
-        const heading: number =
-          aheadIdx !== i ? bearingBetween(safePoints[i], safePoints[aheadIdx]) : (prevHeading ?? 0);
-        prevHeading = heading;
-        // Matching bearing AND pitch here matters, not just center/zoom — a
-        // rotated, tilted viewport covers a different (larger, offset) set
-        // of tiles at its corners than a flat bearing-0 view of the same
-        // point, which is exactly the gap that caused blue squares
-        // specifically on turns even though the route itself was prefetched.
-        map.jumpTo({ center: coords[i], zoom: FLYOVER_ZOOM, bearing: heading, pitch: flyoverPitch });
+        return aheadIdx !== i ? bearingBetween(safePoints[i], safePoints[aheadIdx]) : null;
+      });
+      for (let k = 1; k < headings.length; k++) if (headings[k] == null) headings[k] = headings[k - 1];
+      if (headings[0] == null) headings[0] = 0;
+
+      for (let k = 0; k < sampleIdxs.length; k++) {
+        if (cancelled) return;
+        const idx = sampleIdxs[k];
+        const heading = headings[k] as number;
+        map.jumpTo({ center: coords[idx], zoom: FLYOVER_ZOOM, bearing: heading, pitch: flyoverPitch });
         await new Promise((r) => setTimeout(r, 10));
+
+        // The live flight doesn't snap straight to a new heading at a turn —
+        // HEADING_SMOOTHING sweeps through it over the next several frames,
+        // and every intermediate rotation in that sweep reveals its own
+        // corner tiles. Only prefetching the before/after headings (as the
+        // previous version of this did) missed that whole sweep entirely,
+        // which is exactly why sharp turns specifically kept showing gaps
+        // no matter how dense the position-based sampling got.
+        const prevHeading = k > 0 ? (headings[k - 1] as number) : heading;
+        const delta = ((heading - prevHeading + 540) % 360) - 180;
+        if (Math.abs(delta) > 20) {
+          const extraSteps = 5;
+          for (let s = 1; s <= extraSteps; s++) {
+            if (cancelled) return;
+            const midBearing = prevHeading + (delta * s) / (extraSteps + 1);
+            map.jumpTo({ center: coords[idx], zoom: FLYOVER_ZOOM, bearing: midBearing, pitch: flyoverPitch });
+            await new Promise((r) => setTimeout(r, 10));
+          }
+        }
       }
       if (cancelled) return;
       map.jumpTo({ center: coords[coords.length - 1], zoom: FLYOVER_ZOOM, pitch: flyoverPitch });
       // A bounded settle window for in-flight requests to land in cache —
       // not waiting for a guaranteed "everything loaded" signal, since a
       // single slow/failed tile shouldn't hold the whole flyover hostage.
-      await new Promise((r) => setTimeout(r, 800));
+      await new Promise((r) => setTimeout(r, 900));
     }
 
     async function onLoad() {
