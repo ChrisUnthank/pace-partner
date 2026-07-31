@@ -814,10 +814,10 @@ function SessionsList() {
                       return (
                         <div
                           key={s.id}
-                          className="flex items-stretch gap-3 hover:bg-accent/40 overflow-hidden"
+                          className="flex items-stretch gap-2 sm:gap-3 hover:bg-accent/40 overflow-hidden"
                         >
                           <span className={cn("w-1.5 shrink-0", sessionColorClass(s))} />
-                          <div className="flex items-center pl-2 shrink-0">
+                          <div className="flex items-center pl-1 sm:pl-2 shrink-0">
                             <Checkbox
                               checked={selectedIds.has(s.id)}
                               onCheckedChange={() => toggleSelect(s.id)}
@@ -827,12 +827,12 @@ function SessionsList() {
                           <Link
                             to="/app/sessions/$sessionId"
                             params={{ sessionId: s.id }}
-                            className="flex-1 flex items-center justify-between gap-2 py-3 min-w-0"
+                            className="flex-1 flex flex-col md:flex-row md:items-center md:justify-between gap-1.5 md:gap-2 py-3 min-w-0"
                           >
                             <div className="flex items-center gap-2 min-w-0">
                               <ActivityIcon session={s} size={18} className="text-muted-foreground shrink-0" />
                               <div className="min-w-0">
-                                <div className="flex items-center gap-2 min-w-0">
+                                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0">
                                   <span className="font-medium truncate">{s.title}</span>
                                   {s.athletes?.name && (
                                     <Badge
@@ -852,18 +852,22 @@ function SessionsList() {
                                 </div>
                               </div>
                             </div>
-                            <div className="flex gap-2 items-center text-sm">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm pl-[26px] md:pl-0 md:shrink-0">
                               {s.total_distance_m && (
-                                <span className="text-muted-foreground">{metersFmt(s.total_distance_m)}</span>
+                                <span className="text-muted-foreground whitespace-nowrap">
+                                  {metersFmt(s.total_distance_m)}
+                                </span>
                               )}
                               {s.total_time_seconds && (
-                                <span className="text-muted-foreground">{secToClock(s.total_time_seconds)}</span>
+                                <span className="text-muted-foreground whitespace-nowrap">
+                                  {secToClock(s.total_time_seconds)}
+                                </span>
                               )}
                               {(() => {
                                 const vitalsLogged = vitalsLoggedSet?.has(`${s.athlete_id}|${s.session_date}`) ?? false;
                                 const rpeLogged = s.rpe != null;
                                 return (
-                                  <span className="flex items-center gap-1">
+                                  <span className="flex items-center gap-1 shrink-0">
                                     <span title={vitalsLogged ? "Vitals logged" : "Vitals not logged"}>
                                       <HeartPulse
                                         className={cn(
@@ -883,12 +887,12 @@ function SessionsList() {
                                   </span>
                                 );
                               })()}
-                              <Badge variant={s.completed_at ? "default" : "outline"}>
+                              <Badge variant={s.completed_at ? "default" : "outline"} className="shrink-0">
                                 {s.completed_at ? "Done" : "Planned"}
                               </Badge>
                             </div>
                           </Link>
-                          <div className="flex items-center gap-1 pr-3 shrink-0">
+                          <div className="flex items-center gap-0.5 sm:gap-1 pr-1 sm:pr-3 shrink-0">
                             <Button asChild size="icon" variant="ghost" className="h-8 w-8" title="View session">
                               <Link to="/app/sessions/$sessionId" params={{ sessionId: s.id }}>
                                 <Eye className="h-4 w-4" />
@@ -897,7 +901,7 @@ function SessionsList() {
                             <Button
                               size="icon"
                               variant="ghost"
-                              className="h-8 w-8"
+                              className="h-8 w-8 hidden sm:inline-flex"
                               title="Export original file(s)"
                               disabled={bulkExporting}
                               onClick={() => exportSessions([s.id])}
