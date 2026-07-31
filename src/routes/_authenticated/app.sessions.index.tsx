@@ -827,7 +827,7 @@ function SessionsList() {
                           <Link
                             to="/app/sessions/$sessionId"
                             params={{ sessionId: s.id }}
-                            className="flex-1 flex flex-col md:flex-row md:items-center md:justify-between gap-1.5 md:gap-2 py-3 min-w-0"
+                            className="flex-1 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-1.5 lg:gap-2 py-3 min-w-0"
                           >
                             <div className="flex items-center gap-2 min-w-0">
                               <ActivityIcon session={s} size={18} className="text-muted-foreground shrink-0" />
@@ -852,7 +852,7 @@ function SessionsList() {
                                 </div>
                               </div>
                             </div>
-                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm pl-[26px] md:pl-0 md:shrink-0">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm pl-[26px] lg:pl-0 lg:shrink-0">
                               {s.total_distance_m && (
                                 <span className="text-muted-foreground whitespace-nowrap">
                                   {metersFmt(s.total_distance_m)}
