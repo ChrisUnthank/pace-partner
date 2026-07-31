@@ -388,6 +388,23 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
     // up with the camera. Sampling ~60 points across the route is enough to
     // touch every tile along the way without literally visiting every GPS
     // sample (neighboring samples usually share a tile at this zoom anyway).
+    // Slippy maps normally show an already-cached low-zoom tile scaled up
+    // (blurry but present) while the sharp tile for the current view loads
+    // in — that graceful fallback is WHY a loading tile usually looks soft
+    // for a moment rather than blank. This map only ever visits one zoom
+    // level (FLYOVER_ZOOM), so there's never a lower-zoom "parent" tile
+    // cached to fall back to — a tile that isn't ready yet has nothing to
+    // show but flat background color. Seeding a handful of wide, cheap,
+    // fast-loading low-zoom tiles first gives MapLibre something to fall
+    // back to automatically, without needing to eliminate every possible
+    // loading gap through prefetch timing alone.
+    async function seedLowZoomFallback() {
+      if (cancelled) return;
+      const midIdx = Math.floor(coords.length / 2);
+      map.jumpTo({ center: coords[midIdx], zoom: 11, bearing: 0, pitch: 0 });
+      await new Promise((r) => setTimeout(r, 500));
+    }
+
     async function prefetchRouteTiles() {
       // Denser than the original 60 — this is the actual safety margin
       // against a sharp turn falling between two sampled points, not the
@@ -443,10 +460,14 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
 
     async function onLoad() {
       if (isLoopTrack && loopCenter) {
+        await seedLowZoomFallback();
+        if (cancelled) return;
         // A loop track's camera never moves once framed, so there's nothing
         // to prefetch ahead of — the initial framing tiles are all it needs.
         map.jumpTo({ center: loopCenter, zoom: LOOP_ZOOM, pitch: LOOP_PITCH, bearing: 0 });
       } else {
+        await seedLowZoomFallback();
+        if (cancelled) return;
         await prefetchRouteTiles();
         if (cancelled) return;
         // Gentle opening move into the flyover framing rather than snapping
