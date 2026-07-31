@@ -347,7 +347,12 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
       // Default cache sizing is based on current viewport only, which keeps
       // evicting/re-fetching tiles as the chase-cam sweeps across a whole
       // route — holding more tiles in memory reduces those visible reloads.
-      maxTileCacheSize: 300,
+      // Per-source, not shared — satellite, terrain, and hillshade each get
+      // their own 800-tile budget. Raised from 300 after confirming (via a
+      // recorded flight) the blue-square moments cluster in the back half
+      // of the route, consistent with earlier-prefetched tiles being
+      // evicted to make room before the flight actually reaches them.
+      maxTileCacheSize: 800,
       // Uncapped, this defaults to the device's real devicePixelRatio —
       // commonly 2-3x on phones, which pushes MapLibre to select a sharper
       // (and much larger) set of tiles just to stay "retina crisp," on top
