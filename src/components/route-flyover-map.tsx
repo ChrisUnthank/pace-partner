@@ -243,6 +243,21 @@ function haversineMeters(a: { lat: number; lng: number }, b: { lat: number; lng:
 
 const FLYOVER_ZOOM = 15.6; // one zoom level out from the original 16.6 — roughly a quarter as many tile requests to cover the same ground while the chase-cam is moving fast, which was outrunning tile loads and flashing the fallback background color
 const FLYOVER_PITCH = 40; // was 66, then 45 — confirmed improvement each step down, pushing further in the same direction rather than a different mechanism
+// Opening "establishing shot": starts wide/high and swoops down into the
+// close chase angle over the first few seconds, matching how Strava's own
+// flyover opens (confirmed by direct comparison) rather than snapping
+// straight to the close angle. This isn't just cosmetic — a wide, high
+// view needs far fewer, much lower-detail tiles to render, so it's cheap
+// and reliable even if a couple of tiles are still marginal right as
+// playback starts; the background prefetch gets a few more seconds of real
+// time to finish before the camera actually descends to the zoom level
+// that demands full detail.
+const DESCENT_MS = 4000;
+const DESCENT_START_ZOOM = 12.6;
+const DESCENT_START_PITCH = 18;
+function easeOutCubic(t: number): number {
+  return 1 - Math.pow(1 - t, 3);
+}
 const LOOK_AHEAD_POINTS = 10; // ~10 samples ahead sets the direction of travel for camera bearing
 // Bounding-box diagonal below this is treated as a track/tight-loop session
 // rather than a point-to-point route — a standard 400m track's bounding
@@ -460,8 +475,8 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
       if (sampleIdxs[sampleIdxs.length - 1] !== coords.length - 1) sampleIdxs.push(coords.length - 1);
 
       const headings = sampleIdxs.map((i) => {
-        const aheadIdx = Math.min(i + LOOK_AHEAD_POINTS, smoothedPoints.length - 1);
-        return aheadIdx !== i ? bearingBetween(smoothedPoints[i], smoothedPoints[aheadIdx]) : null;
+        const aheadIdx = Math.min(i + LOOK_AHEAD_POINTS, safePoints.length - 1);
+        return aheadIdx !== i ? bearingBetween(safePoints[i], safePoints[aheadIdx]) : null;
       });
       for (let k = 1; k < headings.length; k++) if (headings[k] == null) headings[k] = headings[k - 1];
       if (headings[0] == null) headings[0] = 0;
@@ -470,7 +485,7 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
         if (cancelled) return;
         const idx = sampleIdxs[k];
         const heading = headings[k] as number;
-        map.jumpTo({ center: smoothedCoords[idx], zoom: FLYOVER_ZOOM, bearing: heading, pitch: flyoverPitch });
+        map.jumpTo({ center: coords[idx], zoom: FLYOVER_ZOOM, bearing: heading, pitch: flyoverPitch });
         await waitForTilesLoaded(1200);
 
         // The live flight doesn't snap straight to a new heading at a turn —
@@ -487,13 +502,13 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
           for (let s = 1; s <= extraSteps; s++) {
             if (cancelled) return;
             const midBearing = prevHeading + (delta * s) / (extraSteps + 1);
-            map.jumpTo({ center: smoothedCoords[idx], zoom: FLYOVER_ZOOM, bearing: midBearing, pitch: flyoverPitch });
+            map.jumpTo({ center: coords[idx], zoom: FLYOVER_ZOOM, bearing: midBearing, pitch: flyoverPitch });
             await waitForTilesLoaded(700);
           }
         }
       }
       if (cancelled) return;
-      map.jumpTo({ center: smoothedCoords[smoothedCoords.length - 1], zoom: FLYOVER_ZOOM, pitch: flyoverPitch });
+      map.jumpTo({ center: coords[coords.length - 1], zoom: FLYOVER_ZOOM, pitch: flyoverPitch });
       // Bounded — a single genuinely slow/failed tile shouldn't hold the
       // whole flyover hostage waiting for it forever.
       await waitForTilesLoaded(1500);
@@ -513,7 +528,11 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
         if (cancelled) return;
         // Gentle opening move into the flyover framing rather than snapping
         // straight to the steep chase-cam angle on first paint.
-        map.jumpTo({ center: smoothedCoords[0], zoom: FLYOVER_ZOOM, pitch: flyoverPitch, bearing: 0 });
+        // Opens on the wide establishing shot — the animation loop eases
+        // down into the close chase angle from here once playback starts,
+        // rather than snapping straight to close zoom and then jumping back
+        // out to wide the moment the descent animation kicks in.
+        map.jumpTo({ center: coords[0], zoom: DESCENT_START_ZOOM, pitch: DESCENT_START_PITCH, bearing: 0 });
       }
       if (!cancelled) setReady(true);
     }
@@ -576,10 +595,14 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
         headingRef.current =
           headingRef.current == null ? targetHeading : lerpHeading(headingRef.current, targetHeading, HEADING_SMOOTHING);
 
+        const descentT = easeOutCubic(Math.min(1, elapsed / DESCENT_MS));
+        const liveZoom = lerp(DESCENT_START_ZOOM, FLYOVER_ZOOM, descentT);
+        const livePitch = lerp(DESCENT_START_PITCH, flyoverPitch, descentT);
+
         mapRef.current!.jumpTo({
           center: [curLng, curLat],
-          zoom: FLYOVER_ZOOM,
-          pitch: flyoverPitch,
+          zoom: liveZoom,
+          pitch: livePitch,
           bearing: headingRef.current,
         });
       }
