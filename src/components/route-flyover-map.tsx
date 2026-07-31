@@ -348,6 +348,15 @@ export function RouteFlyoverMap({ points, heightPx, pointColor }: RouteFlyoverMa
       // evicting/re-fetching tiles as the chase-cam sweeps across a whole
       // route — holding more tiles in memory reduces those visible reloads.
       maxTileCacheSize: 300,
+      // Uncapped, this defaults to the device's real devicePixelRatio —
+      // commonly 2-3x on phones, which pushes MapLibre to select a sharper
+      // (and much larger) set of tiles just to stay "retina crisp," on top
+      // of the extra tiles a rotated/tilted turning view already needs.
+      // That compounding is exactly why mobile and turns were the worst
+      // combination for the loading lag. 1.5 is a deliberate compromise —
+      // noticeably fewer tile requests than an uncapped 3x phone, while
+      // still sharper than a flat 1x.
+      pixelRatio: Math.min(typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1, 1.5),
     });
     mapRef.current = map;
     if (hasTerrain) map.setMaxPitch(80);
