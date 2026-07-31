@@ -535,8 +535,20 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
 
         {/* Mobile bottom nav — buckets collapse to their first visible
             child (see mobileItems above); the in-page tab-strip (phase 2)
-            is what lets someone switch to a sibling from there. */}
-        <nav className="md:hidden order-last sticky bottom-0 z-10 border-t border-border bg-background/95 backdrop-blur-md flex overflow-x-auto print:hidden">
+            is what lets someone switch to a sibling from there.
+            `fixed` (not `sticky`) so it's always pinned to the actual
+            viewport bottom regardless of which ancestor happens to be the
+            scrolling element, with safe-area padding for iOS's home-
+            indicator gesture area. Each item is `flex-1` (no more
+            min-w/overflow-x-auto) so all six tabs share the width evenly
+            and never require a horizontal scroll — long labels wrap to a
+            second line instead of forcing overflow. `main` gets matching
+            bottom padding on mobile so its last content isn't hidden
+            behind the now-fixed (out-of-flow) bar. */}
+        <nav
+          className="md:hidden fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 backdrop-blur-md flex print:hidden"
+          style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        >
           {mobileItems.map((n) => {
             const active = n.bucketActive ?? isPathActive(path, n.to);
             return (
@@ -544,12 +556,12 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
                 key={n.to}
                 to={n.to}
                 className={cn(
-                  "flex flex-col items-center gap-0.5 px-3 py-2 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap min-w-[64px]",
+                  "flex-1 min-w-0 flex flex-col items-center justify-center gap-0.5 px-1 py-2 text-center text-[9px] leading-tight font-bold uppercase tracking-wider",
                   active ? "text-[var(--accent-red)]" : "text-muted-foreground",
                 )}
               >
-                <n.icon className="h-4 w-4" />
-                {n.label}
+                <n.icon className="h-4 w-4 shrink-0" />
+                <span className="break-words">{n.label}</span>
               </Link>
             );
           })}
@@ -557,7 +569,7 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
 
         <main
           className={cn(
-            "flex-1 px-4 md:px-8 py-6 md:py-8 w-full mx-auto print:p-0 print:max-w-none",
+            "flex-1 px-4 md:px-8 py-6 md:py-8 pb-24 md:pb-8 w-full mx-auto print:p-0 print:max-w-none",
             fullWidth ? "max-w-none" : "max-w-7xl",
           )}
         >
