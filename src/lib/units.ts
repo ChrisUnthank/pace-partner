@@ -32,6 +32,14 @@ export function useMyProfile() {
   });
 }
 
+// Explicit-units-param versions of the *Fmt functions in format.ts — for
+// call sites that already have a resolved Units value in hand (e.g. from
+// a query result) rather than needing to re-read localStorage each time.
+// format.ts's paceFmt/metersFmt/speedFmt/elevationFmt/tempFmt are the
+// ones actually used across the app's 30+ display call sites; these do
+// the identical conversion math and must be kept in sync if either side
+// changes.
+
 export function metersToDisplay(m?: number | null, units: Units = getStoredUnits()): string {
   if (m == null) return "—";
   if (units === "imperial") {
@@ -49,4 +57,22 @@ export function paceToDisplay(secPerKm?: number | null, units: Units = getStored
   const m = Math.floor(secPerUnit / 60);
   const s = Math.round(secPerUnit % 60);
   return `${m}:${String(s).padStart(2, "0")} /${units === "imperial" ? "mi" : "km"}`;
+}
+
+export function speedToDisplay(kmh?: number | null, units: Units = getStoredUnits()): string {
+  if (kmh == null || !Number.isFinite(kmh)) return "—";
+  if (units === "imperial") return `${(kmh / 1.609344).toFixed(1)} mph`;
+  return `${kmh.toFixed(1)} km/h`;
+}
+
+export function elevationToDisplay(m?: number | null, units: Units = getStoredUnits()): string {
+  if (m == null || !Number.isFinite(m)) return "—";
+  if (units === "imperial") return `${Math.round(m * 3.28084)} ft`;
+  return `${Math.round(m)} m`;
+}
+
+export function tempToDisplay(c?: number | null, units: Units = getStoredUnits()): string {
+  if (c == null || !Number.isFinite(c)) return "—";
+  if (units === "imperial") return `${Math.round((c * 9) / 5 + 32)}°F`;
+  return `${c.toFixed(1)}°C`;
 }
