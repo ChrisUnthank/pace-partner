@@ -77,8 +77,9 @@ export function AiStrategySuggestionCard({
           </CardTitle>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
-          AI is available to coaches by default. Athletes can enable it by adding their own Anthropic API key on the
-          Profile page.
+          {access.reason === "subscription_required"
+            ? "AI strategy suggestions require an active subscription. Contact your coach or check Account for details."
+            : "AI strategy suggestions aren't available for your account."}
         </CardContent>
       </Card>
     );
