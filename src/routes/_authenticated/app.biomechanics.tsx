@@ -57,20 +57,31 @@ function BiomechanicsPage() {
   if (isCoachView && !selectedAthleteId) {
     return (
       <AppShell fullWidth>
-        <div className="max-w-md mx-auto mt-12 text-center space-y-4">
-          <div
-            className="h-10 w-10 mx-auto rounded-lg grid place-items-center"
-            style={{ background: "var(--accent-red)" }}
-          >
-            <PersonStanding className="h-5 w-5 text-white" strokeWidth={2} />
+        <div className="space-y-6 max-w-6xl">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-3">
+              <div
+                className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+                style={{ background: "var(--accent-red)" }}
+              >
+                <PersonStanding className="h-5 w-5 text-white" strokeWidth={2} />
+              </div>
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Metrics</div>
+                <h1 className="text-2xl font-bold leading-tight">Biomechanics</h1>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Running form metrics, pulled from the FIT/GPX files already uploaded.
+                </p>
+              </div>
+            </div>
+            <CoachAthletePicker
+              roster={roster ?? []}
+              myAthlete={myAthlete as any}
+              value={undefined}
+              onChange={(v) => navigate({ search: { athleteId: v } as any })}
+            />
           </div>
-          <p className="text-sm text-muted-foreground">Select an athlete to view Biomechanics.</p>
-          <CoachAthletePicker
-            roster={roster ?? []}
-            myAthlete={myAthlete as any}
-            value={undefined}
-            onChange={(v) => navigate({ search: { athleteId: v } as any })}
-          />
+          <p className="text-sm text-muted-foreground">Select an athlete above to view their Biomechanics.</p>
         </div>
       </AppShell>
     );
