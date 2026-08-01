@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { FileText, Users, ClipboardList } from "lucide-react";
+import { FileText, Users, ClipboardList, Sparkles } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/app/reports/")({
   component: ReportsHub,
@@ -25,8 +25,9 @@ function ReportsHub() {
           </div>
         </div>
         <p className="text-sm text-muted-foreground">
-          Generate on demand. Every number is compiled straight from recorded training data — nothing here is
-          AI-written. Print to PDF or email once generated.
+          Generate on demand. The Athlete Report and Coach Roster Summary below are compiled straight from recorded
+          training data — nothing AI-written in either. AI Review is the one exception: it's clearly labeled and
+          uses AI to write a narrative summary, not just compile numbers.
         </p>
 
         <div className="grid sm:grid-cols-2 gap-4">
@@ -50,6 +51,22 @@ function ReportsHub() {
                 <CardDescription>
                   Roster-wide view: volume, completion, and flags across every athlete — weekly, monthly, or a custom
                   date range.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+          </Link>
+
+          <Link to="/app/reports/ai-review">
+            <Card className="hover:bg-accent/40 transition h-full">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <Sparkles className="h-5 w-5 text-[var(--accent-red)] mb-1" />
+                  <Badge variant="outline" className="text-[10px]">AI-written</Badge>
+                </div>
+                <CardTitle className="text-base">AI Review</CardTitle>
+                <CardDescription>
+                  A written narrative review — one athlete, several at once, or a combined squad summary. Uses AI,
+                  unlike the reports above.
                 </CardDescription>
               </CardHeader>
             </Card>
