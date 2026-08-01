@@ -13,7 +13,7 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Toolti
 // is deliberately just the top-level "what sports, how much" read Chris
 // asked for, at a glance.
 
-const SPORT_TYPES: { key: string; label: string; color: string }[] = [
+export const SPORT_TYPES: { key: string; label: string; color: string }[] = [
   { key: "run", label: "Run", color: "#ef4444" },
   { key: "ride", label: "Ride", color: "#22c55e" },
   { key: "swim", label: "Swim", color: "#06b6d4" },
@@ -21,7 +21,7 @@ const SPORT_TYPES: { key: string; label: string; color: string }[] = [
   { key: "cross_train", label: "Cross-train (other)", color: "#94a3b8" },
 ];
 
-function sportKey(s: { day_type?: string | null; activity_type?: string | null }): string {
+export function sportKey(s: { day_type?: string | null; activity_type?: string | null }): string {
   if (s.day_type === "cross_training") {
     if (s.activity_type === "ride" || s.activity_type === "swim" || s.activity_type === "gym") return s.activity_type;
     return "cross_train";
@@ -53,7 +53,7 @@ export function TrainingVolumeBySportCard({ athleteId, weeks = 10 }: { athleteId
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sessions")
-        .select("session_date, day_type, activity_type, total_time_seconds")
+        .select("session_date, day_type, activity_type, total_time_seconds, total_moving_time_seconds")
         .eq("athlete_id", athleteId)
         .not("completed_at", "is", null)
         .gte("session_date", since);
@@ -65,12 +65,13 @@ export function TrainingVolumeBySportCard({ athleteId, weeks = 10 }: { athleteId
   const chartData = useMemo(() => {
     const byWeek = new Map<string, Record<string, number>>();
     for (const s of sessions ?? []) {
-      if (!s.session_date || !s.total_time_seconds) continue;
+      const durationS = s.total_moving_time_seconds ?? s.total_time_seconds;
+      if (!s.session_date || !durationS) continue;
       const wk = weekKey(s.session_date);
       if (!byWeek.has(wk)) byWeek.set(wk, {});
       const bucket = byWeek.get(wk)!;
       const key = sportKey(s);
-      bucket[key] = (bucket[key] ?? 0) + Number(s.total_time_seconds);
+      bucket[key] = (bucket[key] ?? 0) + Number(durationS);
     }
     return Array.from(byWeek.entries())
       .sort(([a], [b]) => a.localeCompare(b))
