@@ -8,28 +8,31 @@ import { paceFmt } from "@/lib/format";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 // Reads get_athlete_speed_economy_curve() (see
-// supabase/migrations/20260801000017_speed_economy_zone_filter.sql) —
-// each point is realized pace vs. this athlete's already-computed
+// supabase/migrations/20260801000018_speed_economy_pace_zone_filter.sql)
+// — each point is realized pace vs. this athlete's already-computed
 // Biomechanical Score, averaged per 15 sec/km bucket. NOT a second,
 // independently-scored curve — same underlying score as the Biomechanics
 // page's Efficiency Scores card.
 //
-// Workout-type filter added per direct feedback: an unfiltered curve
+// Z1-Z6 pace zone filter (not workout-type — replaced per direct
+// feedback) added for the same underlying reason: an unfiltered curve
 // naturally skews toward whatever paces have the most logged volume —
 // almost always easy/recovery — which can make "Optimal Mechanical
-// Pace" land on a well-populated easy bucket rather than reflecting
-// genuine mechanical quality at race-relevant intensities. Filtering to
-// a single workout type (e.g. Threshold only) isolates that bucket's
-// own pace variation instead of comparing across templates.
+// Pace" land on a well-populated easy zone rather than reflecting
+// genuine mechanical quality at race-relevant intensities. Uses the
+// app's real, established 6-zone pace model (athlete_zone_profiles,
+// same zones as the Zones page and session/race analysis) rather than
+// the workout-type buckets built for the mechanics templates — pace
+// zones are purely pace-derived, not tied to prescribed workout intent,
+// so filtering by them doesn't have the template-mismatch risk the
+// workout-type version could.
 //
-// Real caveat worth remembering: since Biomechanical Score is scored
-// relative to EACH SESSION'S OWN workout-type template, and several of
-// those templates are interpolated guesses rather than sourced
-// research (see 20260801000008's notes), a curve that looks like it
-// peaks at an easy pace may reflect template calibration differences
-// between workout types more than true mechanical quality — not
-// something this filter alone fixes, just something it helps you look
-// at more directly one bucket at a time.
+// Real caveat still worth remembering: Biomechanical Score itself is
+// still scored relative to EACH SESSION'S OWN workout-type template
+// (not the pace zone), and several of those templates are interpolated
+// guesses rather than sourced research (see 20260801000008's notes) —
+// a curve that peaks somewhere unexpected can still reflect template
+// calibration differences underneath, even filtered to one pace zone.
 //
 // "Optimal Mechanical Pace" (the bucket with the highest average score)
 // is only ever named once there are at least 3 qualifying buckets —
@@ -49,23 +52,18 @@ type CurvePoint = {
 
 const MIN_BUCKETS_FOR_OPTIMAL = 3;
 
-// Matches the workout_type bucket keys get_athlete_biomechanics_trend
-// classifies sessions into (see the mapping note in
-// 20260801000008_mechanics_workout_templates.sql) — same list already
-// used on the Running Dynamics card's session-type filter.
-const WORKOUT_TYPE_OPTIONS: { value: string; label: string }[] = [
-  { value: "all", label: "All types" },
-  { value: "recovery", label: "Recovery Run" },
-  { value: "easy", label: "Easy Run" },
-  { value: "long_run", label: "Long Run" },
-  { value: "aerobic", label: "Aerobic" },
-  { value: "tempo", label: "Tempo" },
-  { value: "threshold", label: "Threshold" },
-  { value: "vo2", label: "VO2 Max" },
-  { value: "anaerobic", label: "Anaerobic" },
-  { value: "speed", label: "Sprint/Speed" },
-  { value: "time_trial", label: "Time Trial" },
-  { value: "race", label: "Race" },
+// Matches the app's real, established 6-zone pace model (same labels
+// as ZONE_LABEL in app.sessions.$sessionId.analysis.tsx and the Zones
+// page) — pace-based, not HR-based. Cleaner and more physiologically
+// grounded than the workout-type buckets this filter used before.
+const ZONE_OPTIONS: { value: string; label: string; color: string }[] = [
+  { value: "all", label: "All zones", color: "#94a3b8" },
+  { value: "z1", label: "Z1 Recovery", color: "#34d399" },
+  { value: "z2", label: "Z2 Easy/Aerobic", color: "#38bdf8" },
+  { value: "z3", label: "Z3 Steady/Tempo", color: "#fbbf24" },
+  { value: "z4", label: "Z4 Threshold", color: "#f97316" },
+  { value: "z5", label: "Z5 VO2", color: "#ef4444" },
+  { value: "z6", label: "Z6 Anaerobic/Max", color: "#9333ea" },
 ];
 
 // paceFmt() already appends the unit suffix itself (" /km" or " /mi"
@@ -76,16 +74,16 @@ function paceLabel(secPerKm: number): string {
 }
 
 export function SpeedEconomyCurveCard({ athleteId }: { athleteId: string }) {
-  const [workoutType, setWorkoutType] = useState("all");
+  const [zone, setZone] = useState("all");
 
   const { data: curve, isLoading, isError, error } = useQuery({
-    queryKey: ["athlete-speed-economy-curve", athleteId, workoutType],
+    queryKey: ["athlete-speed-economy-curve", athleteId, zone],
     enabled: !!athleteId,
     queryFn: async () => {
       const { data, error } = await supabase.rpc("get_athlete_speed_economy_curve" as any, {
         _athlete_id: athleteId,
         _limit: 200,
-        _workout_type: workoutType === "all" ? null : workoutType,
+        _zone: zone === "all" ? null : zone,
       });
       if (error) throw error;
       return (data ?? []) as CurvePoint[];
@@ -158,14 +156,17 @@ export function SpeedEconomyCurveCard({ athleteId }: { athleteId: string }) {
               Biomechanical Score by realized pace, across the last 200 running sessions with device data.
             </CardDescription>
           </div>
-          <Select value={workoutType} onValueChange={setWorkoutType}>
-            <SelectTrigger className="h-8 w-[150px] text-xs">
+          <Select value={zone} onValueChange={setZone}>
+            <SelectTrigger className="h-8 w-[160px] text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {WORKOUT_TYPE_OPTIONS.map((o) => (
+              {ZONE_OPTIONS.map((o) => (
                 <SelectItem key={o.value} value={o.value}>
-                  {o.label}
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full inline-block" style={{ background: o.color }} />
+                    {o.label}
+                  </span>
                 </SelectItem>
               ))}
             </SelectContent>
@@ -262,9 +263,8 @@ export function SpeedEconomyCurveCard({ athleteId }: { athleteId: string }) {
             <p className="text-[10px] text-muted-foreground">
               A single session's mechanics can reflect fatigue, terrain, or weather rather than a real pattern —
               trust this curve more once it holds consistently across a full training block, not from one strong or
-              weak session. Scores are relative to each session's own workout-type template — comparing across
-              different workout types (e.g. Easy vs. Threshold) can also reflect template calibration differences,
-              not just true mechanics. Filtering to one type above removes that specific risk.
+              weak session. The underlying score is still scored relative to each session's own workout-type
+              template, so an unexpected peak can still reflect template calibration, even within one pace zone.
             </p>
           </div>
         )}
