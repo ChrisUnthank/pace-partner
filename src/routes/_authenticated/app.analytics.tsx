@@ -34,6 +34,7 @@ import { ArrowUpRight, ArrowDownRight, ArrowRight, AlertTriangle, LineChart } fr
 import { AthleteSubnav } from "@/components/athlete-subnav";
 import { YearlyLoadStrip } from "@/components/yearly-load-strip";
 import { TrainingVolumeBySportCard } from "@/components/training-volume-by-sport-card";
+import { isImperial } from "@/lib/format";
 
 const RANGES = {
   "4w": { days: 28, label: "4 weeks" },
@@ -77,6 +78,23 @@ function isoDaysAgo(days: number) {
   const d = new Date();
   d.setDate(d.getDate() - days);
   return toLocalISODate(d);
+}
+
+// Distance/zone/volume-by-kind charts below each pre-convert raw meters
+// into a display number baked directly into the chart's data object
+// (e.g. `{ km: 42.3 }`), rather than formatting a string at render time —
+// so metersFmt/paceFmt (which only handle string output) don't apply
+// here. These three charts were the actual gap the "Did imperial and
+// metric get fixed for both of these pages?" question surfaced — they
+// used a different shape (baked-in chart data) than the raw-string-
+// literal pattern the original units audit's grep patterns were built to
+// catch, so they were missed the first time around.
+function metersToChartDistance(m: number): number {
+  if (isImperial()) return Math.round((m / 1609.344) * 10) / 10;
+  return Math.round((m / 1000) * 10) / 10;
+}
+function distanceUnitLabel(): string {
+  return isImperial() ? "mi" : "km";
 }
 
 // Resolves a range key to its "since" date. "month"/"year" are calendar
@@ -813,7 +831,7 @@ function AthleteAnalytics({
     }
     return Array.from(buckets.entries())
       .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([key, meters]) => ({ period: bucketLabel(key, granularity), km: Math.round((meters / 1000) * 10) / 10 }));
+      .map(([key, meters]) => ({ period: bucketLabel(key, granularity), dist: metersToChartDistance(meters) }));
   }, [weeklyDist, granularity]);
 
   const zoneBuckets = useMemo(() => {
@@ -830,7 +848,7 @@ function AthleteAnalytics({
       return order.map((zone) => ({
         zone: zone.toUpperCase(),
         hours: Math.round(((sec.get(zone) ?? 0) / 3600) * 10) / 10,
-        km: Math.round(((m.get(zone) ?? 0) / 1000) * 10) / 10,
+        dist: metersToChartDistance(m.get(zone) ?? 0),
       }));
     };
     return { hr: make("hr"), pace: make("pace") };
@@ -1471,7 +1489,7 @@ function AthleteAnalytics({
                       itemStyle={{ color: "hsl(var(--foreground))" }}
                       labelStyle={{ color: "hsl(var(--foreground))" }}
                     />
-                    <Bar dataKey="km" name="km" fill="#10b981" radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="dist" name={distanceUnitLabel()} fill="#10b981" radius={[3, 3, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -1497,18 +1515,18 @@ function AthleteAnalytics({
         />
         <ZoneBarCard
           title="Distance in HR Zone"
-          description="Kilometres per HR zone in this range."
+          description="Distance per HR zone in this range."
           data={zoneBuckets.hr}
-          dataKey="km"
-          unit="km"
+          dataKey="dist"
+          unit={distanceUnitLabel()}
           color="#ef4444"
         />
         <ZoneBarCard
           title="Distance in Pace Zone"
-          description="Kilometres per pace zone in this range."
+          description="Distance per pace zone in this range."
           data={zoneBuckets.pace}
-          dataKey="km"
-          unit="km"
+          dataKey="dist"
+          unit={distanceUnitLabel()}
           color="#3b82f6"
         />
 
@@ -1764,8 +1782,8 @@ function ZoneBarCard({
 }: {
   title: string;
   description: string;
-  data: { zone: string; hours: number; km: number }[];
-  dataKey: "hours" | "km";
+  data: { zone: string; hours: number; dist: number }[];
+  dataKey: "hours" | "dist";
   unit: string;
   color: string;
 }) {
@@ -1858,9 +1876,9 @@ const KIND_COLORS: Record<string, string> = {
   Cooldown: "#10b981",
 };
 
-function formatVolumeValue(value: number, mode: "minutes" | "km") {
-  if (mode === "km") {
-    return `${value} km`;
+function formatVolumeValue(value: number, mode: "minutes" | "dist") {
+  if (mode === "dist") {
+    return `${value} ${distanceUnitLabel()}`;
   }
   if (value >= 60) {
     const h = Math.floor(value / 60);
@@ -1897,7 +1915,7 @@ function periodStartForGranularity(g: GranularityKey) {
 // "Training trends grouped by" control above handles Week/Month/Year — this
 // card no longer needs its own separate period toggle duplicating that.
 function VolumeShareCard({ sessions, granularity }: { sessions: any[]; granularity: GranularityKey }) {
-  const [mode, setMode] = useState<"minutes" | "km">("minutes");
+  const [mode, setMode] = useState<"minutes" | "dist">("minutes");
 
   const periodStartISO = useMemo(() => periodStartForGranularity(granularity), [granularity]);
 
@@ -1930,7 +1948,7 @@ function VolumeShareCard({ sessions, granularity }: { sessions: any[]; granulari
     return VOLUME_KIND_ORDER.filter((k) => (sec.get(k) ?? 0) > 0 || (m.get(k) ?? 0) > 0).map((kind) => ({
       kind: kind.charAt(0).toUpperCase() + kind.slice(1),
       minutes: Math.round((sec.get(kind) ?? 0) / 60),
-      km: Math.round(((m.get(kind) ?? 0) / 1000) * 10) / 10,
+      dist: metersToChartDistance(m.get(kind) ?? 0),
     }));
   }, [sessions, periodStartISO]);
 
@@ -1956,8 +1974,8 @@ function VolumeShareCard({ sessions, granularity }: { sessions: any[]; granulari
               Time
             </button>
             <button
-              onClick={() => setMode("km")}
-              className={`px-2.5 py-1 ${mode === "km" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+              onClick={() => setMode("dist")}
+              className={`px-2.5 py-1 ${mode === "dist" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
             >
               Distance
             </button>
@@ -2003,7 +2021,7 @@ function VolumeShareCard({ sessions, granularity }: { sessions: any[]; granulari
                 </PieChart>
               </ResponsiveContainer>
             </div>
-            {mode === "km" && (
+            {mode === "dist" && (
               <p className="text-xs text-muted-foreground mt-2">
                 Includes warmup/cooldown to show how volume is split. Will exceed the "Distance" chart's number above,
                 which intentionally excludes warmup/cooldown.
