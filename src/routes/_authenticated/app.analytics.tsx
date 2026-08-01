@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { ReadinessBadge } from "@/components/readiness-badge";
 import { CoachAthletePicker } from "@/components/coach-athlete-picker";
+import { ChartInsightCard } from "@/components/chart-insight-card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   ResponsiveContainer,
@@ -1364,6 +1365,8 @@ function AthleteAnalytics({
           )}
         </CardContent>
       </Card>
+
+      <ChartInsightCard athleteId={athleteId} kind="training_load" title="AI Insight: Fitness, Fatigue & Form" />
 
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 className="text-sm font-medium text-muted-foreground">Training trends grouped by</h2>
