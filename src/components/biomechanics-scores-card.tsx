@@ -4,11 +4,15 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Gauge } from "lucide-react";
 
 // Reads the five score columns on get_athlete_biomechanics_trend() (see
-// supabase/migrations/20260801000006_biomechanics_scores.sql,
-// 20260801000007_biomechanics_fatigue_economy.sql) — MEI, Rhythm Score,
+// supabase/migrations/20260801000009_biomechanics_relative_scoring.sql,
+// 20260801000010_biomechanics_filters.sql) — MEI, Rhythm Score,
 // Biomechanical Score, Biomechanical Fatigue, and Overall Economy
-// Rating. All absolute fixed-scale per Chris's direction, not
-// relative-to-athlete like DNA/Strengths elsewhere in the app.
+// Rating. Originally absolute fixed-scale (Garmin bands); rebuilt in
+// Phase B to score against each session's workout-type expected range
+// (mechanics_workout_templates) blended with this athlete's own recent
+// history for that same workout type — a deliberate pivot away from the
+// absolute approach, not relative-to-athlete like DNA/Strengths
+// elsewhere in the app used to mean something different than this.
 // Biomechanical Fatigue is deliberately a SEPARATE score from
 // session_fatigue.efficiency_score (already surfaced elsewhere as "Best
 // efficiency score") — a biomechanics-specific fatigue read (GCT/VO/
@@ -23,6 +27,7 @@ type ScoreRow = {
   session_id: string;
   session_date: string;
   session_title: string | null;
+  workout_type: string | null;
   mei_score: number | null;
   rhythm_score: number | null;
   biomechanical_score: number | null;
@@ -131,7 +136,8 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
           Efficiency Scores
         </CardTitle>
         <CardDescription>
-          Absolute scale (not relative to this athlete's own history), most recent session with device data.
+          Scored against expected ranges for this workout type, blended with this athlete's own recent history — most
+          recent session with device data.
         </CardDescription>
       </CardHeader>
       <CardContent>
