@@ -7,6 +7,7 @@ import { useEffectiveRole } from "@/lib/view-mode";
 import { AppShell } from "@/components/app-shell";
 import { CoachAthletePicker } from "@/components/coach-athlete-picker";
 import { BiomechanicsTrendCard } from "@/components/biomechanics-trend-card";
+import { BiomechanicsScoresCard } from "@/components/biomechanics-scores-card";
 import { PersonStanding } from "lucide-react";
 
 // Basics pass — replaces the earlier "coming soon" placeholder. Covers
@@ -112,6 +113,7 @@ function BiomechanicsPage() {
           )}
         </div>
 
+        <BiomechanicsScoresCard athleteId={selectedAthleteId} />
         <BiomechanicsTrendCard athleteId={selectedAthleteId} />
       </div>
     </AppShell>
