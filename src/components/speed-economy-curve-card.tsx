@@ -1,25 +1,40 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Gauge } from "lucide-react";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine } from "recharts";
 import { paceFmt } from "@/lib/format";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 // Reads get_athlete_speed_economy_curve() (see
-// supabase/migrations/20260801000016_speed_economy_curve.sql) — each
-// point is realized pace vs. this athlete's already-computed
+// supabase/migrations/20260801000017_speed_economy_zone_filter.sql) —
+// each point is realized pace vs. this athlete's already-computed
 // Biomechanical Score, averaged per 15 sec/km bucket. NOT a second,
 // independently-scored curve — same underlying score as the Biomechanics
 // page's Efficiency Scores card.
 //
+// Workout-type filter added per direct feedback: an unfiltered curve
+// naturally skews toward whatever paces have the most logged volume —
+// almost always easy/recovery — which can make "Optimal Mechanical
+// Pace" land on a well-populated easy bucket rather than reflecting
+// genuine mechanical quality at race-relevant intensities. Filtering to
+// a single workout type (e.g. Threshold only) isolates that bucket's
+// own pace variation instead of comparing across templates.
+//
+// Real caveat worth remembering: since Biomechanical Score is scored
+// relative to EACH SESSION'S OWN workout-type template, and several of
+// those templates are interpolated guesses rather than sourced
+// research (see 20260801000008's notes), a curve that looks like it
+// peaks at an easy pace may reflect template calibration differences
+// between workout types more than true mechanical quality — not
+// something this filter alone fixes, just something it helps you look
+// at more directly one bucket at a time.
+//
 // "Optimal Mechanical Pace" (the bucket with the highest average score)
 // is only ever named once there are at least 3 qualifying buckets —
 // enough to see an actual curve shape, not 1-2 lonely points calling
-// themselves a trend. This directly implements the caution given
-// alongside the idea: one workout's mechanics can reflect fatigue,
-// terrain, or weather; a real pattern needs to hold across multiple
-// sessions at multiple paces before it means anything.
+// themselves a trend.
 //
 // "Mechanical-Aerobic Gap" compares Optimal Mechanical Pace against the
 // athlete's current threshold pace (athlete_zone_profiles) — the same
@@ -34,14 +49,43 @@ type CurvePoint = {
 
 const MIN_BUCKETS_FOR_OPTIMAL = 3;
 
+// Matches the workout_type bucket keys get_athlete_biomechanics_trend
+// classifies sessions into (see the mapping note in
+// 20260801000008_mechanics_workout_templates.sql) — same list already
+// used on the Running Dynamics card's session-type filter.
+const WORKOUT_TYPE_OPTIONS: { value: string; label: string }[] = [
+  { value: "all", label: "All types" },
+  { value: "recovery", label: "Recovery Run" },
+  { value: "easy", label: "Easy Run" },
+  { value: "long_run", label: "Long Run" },
+  { value: "aerobic", label: "Aerobic" },
+  { value: "tempo", label: "Tempo" },
+  { value: "threshold", label: "Threshold" },
+  { value: "vo2", label: "VO2 Max" },
+  { value: "anaerobic", label: "Anaerobic" },
+  { value: "speed", label: "Sprint/Speed" },
+  { value: "time_trial", label: "Time Trial" },
+  { value: "race", label: "Race" },
+];
+
+// paceFmt() already appends the unit suffix itself (" /km" or " /mi"
+// depending on the Imperial/Metric setting) — do not append a second
+// "/km" on top of it.
+function paceLabel(secPerKm: number): string {
+  return paceFmt(secPerKm);
+}
+
 export function SpeedEconomyCurveCard({ athleteId }: { athleteId: string }) {
+  const [workoutType, setWorkoutType] = useState("all");
+
   const { data: curve, isLoading, isError, error } = useQuery({
-    queryKey: ["athlete-speed-economy-curve", athleteId],
+    queryKey: ["athlete-speed-economy-curve", athleteId, workoutType],
     enabled: !!athleteId,
     queryFn: async () => {
       const { data, error } = await supabase.rpc("get_athlete_speed_economy_curve" as any, {
         _athlete_id: athleteId,
         _limit: 200,
+        _workout_type: workoutType === "all" ? null : workoutType,
       });
       if (error) throw error;
       return (data ?? []) as CurvePoint[];
@@ -71,7 +115,7 @@ export function SpeedEconomyCurveCard({ athleteId }: { athleteId: string }) {
       [...(curve ?? [])]
         .sort((a, b) => b.pace_bucket_center_sec_per_km - a.pace_bucket_center_sec_per_km)
         .map((c) => ({
-          paceLabel: `${paceFmt(c.pace_bucket_center_sec_per_km)}/km`,
+          paceLabel: paceLabel(c.pace_bucket_center_sec_per_km),
           pace: c.pace_bucket_center_sec_per_km,
           score: c.avg_biomechanical_score,
           sessionCount: c.session_count,
@@ -104,13 +148,29 @@ export function SpeedEconomyCurveCard({ athleteId }: { athleteId: string }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Gauge className="h-4 w-4 text-[var(--accent-red)]" />
-          Speed Economy Curve
-        </CardTitle>
-        <CardDescription>
-          Biomechanical Score by realized pace, across the last 200 running sessions with device data.
-        </CardDescription>
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Gauge className="h-4 w-4 text-[var(--accent-red)]" />
+              Speed Economy Curve
+            </CardTitle>
+            <CardDescription>
+              Biomechanical Score by realized pace, across the last 200 running sessions with device data.
+            </CardDescription>
+          </div>
+          <Select value={workoutType} onValueChange={setWorkoutType}>
+            <SelectTrigger className="h-8 w-[150px] text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {WORKOUT_TYPE_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -143,7 +203,7 @@ export function SpeedEconomyCurveCard({ athleteId }: { athleteId: string }) {
                   />
                   {optimal && (
                     <ReferenceLine
-                      x={`${paceFmt(optimal.pace_bucket_center_sec_per_km)}/km`}
+                      x={paceLabel(optimal.pace_bucket_center_sec_per_km)}
                       stroke="var(--accent-red)"
                       strokeDasharray="4 4"
                       label={{ value: "Optimal", fontSize: 10, fill: "var(--accent-red)" }}
@@ -166,7 +226,7 @@ export function SpeedEconomyCurveCard({ athleteId }: { athleteId: string }) {
                 <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Optimal Mechanical Pace</div>
                 {optimal ? (
                   <div className="font-display text-2xl font-extrabold tabular-nums mt-1">
-                    {paceFmt(optimal.pace_bucket_center_sec_per_km)}/km
+                    {paceLabel(optimal.pace_bucket_center_sec_per_km)}
                   </div>
                 ) : (
                   <div className="text-sm text-muted-foreground mt-2">
@@ -177,7 +237,7 @@ export function SpeedEconomyCurveCard({ athleteId }: { athleteId: string }) {
               <div className="border rounded-lg p-4">
                 <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Current Threshold Pace</div>
                 <div className="font-display text-2xl font-extrabold tabular-nums mt-1">
-                  {thresholdPace != null ? `${paceFmt(thresholdPace)}/km` : "—"}
+                  {thresholdPace != null ? paceLabel(thresholdPace) : "—"}
                 </div>
               </div>
               <div className="border rounded-lg p-4">
@@ -202,7 +262,9 @@ export function SpeedEconomyCurveCard({ athleteId }: { athleteId: string }) {
             <p className="text-[10px] text-muted-foreground">
               A single session's mechanics can reflect fatigue, terrain, or weather rather than a real pattern —
               trust this curve more once it holds consistently across a full training block, not from one strong or
-              weak session.
+              weak session. Scores are relative to each session's own workout-type template — comparing across
+              different workout types (e.g. Easy vs. Threshold) can also reflect template calibration differences,
+              not just true mechanics. Filtering to one type above removes that specific risk.
             </p>
           </div>
         )}
