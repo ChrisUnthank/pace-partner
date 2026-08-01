@@ -15,6 +15,7 @@ import "leaflet/dist/leaflet.css";
 import { RouteFlyoverMap } from "@/components/route-flyover-map";
 import { useMyRoles } from "@/lib/use-auth";
 import { AthleteSubnav } from "@/components/athlete-subnav";
+import { SessionAiNote } from "@/components/session-ai-note";
 
 export const Route = createFileRoute("/_authenticated/app/races/$raceId/analysis")({
   component: RaceAnalysisPage,
@@ -488,6 +489,10 @@ function RaceAnalysisPage() {
             </div>
           </CardContent>
         </Card>
+
+        {race?.session_id && session?.athlete_id && (
+          <SessionAiNote sessionId={race.session_id} athleteId={session.athlete_id} />
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
           <div className="lg:col-span-2">
