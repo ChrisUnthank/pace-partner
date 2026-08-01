@@ -74,8 +74,8 @@ function AppHome() {
   const layout = useDashboardLayout(dashboardRole ?? "coach", !!dashboardRole);
 
   const visibleIds = (dashboardRole ? layout.order.filter((id) => !layout.hidden.has(id)) : []) as DashboardWidgetId[];
-  const spans = dashboardRole
-    ? Object.fromEntries(widgetsForRole(dashboardRole).map((w) => [w.id, w.span]))
+  const sizes = dashboardRole
+    ? Object.fromEntries(widgetsForRole(dashboardRole).map((w) => [w.id, { span: w.span, rowSpan: w.rowSpan ?? 1 }]))
     : {};
 
   function renderWidget(id: DashboardWidgetId) {
@@ -254,7 +254,7 @@ function AppHome() {
 
             <DashboardGrid
               ids={visibleIds}
-              spans={spans}
+              sizes={sizes}
               editMode={editMode}
               onReorder={(next) => layout.reorder(next as DashboardWidgetId[])}
               onHide={(id) => layout.setHidden(id as DashboardWidgetId, true)}
