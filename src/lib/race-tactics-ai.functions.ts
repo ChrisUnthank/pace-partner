@@ -6,10 +6,10 @@ import { z } from "zod";
 //
 // Reuses the app's existing AI plumbing: same auth middleware, same daily
 // quota (ai_consume_quota RPC via resolveAiAccess — coaches get 20/day by
-// default paid by the app, athletes get 10/day only if they've added
-// their own Anthropic key on Profile), same resolveChatModel routing
-// (Anthropic direct if the user has their own key, otherwise the Lovable
-// AI Gateway).
+// default paid by the app, athletes get 10/day gated by
+// profiles.ai_subscription_active), same resolveChatModel routing (every
+// user now goes through the Lovable AI Gateway — the athlete BYO-Anthropic
+// path has been removed, see CHANGELOG).
 //
 // Structured output (generateObject) was tried first, since a race
 // strategy suggestion needs to drive real Accept actions (set the plan's
@@ -30,17 +30,25 @@ async function resolveAiAccess(sb: any, userId: string) {
   const { data: roles } = await sb.from("user_roles").select("role").eq("user_id", userId);
   const roleList = (roles ?? []).map((r: any) => r.role);
   const isCoach = roleList.includes("coach") || roleList.includes("manager");
-  if (isCoach) return { allowed: true as const, role: "coach" as const, anthropicKey: null as string | null, limit: 20 };
-  const { data: prof } = await sb.from("profiles").select("anthropic_api_key").eq("id", userId).maybeSingle();
-  const key = prof?.anthropic_api_key as string | null | undefined;
-  if (key && key.trim()) return { allowed: true as const, role: "athlete" as const, anthropicKey: key, limit: 10 };
-  return { allowed: false as const };
+  if (isCoach) return { allowed: true as const, role: "coach" as const, limit: 20 };
+
+  const isAthlete = roleList.includes("athlete");
+  if (!isAthlete) return { allowed: false as const, reason: "no_role" as const };
+
+  const { data: prof } = await sb.from("profiles").select("ai_subscription_active").eq("id", userId).maybeSingle();
+  if (prof?.ai_subscription_active) return { allowed: true as const, role: "athlete" as const, limit: 10 };
+
+  return { allowed: false as const, reason: "subscription_required" as const };
 }
 
 async function requireAi(sb: any, userId: string) {
   const access = await resolveAiAccess(sb, userId);
   if (!access.allowed) {
-    throw new Error("AI is not available for your account. Athletes must add an Anthropic API key in their profile to enable AI.");
+    throw new Error(
+      access.reason === "subscription_required"
+        ? "AI requires an active subscription on your account."
+        : "AI is not available for your account.",
+    );
   }
   const { data: quotaOk, error } = await sb.rpc("ai_consume_quota", { _user_id: userId, _limit: access.limit });
   if (error) throw new Error(error.message);
@@ -216,7 +224,7 @@ export const generateRaceStrategySuggestion = createServerFn({ method: "POST" })
 
     const { generateText } = await import("ai");
     const { resolveChatModel } = await import("./ai-gateway.server");
-    const model = resolveChatModel(access.anthropicKey);
+    const model = resolveChatModel();
     const prompt = `Suggest a race strategy for this athlete. Data:\n${JSON.stringify(contextPayload)}`;
 
     const s = await generateSuggestion({ generateText, model, prompt });
