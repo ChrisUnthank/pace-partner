@@ -16,7 +16,6 @@ import { RefreshCw, LayoutGrid } from "lucide-react";
 import { AthleteSubnav } from "@/components/athlete-subnav";
 import { CoachAthletePicker } from "@/components/coach-athlete-picker";
 import { UserAvatar } from "@/components/user-avatar";
-import { GenerateReviewCard } from "@/components/generate-review-card";
 import { AthleteReminderSettings } from "@/components/reminder-settings";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { GoalsCard } from "@/components/goals-card";
@@ -445,7 +444,13 @@ function AthleteDetail() {
         <PerformanceProgressionCard performances={progressionPerformances ?? []} primaryEvent={athlete?.primary_event} />
 
         <CoachChat athleteId={athleteId} athleteName={athlete?.name ?? undefined} />
-        <GenerateReviewCard athleteId={athleteId} />
+        <Link
+          to="/app/reports/ai-review"
+          search={{ athleteId } as any}
+          className="text-xs text-muted-foreground hover:text-foreground underline -mt-2 inline-block"
+        >
+          Generate or view AI reviews for {athlete?.name ?? "this athlete"} in Reports →
+        </Link>
         <AthleteReminderSettings athleteId={athleteId} />
       </div>
     </AppShell>
