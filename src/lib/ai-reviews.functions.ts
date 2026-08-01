@@ -2,6 +2,25 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { buildAthletePayload } from "./ai.functions";
 
+// resolveAiAccess isn't exported from ai.functions.ts, so it's duplicated
+// here — same pattern already used in race-tactics-ai.functions.ts. Keeps
+// this file's quota/limit in step with every other AI feature rather than
+// the hardcoded limit=20 this file used to apply regardless of caller.
+async function resolveAiAccess(sb: any, userId: string) {
+  const { data: roles } = await sb.from("user_roles").select("role").eq("user_id", userId);
+  const roleList = (roles ?? []).map((r: any) => r.role);
+  const isCoach = roleList.includes("coach") || roleList.includes("manager");
+  if (isCoach) return { allowed: true as const, role: "coach" as const, limit: 20 };
+
+  const isAthlete = roleList.includes("athlete");
+  if (!isAthlete) return { allowed: false as const, reason: "no_role" as const };
+
+  const { data: prof } = await sb.from("profiles").select("ai_subscription_active").eq("id", userId).maybeSingle();
+  if (prof?.ai_subscription_active) return { allowed: true as const, role: "athlete" as const, limit: 10 };
+
+  return { allowed: false as const, reason: "subscription_required" as const };
+}
+
 type ReviewType = "weekly" | "monthly" | "phase" | "yearly" | "custom";
 
 function isoOffset(daysAgo: number) {
@@ -38,24 +57,38 @@ export const generateAiReview = createServerFn({ method: "POST" })
   .inputValidator((d: { athleteId: string; reviewType: ReviewType; customStart?: string; customEnd?: string }) => d)
   .handler(async ({ data, context }) => {
     const sb = context.supabase;
-    // gate: must be coach of this athlete (RLS will allow insert via coach_id check)
     const { resolveChatModel, COACH_SYSTEM_PROMPT } = await import("./ai-gateway.server");
     const { generateText } = await import("ai");
-    const { data: roleRows } = await sb.from("user_roles").select("role").eq("user_id", context.userId);
-    const roles = (roleRows ?? []).map((r: any) => r.role);
-    const isCoach = roles.includes("coach") || roles.includes("manager");
-    if (!isCoach) throw new Error("Only coaches can generate reviews.");
+
+    // Gate: coaches can generate a review for any athlete they coach
+    // (RLS enforces this on the insert below via coach_athletes). An
+    // athlete may also generate a review about themselves — same AI
+    // access rules as everywhere else (subscription flag + daily quota).
+    const access = await resolveAiAccess(sb, context.userId);
+    if (!access.allowed) {
+      throw new Error(
+        access.reason === "subscription_required"
+          ? "AI requires an active subscription on your account."
+          : "AI is not available for your account.",
+      );
+    }
+    if (access.role === "athlete") {
+      const { data: athleteRow } = await sb.from("athletes").select("user_id").eq("id", data.athleteId).maybeSingle();
+      if (!athleteRow || athleteRow.user_id !== context.userId) {
+        throw new Error("Athletes can only generate reviews for themselves.");
+      }
+    }
 
     const period = periodFor(data.reviewType, data.customStart, data.customEnd);
     const { data: athlete } = await sb.from("athletes").select("name").eq("id", data.athleteId).maybeSingle();
     const payload = await buildAthletePayload({ data: { athleteId: data.athleteId } });
     // quota
-    const { data: quotaOk, error: qErr } = await sb.rpc("ai_consume_quota", { _user_id: context.userId, _limit: 20 });
+    const { data: quotaOk, error: qErr } = await sb.rpc("ai_consume_quota", { _user_id: context.userId, _limit: access.limit });
     if (qErr) throw new Error(qErr.message);
-    if (quotaOk === false) throw new Error("Daily AI limit reached (20 calls). Try again tomorrow.");
+    if (quotaOk === false) throw new Error(`Daily AI limit reached (${access.limit} calls). Try again tomorrow.`);
 
     const result = await generateText({
-      model: resolveChatModel(null),
+      model: resolveChatModel(),
       system: COACH_SYSTEM_PROMPT,
       prompt: promptFor(data.reviewType, athlete?.name ?? "this athlete", period.label, payload),
     });
