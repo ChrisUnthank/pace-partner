@@ -64,7 +64,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { PostSessionInsightModal } from "@/components/post-session-insight-modal";
 import { FeelFaces } from "@/components/feel-faces";
 import { useServerFn } from "@tanstack/react-start";
-import { getLatestAthleteNote, generateSessionNote, getAiAccessStatus } from "@/lib/ai.functions";
+import { SessionAiNote } from "@/components/session-ai-note";
 import ReactMarkdown from "react-markdown";
 import { markAttendance } from "@/lib/messages.functions";
 import { Switch } from "@/components/ui/switch";
@@ -513,18 +513,6 @@ function SessionDetail() {
         .eq("session_id", sessionId)
         .order("created_at");
       return data ?? [];
-    },
-  });
-
-  const { data: insight } = useQuery({
-    queryKey: ["session_insights", sessionId],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("session_insights" as any)
-        .select("*")
-        .eq("session_id", sessionId)
-        .maybeSingle();
-      return data as any;
     },
   });
 
@@ -1526,61 +1514,6 @@ function SessionDetail() {
             athleteName={session.athletes?.name ?? "Athlete"}
           />
         )}
-        {session.completed_at && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Session feedback</CardTitle>
-              <CardDescription>Effort and reflection — edit from Daily Log.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <div className="flex items-center gap-6 flex-wrap">
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-muted-foreground uppercase tracking-wider">RPE</span>
-                  <span className="font-display text-2xl font-extrabold tabular-nums">
-                    {session.rpe ?? "—"}
-                    <span className="text-sm font-normal text-muted-foreground">/10</span>
-                  </span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-muted-foreground uppercase tracking-wider">Feel</span>
-                  <span className="font-display text-2xl font-extrabold tabular-nums">
-                    {insight?.feel_score ?? "—"}
-                    <span className="text-sm font-normal text-muted-foreground">/10</span>
-                  </span>
-                </div>
-              </div>
-              {insight?.went_well && (
-                <p>
-                  <span className="text-xs text-muted-foreground uppercase tracking-wider mr-2">Went well</span>
-                  {insight.went_well}
-                </p>
-              )}
-              {insight?.was_difficult && (
-                <p>
-                  <span className="text-xs text-muted-foreground uppercase tracking-wider mr-2">Difficult</span>
-                  {insight.was_difficult}
-                </p>
-              )}
-              {insight?.niggles && (
-                <p className="text-amber-500">
-                  <span className="text-xs text-muted-foreground uppercase tracking-wider mr-2">Niggles</span>
-                  {insight.niggles}
-                </p>
-              )}
-              {/* Same "estimated, not real" transparency the Analytics chart
-                  and dashboard alert now carry — this is the session-level
-                  version of that same signal. session_training_load() falls
-                  back to a category-based estimate when rpe is null, so
-                  training load numbers are still populated, just not real. */}
-              {session.rpe == null && (
-                <p className="flex items-center gap-1.5 text-xs text-amber-600 pt-1">
-                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                  No RPE logged yet — training load for this session is currently an estimate based on session type, not actual effort. Log it from Daily Log.
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        )}
 
         <FuelingPanel session={session} />
         <GearPanel session={session} />
@@ -1657,7 +1590,7 @@ function SessionDetail() {
         onSaved={() => qc.invalidateQueries({ queryKey: ["session_insights", sessionId] })}
       />
       <div className="max-w-4xl mt-4">
-        <SessionAINote sessionId={sessionId} athleteId={session.athlete_id} />
+        <SessionAiNote sessionId={sessionId} athleteId={session.athlete_id} />
       </div>
     </AppShell>
   );
@@ -1707,38 +1640,7 @@ function AttendanceCard({
   );
 }
 
-function SessionAINote({ sessionId, athleteId }: { sessionId: string; athleteId: string }) {
-  const getNote = useServerFn(getLatestAthleteNote);
-  const gen = useServerFn(generateSessionNote);
-  const access = useServerFn(getAiAccessStatus);
-  const { data: ai } = useQuery({ queryKey: ["ai-access"], queryFn: () => access() });
-  const { data: note, refetch } = useQuery({
-    queryKey: ["ai-session-note", sessionId],
-    queryFn: () => getNote({ data: { athleteId, kind: "session", sessionId } }),
-  });
-  if (ai && !ai.allowed) return null;
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-[var(--accent-red)]" /> AI session reflection
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-2">
-        {note?.content ? (
-          <div className="text-sm prose prose-sm max-w-none dark:prose-invert">
-            <ReactMarkdown>{note.content}</ReactMarkdown>
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">No AI reflection yet.</p>
-        )}
-        <Button size="sm" variant="outline" onClick={() => gen({ data: { sessionId } }).then(() => refetch())}>
-          {note?.content ? "Regenerate" : "Generate"}
-        </Button>
-      </CardContent>
-    </Card>
-  );
-}
+
 
 // Default field values for a newly-added block, mirroring defaultStep() in
 // sessions.new.tsx — kept in sync manually since this page builds one row
