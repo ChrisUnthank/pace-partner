@@ -38,7 +38,9 @@ export type DashboardWidgetId =
   | "athlete_quick_tiles"
   | "athlete_recent_notices"
   | "athlete_activity_snapshot"
-  | "athlete_mini_calendar";
+  | "athlete_mini_calendar"
+  | "athlete_ai_coach"
+  | "athlete_ai_reviews";
 
 export type WidgetDef = {
   id: DashboardWidgetId;
@@ -232,6 +234,33 @@ export const ATHLETE_WIDGETS: WidgetDef[] = [
     description: "Last 4 weeks — total activities, active days, and time per sport.",
     icon: Activity,
     span: 2,
+    defaultVisible: true,
+  },
+  // AI Coach chat + AI Reviews — athlete-facing counterparts to the
+  // coach-side CoachChat (on the athlete detail page) and GenerateReviewCard.
+  // Both components already work unmodified for an athlete acting on their
+  // own athleteId (chat-thread and review RLS were already self-permissive),
+  // so these widgets are thin wrappers, same pattern as every widget above.
+  // Gated behind ai_subscription_active (see ai.functions.ts) rather than
+  // hidden by default — defaultVisible: true so it's actually discoverable,
+  // and the components themselves render the "not available" state cleanly
+  // if access is ever off for a given athlete.
+  {
+    id: "athlete_ai_coach",
+    role: "athlete",
+    label: "AI Coach",
+    description: "Chat with an AI assistant grounded in your own training data.",
+    icon: Sparkles,
+    span: 2,
+    defaultVisible: true,
+  },
+  {
+    id: "athlete_ai_reviews",
+    role: "athlete",
+    label: "AI Reviews",
+    description: "Generate a structured summary of your recent training.",
+    icon: FileText,
+    span: 1,
     defaultVisible: true,
   },
 ];
