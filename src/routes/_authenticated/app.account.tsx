@@ -537,57 +537,26 @@ function RolesCard({ userId, roles, email }: { userId: string; roles: AppRole[];
 }
 
 function AiAccessCard({ userId, isAthlete, isCoach }: { userId: string; isAthlete: boolean; isCoach: boolean }) {
-  const qc = useQueryClient();
-
+  // BYO-Anthropic-key setup has been removed — athletes now get AI access
+  // through the same Lovable AI Gateway coaches use, gated by
+  // profiles.ai_subscription_active (currently defaulted ON for every
+  // athlete; there's no billing/paywall UI yet, so this card is
+  // deliberately just a status readout, not a toggle — nothing here for
+  // an athlete to turn on/off themselves until that exists).
   const { data: profile } = useQuery({
-    queryKey: ["profile-ai-key", userId],
+    queryKey: ["profile-ai-subscription", userId],
+    enabled: isAthlete && !isCoach,
     queryFn: async () => {
-      const { data } = await supabase.from("profiles").select("anthropic_api_key_last4").eq("id", userId).maybeSingle();
+      const { data } = await (supabase as any)
+        .from("profiles")
+        .select("ai_subscription_active")
+        .eq("id", userId)
+        .maybeSingle();
       return data;
     },
   });
 
-  const [key, setKey] = useState("");
-  const hasKey = !!profile?.anthropic_api_key_last4;
-
-  async function save() {
-    if (!key.trim() || !key.startsWith("sk-")) {
-      toast.error("Enter a valid Anthropic API key (sk-...)");
-      return;
-    }
-
-    const last4 = key.slice(-4);
-    const { error } = await supabase
-      .from("profiles")
-      .update({ anthropic_api_key: key.trim(), anthropic_api_key_last4: last4 })
-      .eq("id", userId);
-
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-
-    setKey("");
-    toast.success("AI key saved");
-    qc.invalidateQueries({ queryKey: ["profile-ai-key", userId] });
-    qc.invalidateQueries({ queryKey: ["ai-access"] });
-  }
-
-  async function remove() {
-    const { error } = await supabase
-      .from("profiles")
-      .update({ anthropic_api_key: null, anthropic_api_key_last4: null })
-      .eq("id", userId);
-
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-
-    toast.success("AI key removed");
-    qc.invalidateQueries({ queryKey: ["profile-ai-key", userId] });
-    qc.invalidateQueries({ queryKey: ["ai-access"] });
-  }
+  const subscriptionActive = profile?.ai_subscription_active !== false;
 
   return (
     <Card>
@@ -597,37 +566,14 @@ function AiAccessCard({ userId, isAthlete, isCoach }: { userId: string; isAthlet
         </CardTitle>
         <CardDescription>
           {isCoach
-            ? "As a coach, the AI assistant is enabled for you (subject to a daily rate limit). No setup needed."
+            ? "The AI assistant is enabled for you as a coach (subject to a daily rate limit). No setup needed."
             : isAthlete
-              ? "AI is opt-in for athletes. Paste your own Anthropic API key to enable a chat assistant against your training data. Calls go directly to Anthropic and are billed to you."
-              : "AI is available to coaches by default, or to athletes who provide their own Anthropic API key."}
+              ? subscriptionActive
+                ? "AI is enabled for your account (subject to a daily rate limit) — chat with your AI coach and generate reviews from wherever you see the AI Coach card."
+                : "AI access on your account is currently inactive. Contact your coach if you believe this is a mistake."
+              : "AI is available to coaches, and to athletes with an active subscription."}
         </CardDescription>
       </CardHeader>
-
-      {!isCoach && (
-        <CardContent className="space-y-3">
-          {hasKey && (
-            <div className="text-sm flex items-center justify-between border rounded px-3 py-2">
-              <span>
-                Key on file ending <span className="font-mono">…{profile?.anthropic_api_key_last4}</span>
-              </span>
-              <Button variant="ghost" size="sm" onClick={remove}>
-                Remove
-              </Button>
-            </div>
-          )}
-
-          <div className="grid sm:grid-cols-[1fr_auto] gap-2">
-            <Input type="password" placeholder="sk-ant-..." value={key} onChange={(e) => setKey(e.target.value)} />
-            <Button onClick={save}>{hasKey ? "Replace key" : "Save key"}</Button>
-          </div>
-
-          <p className="text-xs text-muted-foreground">
-            Get a key at console.anthropic.com. Your key is stored in your profile and only used server-side to call the
-            model on your behalf.
-          </p>
-        </CardContent>
-      )}
     </Card>
   );
 }
