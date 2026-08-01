@@ -17,6 +17,7 @@ import {
   CalendarDays,
   Newspaper,
   BookmarkCheck,
+  Activity,
 } from "lucide-react";
 
 export type DashboardRole = "coach" | "athlete";
@@ -35,7 +36,8 @@ export type DashboardWidgetId =
   | "athlete_attention"
   | "athlete_next_session"
   | "athlete_quick_tiles"
-  | "athlete_recent_notices";
+  | "athlete_recent_notices"
+  | "athlete_activity_snapshot";
 
 export type WidgetDef = {
   id: DashboardWidgetId;
@@ -193,6 +195,15 @@ export const ATHLETE_WIDGETS: WidgetDef[] = [
     description: "Latest posts from your coach.",
     icon: Newspaper,
     span: 1,
+    defaultVisible: true,
+  },
+  {
+    id: "athlete_activity_snapshot",
+    role: "athlete",
+    label: "Activity Snapshot",
+    description: "Last 4 weeks — total activities, active days, and time per sport.",
+    icon: Activity,
+    span: 2,
     defaultVisible: true,
   },
 ];
