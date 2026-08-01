@@ -33,6 +33,7 @@ import {
 import { ArrowUpRight, ArrowDownRight, ArrowRight, AlertTriangle, LineChart } from "lucide-react";
 import { AthleteSubnav } from "@/components/athlete-subnav";
 import { YearlyLoadStrip } from "@/components/yearly-load-strip";
+import { TrainingVolumeBySportCard } from "@/components/training-volume-by-sport-card";
 
 const RANGES = {
   "4w": { days: 28, label: "4 weeks" },
@@ -1369,6 +1370,8 @@ function AthleteAnalytics({
           </button>
         </div>
       </div>
+
+      <TrainingVolumeBySportCard athleteId={athleteId} />
 
       <div className="grid md:grid-cols-2 gap-6">
         <Card>
