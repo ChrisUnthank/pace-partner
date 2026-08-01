@@ -6,49 +6,43 @@ import { Gauge } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 // Reads get_athlete_biomechanics_trend() (see
-// supabase/migrations/20260801000019_biomechanics_hierarchy_rebuild.sql)
-// — a genuine three-level hierarchy per direct design feedback:
+// supabase/migrations/20260801000020_overall_economy_redesign.sql) — a
+// three-level hierarchy:
 //
 // Level 1 (raw, never scored): avg_cadence, stride_length_m, avg_vo_cm,
 //   avg_gct_ms, gct_balance_pct — just measurements, shown as-is below.
 // Level 2 (derived, scored): MEI, Vertical Efficiency, Rhythm & Timing,
 //   Mechanical Stability, Mechanical Fatigue.
-// Level 3 (summary): Biomechanical Score = 40% MEI + 25% Stability +
-//   20% Fatigue + 15% Rhythm — composed from the LEVEL 2 SCORES, not the
-//   same raw sub-metrics MEI already consumes (the old version
-//   double-counted GCT/VO/stride/cadence in two different composites —
-//   this is the actual fix for that).
+// Level 3 (summary): Biomechanical Score (movement quality — 35% MEI +
+//   25% Stability + 20% Fatigue + 20% Rhythm) and Overall Economy
+//   Rating (the big picture — 40% MEI + 25% Pace/HR Efficiency + 20%
+//   Fatigue + 15% Stability). These are now GENUINELY DIFFERENT numbers
+//   — Pace/HR Efficiency in, Rhythm out — reusing
+//   session_fatigue.efficiency_score (the existing pace/HR-based
+//   aerobic-sustainability read this app already computes) rather than
+//   inventing a second one. An earlier version made these identical by
+//   design, which read as confusing/redundant; this fixes that.
 //
-// MEI itself was also rebuilt: previously three independently-weighted
-// sub-scores (GCT/VO/stride), which couldn't recognize that a longer
-// stride can justify a slightly worse GCT. Now a single unified ratio
-// (stride / (GCT * VO)) scored as one thing — verified against a direct
-// counter-example before shipping (GCT 210/VO 8/stride 1.60 vs GCT
-// 220/VO 8/stride 1.90 — the second profile now correctly scores
-// higher, which the old formula couldn't guarantee).
+// MEI is a unified ratio (stride / (GCT * VO)), not three
+// independently-weighted sub-scores — verified against a direct
+// counter-example before shipping (a longer stride correctly justifies
+// a slightly worse GCT, which independent sub-scores couldn't see).
 //
-// Overall Economy Rating = Biomechanical Score directly now, not a
-// separate average of MEI + Biomechanical + Fatigue — that old formula
-// double-counted MEI and Fatigue once directly and again via their
-// share of Biomechanical Score. Both are still shown as separate tiles
-// below since a coach may expect to see both, but they're currently the
-// same number by design, not a bug — flagged explicitly in the UI
-// rather than silently showing two identical numbers with no
-// explanation.
+// Mechanical Stability is a judgment call, not something fully
+// specified anywhere I was given — GCT + VO consistency across the
+// whole session, deliberately distinct from Rhythm & Timing (cadence +
+// stride, the "beat") and Fatigue (directional drift, not overall
+// variability). Worth treating as the most provisional score here.
 //
-// Mechanical Stability is genuinely new — GCT + VO consistency across
-// the whole session, deliberately distinct from Rhythm & Timing
-// (cadence + stride consistency, the "beat") and from Fatigue
-// (directional drift start-to-end, not overall variability). This is
-// my own definition, not something fully specified — worth treating as
-// the most provisional of these scores until checked against real
-// sessions.
+// Label system: Excellent / Very Good / Developing / Session-Specific —
+// a low score reads as "may reflect session context" rather than a
+// fixed ability judgment.
 //
-// Label system: Excellent / Very Good / Developing / Session-Specific,
-// replacing Excellent/Good/Fair/Needs work — per direct feedback that
-// "Fair" or "Needs work" reads as a fixed ability judgment when a score
-// might just reflect session context (a tall athlete, a threshold
-// session, wind, a hill) rather than genuine inefficiency.
+// "Overall" now has its own time-window sub-filter (1/3/6 months) —
+// averages the already-fetched rows client-side, filtered by
+// session_date; no extra round trip per window change, since the fetch
+// already pulls a generous pool (_limit raised to 200 specifically to
+// give the 6-month window enough real data to average over).
 
 type ScoreRow = {
   session_id: string;
@@ -61,6 +55,7 @@ type ScoreRow = {
   vo_drift_cm: number | null;
   avg_gct_ms: number | null;
   gct_balance_pct: number | null;
+  pace_hr_efficiency_score: number | null;
   mei_score: number | null;
   vertical_efficiency_score: number | null;
   rhythm_score: number | null;
@@ -85,6 +80,13 @@ function average(values: (number | null)[]): number | null {
   if (valid.length === 0) return null;
   return valid.reduce((a, b) => a + b, 0) / valid.length;
 }
+
+const WINDOW_OPTIONS: { value: string; label: string; days: number | null }[] = [
+  { value: "1m", label: "Last month", days: 31 },
+  { value: "3m", label: "Last 3 months", days: 92 },
+  { value: "6m", label: "Last 6 months", days: 183 },
+  { value: "all", label: "All fetched", days: null },
+];
 
 function ScoreTile({
   label,
@@ -131,7 +133,7 @@ function HeadlineScore({ score, delta, label }: { score: number | null; delta: n
       <div className="rounded-lg border bg-accent/30 p-5 text-center">
         <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Overall Economy Rating</div>
         <div className="text-sm text-muted-foreground mt-2">
-          Needs MEI, Stability, Fatigue, and Rhythm all available for the same session
+          Needs Mechanical Efficiency, Pace/HR Efficiency, Fatigue, and Stability all available
         </div>
       </div>
     );
@@ -149,15 +151,14 @@ function HeadlineScore({ score, delta, label }: { score: number | null; delta: n
         </div>
       )}
       <div className="text-[10px] text-muted-foreground mt-2">
-        Currently the same number as Biomechanical Score below, by design — see the note under Biomechanical Score.
+        40% Mechanical Efficiency, 25% Pace/HR Efficiency, 20% Fatigue, 15% Stability — the big picture, mechanics
+        and aerobic sustainability together.
       </div>
     </div>
   );
 }
 
-// Level 1 raw measurements — never scored, shown as plain numbers, per
-// direct design feedback (Garmin-style: report Vertical Oscillation and
-// Ground Contact Balance, don't force a score onto them).
+// Level 1 raw measurements — never scored, shown as plain numbers.
 function RawMeasurementsPanel({
   voCm,
   driftCm,
@@ -224,6 +225,7 @@ function RawMeasurementsPanel({
 
 export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
   const [view, setView] = useState<"last" | "overall">("last");
+  const [window, setWindowRange] = useState("3m");
 
   const { data: rows, isLoading, isError, error } = useQuery({
     queryKey: ["athlete-biomechanics-scores", athleteId],
@@ -231,7 +233,7 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
     queryFn: async () => {
       const { data, error } = await supabase.rpc("get_athlete_biomechanics_trend" as any, {
         _athlete_id: athleteId,
-        _limit: 40,
+        _limit: 200,
       });
       if (error) throw error;
       return (data ?? []) as ScoreRow[];
@@ -242,8 +244,17 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
   const latest = (rows ?? [])[0];
   const previous = (rows ?? [])[1];
 
+  const windowedRows = useMemo(() => {
+    const opt = WINDOW_OPTIONS.find((o) => o.value === window);
+    if (!opt || opt.days == null) return rows ?? [];
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - opt.days);
+    const cutoffIso = cutoff.toISOString().slice(0, 10);
+    return (rows ?? []).filter((r) => r.session_date >= cutoffIso);
+  }, [rows, window]);
+
   const overall = useMemo(() => {
-    const all = rows ?? [];
+    const all = windowedRows;
     return {
       mei_score: average(all.map((r) => r.mei_score)),
       vertical_efficiency_score: average(all.map((r) => r.vertical_efficiency_score)),
@@ -257,10 +268,10 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
       avg_gct_ms: average(all.map((r) => r.avg_gct_ms)),
       gct_balance_pct: average(all.map((r) => r.gct_balance_pct)),
     };
-  }, [rows]);
+  }, [windowedRows]);
 
   const active = view === "overall" ? overall : latest;
-  const hasAny = view === "overall" ? (rows ?? []).length > 0 : !!latest;
+  const hasAny = view === "overall" ? windowedRows.length > 0 : !!latest;
 
   return (
     <Card>
@@ -275,15 +286,31 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
               Scored against expected ranges for this workout type and athlete level, blended with recent history.
             </CardDescription>
           </div>
-          <Select value={view} onValueChange={(v) => setView(v as "last" | "overall")}>
-            <SelectTrigger className="h-8 w-[140px] text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="last">Last session</SelectItem>
-              <SelectItem value="overall">Overall</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex items-center gap-2">
+            <Select value={view} onValueChange={(v) => setView(v as "last" | "overall")}>
+              <SelectTrigger className="h-8 w-[140px] text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="last">Last session</SelectItem>
+                <SelectItem value="overall">Overall</SelectItem>
+              </SelectContent>
+            </Select>
+            {view === "overall" && (
+              <Select value={window} onValueChange={setWindowRange}>
+                <SelectTrigger className="h-8 w-[150px] text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {WINDOW_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
         </div>
       </CardHeader>
       <CardContent>
@@ -296,13 +323,17 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
             hasn't been re-run in Supabase yet.
           </p>
         ) : !hasAny || !active ? (
-          <p className="text-sm text-muted-foreground">No completed running sessions with device data yet.</p>
+          <p className="text-sm text-muted-foreground">
+            {view === "overall"
+              ? "No completed running sessions with device data in this window yet."
+              : "No completed running sessions with device data yet."}
+          </p>
         ) : (
           <div className="space-y-4">
             <HeadlineScore
               score={active.overall_economy_score}
               delta={view === "last" && previous ? (active.overall_economy_score ?? 0) - (previous.overall_economy_score ?? 0) : null}
-              label={view === "overall" ? `Overall (last ${(rows ?? []).length} sessions)` : "Last Session"}
+              label={view === "overall" ? `${WINDOW_OPTIONS.find((o) => o.value === window)?.label} (${windowedRows.length} sessions)` : "Last Session"}
             />
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
               <ScoreTile
@@ -341,7 +372,7 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
                 label="Biomechanical Score"
                 score={active.biomechanical_score}
                 delta={view === "last" && previous ? (active.biomechanical_score ?? 0) - (previous.biomechanical_score ?? 0) : null}
-                caveat="40% Mechanical Efficiency, 25% Stability, 20% Fatigue, 15% Rhythm — composed from the scores above, not the raw measurements. Currently identical to Overall Economy Rating above, by design."
+                caveat="Movement quality only: 35% Mechanical Efficiency, 25% Stability, 20% Fatigue, 20% Rhythm — composed from the scores here, not raw measurements. No pace/HR input — that's Overall Economy above."
               />
               <RawMeasurementsPanel
                 voCm={active.avg_vo_cm}
