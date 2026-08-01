@@ -52,7 +52,7 @@ export function GenerateReviewCard({ athleteId }: { athleteId: string }) {
         <CardTitle className="flex items-center gap-2 text-base">
           <Sparkles className="h-4 w-4 text-[var(--accent-red)]" /> AI Reviews
         </CardTitle>
-        <CardDescription>Coach-initiated. Generate a review using the latest data.</CardDescription>
+        <CardDescription>Generate a structured review using the latest data.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-wrap items-end gap-2">
