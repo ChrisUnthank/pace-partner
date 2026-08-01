@@ -8,7 +8,11 @@
 // a query) rather than needing to re-read localStorage. Keep the
 // conversion constants identical between the two files if either one
 // changes — they intentionally do the same math.
-function isImperial(): boolean {
+// Exported (not just used internally) so components with unit-sensitive
+// values these *Fmt helpers don't cover — e.g. stride length, vertical
+// oscillation, chart-axis-baked distance — can build their own
+// conversion without re-implementing the same localStorage read.
+export function isImperial(): boolean {
   if (typeof window === "undefined") return false;
   try {
     return window.localStorage.getItem("strider:units") === "imperial";
