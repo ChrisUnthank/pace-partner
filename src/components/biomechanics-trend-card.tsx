@@ -1,14 +1,25 @@
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Activity } from "lucide-react";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import { isImperial } from "@/lib/format";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 // Reads get_athlete_biomechanics_trend() (see
-// supabase/migrations/20260801000004_athlete_biomechanics_trend.sql) —
-// one row per recent running session. Deliberately running-only; form
+// supabase/migrations/20260801000010_biomechanics_filters.sql) — one
+// row per recent running session. Deliberately running-only; form
 // metrics from a bike/gym/swim session wouldn't mean the same thing.
+//
+// Two filter dimensions:
+// - Session type (client-side): which SESSIONS are shown, filtered from
+//   the already-fetched rows by `workout_type` — no extra round trip
+//   needed since the fetch already pulls a generous window.
+// - Workout component (server-side, via `_segment_type`): which PART of
+//   each session the metrics are computed from. This actually changes
+//   what the database computes (a different points subset), so it goes
+//   back to the server rather than being filtered client-side.
 //
 // Left/right ground-contact balance from the original Biomechanics
 // "coming soon" copy is NOT included — no device data captures L/R
@@ -19,12 +30,40 @@ type TrendRow = {
   session_id: string;
   session_date: string;
   session_title: string | null;
+  workout_type: string | null;
   avg_cadence: number | null;
   stride_length_m: number | null;
   avg_vo_cm: number | null;
   avg_gct_ms: number | null;
   hr_drift_bpm: number | null;
 };
+
+const SEGMENT_OPTIONS: { value: string; label: string }[] = [
+  { value: "all", label: "Whole session" },
+  { value: "warmup", label: "Warmup" },
+  { value: "work", label: "Work" },
+  { value: "recovery", label: "Recovery" },
+  { value: "cooldown", label: "Cooldown" },
+];
+
+// Matches the workout_type bucket keys the SQL function classifies
+// sessions into (see the mapping note in
+// 20260801000008_mechanics_workout_templates.sql) — same 11 buckets,
+// same labels as the template table's `label` column.
+const WORKOUT_TYPE_OPTIONS: { value: string; label: string }[] = [
+  { value: "all", label: "All types" },
+  { value: "recovery", label: "Recovery Run" },
+  { value: "easy", label: "Easy Run" },
+  { value: "long_run", label: "Long Run" },
+  { value: "aerobic", label: "Aerobic" },
+  { value: "tempo", label: "Tempo" },
+  { value: "threshold", label: "Threshold" },
+  { value: "vo2", label: "VO2 Max" },
+  { value: "anaerobic", label: "Anaerobic" },
+  { value: "speed", label: "Sprint/Speed" },
+  { value: "time_trial", label: "Time Trial" },
+  { value: "race", label: "Race" },
+];
 
 function dayLabel(dateStr: string): string {
   return new Date(dateStr + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" });
@@ -64,21 +103,30 @@ function MiniTrendChart({
 }
 
 export function BiomechanicsTrendCard({ athleteId }: { athleteId: string }) {
+  const [segment, setSegment] = useState("all");
+  const [workoutType, setWorkoutType] = useState("all");
+
   const { data: rows, isLoading, isError, error } = useQuery({
-    queryKey: ["athlete-biomechanics-trend", athleteId],
+    queryKey: ["athlete-biomechanics-trend", athleteId, segment],
     enabled: !!athleteId,
     queryFn: async () => {
       const { data, error } = await supabase.rpc("get_athlete_biomechanics_trend" as any, {
         _athlete_id: athleteId,
         _limit: 20,
+        _segment_type: segment === "all" ? null : segment,
       });
       if (error) throw error;
       return (data ?? []) as TrendRow[];
     },
   });
 
+  const filteredRows = useMemo(
+    () => (rows ?? []).filter((r) => workoutType === "all" || r.workout_type === workoutType),
+    [rows, workoutType],
+  );
+
   // Function returns newest-first; charts read left-to-right chronologically.
-  const chronological = [...(rows ?? [])].reverse();
+  const chronological = [...filteredRows].reverse();
 
   const cadenceData = chronological.map((r) => ({ label: dayLabel(r.session_date), value: r.avg_cadence != null ? Math.round(r.avg_cadence) : null }));
   const imperial = isImperial();
@@ -95,19 +143,49 @@ export function BiomechanicsTrendCard({ athleteId }: { athleteId: string }) {
   const gctData = chronological.map((r) => ({ label: dayLabel(r.session_date), value: r.avg_gct_ms != null ? Math.round(r.avg_gct_ms) : null }));
   const hrDriftData = chronological.map((r) => ({ label: dayLabel(r.session_date), value: r.hr_drift_bpm != null ? Number(r.hr_drift_bpm.toFixed(1)) : null }));
 
-  const hasAny = (rows ?? []).length > 0;
+  const hasAny = filteredRows.length > 0;
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Activity className="h-4 w-4 text-[var(--accent-red)]" />
-          Running Dynamics
-        </CardTitle>
-        <CardDescription>
-          Cadence, stride length, vertical oscillation, ground contact time, and HR drift across the last 20 running
-          sessions.
-        </CardDescription>
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Activity className="h-4 w-4 text-[var(--accent-red)]" />
+              Running Dynamics
+            </CardTitle>
+            <CardDescription>
+              Cadence, stride length, vertical oscillation, ground contact time, and HR drift across the last 20
+              running sessions.
+            </CardDescription>
+          </div>
+          <div className="flex items-center gap-2">
+            <Select value={segment} onValueChange={setSegment}>
+              <SelectTrigger className="h-8 w-[140px] text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SEGMENT_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={workoutType} onValueChange={setWorkoutType}>
+              <SelectTrigger className="h-8 w-[140px] text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {WORKOUT_TYPE_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -120,7 +198,7 @@ export function BiomechanicsTrendCard({ athleteId }: { athleteId: string }) {
           </p>
         ) : !hasAny ? (
           <p className="text-sm text-muted-foreground">
-            No completed running sessions with device data yet — this fills in as FIT/GPX uploads come in.
+            No completed running sessions with device data match this filter yet.
           </p>
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
