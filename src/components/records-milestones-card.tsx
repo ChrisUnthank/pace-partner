@@ -126,7 +126,7 @@ const ALL_LABELS: Record<string, string> = {
 };
 
 export function RecordsMilestonesCard({ athleteId }: { athleteId: string }) {
-  const { data: rows, isLoading } = useQuery({
+  const { data: rows, isLoading, isError, error } = useQuery({
     queryKey: ["athlete-records", athleteId],
     enabled: !!athleteId,
     queryFn: async () => {
@@ -153,6 +153,12 @@ export function RecordsMilestonesCard({ athleteId }: { athleteId: string }) {
       <CardContent>
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : isError ? (
+          <p className="text-sm text-destructive">
+            Couldn't load records — {(error as any)?.message ?? "unknown error"}. If this mentions the function not
+            existing, the <code className="text-xs">get_athlete_records</code> migration hasn't been run in Supabase
+            yet.
+          </p>
         ) : !hasAny ? (
           <p className="text-sm text-muted-foreground">
             No qualifying sessions yet — records will appear here as completed sessions come in.
