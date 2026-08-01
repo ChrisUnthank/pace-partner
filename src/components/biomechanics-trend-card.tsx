@@ -34,6 +34,7 @@ type TrendRow = {
   avg_cadence: number | null;
   stride_length_m: number | null;
   avg_vo_cm: number | null;
+  vo_drift_cm: number | null;
   avg_gct_ms: number | null;
   hr_drift_bpm: number | null;
 };
