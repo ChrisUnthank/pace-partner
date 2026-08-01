@@ -115,7 +115,7 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
     queryFn: async () => {
       const { data, error } = await supabase.rpc("get_athlete_biomechanics_trend" as any, {
         _athlete_id: athleteId,
-        _limit: 20,
+        _limit: 40,
       });
       if (error) throw error;
       return (data ?? []) as ScoreRow[];
