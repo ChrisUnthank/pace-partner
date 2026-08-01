@@ -58,7 +58,7 @@ function formatValue(row: RecordRow): string {
     case "sec":
       return secToClock(row.value);
     case "sec_per_km":
-      return `${paceFmt(row.value)}/km`;
+      return paceFmt(row.value);
     case "spm":
       return `${Math.round(row.value)} spm`;
     case "score":
