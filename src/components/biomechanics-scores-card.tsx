@@ -35,6 +35,7 @@ type ScoreRow = {
   workout_type: string | null;
   avg_vo_cm: number | null;
   vo_drift_cm: number | null;
+  gct_balance_pct: number | null;
   mei_score: number | null;
   vertical_efficiency_score: number | null;
   rhythm_score: number | null;
