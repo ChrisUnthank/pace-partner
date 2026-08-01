@@ -79,7 +79,7 @@ export function AthleteMiniCalendarWidget({ athleteId }: { athleteId: string }) 
   const monthLabel = monthAnchor.toLocaleDateString(undefined, { month: "long", year: "numeric" });
 
   return (
-    <Card>
+    <Card className="h-full flex flex-col">
       <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
         <CardTitle className="flex items-center gap-2 text-base">
           <CalendarRange className="h-4 w-4 text-[var(--accent-red)]" />
@@ -104,13 +104,13 @@ export function AthleteMiniCalendarWidget({ athleteId }: { athleteId: string }) 
           </button>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex-1 flex flex-col">
         <div className="grid grid-cols-7 gap-0.5 text-center text-[10px] text-muted-foreground mb-1">
           {DAY_LETTERS.map((l, i) => (
             <span key={i}>{l}</span>
           ))}
         </div>
-        <div className="grid grid-cols-7 gap-0.5">
+        <div className="grid grid-cols-7 grid-rows-6 gap-0.5 flex-1">
           {gridDays.map((day) => {
             const iso = isoDate(day);
             const inMonth = day.getMonth() === monthAnchor.getMonth();
@@ -121,7 +121,7 @@ export function AthleteMiniCalendarWidget({ athleteId }: { athleteId: string }) 
                 key={iso}
                 to="/app/sessions/calendar"
                 search={{ date: iso } as any}
-                className={`aspect-square rounded-md flex flex-col items-center justify-center gap-0.5 text-[10px] transition-colors hover:bg-accent/60 ${
+                className={`rounded-md flex flex-col items-center justify-center gap-0.5 text-[10px] transition-colors hover:bg-accent/60 ${
                   isToday ? "ring-1 ring-[var(--accent-red)]" : ""
                 } ${inMonth ? "" : "opacity-30"}`}
               >
