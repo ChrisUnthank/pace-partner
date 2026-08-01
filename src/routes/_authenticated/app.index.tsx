@@ -28,6 +28,8 @@ import {
   AthleteNextSessionWidget,
   AthleteQuickTilesWidget,
   AthleteRecentNoticesWidget,
+  AthleteAiCoachWidget,
+  AthleteAiReviewsWidget,
 } from "@/components/dashboard/dashboard-widgets";
 import { AthleteActivitySnapshotWidget } from "@/components/dashboard/athlete-activity-snapshot-widget";
 import { AthleteMiniCalendarWidget } from "@/components/dashboard/athlete-mini-calendar-widget";
@@ -112,6 +114,10 @@ function AppHome() {
         return athlete ? <AthleteActivitySnapshotWidget athleteId={athlete.id} /> : null;
       case "athlete_mini_calendar":
         return athlete ? <AthleteMiniCalendarWidget athleteId={athlete.id} /> : null;
+      case "athlete_ai_coach":
+        return athlete ? <AthleteAiCoachWidget athleteId={athlete.id} /> : null;
+      case "athlete_ai_reviews":
+        return athlete ? <AthleteAiReviewsWidget athleteId={athlete.id} /> : null;
       default:
         return null;
     }
