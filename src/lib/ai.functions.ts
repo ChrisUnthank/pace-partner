@@ -15,27 +15,32 @@ function weekStart(d = new Date()) {
 }
 
 /**
- * Determine whether this user may invoke the AI. Coaches/managers may always
- * use the AI (paid by app via LOVABLE_API_KEY). Athletes are opt-in: they
- * must save their own Anthropic API key on their profile, and AI calls then
- * route directly through Anthropic so they pay for their own usage.
+ * Determine whether this user may invoke the AI. Coaches/managers always
+ * have access (paid by the app via LOVABLE_API_KEY, 20 calls/day).
+ * Athletes route through the same Lovable AI Gateway now — no more BYO
+ * Anthropic key — gated by profiles.ai_subscription_active instead
+ * (10 calls/day). That flag currently defaults true for every athlete
+ * (no billing system exists yet); it's the hook a future paywall will
+ * flip off per-athlete without any other code changes needed here.
  *
  * Returns:
- *   { allowed: false } when no access.
- *   { allowed: true, role: 'coach', anthropicKey: null }
- *   { allowed: true, role: 'athlete', anthropicKey: '<key>' }
+ *   { allowed: false, reason: 'no_role' | 'subscription_required' }
+ *   { allowed: true, role: 'coach', limit: 20 }
+ *   { allowed: true, role: 'athlete', limit: 10 }
  */
 async function resolveAiAccess(sb: any, userId: string) {
   const { data: roles } = await sb.from("user_roles").select("role").eq("user_id", userId);
   const roleList = (roles ?? []).map((r: any) => r.role);
   const isCoach = roleList.includes("coach") || roleList.includes("manager");
-  if (isCoach) return { allowed: true as const, role: "coach" as const, anthropicKey: null as string | null, limit: 20 };
+  if (isCoach) return { allowed: true as const, role: "coach" as const, limit: 20 };
 
-  const { data: prof } = await sb.from("profiles").select("anthropic_api_key").eq("id", userId).maybeSingle();
-  const key = prof?.anthropic_api_key as string | null | undefined;
-  if (key && key.trim()) return { allowed: true as const, role: "athlete" as const, anthropicKey: key, limit: 10 };
+  const isAthlete = roleList.includes("athlete");
+  if (!isAthlete) return { allowed: false as const, reason: "no_role" as const };
 
-  return { allowed: false as const };
+  const { data: prof } = await sb.from("profiles").select("ai_subscription_active").eq("id", userId).maybeSingle();
+  if (prof?.ai_subscription_active) return { allowed: true as const, role: "athlete" as const, limit: 10 };
+
+  return { allowed: false as const, reason: "subscription_required" as const };
 }
 
 async function consumeQuotaOrThrow(sb: any, userId: string, limit: number) {
@@ -49,19 +54,23 @@ async function consumeQuotaOrThrow(sb: any, userId: string, limit: number) {
 async function requireAi(sb: any, userId: string) {
   const access = await resolveAiAccess(sb, userId);
   if (!access.allowed) {
-    throw new Error("AI is not available for your account. Athletes must add an Anthropic API key in their profile to enable AI.");
+    throw new Error(
+      access.reason === "subscription_required"
+        ? "AI requires an active subscription on your account."
+        : "AI is not available for your account.",
+    );
   }
   await consumeQuotaOrThrow(sb, userId, access.limit);
   return access;
 }
 
-/** Public-to-client status: { allowed, role, hasOwnKey, used, limit } */
+/** Public-to-client status: { allowed, role, reason, used, limit } */
 export const getAiAccessStatus = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const access = await resolveAiAccess(context.supabase, context.userId);
     if (!access.allowed) {
-      return { allowed: false, role: null, hasOwnKey: false, used: 0, limit: 0 };
+      return { allowed: false, role: null, reason: access.reason, used: 0, limit: 0 };
     }
     const today = new Date().toISOString().slice(0, 10);
     const { data: usage } = await context.supabase
@@ -73,7 +82,7 @@ export const getAiAccessStatus = createServerFn({ method: "GET" })
     return {
       allowed: true,
       role: access.role,
-      hasOwnKey: !!access.anthropicKey,
+      reason: null,
       used: usage?.call_count ?? 0,
       limit: access.limit,
     };
@@ -225,7 +234,7 @@ export const generateWeeklySummary = createServerFn({ method: "POST" })
     const { generateText } = await import("ai");
     const { resolveChatModel, COACH_SYSTEM_PROMPT } = await import("./ai-gateway.server");
     const result = await generateText({
-      model: resolveChatModel(access.anthropicKey),
+      model: resolveChatModel(),
       system: COACH_SYSTEM_PROMPT,
       prompt: `Write the weekly training summary for ${(payload.athlete as any).name ?? "this athlete"}. Cover: training load trend, readiness, key sessions, fatigue or vitals concerns, and one focus area for next week. Keep it under 250 words. Data:\n${JSON.stringify(payload)}`,
     });
@@ -243,7 +252,7 @@ export const generateDailyAthleteNote = createServerFn({ method: "POST" })
     const { generateText } = await import("ai");
     const { resolveChatModel, COACH_SYSTEM_PROMPT } = await import("./ai-gateway.server");
     const r = await generateText({
-      model: resolveChatModel(access.anthropicKey),
+      model: resolveChatModel(),
       system: COACH_SYSTEM_PROMPT,
       prompt: `Write a short (≤120 words) friendly daily reflection for the athlete based on their vitals and recent training. Focus on readiness, one positive trend, and one watch-out. Data:\n${JSON.stringify(payload)}`,
     });
@@ -265,7 +274,7 @@ export const generateSessionNote = createServerFn({ method: "POST" })
     const { generateText } = await import("ai");
     const { resolveChatModel, COACH_SYSTEM_PROMPT } = await import("./ai-gateway.server");
     const r = await generateText({
-      model: resolveChatModel(access.anthropicKey),
+      model: resolveChatModel(),
       system: COACH_SYSTEM_PROMPT,
       prompt: `Write a short (≤100 words) reflection on this completed session. Be specific. Session: ${JSON.stringify(sess)}. Athlete feel: ${JSON.stringify(insight ?? {})}.`,
     });
@@ -335,7 +344,7 @@ export const coachChatSend = createServerFn({ method: "POST" })
     const { resolveChatModel, COACH_SYSTEM_PROMPT } = await import("./ai-gateway.server");
     const sys = COACH_SYSTEM_PROMPT + (payload ? `\n\nAthlete data:\n${JSON.stringify(payload)}` : "");
     const r = await generateText({
-      model: resolveChatModel(access.anthropicKey),
+      model: resolveChatModel(),
       system: sys,
       messages: (history ?? []).map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
     });
