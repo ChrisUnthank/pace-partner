@@ -1,5 +1,4 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { createAnthropic } from "@ai-sdk/anthropic";
 
 const LOVABLE_AIG_RUN_ID_HEADER = "X-Lovable-AIG-Run-ID";
 
@@ -61,15 +60,17 @@ Style rules:
 - Never recommend medical action; flag concerning patterns and suggest the athlete consult a clinician.`;
 
 /**
- * Resolve a chat model. If the user has supplied their own Anthropic API key
- * (athlete BYO key), route directly through Anthropic so usage is billed to
- * them. Otherwise fall back to the Lovable AI Gateway (coach default).
+ * Resolve the chat model. Every AI call in the app — coach or athlete —
+ * now routes through the Lovable AI Gateway (paid by the app, gated by
+ * daily quota + the athlete subscription flag upstream in ai.functions.ts).
+ *
+ * Previously this branched to a direct Anthropic call when an athlete
+ * had supplied their own API key (BYO key). That path has been removed:
+ * athletes get the same gateway access as coaches now, subject to
+ * ai_subscription_active on their profile. See CHANGELOG for the
+ * BYO-key removal.
  */
-export function resolveChatModel(userAnthropicKey: string | null | undefined) {
-  if (userAnthropicKey && userAnthropicKey.trim()) {
-    const anthropic = createAnthropic({ apiKey: userAnthropicKey.trim() });
-    return anthropic("claude-3-5-sonnet-latest");
-  }
+export function resolveChatModel() {
   const gateway = createLovableAiGatewayProvider(process.env.LOVABLE_API_KEY!);
   return gateway("google/gemini-2.5-pro");
 }
