@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Activity } from "lucide-react";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
+import { isImperial } from "@/lib/format";
 
 // Reads get_athlete_biomechanics_trend() (see
 // supabase/migrations/20260801000004_athlete_biomechanics_trend.sql) —
@@ -80,8 +81,17 @@ export function BiomechanicsTrendCard({ athleteId }: { athleteId: string }) {
   const chronological = [...(rows ?? [])].reverse();
 
   const cadenceData = chronological.map((r) => ({ label: dayLabel(r.session_date), value: r.avg_cadence != null ? Math.round(r.avg_cadence) : null }));
-  const strideData = chronological.map((r) => ({ label: dayLabel(r.session_date), value: r.stride_length_m != null ? Number(r.stride_length_m.toFixed(2)) : null }));
-  const voData = chronological.map((r) => ({ label: dayLabel(r.session_date), value: r.avg_vo_cm != null ? Number(r.avg_vo_cm.toFixed(1)) : null }));
+  const imperial = isImperial();
+  const strideUnit = imperial ? " ft" : " m";
+  const voUnit = imperial ? " in" : " cm";
+  const strideData = chronological.map((r) => ({
+    label: dayLabel(r.session_date),
+    value: r.stride_length_m != null ? Number((imperial ? r.stride_length_m * 3.28084 : r.stride_length_m).toFixed(2)) : null,
+  }));
+  const voData = chronological.map((r) => ({
+    label: dayLabel(r.session_date),
+    value: r.avg_vo_cm != null ? Number((imperial ? r.avg_vo_cm * 0.393701 : r.avg_vo_cm).toFixed(1)) : null,
+  }));
   const gctData = chronological.map((r) => ({ label: dayLabel(r.session_date), value: r.avg_gct_ms != null ? Math.round(r.avg_gct_ms) : null }));
   const hrDriftData = chronological.map((r) => ({ label: dayLabel(r.session_date), value: r.hr_drift_bpm != null ? Number(r.hr_drift_bpm.toFixed(1)) : null }));
 
@@ -119,12 +129,12 @@ export function BiomechanicsTrendCard({ athleteId }: { athleteId: string }) {
               <MiniTrendChart data={cadenceData} dataKey="Cadence" unit=" spm" color="#8b5cf6" />
             </div>
             <div>
-              <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1">Stride length (m)</div>
-              <MiniTrendChart data={strideData} dataKey="Stride" unit=" m" color="#3b82f6" />
+              <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1">Stride length ({imperial ? "ft" : "m"})</div>
+              <MiniTrendChart data={strideData} dataKey="Stride" unit={strideUnit} color="#3b82f6" />
             </div>
             <div>
-              <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1">Vertical oscillation (cm)</div>
-              <MiniTrendChart data={voData} dataKey="VO" unit=" cm" color="#f97316" />
+              <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1">Vertical oscillation ({imperial ? "in" : "cm"})</div>
+              <MiniTrendChart data={voData} dataKey="VO" unit={voUnit} color="#f97316" />
             </div>
             <div>
               <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1">Ground contact time (ms)</div>
