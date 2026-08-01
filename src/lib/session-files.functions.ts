@@ -180,6 +180,7 @@ type ParsedPoint = {
   stride_length_m?: number | null;
   vertical_oscillation_cm?: number | null;
   ground_contact_time_ms?: number | null;
+  gct_balance_pct?: number | null;
   temperature_c?: number | null;
 };
 
@@ -292,6 +293,7 @@ function parseGPX(xml: string): ParsedFile {
       pace_sec_per_km: pace ?? null,
       vertical_oscillation_cm: null,
       ground_contact_time_ms: null,
+      gct_balance_pct: null,
       temperature_c: null,
     };
   });
@@ -359,6 +361,7 @@ async function parseFIT(buffer: ArrayBuffer): Promise<ParsedFile> {
           stride_length_m: speed && cadence ? speed / (cadence / 60) : null,
           vertical_oscillation_cm: r.vertical_oscillation ?? r.vertical_oscillation_mm ?? null,
           ground_contact_time_ms: r.stance_time ?? r.ground_contact_time ?? null,
+          gct_balance_pct: r.stance_time_balance ?? null,
           temperature_c: r.temperature ?? null,
         };
       });
@@ -1427,6 +1430,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
         elevation_m: p.elevation_m ?? null,
         vertical_oscillation_cm: p.vertical_oscillation_cm ?? null,
         ground_contact_time_ms: p.ground_contact_time_ms ?? null,
+        gct_balance_pct: p.gct_balance_pct ?? null,
         temperature_c: p.temperature_c ?? null,
       }));
 
@@ -1535,6 +1539,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
       elevation_m: p.elevation_m ?? null,
       vertical_oscillation_cm: p.vertical_oscillation_cm ?? null,
       ground_contact_time_ms: p.ground_contact_time_ms ?? null,
+      gct_balance_pct: p.gct_balance_pct ?? null,
       temperature_c: p.temperature_c ?? null,
     }));
 
