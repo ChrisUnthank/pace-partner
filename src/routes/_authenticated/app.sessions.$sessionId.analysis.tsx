@@ -57,6 +57,8 @@ type Sample = {
   elev?: number;
   vo?: number;
   gct?: number;
+  stride?: number;
+  verticalRatio?: number;
   lat?: number;
   lng?: number;
   stepId: string;
@@ -89,6 +91,8 @@ const METRICS = [
   { key: "elev", label: "Elevation", color: "#10b981", unit: "m", axis: "rightInner" as const },
   { key: "vo", label: "Vert Osc", color: "#f97316", unit: "cm", axis: "leftInner" as const },
   { key: "gct", label: "Gnd Contact", color: "#ec4899", unit: "ms", axis: "rightInner" as const },
+  { key: "stride", label: "Stride Length", color: "#14b8a6", unit: "m", axis: "leftInner" as const },
+  { key: "verticalRatio", label: "Vert Ratio", color: "#eab308", unit: "%", axis: "rightInner" as const },
 ] as const;
 
 const SCOPE_OPTIONS: ScopeKey[] = ["full", "warmup", "work", "recovery", "cooldown", "strides"];
@@ -117,6 +121,8 @@ function SessionAnalysis() {
     elev: false,
     vo: false,
     gct: false,
+    stride: false,
+    verticalRatio: false,
   });
 
   const [xMode, setXMode] = useState<"time" | "distance">("distance");
@@ -409,6 +415,8 @@ function SessionAnalysis() {
       elev: s.elev ?? null,
       vo: s.vo ?? null,
       gct: s.gct ?? null,
+      stride: s.stride ?? null,
+      verticalRatio: s.verticalRatio ?? null,
     }));
   }, [visibleSamples, xKey, speedMode]);
 
@@ -687,6 +695,22 @@ function SessionAnalysis() {
                       tick={{ fontSize: 11 }}
                       width={36}
                     />
+                    <YAxis
+                      yAxisId="stride"
+                      orientation="left"
+                      hide={!enabled.stride || !hasMetric.stride}
+                      tick={{ fontSize: 11 }}
+                      width={32}
+                      tickFormatter={(v) => `${Number(v).toFixed(1)}`}
+                    />
+                    <YAxis
+                      yAxisId="verticalRatio"
+                      orientation="right"
+                      hide={!enabled.verticalRatio || !hasMetric.verticalRatio}
+                      tick={{ fontSize: 11 }}
+                      width={32}
+                      tickFormatter={(v) => `${Number(v).toFixed(1)}`}
+                    />
 
                     <Tooltip
                       labelFormatter={(v) => (xKey === "t" ? secToClock(Number(v)) : metersFmt(Number(v)))}
@@ -701,6 +725,8 @@ function SessionAnalysis() {
                         if (n === "elev") return [`${Math.round(Number(v))} m`, "Elevation"];
                         if (n === "vo") return [`${Number(v).toFixed(1)} cm`, "Vert Osc"];
                         if (n === "gct") return [`${Math.round(Number(v))} ms`, "Gnd Contact"];
+                        if (n === "stride") return [`${Number(v).toFixed(2)} m`, "Stride Length"];
+                        if (n === "verticalRatio") return [`${Number(v).toFixed(1)}%`, "Vert Ratio"];
                         return [v, n];
                       }}
                     />
@@ -791,6 +817,32 @@ function SessionAnalysis() {
                         yAxisId="gct"
                         dataKey="gct"
                         stroke="#ec4899"
+                        dot={false}
+                        type="monotone"
+                        connectNulls={false}
+                        strokeWidth={1.5}
+                        isAnimationActive={false}
+                      />
+                    )}
+
+                    {enabled.stride && hasMetric.stride && (
+                      <Line
+                        yAxisId="stride"
+                        dataKey="stride"
+                        stroke="#14b8a6"
+                        dot={false}
+                        type="monotone"
+                        connectNulls={false}
+                        strokeWidth={1.5}
+                        isAnimationActive={false}
+                      />
+                    )}
+
+                    {enabled.verticalRatio && hasMetric.verticalRatio && (
+                      <Line
+                        yAxisId="verticalRatio"
+                        dataKey="verticalRatio"
+                        stroke="#eab308"
                         dot={false}
                         type="monotone"
                         connectNulls={false}
@@ -1924,6 +1976,8 @@ function buildSamples(
     elev: false,
     vo: false,
     gct: false,
+    stride: false,
+    verticalRatio: false,
   };
 
   if (Array.isArray(rawPoints) && rawPoints.length > 10) {
@@ -1977,17 +2031,42 @@ function buildSamples(
         normalizedKind = "work";
       }
 
+      // Stride length and Vertical Ratio derived per-point from the
+      // SAME smoothed pace_sec_per_km field already used for the Pace
+      // line above, not from raw point-to-point GPS distance/time
+      // deltas (segmentDistance/segmentDuration) — those are noisy at
+      // typical GPS sampling intervals and would make stride length
+      // spike wildly point-to-point. Same formula convention as
+      // computeStrideLengthM() elsewhere in the app: stride (m) =
+      // speed (m/min) / cadence (spm). Vertical Ratio (%) = VO (cm) /
+      // stride (m) — same units-cancel shortcut Garmin's own metric
+      // uses (VO in mm over stride in mm, ×100, reduces to cm/m
+      // directly). Both capped to sane bounds rather than showing a
+      // divide-by-near-zero spike.
+      const pointCadence = p.cadence != null ? Number(p.cadence) : undefined;
+      const pointStrideM =
+        rawPace != null && rawPace > 0 && pointCadence != null && pointCadence > 0
+          ? (1000 / rawPace) * (60 / pointCadence)
+          : undefined;
+      const strideForRatio = pointStrideM != null && pointStrideM > 0 && pointStrideM <= 5 ? pointStrideM : undefined;
+      const pointVoCm = normalizeVO(p.vertical_oscillation_cm) ?? undefined;
+
       const s: Sample = {
         t: currentT,
         d: currentD,
         hr: p.hr != null ? Number(p.hr) : undefined,
         pace: rawPace != null && rawPace <= 600 ? rawPace : undefined,
-        cadence: p.cadence != null ? Number(p.cadence) : undefined,
+        cadence: pointCadence,
         elev: p.elevation_m != null ? Number(p.elevation_m) : undefined,
-        vo: normalizeVO(p.vertical_oscillation_cm) ?? undefined,
+        vo: pointVoCm,
         gct:
           p.ground_contact_time_ms != null && Number(p.ground_contact_time_ms) > 0
             ? Number(p.ground_contact_time_ms)
+            : undefined,
+        stride: strideForRatio,
+        verticalRatio:
+          pointVoCm != null && strideForRatio != null && pointVoCm / strideForRatio <= 30
+            ? Number((pointVoCm / strideForRatio).toFixed(2))
             : undefined,
         lat: p.lat != null ? Number(p.lat) : undefined,
         lng: p.lng != null ? Number(p.lng) : undefined,
@@ -2002,6 +2081,8 @@ function buildSamples(
       if (s.hr != null) has.hr = true;
       if (s.pace != null) has.pace = true;
       if (s.cadence != null) has.cadence = true;
+      if (s.stride != null) has.stride = true;
+      if (s.verticalRatio != null) has.verticalRatio = true;
       if (s.elev != null) has.elev = true;
       if (s.vo != null) has.vo = true;
       if (s.gct != null) has.gct = true;
