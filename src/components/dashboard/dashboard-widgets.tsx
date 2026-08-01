@@ -12,6 +12,8 @@ import { ReadinessBadge } from "@/components/readiness-badge";
 import { DashboardAlertsList } from "@/components/dashboard-alerts-panel";
 import { UserAvatar } from "@/components/user-avatar";
 import { RecentReviewsCard } from "@/components/recent-reviews-card";
+import { CoachChat } from "@/components/coach-chat";
+import { GenerateReviewCard } from "@/components/generate-review-card";
 import { AthleteSummaryPanel } from "@/components/athlete-summary-panel";
 import { YearlyLoadStrip } from "@/components/yearly-load-strip";
 import { ActivityIcon } from "@/lib/activity-icon";
@@ -940,4 +942,19 @@ export function AthleteRecentNoticesWidget({ athleteId }: { athleteId: string })
       </CardContent>
     </Card>
   );
+}
+
+// AI Coach chat + AI Reviews — athlete's own self-service versions of
+// what a coach already sees on the athlete detail page. Both underlying
+// components (CoachChat, GenerateReviewCard) take only an athleteId and
+// were already written generically enough to work unmodified here — no
+// athlete-specific branching needed inside either component, and no RLS
+// changes needed (chat-thread and review policies already permit a user
+// acting on an athleteId that resolves to their own athletes.user_id).
+export function AthleteAiCoachWidget({ athleteId }: { athleteId: string }) {
+  return <CoachChat athleteId={athleteId} />;
+}
+
+export function AthleteAiReviewsWidget({ athleteId }: { athleteId: string }) {
+  return <GenerateReviewCard athleteId={athleteId} />;
 }
