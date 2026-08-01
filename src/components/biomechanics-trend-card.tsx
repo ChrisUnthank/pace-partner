@@ -8,9 +8,9 @@ import { isImperial } from "@/lib/format";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 // Reads get_athlete_biomechanics_trend() (see
-// supabase/migrations/20260801000010_biomechanics_filters.sql) — one
-// row per recent running session. Deliberately running-only; form
-// metrics from a bike/gym/swim session wouldn't mean the same thing.
+// supabase/migrations/20260801000015_gct_balance_output.sql) — one row
+// per recent running session. Deliberately running-only; form metrics
+// from a bike/gym/swim session wouldn't mean the same thing.
 //
 // Two filter dimensions:
 // - Session type (client-side): which SESSIONS are shown, filtered from
@@ -21,10 +21,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 //   what the database computes (a different points subset), so it goes
 //   back to the server rather than being filtered client-side.
 //
-// Left/right ground-contact balance from the original Biomechanics
-// "coming soon" copy is NOT included — no device data captures L/R
-// split anywhere in the pipeline (raw_session_points has no such
-// column), so there's nothing real to show. Flagged rather than faked.
+// Left/right ground-contact balance IS now captured (gct_balance_pct) —
+// the fit-file-parser library already exposed `stance_time_balance`,
+// the ingest pipeline just hadn't read it before. Per the FIT protocol
+// convention, this is the RIGHT foot's share of ground contact time:
+// >50% = more time on the right, <50% = more time on the left. Only
+// populates for devices/pods that actually report it (Garmin HRM-Pro,
+// Running Dynamics Pod, etc.) — historical sessions won't retroactively
+// have it, only newly uploaded files going forward.
 
 type TrendRow = {
   session_id: string;
@@ -36,6 +40,7 @@ type TrendRow = {
   avg_vo_cm: number | null;
   vo_drift_cm: number | null;
   avg_gct_ms: number | null;
+  gct_balance_pct: number | null;
   hr_drift_bpm: number | null;
 };
 
@@ -143,6 +148,14 @@ export function BiomechanicsTrendCard({ athleteId }: { athleteId: string }) {
   }));
   const gctData = chronological.map((r) => ({ label: dayLabel(r.session_date), value: r.avg_gct_ms != null ? Math.round(r.avg_gct_ms) : null }));
   const hrDriftData = chronological.map((r) => ({ label: dayLabel(r.session_date), value: r.hr_drift_bpm != null ? Number(r.hr_drift_bpm.toFixed(1)) : null }));
+  // Right foot's % share, converted to a signed deviation from 50/50 —
+  // reads more naturally on a trend chart than a 45-55 band would (a
+  // flat line at 0 = balanced; positive = more time on the right).
+  const balanceData = chronological.map((r) => ({
+    label: dayLabel(r.session_date),
+    value: r.gct_balance_pct != null ? Number((r.gct_balance_pct - 50).toFixed(1)) : null,
+  }));
+  const hasAnyBalance = (rows ?? []).some((r) => r.gct_balance_pct != null);
 
   const hasAny = filteredRows.length > 0;
 
@@ -156,8 +169,8 @@ export function BiomechanicsTrendCard({ athleteId }: { athleteId: string }) {
               Running Dynamics
             </CardTitle>
             <CardDescription>
-              Cadence, stride length, vertical oscillation, ground contact time, and HR drift across the last 40
-              running sessions.
+              Cadence, stride length, vertical oscillation, ground contact time, HR drift, and left/right balance
+              across the last 40 running sessions.
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
@@ -222,6 +235,19 @@ export function BiomechanicsTrendCard({ athleteId }: { athleteId: string }) {
             <div>
               <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1">HR drift (bpm)</div>
               <MiniTrendChart data={hrDriftData} dataKey="HR drift" unit=" bpm" color="#ef4444" />
+            </div>
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1">
+                L/R Balance (deviation from 50/50, + = more right)
+              </div>
+              {hasAnyBalance ? (
+                <MiniTrendChart data={balanceData} dataKey="Balance" unit="%" color="#06b6d4" />
+              ) : (
+                <p className="text-xs text-muted-foreground py-6 text-center">
+                  No device in this range reports left/right balance — needs a Garmin HRM-Pro, Running Dynamics Pod,
+                  or similar.
+                </p>
+              )}
             </div>
           </div>
         )}
