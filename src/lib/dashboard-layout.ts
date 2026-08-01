@@ -46,8 +46,15 @@ export type WidgetDef = {
   label: string;
   description: string;
   icon: any;
-  // Column span out of the dashboard's 2-column grid.
-  span: 1 | 2;
+  // Column span out of the dashboard's 3-column grid (was 2-column —
+  // widened so Training Load / Activity Snapshot can run 2/3-width
+  // alongside a narrower 1/3 Calendar).
+  span: 1 | 2 | 3;
+  // Row span — currently only used by the Calendar widget, which is
+  // deliberately tall (1/3 width, 2 rows) to visually match the combined
+  // height of two 2/3-width widgets stacked beside it. Optional/absent
+  // means 1 (every existing widget's implicit height before this).
+  rowSpan?: 1 | 2;
   defaultVisible: boolean;
 };
 
@@ -62,7 +69,7 @@ export const COACH_WIDGETS: WidgetDef[] = [
     label: "Quick actions",
     description: "Calendar and Analytics shortcuts.",
     icon: CalendarRange,
-    span: 2,
+    span: 3,
     defaultVisible: true,
   },
   // Was "Quick tiles" (Messages/Noticeboard/Athletes/Health & Vitals) —
@@ -77,7 +84,7 @@ export const COACH_WIDGETS: WidgetDef[] = [
     label: "Community",
     description: "Messages, Noticeboard, Group Chat, and your Coach Profile page.",
     icon: MessageSquare,
-    span: 2,
+    span: 3,
     defaultVisible: true,
   },
   {
@@ -104,7 +111,7 @@ export const COACH_WIDGETS: WidgetDef[] = [
     label: "Your athletes",
     description: "Roster list with a quick-look summary on click.",
     icon: Users,
-    span: 2,
+    span: 3,
     defaultVisible: true,
   },
   // Combines the old separate "Squad readiness" and "Needs attention"
@@ -118,7 +125,7 @@ export const COACH_WIDGETS: WidgetDef[] = [
     label: "Coaching Insights",
     description: "Squad readiness and flagged athletes worth a look, together in one card.",
     icon: Sparkles,
-    span: 2,
+    span: 3,
     defaultVisible: true,
   },
   {
@@ -153,6 +160,23 @@ export const ATHLETE_WIDGETS: WidgetDef[] = [
     span: 2,
     defaultVisible: true,
   },
+  // Order matters here, not just span/rowSpan — with the grid's dense
+  // auto-flow (see dashboard-grid.tsx), placing this 1/3-width,
+  // 2-row-tall widget immediately after the first 2/3-width widget
+  // (Year at a glance) is what makes it land beside BOTH that widget
+  // and Activity Snapshot below it, forming a clean 2/3 + 1/3 block
+  // rather than falling into a random later slot. Moving this entry
+  // elsewhere in the array will change where it visually lands.
+  {
+    id: "athlete_mini_calendar",
+    role: "athlete",
+    label: "Calendar",
+    description: "A small month view of your training calendar.",
+    icon: CalendarRange,
+    span: 1,
+    rowSpan: 2,
+    defaultVisible: true,
+  },
   {
     id: "athlete_today",
     role: "athlete",
@@ -180,13 +204,16 @@ export const ATHLETE_WIDGETS: WidgetDef[] = [
     span: 1,
     defaultVisible: true,
   },
+  // Was full-width in the old 2-column grid (span:2 of 2 = 100%) — bumped
+  // to span:3 (of 3) here to keep that same "always full width" intent,
+  // rather than 2/3 which would leave an awkward empty 1/3 gap.
   {
     id: "athlete_quick_tiles",
     role: "athlete",
     label: "Quick tiles",
     description: "Daily Log, Sessions, Health, Locker, Noticeboard, Messages.",
     icon: ClipboardList,
-    span: 2,
+    span: 3,
     defaultVisible: true,
   },
   {
@@ -205,15 +232,6 @@ export const ATHLETE_WIDGETS: WidgetDef[] = [
     description: "Last 4 weeks — total activities, active days, and time per sport.",
     icon: Activity,
     span: 2,
-    defaultVisible: true,
-  },
-  {
-    id: "athlete_mini_calendar",
-    role: "athlete",
-    label: "Calendar",
-    description: "A small month view of your training calendar.",
-    icon: CalendarRange,
-    span: 1,
     defaultVisible: true,
   },
 ];
