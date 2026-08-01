@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
+import { requireAi } from "./ai.functions";
 
 // Phase 12 — AI-Assisted Race Strategy.
 //
@@ -21,40 +22,10 @@ import { z } from "zod";
 // successfully — asking explicitly for JSON, then parsing/normalizing/
 // validating that text with a deliberately lenient zod schema below.
 //
-// resolveAiAccess/consumeQuotaOrThrow/requireAi in ai.functions.ts aren't
-// exported, so the same logic is duplicated here rather than guess-editing
-// that file — same RPC, same limits, so quota still stays unified across
-// every AI feature in the app.
-
-async function resolveAiAccess(sb: any, userId: string) {
-  const { data: roles } = await sb.from("user_roles").select("role").eq("user_id", userId);
-  const roleList = (roles ?? []).map((r: any) => r.role);
-  const isCoach = roleList.includes("coach") || roleList.includes("manager");
-  if (isCoach) return { allowed: true as const, role: "coach" as const, limit: 20 };
-
-  const isAthlete = roleList.includes("athlete");
-  if (!isAthlete) return { allowed: false as const, reason: "no_role" as const };
-
-  const { data: prof } = await sb.from("profiles").select("ai_subscription_active").eq("id", userId).maybeSingle();
-  if (prof?.ai_subscription_active) return { allowed: true as const, role: "athlete" as const, limit: 10 };
-
-  return { allowed: false as const, reason: "subscription_required" as const };
-}
-
-async function requireAi(sb: any, userId: string) {
-  const access = await resolveAiAccess(sb, userId);
-  if (!access.allowed) {
-    throw new Error(
-      access.reason === "subscription_required"
-        ? "AI requires an active subscription on your account."
-        : "AI is not available for your account.",
-    );
-  }
-  const { data: quotaOk, error } = await sb.rpc("ai_consume_quota", { _user_id: userId, _limit: access.limit });
-  if (error) throw new Error(error.message);
-  if (quotaOk === false) throw new Error(`Daily AI limit reached (${access.limit} calls). Try again tomorrow.`);
-  return access;
-}
+// resolveAiAccess/consumeQuotaOrThrow are still not exported from
+// ai.functions.ts (kept internal there), but requireAi now is — imported
+// above instead of duplicated, so quota/subscription logic lives in
+// exactly one place across every AI feature in the app.
 
 const STRATEGY_ENUM = ["even_pace", "negative_split", "positive_split", "fast_start", "controlled_start"] as const;
 type StrategyValue = (typeof STRATEGY_ENUM)[number];
