@@ -37,7 +37,8 @@ export type DashboardWidgetId =
   | "athlete_next_session"
   | "athlete_quick_tiles"
   | "athlete_recent_notices"
-  | "athlete_activity_snapshot";
+  | "athlete_activity_snapshot"
+  | "athlete_mini_calendar";
 
 export type WidgetDef = {
   id: DashboardWidgetId;
@@ -204,6 +205,15 @@ export const ATHLETE_WIDGETS: WidgetDef[] = [
     description: "Last 4 weeks — total activities, active days, and time per sport.",
     icon: Activity,
     span: 2,
+    defaultVisible: true,
+  },
+  {
+    id: "athlete_mini_calendar",
+    role: "athlete",
+    label: "Calendar",
+    description: "A small month view of your training calendar.",
+    icon: CalendarRange,
+    span: 1,
     defaultVisible: true,
   },
 ];
