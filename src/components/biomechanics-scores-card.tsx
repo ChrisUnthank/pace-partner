@@ -6,52 +6,78 @@ import { Gauge } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 // Reads get_athlete_biomechanics_trend() (see
-// supabase/migrations/20260801000012_biomechanics_level_tiers_and_ve.sql)
-// — MEI, Vertical Efficiency, Rhythm Score, Biomechanical Score,
-// Biomechanical Fatigue, and Overall Economy Rating. Scored against the
-// athlete's own mechanics_level tier (recreational/competitive/elite —
-// coach-set on the athletes table) blended with their recent history for
-// that workout type. Biomechanical Fatigue is deliberately a SEPARATE
-// score from session_fatigue.efficiency_score (already surfaced
-// elsewhere as "Best efficiency score") — a biomechanics-specific
-// fatigue read (GCT/VO/cadence drift), not a replacement for the
-// existing pace/HR one.
+// supabase/migrations/20260801000019_biomechanics_hierarchy_rebuild.sql)
+// — a genuine three-level hierarchy per direct design feedback:
 //
-// Vertical Oscillation is shown as a measured input (raw value), not a
-// standalone 0-100 score — Vertical Efficiency (stride ÷ VO) is the
-// actual performance metric, per direct feedback: penalizing raw VO in
-// isolation unfairly dings naturally longer-strided (often faster)
-// athletes, since longer stride normally comes with somewhat higher VO.
+// Level 1 (raw, never scored): avg_cadence, stride_length_m, avg_vo_cm,
+//   avg_gct_ms, gct_balance_pct — just measurements, shown as-is below.
+// Level 2 (derived, scored): MEI, Vertical Efficiency, Rhythm & Timing,
+//   Mechanical Stability, Mechanical Fatigue.
+// Level 3 (summary): Biomechanical Score = 40% MEI + 25% Stability +
+//   20% Fatigue + 15% Rhythm — composed from the LEVEL 2 SCORES, not the
+//   same raw sub-metrics MEI already consumes (the old version
+//   double-counted GCT/VO/stride/cadence in two different composites —
+//   this is the actual fix for that).
 //
-// "Overall" vs "Last session" — Overall averages every valid score
-// across the fetched window (up to 40 sessions); Last session is just
-// the most recent qualifying one. Both read from the same already-
-// fetched rows, no extra round trip for the toggle.
+// MEI itself was also rebuilt: previously three independently-weighted
+// sub-scores (GCT/VO/stride), which couldn't recognize that a longer
+// stride can justify a slightly worse GCT. Now a single unified ratio
+// (stride / (GCT * VO)) scored as one thing — verified against a direct
+// counter-example before shipping (GCT 210/VO 8/stride 1.60 vs GCT
+// 220/VO 8/stride 1.90 — the second profile now correctly scores
+// higher, which the old formula couldn't guarantee).
+//
+// Overall Economy Rating = Biomechanical Score directly now, not a
+// separate average of MEI + Biomechanical + Fatigue — that old formula
+// double-counted MEI and Fatigue once directly and again via their
+// share of Biomechanical Score. Both are still shown as separate tiles
+// below since a coach may expect to see both, but they're currently the
+// same number by design, not a bug — flagged explicitly in the UI
+// rather than silently showing two identical numbers with no
+// explanation.
+//
+// Mechanical Stability is genuinely new — GCT + VO consistency across
+// the whole session, deliberately distinct from Rhythm & Timing
+// (cadence + stride consistency, the "beat") and from Fatigue
+// (directional drift start-to-end, not overall variability). This is
+// my own definition, not something fully specified — worth treating as
+// the most provisional of these scores until checked against real
+// sessions.
+//
+// Label system: Excellent / Very Good / Developing / Session-Specific,
+// replacing Excellent/Good/Fair/Needs work — per direct feedback that
+// "Fair" or "Needs work" reads as a fixed ability judgment when a score
+// might just reflect session context (a tall athlete, a threshold
+// session, wind, a hill) rather than genuine inefficiency.
 
 type ScoreRow = {
   session_id: string;
   session_date: string;
   session_title: string | null;
   workout_type: string | null;
+  avg_cadence: number | null;
+  stride_length_m: number | null;
   avg_vo_cm: number | null;
   vo_drift_cm: number | null;
+  avg_gct_ms: number | null;
   gct_balance_pct: number | null;
   mei_score: number | null;
   vertical_efficiency_score: number | null;
   rhythm_score: number | null;
+  mechanical_stability_score: number | null;
   biomechanical_score: number | null;
   biomechanical_fatigue_score: number | null;
   overall_economy_score: number | null;
 };
 
-type Band = { label: string; className: string };
+type Band = { label: string; className: string; emoji: string };
 
 function bandFor(score: number | null): Band | null {
   if (score == null) return null;
-  if (score >= 85) return { label: "Excellent", className: "text-emerald-600" };
-  if (score >= 70) return { label: "Good", className: "text-sky-600" };
-  if (score >= 50) return { label: "Fair", className: "text-amber-600" };
-  return { label: "Needs work", className: "text-rose-600" };
+  if (score >= 85) return { label: "Excellent", className: "text-emerald-600", emoji: "🟢" };
+  if (score >= 70) return { label: "Very Good", className: "text-emerald-600", emoji: "🟢" };
+  if (score >= 50) return { label: "Developing", className: "text-amber-600", emoji: "🟡" };
+  return { label: "Session-Specific", className: "text-amber-600", emoji: "🟡" };
 }
 
 function average(values: (number | null)[]): number | null {
@@ -83,7 +109,9 @@ function ScoreTile({
             <span className="font-display text-3xl font-extrabold tabular-nums">{Math.round(score)}</span>
             <span className="text-sm text-muted-foreground">/100</span>
           </div>
-          <div className={`text-xs font-medium ${band?.className}`}>{band?.label}</div>
+          <div className={`text-xs font-medium ${band?.className}`}>
+            {band?.emoji} {band?.label}
+          </div>
           {delta != null && Math.abs(delta) >= 1 && (
             <div className={`text-xs mt-1 ${delta > 0 ? "text-emerald-600" : "text-rose-600"}`}>
               {delta > 0 ? "▲" : "▼"} {Math.abs(Math.round(delta))} vs. previous
@@ -103,7 +131,7 @@ function HeadlineScore({ score, delta, label }: { score: number | null; delta: n
       <div className="rounded-lg border bg-accent/30 p-5 text-center">
         <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Overall Economy Rating</div>
         <div className="text-sm text-muted-foreground mt-2">
-          Needs MEI, Biomechanical Score, and Biomechanical Fatigue all available
+          Needs MEI, Stability, Fatigue, and Rhythm all available for the same session
         </div>
       </div>
     );
@@ -112,45 +140,82 @@ function HeadlineScore({ score, delta, label }: { score: number | null; delta: n
     <div className="rounded-lg border bg-accent/30 p-5 text-center">
       <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Overall Economy Rating — {label}</div>
       <div className="font-display text-5xl font-extrabold tabular-nums mt-1">{Math.round(score)}</div>
-      <div className={`text-sm font-medium ${band?.className}`}>{band?.label}</div>
+      <div className={`text-sm font-medium ${band?.className}`}>
+        {band?.emoji} {band?.label}
+      </div>
       {delta != null && Math.abs(delta) >= 1 && (
         <div className={`text-xs mt-1 ${delta > 0 ? "text-emerald-600" : "text-rose-600"}`}>
           {delta > 0 ? "▲" : "▼"} {Math.abs(Math.round(delta))} vs. previous
         </div>
       )}
-      <div className="text-[10px] text-muted-foreground mt-2">Average of MEI, Biomechanical Score, and Biomechanical Fatigue.</div>
+      <div className="text-[10px] text-muted-foreground mt-2">
+        Currently the same number as Biomechanical Score below, by design — see the note under Biomechanical Score.
+      </div>
     </div>
   );
 }
 
-// "Vertical Oscillation: 7.8 cm (Excellent for threshold pace)" style
-// panel — raw measured value with a qualitative read, plus VO Drift, per
-// direct feedback that VO itself shouldn't be flattened into a single
-// score.
-function VerticalOscillationPanel({ voCm, driftCm, veScore }: { voCm: number | null; driftCm: number | null; veScore: number | null }) {
-  if (voCm == null) return null;
+// Level 1 raw measurements — never scored, shown as plain numbers, per
+// direct design feedback (Garmin-style: report Vertical Oscillation and
+// Ground Contact Balance, don't force a score onto them).
+function RawMeasurementsPanel({
+  voCm,
+  driftCm,
+  veScore,
+  gctMs,
+  gctBalancePct,
+}: {
+  voCm: number | null;
+  driftCm: number | null;
+  veScore: number | null;
+  gctMs: number | null;
+  gctBalancePct: number | null;
+}) {
+  if (voCm == null && gctMs == null) return null;
   const veBand = bandFor(veScore);
   return (
-    <div className="border rounded-lg p-4 sm:col-span-2 lg:col-span-4">
-      <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Vertical Oscillation</div>
+    <div className="border rounded-lg p-4 sm:col-span-2 lg:col-span-3">
+      <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
+        Raw Measurements (not scored)
+      </div>
       <div className="grid sm:grid-cols-3 gap-4">
-        <div>
-          <div className="text-2xl font-bold tabular-nums">{voCm.toFixed(1)} cm</div>
-          <div className="text-xs text-muted-foreground">Measured — not scored on its own</div>
-        </div>
+        {gctMs != null && (
+          <div>
+            <div className="text-2xl font-bold tabular-nums">{Math.round(gctMs)} ms</div>
+            <div className="text-xs text-muted-foreground">
+              Ground Contact Time
+              {gctBalancePct != null && (
+                <>
+                  {" · "}
+                  {gctBalancePct > 50
+                    ? `${(gctBalancePct - 50).toFixed(1)}% more time on right foot`
+                    : gctBalancePct < 50
+                      ? `${(50 - gctBalancePct).toFixed(1)}% more time on left foot`
+                      : "perfectly balanced L/R"}
+                </>
+              )}
+            </div>
+          </div>
+        )}
+        {voCm != null && (
+          <div>
+            <div className="text-2xl font-bold tabular-nums">{voCm.toFixed(1)} cm</div>
+            <div className="text-xs text-muted-foreground">
+              Vertical Oscillation
+              {driftCm != null && (
+                <> · drift {driftCm > 0 ? "+" : ""}{driftCm.toFixed(1)} cm (first-fifth vs. last-fifth)</>
+              )}
+            </div>
+          </div>
+        )}
         <div>
           <div className={`text-2xl font-bold tabular-nums ${veBand?.className ?? ""}`}>
             {veScore != null ? `${Math.round(veScore)}/100` : "—"}
           </div>
           <div className="text-xs text-muted-foreground">
-            Vertical Efficiency{veBand ? ` — ${veBand.label}` : ""}: forward motion per unit of bounce
+            Vertical Efficiency{veBand ? ` — ${veBand.emoji} ${veBand.label}` : ""}: forward motion per unit of
+            bounce, the actual scored version of VO above
           </div>
-        </div>
-        <div>
-          <div className="text-2xl font-bold tabular-nums">
-            {driftCm != null ? `${driftCm > 0 ? "+" : ""}${driftCm.toFixed(1)} cm` : "—"}
-          </div>
-          <div className="text-xs text-muted-foreground">VO Drift — first-fifth vs. last-fifth of the session</div>
         </div>
       </div>
     </div>
@@ -183,11 +248,14 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
       mei_score: average(all.map((r) => r.mei_score)),
       vertical_efficiency_score: average(all.map((r) => r.vertical_efficiency_score)),
       rhythm_score: average(all.map((r) => r.rhythm_score)),
+      mechanical_stability_score: average(all.map((r) => r.mechanical_stability_score)),
       biomechanical_score: average(all.map((r) => r.biomechanical_score)),
       biomechanical_fatigue_score: average(all.map((r) => r.biomechanical_fatigue_score)),
       overall_economy_score: average(all.map((r) => r.overall_economy_score)),
       avg_vo_cm: average(all.map((r) => r.avg_vo_cm)),
       vo_drift_cm: average(all.map((r) => r.vo_drift_cm)),
+      avg_gct_ms: average(all.map((r) => r.avg_gct_ms)),
+      gct_balance_pct: average(all.map((r) => r.gct_balance_pct)),
     };
   }, [rows]);
 
@@ -236,27 +304,31 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
               delta={view === "last" && previous ? (active.overall_economy_score ?? 0) - (previous.overall_economy_score ?? 0) : null}
               label={view === "overall" ? `Overall (last ${(rows ?? []).length} sessions)` : "Last Session"}
             />
-            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
               <ScoreTile
                 label="Mechanical Efficiency (MEI)"
                 score={active.mei_score}
                 delta={view === "last" && previous ? (active.mei_score ?? 0) - (previous.mei_score ?? 0) : null}
-                caveat="Ground contact time and Vertical Efficiency (stride relative to vertical oscillation)."
+                caveat="Stride length relative to ground contact time AND vertical oscillation together, as one combined ratio — not three separately-weighted scores."
               />
               <ScoreTile
-                label="Rhythm Score"
+                label="Rhythm & Timing"
                 score={active.rhythm_score}
                 delta={view === "last" && previous ? (active.rhythm_score ?? 0) - (previous.rhythm_score ?? 0) : null}
-                caveat="Cadence consistency. Only scored for continuous-effort sessions — interval sessions naturally vary cadence by design."
+                caveat="Cadence AND stride consistency together — the repeatability of the stride cycle. Continuous-effort sessions only."
               />
               <ScoreTile
-                label="Biomechanical Score"
-                score={active.biomechanical_score}
-                delta={view === "last" && previous ? (active.biomechanical_score ?? 0) - (previous.biomechanical_score ?? 0) : null}
-                caveat="30% ground contact, 30% vertical efficiency, 20% stride length, 20% cadence."
+                label="Mechanical Stability"
+                score={active.mechanical_stability_score}
+                delta={
+                  view === "last" && previous
+                    ? (active.mechanical_stability_score ?? 0) - (previous.mechanical_stability_score ?? 0)
+                    : null
+                }
+                caveat="Ground contact time AND vertical oscillation consistency across the whole session. Continuous-effort sessions only — most provisional of these scores, worth checking against real sessions."
               />
               <ScoreTile
-                label="Biomechanical Fatigue"
+                label="Mechanical Fatigue"
                 score={active.biomechanical_fatigue_score}
                 delta={
                   view === "last" && previous
@@ -265,10 +337,18 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
                 }
                 caveat="First-fifth vs. last-fifth GCT/VO/cadence drift. Continuous-effort sessions only — a separate read from the existing pace/HR-based efficiency score."
               />
-              <VerticalOscillationPanel
+              <ScoreTile
+                label="Biomechanical Score"
+                score={active.biomechanical_score}
+                delta={view === "last" && previous ? (active.biomechanical_score ?? 0) - (previous.biomechanical_score ?? 0) : null}
+                caveat="40% Mechanical Efficiency, 25% Stability, 20% Fatigue, 15% Rhythm — composed from the scores above, not the raw measurements. Currently identical to Overall Economy Rating above, by design."
+              />
+              <RawMeasurementsPanel
                 voCm={active.avg_vo_cm}
                 driftCm={active.vo_drift_cm}
                 veScore={active.vertical_efficiency_score}
+                gctMs={active.avg_gct_ms}
+                gctBalancePct={active.gct_balance_pct}
               />
             </div>
           </div>
