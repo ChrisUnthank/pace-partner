@@ -29,6 +29,7 @@ import {
   AthleteQuickTilesWidget,
   AthleteRecentNoticesWidget,
 } from "@/components/dashboard/dashboard-widgets";
+import { AthleteActivitySnapshotWidget } from "@/components/dashboard/athlete-activity-snapshot-widget";
 
 export const Route = createFileRoute("/_authenticated/app/")({
   component: AppHome,
@@ -106,6 +107,8 @@ function AppHome() {
         return <AthleteQuickTilesWidget />;
       case "athlete_recent_notices":
         return athlete ? <AthleteRecentNoticesWidget athleteId={athlete.id} /> : null;
+      case "athlete_activity_snapshot":
+        return athlete ? <AthleteActivitySnapshotWidget athleteId={athlete.id} /> : null;
       default:
         return null;
     }
