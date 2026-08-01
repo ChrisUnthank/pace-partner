@@ -57,7 +57,9 @@ export function CoachChat({ athleteId, athleteName }: { athleteId: string; athle
           </CardTitle>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
-          AI is available to coaches by default. Athletes can enable it by adding their own Anthropic API key on the Profile page.
+          {ai.reason === "subscription_required"
+            ? "AI coaching requires an active subscription. Contact your coach or check Account for details."
+            : "AI coaching isn't available for your account."}
         </CardContent>
       </Card>
     );
