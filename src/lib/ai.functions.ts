@@ -28,7 +28,7 @@ function weekStart(d = new Date()) {
  *   { allowed: true, role: 'coach', limit: 20 }
  *   { allowed: true, role: 'athlete', limit: 10 }
  */
-async function resolveAiAccess(sb: any, userId: string) {
+export async function resolveAiAccess(sb: any, userId: string) {
   const { data: roles } = await sb.from("user_roles").select("role").eq("user_id", userId);
   const roleList = (roles ?? []).map((r: any) => r.role);
   const isCoach = roleList.includes("coach") || roleList.includes("manager");
@@ -43,7 +43,7 @@ async function resolveAiAccess(sb: any, userId: string) {
   return { allowed: false as const, reason: "subscription_required" as const };
 }
 
-async function consumeQuotaOrThrow(sb: any, userId: string, limit: number) {
+export async function consumeQuotaOrThrow(sb: any, userId: string, limit: number) {
   const { data, error } = await sb.rpc("ai_consume_quota", { _user_id: userId, _limit: limit });
   if (error) throw new Error(error.message);
   if (data === false) {
@@ -51,7 +51,7 @@ async function consumeQuotaOrThrow(sb: any, userId: string, limit: number) {
   }
 }
 
-async function requireAi(sb: any, userId: string) {
+export async function requireAi(sb: any, userId: string) {
   const access = await resolveAiAccess(sb, userId);
   if (!access.allowed) {
     throw new Error(
