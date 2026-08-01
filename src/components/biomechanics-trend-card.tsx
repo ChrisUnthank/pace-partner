@@ -112,7 +112,7 @@ export function BiomechanicsTrendCard({ athleteId }: { athleteId: string }) {
     queryFn: async () => {
       const { data, error } = await supabase.rpc("get_athlete_biomechanics_trend" as any, {
         _athlete_id: athleteId,
-        _limit: 20,
+        _limit: 40,
         _segment_type: segment === "all" ? null : segment,
       });
       if (error) throw error;
@@ -155,7 +155,7 @@ export function BiomechanicsTrendCard({ athleteId }: { athleteId: string }) {
               Running Dynamics
             </CardTitle>
             <CardDescription>
-              Cadence, stride length, vertical oscillation, ground contact time, and HR drift across the last 20
+              Cadence, stride length, vertical oscillation, ground contact time, and HR drift across the last 40
               running sessions.
             </CardDescription>
           </div>
