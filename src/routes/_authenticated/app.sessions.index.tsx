@@ -90,6 +90,14 @@ function SessionsList() {
   useEffect(() => {
     if (search.athleteId) setFilterAthlete(search.athleteId);
   }, [search.athleteId]);
+  // Bulk Upload was previously hardcoded to the logged-in coach's own
+  // athlete profile — invisible entirely to a pure coach with no athlete
+  // profile of their own, and silently wrong for a dual-role coach who'd
+  // filtered the list down to a specific roster athlete but had the
+  // upload land on themselves regardless. Now prefers whichever athlete
+  // is currently selected in Filters, falling back to the coach's own
+  // athlete only when nothing's selected there.
+  const uploadTargetAthleteId = filterAthlete !== "all" ? filterAthlete : athlete?.id;
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterIntent, setFilterIntent] = useState<string>("all");
   // Coros-style additions: date range + keyword search. The keyword is
@@ -580,10 +588,15 @@ function SessionsList() {
               <Plus className="h-4 w-4 mr-1.5" /> New session
             </Link>
           </Button>
-          {athlete && (
+          {(isCoach || athlete) && (
             <Dialog>
               <DialogTrigger asChild>
-                <Button size="sm" variant="outline">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!uploadTargetAthleteId}
+                  title={!uploadTargetAthleteId ? "Select an athlete in Filters first" : undefined}
+                >
                   <Upload className="h-4 w-4 mr-1.5" /> Upload
                 </Button>
               </DialogTrigger>
@@ -592,7 +605,16 @@ function SessionsList() {
                   <DialogTitle>Bulk upload FIT or GPX files</DialogTitle>
                   <DialogDescription>Upload one or more FIT or GPX files to create sessions.</DialogDescription>
                 </DialogHeader>
-                <BulkFitUpload athleteId={athlete.id} />
+                {uploadTargetAthleteId && (
+                  <>
+                    {isCoach && uploadTargetAthleteId !== athlete?.id && (
+                      <p className="text-xs text-muted-foreground -mt-2">
+                        Uploading for {athleteOptions.find(([id]) => id === uploadTargetAthleteId)?.[1] ?? "the selected athlete"}.
+                      </p>
+                    )}
+                    <BulkFitUpload athleteId={uploadTargetAthleteId} />
+                  </>
+                )}
               </DialogContent>
             </Dialog>
           )}
