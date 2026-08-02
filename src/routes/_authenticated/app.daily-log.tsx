@@ -1,8 +1,10 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { z } from "zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useMyAthlete } from "@/lib/use-auth";
+import { useMyAthlete, useMyRoles, useCoachRoster } from "@/lib/use-auth";
+import { useEffectiveRole } from "@/lib/view-mode";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,9 +19,16 @@ import { toast } from "sonner";
 import { DailyLogSessions } from "@/components/daily-log-sessions";
 import { BodyMapPicker } from "@/components/body-map";
 import { ChevronLeft, ChevronRight, ArrowRight, ClipboardList } from "lucide-react";
-import { BucketTabStrip, HEALTH_TABS } from "@/components/bucket-tab-strip";
+import { BucketTabStrip, healthTabsFor } from "@/components/bucket-tab-strip";
+import { AthleteSubnav } from "@/components/athlete-subnav";
+import { CoachAthletePicker } from "@/components/coach-athlete-picker";
+
+const searchSchema = z.object({
+  athleteId: z.string().optional(),
+});
 
 export const Route = createFileRoute("/_authenticated/app/daily-log")({
+  validateSearch: searchSchema,
   component: DailyLog,
 });
 
@@ -30,7 +39,38 @@ export const Route = createFileRoute("/_authenticated/app/daily-log")({
 const MODALITIES = ["physio", "massage", "sauna", "compression", "ice_bath", "active_recovery", "foam_rolling", "percussion_therapy", "stretching", "other"] as const;
 
 function DailyLog() {
-  const { data: athlete, isLoading } = useMyAthlete();
+  const search = Route.useSearch();
+  const navigate = useNavigate({ from: Route.fullPath });
+  const { data: roles = [] } = useMyRoles();
+  const isCoach = roles.includes("coach");
+  const { isCoachView } = useEffectiveRole();
+  const { data: myAthlete } = useMyAthlete();
+
+  const selectedAthleteId = search.athleteId ?? (!isCoachView ? myAthlete?.id : undefined);
+
+  const { data: roster } = useCoachRoster();
+  const rosterAthletes = useMemo(() => (roster ?? []).map((r: any) => r.athletes).filter(Boolean), [roster]);
+  const sortedRoster = useMemo(
+    () => [...rosterAthletes].sort((a: any, b: any) => (a.name ?? "").localeCompare(b.name ?? "")),
+    [rosterAthletes],
+  );
+
+  useEffect(() => {
+    if (isCoachView && !search.athleteId && sortedRoster.length > 0) {
+      navigate({ search: { athleteId: sortedRoster[0].id } as any });
+    }
+  }, [isCoachView, search.athleteId, sortedRoster, navigate]);
+
+  const { data: athleteRow, isLoading: athleteRowLoading } = useQuery({
+    queryKey: ["daily-log-athlete", selectedAthleteId],
+    enabled: !!selectedAthleteId,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("athletes").select("id, name").eq("id", selectedAthleteId!).single();
+      if (error) throw error;
+      return data as any;
+    },
+  });
+
   // Which day the Vitals/End-of-day sections are showing — previously always
   // hardcoded to today, so a missed day could never be filled in afterwards.
   // Defaults to today but can be moved back (or forward, up to today) via the
@@ -39,11 +79,45 @@ function DailyLog() {
   // (Calendar's "+", bulk upload) already cover logging a session for a past day.
   const [logDate, setLogDate] = useState(todayISO());
 
-  if (isLoading) return <AppShell fullWidth><p>Loading…</p></AppShell>;
-  if (!athlete) return <AppShell fullWidth><p className="text-sm">No athlete profile linked. Visit <Link to="/app/account" className="underline">Account</Link>.</p></AppShell>;
+  if (isCoachView && !selectedAthleteId) {
+    if (rosterAthletes.length === 0) {
+      return (
+        <AppShell fullWidth>
+          <p className="text-sm text-muted-foreground">No athletes on your roster yet — add one from Manage Athletes.</p>
+        </AppShell>
+      );
+    }
+    return <AppShell fullWidth><p className="text-sm text-muted-foreground">Loading…</p></AppShell>;
+  }
+
+  if (athleteRowLoading) return <AppShell fullWidth><p>Loading…</p></AppShell>;
+  if (!selectedAthleteId || !athleteRow)
+    return <AppShell fullWidth><p className="text-sm">No athlete profile linked. Visit <Link to="/app/account" className="underline">Account</Link>.</p></AppShell>;
   return (
     <AppShell fullWidth>
       <div className="space-y-6 max-w-3xl">
+        {isCoach && (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-3 min-w-0">
+              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground shrink-0">
+                <Link to="/app/athletes" className="hover:text-foreground">Athletes</Link>
+                <span className="text-border">/</span>
+                <Link to="/app/athletes/$athleteId" params={{ athleteId: selectedAthleteId }} className="hover:text-foreground">
+                  {athleteRow.name}
+                </Link>
+              </div>
+              <AthleteSubnav athleteId={selectedAthleteId} active="health" />
+            </div>
+            <div className="shrink-0">
+              <CoachAthletePicker
+                roster={rosterAthletes}
+                myAthlete={myAthlete as any}
+                value={selectedAthleteId}
+                onChange={(v) => navigate({ search: { athleteId: v } as any })}
+              />
+            </div>
+          </div>
+        )}
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3">
             <div
@@ -60,10 +134,10 @@ function DailyLog() {
           </div>
           <DateNav date={logDate} onChange={setLogDate} />
         </div>
-        <BucketTabStrip items={HEALTH_TABS} active="/app/daily-log" />
-        <VitalsSection athleteId={athlete.id} date={logDate} />
-        <SessionsSection athleteId={athlete.id} />
-        <EndOfDaySection athleteId={athlete.id} date={logDate} />
+        <BucketTabStrip items={healthTabsFor(selectedAthleteId)} active="/app/daily-log" />
+        <VitalsSection athleteId={selectedAthleteId} date={logDate} />
+        <SessionsSection athleteId={selectedAthleteId} />
+        <EndOfDaySection athleteId={selectedAthleteId} date={logDate} />
       </div>
     </AppShell>
   );
