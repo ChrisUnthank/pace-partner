@@ -380,7 +380,26 @@ function AthleteReportPage() {
               </>
             )}
 
-            <Button onClick={() => setGenerated(true)} disabled={!activeAthleteId || !periodValid}>
+            <Button
+              onClick={() => {
+                setGenerated(true);
+                if (user && activeAthleteId) {
+                  supabase
+                    .from("report_runs" as any)
+                    .insert({
+                      athlete_id: activeAthleteId,
+                      run_by: user.id,
+                      report_type: "athlete_weekly",
+                      period_start: periodStart,
+                      period_end: periodEnd,
+                    })
+                    .then(({ error }) => {
+                      if (error) console.error("report_runs log failed", error);
+                    });
+                }
+              }}
+              disabled={!activeAthleteId || !periodValid}
+            >
               Generate report
             </Button>
             {!periodValid && <p className="text-xs text-destructive sm:col-span-4">"From" must be before "To".</p>}
