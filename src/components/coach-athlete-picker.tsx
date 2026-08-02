@@ -17,11 +17,20 @@ export function CoachAthletePicker({
   myAthlete,
   value,
   onChange,
+  allowAll,
+  allLabel = "All athletes",
 }: {
   roster: PickerAthlete[];
   myAthlete?: PickerAthlete | null;
   value: string | undefined;
   onChange: (athleteId: string) => void;
+  // Adds an "All athletes" entry at the top — for pages that filter a
+  // list and default to showing everyone (Sessions), as opposed to
+  // pages that always need exactly one athlete in context (Zones,
+  // Analytics, Biomechanics, etc.), which omit this and keep their
+  // existing single-athlete-only behavior unchanged.
+  allowAll?: boolean;
+  allLabel?: string;
 }) {
   if (!roster || roster.length === 0) return null;
   const sel = roster.find((a) => a.id === value) ?? (myAthlete && myAthlete.id === value ? myAthlete : null);
@@ -34,6 +43,7 @@ export function CoachAthletePicker({
           <SelectValue placeholder="Select athlete" />
         </SelectTrigger>
         <SelectContent>
+          {allowAll && <SelectItem value="all">{allLabel}</SelectItem>}
           {myAthlete && <SelectItem value={myAthlete.id}>{myAthlete.name} (me)</SelectItem>}
           {roster
             .filter((a) => a.id !== myAthlete?.id)
