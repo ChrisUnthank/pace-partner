@@ -286,6 +286,50 @@ function SessionAnalysis() {
 
   const safeSteps = Array.isArray(steps) ? steps : [];
   const safeResults = Array.isArray(results) ? results : [];
+
+  // Time/distance/pace/HR broken out by segment kind, same breakdown as
+  // the session details page — warmup, work, recovery, strides, cooldown,
+  // each summed from the real recorded reps, plus a Moving total (their
+  // sum). HR is time-weighted (sum of hr_avg*duration / sum of duration)
+  // rather than a plain average of reps, so a long warmup doesn't get the
+  // same weight as a short one. A kind is only shown if it actually has
+  // recorded reps.
+  const SEGMENT_KIND_ORDER = ["warmup", "work", "recovery", "strides", "cooldown"] as const;
+  const segmentBreakdown = useMemo(() => {
+    const stepKindById = new Map<string, string>(safeSteps.map((s: any) => [s.id, s.kind]));
+    const totals: Record<string, { timeS: number; distanceM: number; hrWeighted: number; hrTimeS: number }> = {};
+    for (const k of SEGMENT_KIND_ORDER) totals[k] = { timeS: 0, distanceM: 0, hrWeighted: 0, hrTimeS: 0 };
+
+    for (const r of safeResults as any[]) {
+      const kind = stepKindById.get(r.step_id);
+      if (!kind || !totals[kind]) continue;
+      const t = Number(r.actual_time_seconds ?? 0);
+      totals[kind].timeS += t;
+      totals[kind].distanceM += Number(r.actual_distance_m ?? 0);
+      if (r.hr_avg != null && t > 0) {
+        totals[kind].hrWeighted += Number(r.hr_avg) * t;
+        totals[kind].hrTimeS += t;
+      }
+    }
+
+    const rows = SEGMENT_KIND_ORDER.map((kind) => ({
+      kind,
+      label: kind === "warmup" ? "Warm-up" : kind === "cooldown" ? "Cool-down" : kind.charAt(0).toUpperCase() + kind.slice(1),
+      timeS: totals[kind].timeS,
+      distanceM: totals[kind].distanceM,
+      avgHr: totals[kind].hrTimeS > 0 ? Math.round(totals[kind].hrWeighted / totals[kind].hrTimeS) : null,
+    })).filter((row) => row.timeS > 0 || row.distanceM > 0);
+
+    const movingTimeS = SEGMENT_KIND_ORDER.reduce((a, k) => a + totals[k].timeS, 0);
+    const movingDistanceM = SEGMENT_KIND_ORDER.reduce((a, k) => a + totals[k].distanceM, 0);
+    const movingHrWeighted = SEGMENT_KIND_ORDER.reduce((a, k) => a + totals[k].hrWeighted, 0);
+    const movingHrTimeS = SEGMENT_KIND_ORDER.reduce((a, k) => a + totals[k].hrTimeS, 0);
+    const movingAvgHr = movingHrTimeS > 0 ? Math.round(movingHrWeighted / movingHrTimeS) : null;
+
+    return { rows, movingTimeS, movingDistanceM, movingAvgHr };
+  }, [safeSteps, safeResults]);
+
+  const [showStatBreakdown, setShowStatBreakdown] = useState(false);
   const safeZoneTime = Array.isArray(zoneTime) ? zoneTime : [];
   const safeFatigue = Array.isArray(fatigue) ? fatigue : [];
   const safeRawPoints = Array.isArray(rawPoints) ? rawPoints : [];
@@ -529,6 +573,137 @@ function SessionAnalysis() {
             {session.session_date} · {session.athletes?.name} · {sessionClassificationLabel(session as any)}
             {session.completed_at && <span className="ml-2 text-emerald-600">Completed</span>}
           </p>
+        </div>
+
+        <div>
+          <div className="flex justify-end mb-2">
+            <div className="flex border rounded-md overflow-hidden text-xs">
+              <button
+                type="button"
+                onClick={() => setShowStatBreakdown(false)}
+                className={`px-2.5 py-1 ${!showStatBreakdown ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+              >
+                Summary
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowStatBreakdown(true)}
+                className={`px-2.5 py-1 border-l ${showStatBreakdown ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+              >
+                Breakdown
+              </button>
+            </div>
+          </div>
+
+          {!showStatBreakdown ? (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+              <div className="p-3 rounded-lg bg-muted/40">
+                <p className="text-xs text-muted-foreground">Distance</p>
+                <p className="font-semibold">
+                  {session.total_distance_m ? `${(session.total_distance_m / 1000).toFixed(2)} km` : "—"}
+                </p>
+              </div>
+
+              <div className="p-3 rounded-lg bg-muted/40">
+                <p className="text-xs text-muted-foreground">Time</p>
+                <p className="font-semibold">{session.total_time_seconds ? secToClock(session.total_time_seconds) : "—"}</p>
+              </div>
+
+              <div className="p-3 rounded-lg bg-muted/40">
+                <p className="text-xs text-muted-foreground">Pace</p>
+                <p className="font-semibold">
+                  {session.work_avg_pace_sec_per_km
+                    ? speedMode === "pace"
+                      ? paceFmt(session.work_avg_pace_sec_per_km)
+                      : `${paceToSpeed(session.work_avg_pace_sec_per_km)?.toFixed(1)} km/h`
+                    : "—"}
+                </p>
+              </div>
+
+              <div className="p-3 rounded-lg bg-muted/40">
+                <p className="text-xs text-muted-foreground">HR</p>
+                <p className="font-semibold">{session.avg_hr ? `${session.avg_hr} bpm` : "—"}</p>
+              </div>
+
+              <div className="p-3 rounded-lg bg-muted/40">
+                <p className="text-xs text-muted-foreground">Temp</p>
+                <p className="font-semibold">
+                  {session.average_temp_c != null ? `${session.average_temp_c.toFixed(1)}°C` : "—"}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="border rounded-lg overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/30 text-xs text-muted-foreground">
+                    <th className="text-left font-medium px-3 py-1.5">Segment</th>
+                    <th className="text-right font-medium px-3 py-1.5">Time</th>
+                    <th className="text-right font-medium px-3 py-1.5">Distance</th>
+                    <th className="text-right font-medium px-3 py-1.5">Pace</th>
+                    <th className="text-right font-medium px-3 py-1.5">Avg HR</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {segmentBreakdown.rows.map((row) => (
+                    <tr key={row.kind} className="border-b last:border-b-0">
+                      <td className="px-3 py-1.5">{row.label}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">{secToClock(row.timeS)}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">
+                        {row.distanceM ? `${(row.distanceM / 1000).toFixed(2)} km` : "—"}
+                      </td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">
+                        {row.distanceM > 0
+                          ? speedMode === "pace"
+                            ? `${paceFmt((row.timeS / row.distanceM) * 1000)}/km`
+                            : `${paceToSpeed((row.timeS / row.distanceM) * 1000)?.toFixed(1)} km/h`
+                          : "—"}
+                      </td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">{row.avgHr != null ? `${row.avgHr} bpm` : "—"}</td>
+                    </tr>
+                  ))}
+
+                  {segmentBreakdown.rows.length > 0 && (
+                    <tr className="border-b bg-muted/20 font-medium">
+                      <td className="px-3 py-1.5">Moving</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">{secToClock(segmentBreakdown.movingTimeS)}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">
+                        {segmentBreakdown.movingDistanceM ? `${(segmentBreakdown.movingDistanceM / 1000).toFixed(2)} km` : "—"}
+                      </td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">
+                        {segmentBreakdown.movingDistanceM > 0
+                          ? speedMode === "pace"
+                            ? `${paceFmt((segmentBreakdown.movingTimeS / segmentBreakdown.movingDistanceM) * 1000)}/km`
+                            : `${paceToSpeed((segmentBreakdown.movingTimeS / segmentBreakdown.movingDistanceM) * 1000)?.toFixed(1)} km/h`
+                          : "—"}
+                      </td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">
+                        {segmentBreakdown.movingAvgHr != null ? `${segmentBreakdown.movingAvgHr} bpm` : "—"}
+                      </td>
+                    </tr>
+                  )}
+
+                  <tr className="font-semibold">
+                    <td className="px-3 py-1.5">Elapsed</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">
+                      {session.total_time_seconds ? secToClock(session.total_time_seconds) : "—"}
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">
+                      {session.total_distance_m ? `${(session.total_distance_m / 1000).toFixed(2)} km` : "—"}
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">
+                      {session.total_distance_m && session.total_time_seconds
+                        ? speedMode === "pace"
+                          ? `${paceFmt((session.total_time_seconds / session.total_distance_m) * 1000)}/km`
+                          : `${paceToSpeed((session.total_time_seconds / session.total_distance_m) * 1000)?.toFixed(1)} km/h`
+                        : "—"}
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{session.avg_hr ? `${session.avg_hr} bpm` : "—"}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
         <Card>
@@ -890,43 +1065,6 @@ function SessionAnalysis() {
             </div>
           </CardContent>
         </Card>
-
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mt-4">
-          <div className="p-3 rounded-lg bg-muted/40">
-            <p className="text-xs text-muted-foreground">Distance</p>
-            <p className="font-semibold">
-              {session.total_distance_m ? `${(session.total_distance_m / 1000).toFixed(2)} km` : "—"}
-            </p>
-          </div>
-
-          <div className="p-3 rounded-lg bg-muted/40">
-            <p className="text-xs text-muted-foreground">Time</p>
-            <p className="font-semibold">{session.total_time_seconds ? secToClock(session.total_time_seconds) : "—"}</p>
-          </div>
-
-          <div className="p-3 rounded-lg bg-muted/40">
-            <p className="text-xs text-muted-foreground">Pace</p>
-            <p className="font-semibold">
-              {session.work_avg_pace_sec_per_km
-                ? speedMode === "pace"
-                  ? paceFmt(session.work_avg_pace_sec_per_km)
-                  : `${paceToSpeed(session.work_avg_pace_sec_per_km)?.toFixed(1)} km/h`
-                : "—"}
-            </p>
-          </div>
-
-          <div className="p-3 rounded-lg bg-muted/40">
-            <p className="text-xs text-muted-foreground">HR</p>
-            <p className="font-semibold">{session.avg_hr ? `${session.avg_hr} bpm` : "—"}</p>
-          </div>
-
-          <div className="p-3 rounded-lg bg-muted/40">
-            <p className="text-xs text-muted-foreground">Temp</p>
-            <p className="font-semibold">
-              {session.average_temp_c != null ? `${session.average_temp_c.toFixed(1)}°C` : "—"}
-            </p>
-          </div>
-        </div>
 
         {modeType === "interval" && manualRows.length > 0 && (
           <Card>
