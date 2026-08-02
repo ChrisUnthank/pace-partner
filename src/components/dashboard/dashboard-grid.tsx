@@ -41,14 +41,10 @@ export function DashboardGrid({
   onHide: (id: string) => void;
   renderWidget: (id: string) => ReactNode;
   // 1 = a narrow single-column zone (used by the coach dashboard's main/
-  // sidebar split below) — each item just stacks full-width within it,
-  // regardless of its own catalog `span` value. A span exceeding the
-  // grid's actual column count is standard, already-exercised CSS Grid
-  // behavior here: this exact situation already happens today on any
-  // mobile viewport, where `grid-cols-1` applies below the `md:`
-  // breakpoint and a span-2/3 item still renders correctly, just
-  // constrained to the one column that exists. Default 3 preserves
-  // every existing call site's behavior unchanged.
+  // sidebar split below) — every item renders at full width of this
+  // column regardless of its own catalog `span` value (span gets
+  // clamped to `columns` below, in the render loop). Default 3
+  // preserves every existing call site's behavior unchanged.
   columns?: 1 | 2 | 3;
 }) {
   const sensors = useSensors(
@@ -76,7 +72,16 @@ export function DashboardGrid({
               key={id}
               id={id}
               index={i}
-              span={sizes[id]?.span ?? 1}
+              // Clamped to the grid's actual column count — a catalog
+              // span of 2 or 3 means nothing in a narrow columns={1}
+              // zone (main/sidebar on the coach dashboard) beyond
+              // "full width of this column", and passing the raw
+              // uncapped value through would make the item request
+              // more grid columns than this container actually has.
+              // CSS Grid's real response to that is to grow implicit
+              // columns to fit the span, not clamp it — which is what
+              // broke the narrow columns into overlapping cards.
+              span={Math.min(sizes[id]?.span ?? 1, columns) as 1 | 2 | 3}
               rowSpan={sizes[id]?.rowSpan ?? 1}
               editMode={editMode}
               onHide={() => onHide(id)}
