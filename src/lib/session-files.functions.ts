@@ -2671,6 +2671,56 @@ export const rebuildSessionClassification = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+// Bulk version of the above — for after an athlete's preferred_zone_basis
+// (or zone boundary values) change, when every past FIT-derived session was
+// classified against the OLD basis and is now potentially wrong (see the
+// HR-lag-on-short-reps case: a session genuinely run at threshold/VO2 pace
+// can read as "Aerobic" when classified by HR alone, because HR hasn't
+// caught up to effort within a short interval).
+//
+// Deliberately scoped to sessions that actually have session_files rows —
+// a manually-entered session with no uploaded laps was never auto-
+// classified in the first place (its intent came from a coach/plan
+// choice), so there's nothing real to recompute there; re-running this
+// function on it would be a no-op inside rebuildSessionFromAllFiles
+// anyway (see its `safeFiles.length === 0` early-return above), but
+// skipping it here avoids the wasted round-trip across a whole history.
+//
+// Runs sequentially, not in parallel — each rebuild re-parses stored FIT/
+// GPX files from Supabase Storage and does a full delete+reinsert of that
+// session's zone-time/fatigue/points/steps, so this is genuinely heavy per
+// session. Continues past individual failures (a corrupt/missing storage
+// file shouldn't block reclassifying the rest of the athlete's history)
+// and reports exactly which sessions failed so they're not silently lost.
+export const bulkRecomputeSessionClassification = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { athleteId: string }) => d)
+  .handler(async ({ data, context }) => {
+    const sb = context.supabase;
+
+    const { data: fileRows } = await sb
+      .from("session_files")
+      .select("session_id")
+      .eq("athlete_id", data.athleteId);
+
+    const sessionIds = Array.from(
+      new Set((fileRows ?? []).map((r: any) => r.session_id).filter((id: any) => !!id)),
+    ) as string[];
+
+    let succeeded = 0;
+    const errors: { sessionId: string; message: string }[] = [];
+    for (const sessionId of sessionIds) {
+      try {
+        await rebuildSessionFromAllFiles(sb, sessionId);
+        succeeded++;
+      } catch (err: any) {
+        errors.push({ sessionId, message: err?.message ?? "Failed" });
+      }
+    }
+
+    return { total: sessionIds.length, succeeded, errors };
+  });
+
 export const mergeSessionIntoAnother = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { sourceSessionId: string; targetSessionId: string }) => d)
