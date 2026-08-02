@@ -60,6 +60,16 @@ export const HEALTH_TABS: BucketTabItem[] = [
   { to: "/app/lactate", label: "Lactate", icon: TestTube2 },
 ];
 
+// HEALTH_TABS' links never carried an athleteId through, even though
+// BucketTabItem.search existed for exactly this — so a coach switching
+// from, say, Injury Management to Diet & Fuel silently dropped whichever
+// athlete they were looking at and landed back on their own (or nobody's)
+// data. Every Health & Vitals sub-page should build its tab list through
+// this helper instead of using the bare HEALTH_TABS constant directly.
+export function healthTabsFor(athleteId?: string): BucketTabItem[] {
+  return HEALTH_TABS.map((t) => ({ ...t, search: athleteId ? { athleteId } : undefined }));
+}
+
 // Generic sibling-switcher for pages grouped under one of the sidebar's
 // accordion buckets (Training / Metrics / Performances / Community).
 // Deliberately NOT athlete-scoped — AthleteSubnav already covers that
