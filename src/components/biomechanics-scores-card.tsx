@@ -49,6 +49,7 @@ type ScoreRow = {
   session_date: string;
   session_title: string | null;
   workout_type: string | null;
+  dominant_zone: string | null;
   avg_cadence: number | null;
   stride_length_m: number | null;
   avg_vo_cm: number | null;
@@ -87,6 +88,28 @@ const WINDOW_OPTIONS: { value: string; label: string; days: number | null }[] = 
   { value: "6m", label: "Last 6 months", days: 183 },
   { value: "all", label: "All fetched", days: null },
 ];
+
+// Session-level zone bucketing (Option 1, the interim version) — each
+// session's dominant_zone is z1-z6 based on its already-classified
+// `intent` (the same time-in-zone-plurality logic that already sets
+// intent elsewhere in the app), computed server-side in
+// get_athlete_biomechanics_trend(). A session with a genuine mix of
+// zone work (common for middle-distance track sessions — a tempo
+// opener into VO2 reps, say) gets bucketed under whichever zone held
+// the most time, same conservative approach `intent` itself already
+// uses — it does NOT split that session's mechanics data across
+// multiple zones. True point-level in-session zone splitting (Option
+// 2) is flagged as follow-up work — see CHANGELOG.
+const ZONE_OPTIONS: { value: string; label: string; color: string }[] = [
+  { value: "all", label: "All zones", color: "#94a3b8" },
+  { value: "z1", label: "Z1 Recovery", color: "#34d399" },
+  { value: "z2", label: "Z2 Easy/Aerobic", color: "#38bdf8" },
+  { value: "z3", label: "Z3 Steady/Tempo", color: "#fbbf24" },
+  { value: "z4", label: "Z4 Threshold", color: "#f97316" },
+  { value: "z5", label: "Z5 VO2", color: "#ef4444" },
+  { value: "z6", label: "Z6 Anaerobic/Max", color: "#9333ea" },
+];
+
 
 function ScoreTile({
   label,
@@ -233,6 +256,7 @@ function RawMeasurementsPanel({
 export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
   const [view, setView] = useState<"last" | "overall">("last");
   const [window, setWindowRange] = useState("3m");
+  const [zone, setZone] = useState("all");
 
   const { data: rows, isLoading, isError, error } = useQuery({
     queryKey: ["athlete-biomechanics-scores", athleteId],
@@ -259,18 +283,27 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
     },
   });
 
+  // Zone filter applies before everything else derives from `rows` — a
+  // coach picking "Z5 VO2" wants the last VO2-zone session and the
+  // VO2-zone overall average, not the last session overall further
+  // filtered down after the fact.
+  const zoneFilteredRows = useMemo(() => {
+    if (zone === "all") return rows ?? [];
+    return (rows ?? []).filter((r) => r.dominant_zone === zone);
+  }, [rows, zone]);
+
   // Rows arrive newest-first.
-  const latest = (rows ?? [])[0];
-  const previous = (rows ?? [])[1];
+  const latest = zoneFilteredRows[0];
+  const previous = zoneFilteredRows[1];
 
   const windowedRows = useMemo(() => {
     const opt = WINDOW_OPTIONS.find((o) => o.value === window);
-    if (!opt || opt.days == null) return rows ?? [];
+    if (!opt || opt.days == null) return zoneFilteredRows;
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - opt.days);
     const cutoffIso = cutoff.toISOString().slice(0, 10);
-    return (rows ?? []).filter((r) => r.session_date >= cutoffIso);
-  }, [rows, window]);
+    return zoneFilteredRows.filter((r) => r.session_date >= cutoffIso);
+  }, [zoneFilteredRows, window]);
 
   const overall = useMemo(() => {
     const all = windowedRows;
@@ -308,6 +341,21 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
+            <Select value={zone} onValueChange={setZone}>
+              <SelectTrigger className="h-8 w-[150px] text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ZONE_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="h-2 w-2 rounded-full inline-block" style={{ background: o.color }} />
+                      {o.label}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Select value={view} onValueChange={(v) => setView(v as "last" | "overall")}>
               <SelectTrigger className="h-8 w-[140px] text-xs">
                 <SelectValue />
@@ -345,16 +393,24 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
           </p>
         ) : !hasAny || !active ? (
           <p className="text-sm text-muted-foreground">
-            {view === "overall"
-              ? "No completed running sessions with device data in this window yet."
-              : "No completed running sessions with device data yet."}
+            {zone !== "all"
+              ? `No work-effort sessions classified as ${ZONE_OPTIONS.find((o) => o.value === zone)?.label ?? zone} yet${view === "overall" ? " in this window" : ""}.`
+              : view === "overall"
+                ? "No completed running sessions with device data in this window yet."
+                : "No completed running sessions with device data yet."}
           </p>
         ) : (
           <div className="space-y-4">
             <HeadlineScore
               score={active.overall_economy_score}
               delta={view === "last" && previous ? (active.overall_economy_score ?? 0) - (previous.overall_economy_score ?? 0) : null}
-              label={view === "overall" ? `${WINDOW_OPTIONS.find((o) => o.value === window)?.label} (${windowedRows.length} sessions)` : "Last Session"}
+              label={
+                view === "overall"
+                  ? `${WINDOW_OPTIONS.find((o) => o.value === window)?.label} (${windowedRows.length} sessions)`
+                  : zone !== "all"
+                    ? `Last ${ZONE_OPTIONS.find((o) => o.value === zone)?.label ?? zone} Session`
+                    : "Last Session"
+              }
             />
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
               <ScoreTile
