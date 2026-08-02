@@ -218,3 +218,43 @@ html::-webkit-scrollbar-thumb {
 html::-webkit-scrollbar-thumb:hover {
   opacity: 1;
 }
+
+/* Leaflet's own default stylesheet assigns z-index values up to 1000 to
+   its zoom controls (.leaflet-top/.leaflet-bottom), with panes/popups
+   stacked between 200 and 700 beneath that. Every dialog/overlay in this
+   app (shadcn/Radix Dialog, AlertDialog, Sheet, etc.) sits at z-50 —
+   meaning any Leaflet map still mounted behind an open dialog on the
+   same page renders its zoom buttons and panes ON TOP of that dialog
+   instead of behind it. First surfaced by the Save as Route dialog on
+   Session Analysis (a live Route map sits right behind it), but this
+   would hit any future dialog opened over a page with a live map too.
+   Compresses Leaflet's internal stacking down to 1-9, preserving the
+   exact same relative order (tiles < overlays < shadows < markers <
+   tooltips < popups < controls) so the map itself still layers
+   correctly — just entirely below every dialog's z-50 now. */
+.leaflet-tile-pane {
+  z-index: 1 !important;
+}
+.leaflet-pane,
+.leaflet-overlay-pane {
+  z-index: 2 !important;
+}
+.leaflet-shadow-pane {
+  z-index: 3 !important;
+}
+.leaflet-marker-pane {
+  z-index: 4 !important;
+}
+.leaflet-tooltip-pane {
+  z-index: 5 !important;
+}
+.leaflet-popup-pane {
+  z-index: 6 !important;
+}
+.leaflet-control {
+  z-index: 8 !important;
+}
+.leaflet-top,
+.leaflet-bottom {
+  z-index: 9 !important;
+}
