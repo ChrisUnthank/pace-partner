@@ -3,7 +3,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuthUser, useMyRawRoles } from "@/lib/use-auth";
+import { useAuthUser, useMyRawRoles, useMyAthlete } from "@/lib/use-auth";
 import { todayISO } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,7 @@ import {
   AlertTriangle,
   Sparkles,
   BookmarkCheck,
+  ChevronDown,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------
@@ -551,6 +552,22 @@ export function CoachingInsightsWidget() {
   });
   const loggedToday = (readiness ?? []).length;
 
+  // Same ["dashboard-alerts"] query key DashboardAlertsList itself uses
+  // below — React Query dedupes this against that component's own fetch,
+  // so this is just reading the already-fetched cache, not a second
+  // network request. Only needed here for the collapsed-state count badge.
+  const listAlertsFn = useServerFn(listDashboardAlerts);
+  const { data: alerts } = useQuery({
+    queryKey: ["dashboard-alerts"],
+    queryFn: () => listAlertsFn(),
+  });
+  const alertCount = (alerts as DashAlert[] | undefined)?.length ?? 0;
+
+  // Defaults expanded — collapsing is a new option, not a new default,
+  // so nobody's homepage silently starts hiding something they're used
+  // to seeing.
+  const [attentionExpanded, setAttentionExpanded] = useState(true);
+
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -575,10 +592,22 @@ export function CoachingInsightsWidget() {
           </div>
         )}
         <div>
-          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2 flex items-center gap-1.5">
-            <AlertTriangle className="h-3.5 w-3.5" /> Needs attention
-          </div>
-          <DashboardAlertsList embedded />
+          <button
+            type="button"
+            onClick={() => setAttentionExpanded((v) => !v)}
+            className="w-full flex items-center justify-between gap-1.5 mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <span className="flex items-center gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5" /> Needs attention
+              {alertCount > 0 && (
+                <Badge variant="secondary" className="ml-1 normal-case font-normal">
+                  {alertCount}
+                </Badge>
+              )}
+            </span>
+            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${attentionExpanded ? "" : "-rotate-90"}`} />
+          </button>
+          {attentionExpanded && <DashboardAlertsList embedded />}
         </div>
       </CardContent>
     </Card>
@@ -651,6 +680,48 @@ export function UpcomingRacesWidget() {
 
 export function RecentReviewsWidget() {
   return <RecentReviewsCard />;
+}
+
+// Was a fixed block outside the widget grid entirely (app.index.tsx),
+// always pinned to the bottom of the page regardless of layout
+// customization — same content, same dual-role-only gate, now a real
+// widget so it can be moved, resized (via its catalog span), or hidden
+// like everything else.
+export function QuickLinksSelfWidget() {
+  const { data: rawRoles = [] } = useMyRawRoles();
+  const { data: athlete } = useMyAthlete();
+  const isAthlete = rawRoles.includes("athlete");
+  const isCoach = rawRoles.includes("coach") || rawRoles.includes("manager");
+
+  if (!(isAthlete && athlete && isCoach)) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Quick links</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-wrap gap-2">
+        <Button asChild>
+          <Link to="/app/daily-log">Open Daily Log</Link>
+        </Button>
+        <Button asChild variant="outline">
+          <Link to="/app/health">Health &amp; Vitals</Link>
+        </Button>
+        <Button asChild variant="outline">
+          <Link to="/app/my-schedule">Locker</Link>
+        </Button>
+        <Button asChild variant="outline">
+          <Link to="/app/sessions">All sessions</Link>
+        </Button>
+        <Button asChild variant="outline">
+          <Link to="/app/races">Races &amp; PBs</Link>
+        </Button>
+        <Button asChild variant="outline">
+          <Link to="/app/zones">Zones</Link>
+        </Button>
+      </CardContent>
+    </Card>
+  );
 }
 
 // ---------------------------------------------------------------------
