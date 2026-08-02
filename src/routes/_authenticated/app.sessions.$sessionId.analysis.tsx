@@ -2275,18 +2275,28 @@ function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any
   const repRows = useMemo(() => rows.filter((r) => r.type === "work" || r.type === "strides"), [rows]);
   const hasReps = repRows.length > 1;
 
-  // Both distance-based views are always available side by side now — not
-  // a single toggle that swaps meaning based on terrain. "By lap" (400m)
-  // is useful on a track session; "By km" (1km) is useful pretty much
+  // How a rep's leftover distance (after full splits) gets placed — only
+  // matters once a rep is long enough to need more than one bucket.
+  // "start": full splits first, partial trails at the end (lap, lap,
+  // part-lap). "end": partial leads instead, full splits run to the
+  // finish (part-lap, lap, lap) — useful when a rep started partway
+  // around a track rather than right at a lap marker.
+  const [align, setAlign] = useState<"start" | "end">("start");
+
+  // Both distance-based views are always available side by side — not a
+  // single toggle that swaps meaning based on terrain. "By lap" (400m) is
+  // useful on a track session; "By km" (1km) is useful pretty much
   // anywhere else — a coach shouldn't have to pick a terrain tag correctly
-  // just to see both.
+  // just to see both. For a rep session, both stay strictly within each
+  // rep's own trace (see buildRepAlignedDistanceSplits) so a split can
+  // never straddle two different reps.
   const kmRows = useMemo(
-    () => (hasReps ? buildEvenDistanceSplitsForReps(points, 1000) : buildEvenDistanceSplits(points, 1000)),
-    [points, hasReps],
+    () => (hasReps ? buildRepAlignedDistanceSplits(points, repRows, 1000, align) : buildEvenDistanceSplits(points, 1000)),
+    [points, repRows, hasReps, align],
   );
   const lapRows = useMemo(
-    () => (hasReps ? buildEvenDistanceSplitsForReps(points, 400) : buildEvenDistanceSplits(points, 400)),
-    [points, hasReps],
+    () => (hasReps ? buildRepAlignedDistanceSplits(points, repRows, 400, align) : buildEvenDistanceSplits(points, 400)),
+    [points, repRows, hasReps, align],
   );
   const hasKmSplits = kmRows.length > 1;
   const hasLapSplits = lapRows.length > 1;
@@ -2308,22 +2318,25 @@ function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any
           pace: r.avgPace ?? 0,
           time: r.durationS ?? 0,
           isBest: !!r.isBest,
+          isPartial: false,
         }))
-      : distanceRows.map((r) => ({
+      : distanceRows.map((r: any) => ({
           label: `${distanceLabelCap} ${r.index}`,
           pace: r.avgPace ?? 0,
           time: r.durationS,
           isBest: false,
+          isPartial: !!r.isPartial,
         }));
 
   const values = chartData.map((d) => Number(d[metric])).filter((v) => v > 0);
   const avgY = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+  const hasPartial = mode !== "reps" && chartData.some((d) => d.isPartial);
 
   const description =
     mode === "reps"
       ? "One bar per recorded rep."
       : hasReps
-        ? `Work reps re-split at even ${mode === "lap" ? "400m laps" : "1km splits"} — warmup, recovery, and cooldown excluded.`
+        ? `Each rep re-split at even ${mode === "lap" ? "400m laps" : "1km splits"}, partial segment ${align === "end" ? "first" : "last"} — warmup, recovery, and cooldown excluded.`
         : `Recomputed at even ${mode === "lap" ? "400m laps" : "1km splits"}, with dead/standing time excluded.`;
 
   const availableModes = [
@@ -2331,6 +2344,8 @@ function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any
     hasKmSplits && { key: "km" as const, label: "By km" },
     hasLapSplits && { key: "lap" as const, label: "By lap" },
   ].filter((m): m is { key: "reps" | "km" | "lap"; label: string } => !!m);
+
+  const showAlignToggle = mode !== "reps" && hasReps;
 
   return (
     <Card>
@@ -2340,7 +2355,7 @@ function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any
             <CardTitle>Lap times</CardTitle>
             <CardDescription>{description}</CardDescription>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {availableModes.length > 1 && (
               <div className="flex border rounded-md overflow-hidden text-xs">
                 {availableModes.map((m, i) => (
@@ -2353,6 +2368,26 @@ function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any
                     {m.label}
                   </button>
                 ))}
+              </div>
+            )}
+            {showAlignToggle && (
+              <div className="flex border rounded-md overflow-hidden text-xs">
+                <button
+                  type="button"
+                  onClick={() => setAlign("start")}
+                  title="Full splits first, partial at the end of each rep"
+                  className={`px-2.5 py-1 ${align === "start" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+                >
+                  Partial last
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAlign("end")}
+                  title="Partial first, full splits to the end of each rep"
+                  className={`px-2.5 py-1 border-l ${align === "end" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+                >
+                  Partial first
+                </button>
               </div>
             )}
             <div className="flex border rounded-md overflow-hidden text-xs">
@@ -2395,7 +2430,7 @@ function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any
               )}
               <Bar dataKey={metric} radius={[3, 3, 0, 0]}>
                 {chartData.map((d, i) => (
-                  <Cell key={i} fill={d.isBest ? "#f59e0b" : "var(--accent-red)"} />
+                  <Cell key={i} fill={d.isBest ? "#f59e0b" : "var(--accent-red)"} fillOpacity={d.isPartial ? 0.5 : 1} />
                 ))}
               </Bar>
             </ComposedChart>
@@ -2403,6 +2438,9 @@ function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any
         </div>
         {mode === "reps" && chartData.some((d) => d.isBest) && (
           <p className="text-[11px] text-muted-foreground mt-1">Gold bar = best-scoring rep (same scoring already used in the table below).</p>
+        )}
+        {hasPartial && (
+          <p className="text-[11px] text-muted-foreground mt-1">Lighter bar = partial split (shorter than a full {mode === "lap" ? "400m" : "1km"}).</p>
         )}
       </CardContent>
     </Card>
@@ -2870,65 +2908,150 @@ function computeMetricsFromTraceSlice(slice: any[]) {
   };
 }
 
-// "By km"/"By laps" for a session with real rep structure needs to stay
+// Carves the work/strides portion of the raw trace into one slice per rep,
+// using each rep's OWN recorded distance (from the rep table, i.e. real
+// interval_results data) as the cut point — not segment_type continuity.
+// That distinction matters: raw points get their segment_type from
+// whichever lap's time-window they fall in (findLapKindForPoint), and two
+// consecutive reps that both classify as kind "work" with no recovery lap
+// detected between them share the same segment_type with nothing marking
+// the boundary. Grouping by segment_type continuity (the old approach)
+// would then silently fuse those reps into one blob before any distance
+// bucketing ran — a 400m "lap" built from the tail of one rep and the head
+// of the next. Cutting by each rep's own known distance instead means a
+// split can never straddle two different reps, regardless of how
+// segment_type happened to land in the raw data.
+function sliceRawPointsByRep(points: any[], repRows: SplitRow[]): any[][] {
+  const workPoints = (points ?? [])
+    .filter((p) => p && (p.segment_type === "work" || p.segment_type === "strides"))
+    .sort((a, b) => Number(a.elapsed_s ?? 0) - Number(b.elapsed_s ?? 0));
+
+  const slices: any[][] = [];
+  let cursor = 0;
+
+  for (const rep of repRows) {
+    const targetDist = Number(rep.distanceM ?? 0);
+    if (targetDist <= 0 || cursor >= workPoints.length) {
+      slices.push([]);
+      continue;
+    }
+
+    const startIdx = cursor;
+    const startDist = Number(workPoints[startIdx]?.distance_m ?? 0);
+    let endIdx = startIdx;
+    while (
+      endIdx < workPoints.length - 1 &&
+      Number(workPoints[endIdx].distance_m ?? 0) - startDist < targetDist
+    ) {
+      endIdx++;
+    }
+
+    slices.push(workPoints.slice(startIdx, endIdx + 1));
+    cursor = endIdx + 1;
+  }
+
+  return slices;
+}
+
+// Sub-splits a single rep's own point slice into fixed-distance buckets.
+// "start" alignment walks full buckets from the beginning of the rep,
+// leaving any leftover distance as a trailing partial (lap, lap, part-lap).
+// "end" alignment does the reverse — the leftover lands as a leading
+// partial instead, with full buckets running to the finish (part-lap, lap,
+// lap) — useful when a rep didn't start right at a track's lap marker, so
+// the clean laps are the ones nearer the finish rather than the start.
+function splitRepPointsIntoBuckets(
+  repPoints: any[],
+  splitDistanceM: number,
+  align: "start" | "end",
+): { durationS: number; distanceM: number; avgPace: number | null; isPartial: boolean }[] {
+  if (!Array.isArray(repPoints) || repPoints.length < 2 || !splitDistanceM || splitDistanceM <= 0) return [];
+
+  const sorted = [...repPoints].sort((a, b) => Number(a.elapsed_s ?? 0) - Number(b.elapsed_s ?? 0));
+  const startDist = Number(sorted[0]?.distance_m ?? 0);
+  const endDist = Number(sorted[sorted.length - 1]?.distance_m ?? 0);
+  const totalDist = Math.max(0, endDist - startDist);
+  if (totalDist <= 0) return [];
+
+  const remainder = totalDist % splitDistanceM;
+  const firstBoundary = align === "end" && remainder > 0.5 ? remainder : splitDistanceM;
+
+  const out: { durationS: number; distanceM: number; avgPace: number | null; isPartial: boolean }[] = [];
+  let nextMark = firstBoundary;
+  let sliceStart = 0;
+
+  for (let i = 0; i < sorted.length; i++) {
+    const d = Number(sorted[i].distance_m ?? 0) - startDist;
+    if (d >= nextMark || i === sorted.length - 1) {
+      const slice = sorted.slice(sliceStart, i + 1);
+      const m = computeMetricsFromTraceSlice(slice);
+      if (m.distanceM > 0) {
+        const deadS = computeDeadSecondsInSlice(slice);
+        const movingDurationS = Math.max(0, m.durationS - deadS);
+        const avgPace = movingDurationS > 0 && m.distanceM > 0 ? (movingDurationS / m.distanceM) * 1000 : m.avgPace;
+        out.push({
+          durationS: movingDurationS,
+          distanceM: m.distanceM,
+          avgPace,
+          isPartial: m.distanceM < splitDistanceM * 0.9,
+        });
+      }
+      sliceStart = i;
+      nextMark += splitDistanceM;
+    }
+  }
+  return out;
+}
+
+// "By km"/"By lap" for a session with real rep structure needs to stay
 // within each rep's own trace and use that rep's own distance — not the
 // whole session's cumulative distance the way buildEvenDistanceSplits
-// does for a continuous effort. Otherwise warmup miles and the ground
-// covered during recovery jogs between reps get silently folded into
-// whichever km bucket they land in alongside real work meters, which is
-// why a straight 5x1km session used to show a completely different (and
-// much slower) set of bars in "By km" than in "By reps" instead of
-// reproducing them.
+// does for a continuous effort, and not a GPS-segment blob that might
+// silently span more than one rep (see sliceRawPointsByRep above).
 //
 // A rep at or under ~1 split's worth of distance becomes exactly one
 // bucket (its own real recorded metrics, not a re-bucketed
 // approximation) — so a session of near-exact-splitDistanceM reps
 // collapses to one bucket per rep, matching "By reps" almost exactly
 // (any remaining difference is the separate GPS-overrun-trim correction
-// already flagged). A longer rep (e.g. mile repeats against 1km splits)
-// gets sub-split within just that rep's own trace instead of bleeding
-// into the next one. Bucket numbering continues across all work groups
-// so the chart still reads left-to-right as one session.
-function buildEvenDistanceSplitsForReps(
+// already flagged). A longer rep (e.g. mile repeats against 1km splits,
+// or 1km reps against 400m laps) gets sub-split within just that rep's
+// own trace instead of bleeding into the next one. Bucket numbering
+// continues across all reps so the chart still reads left-to-right as
+// one session.
+function buildRepAlignedDistanceSplits(
   points: any[],
+  repRows: SplitRow[],
   splitDistanceM: number,
-): { index: number; durationS: number; distanceM: number; avgPace: number | null }[] {
-  if (!Array.isArray(points) || points.length === 0 || !splitDistanceM || splitDistanceM <= 0) return [];
+  align: "start" | "end",
+): { index: number; durationS: number; distanceM: number; avgPace: number | null; isPartial: boolean }[] {
+  if (!splitDistanceM || splitDistanceM <= 0) return [];
 
-  const groups = buildTraceGroups(points).filter((g) => g.type === "work" || g.type === "strides");
-  const out: { index: number; durationS: number; distanceM: number; avgPace: number | null }[] = [];
+  const repSlices = sliceRawPointsByRep(points, repRows);
+  const out: { index: number; durationS: number; distanceM: number; avgPace: number | null; isPartial: boolean }[] = [];
   let globalIndex = 1;
 
-  for (const g of groups) {
-    if (!g.points || g.points.length < 2) continue;
+  for (const repPoints of repSlices) {
+    if (!repPoints.length) continue;
 
-    const startDistance = Number(g.points[0]?.distance_m ?? 0);
-    const endDistance = Number(g.points[g.points.length - 1]?.distance_m ?? 0);
+    const startDistance = Number(repPoints[0]?.distance_m ?? 0);
+    const endDistance = Number(repPoints[repPoints.length - 1]?.distance_m ?? 0);
     const groupDistance = Math.max(0, endDistance - startDistance);
 
     if (groupDistance <= splitDistanceM * 1.15) {
-      // Rep already matches (or is close to) one split's worth of
-      // distance — one bucket for the whole rep.
-      const m = computeMetricsFromTraceSlice(g.points);
+      const m = computeMetricsFromTraceSlice(repPoints);
       if (m.distanceM > 0) {
-        const deadS = computeDeadSecondsInSlice(g.points);
+        const deadS = computeDeadSecondsInSlice(repPoints);
         const movingDurationS = Math.max(0, m.durationS - deadS);
         const avgPace = movingDurationS > 0 && m.distanceM > 0 ? (movingDurationS / m.distanceM) * 1000 : m.avgPace;
-        out.push({ index: globalIndex++, durationS: movingDurationS, distanceM: m.distanceM, avgPace });
+        out.push({ index: globalIndex++, durationS: movingDurationS, distanceM: m.distanceM, avgPace, isPartial: false });
       }
       continue;
     }
 
-    // Longer rep — sub-split within just this rep's own trace, relative
-    // to its own start distance so it doesn't inherit the session's
-    // cumulative mileage.
-    const relPoints = g.points.map((p: any) => ({
-      ...p,
-      distance_m: Number(p.distance_m ?? 0) - startDistance,
-    }));
-    const groupSplits = buildEvenDistanceSplits(relPoints, splitDistanceM);
-    for (const s of groupSplits) {
-      out.push({ ...s, index: globalIndex++ });
+    const buckets = splitRepPointsIntoBuckets(repPoints, splitDistanceM, align);
+    for (const b of buckets) {
+      out.push({ index: globalIndex++, ...b });
     }
   }
 
