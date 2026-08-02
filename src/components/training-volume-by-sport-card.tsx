@@ -98,7 +98,11 @@ export function TrainingVolumeBySportCard({
 }) {
   const { data: sessions, isLoading, isError, error } = useQuery({
     queryKey: ["athlete-volume-by-sport", athleteId, since],
-    enabled: !!athleteId,
+    // Guard against a caller forgetting to pass `since` (or passing it as
+    // undefined during a render before it's resolved) — without this, the
+    // query fires with an undefined date and Postgres throws "invalid
+    // input syntax for type date: 'undefined'" instead of just waiting.
+    enabled: !!athleteId && !!since,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sessions")
