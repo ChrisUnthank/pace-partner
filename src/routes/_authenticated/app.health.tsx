@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { AthleteSubnav } from "@/components/athlete-subnav";
-import { BucketTabStrip, HEALTH_TABS } from "@/components/bucket-tab-strip";
+import { BucketTabStrip, HEALTH_TABS, healthTabsFor } from "@/components/bucket-tab-strip";
 import { CoachAthletePicker } from "@/components/coach-athlete-picker";
 import { todayISO } from "@/lib/format";
 import { AlertTriangle, Search, Apple, Bath, Bandage, FlaskConical, TestTube2, HeartPulse } from "lucide-react";
@@ -172,7 +172,19 @@ function Stat({ label, value }: { label: string; value: string }) {
 // each tab's own page; this is a glance, not a duplicate of it.
 // ----------------------------------------------------------------------------
 
-function SummaryTile({ icon: Icon, title, to, children }: { icon: any; title: string; to: string; children: ReactNode }) {
+function SummaryTile({
+  icon: Icon,
+  title,
+  to,
+  athleteId,
+  children,
+}: {
+  icon: any;
+  title: string;
+  to: string;
+  athleteId: string;
+  children: ReactNode;
+}) {
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -180,7 +192,11 @@ function SummaryTile({ icon: Icon, title, to, children }: { icon: any; title: st
           <span className="flex items-center gap-1.5">
             <Icon className="h-4 w-4 text-muted-foreground" /> {title}
           </span>
-          <Link to={to} className="text-xs font-medium text-[var(--accent-red)] hover:underline whitespace-nowrap">
+          <Link
+            to={to}
+            search={{ athleteId } as any}
+            className="text-xs font-medium text-[var(--accent-red)] hover:underline whitespace-nowrap"
+          >
             Open →
           </Link>
         </CardTitle>
@@ -211,7 +227,7 @@ function DietFuelSummary({ athleteId }: { athleteId: string }) {
   });
 
   return (
-    <SummaryTile icon={Apple} title="Diet & Fuel" to="/app/diet-fuel">
+    <SummaryTile icon={Apple} title="Diet & Fuel" to="/app/diet-fuel" athleteId={athleteId}>
       {data ? (
         <>
           <div className="text-muted-foreground text-xs mb-1">{fmtShortDate(data.nutrition_date)}</div>
@@ -244,7 +260,7 @@ function RecoverySummary({ athleteId }: { athleteId: string }) {
   });
 
   return (
-    <SummaryTile icon={Bath} title="Recovery" to="/app/recovery">
+    <SummaryTile icon={Bath} title="Recovery" to="/app/recovery" athleteId={athleteId}>
       {data ? (
         <>
           <div className="text-muted-foreground text-xs mb-1">{fmtShortDate(data.session_date)}</div>
@@ -276,7 +292,7 @@ function InjurySummary({ athleteId }: { athleteId: string }) {
   });
 
   return (
-    <SummaryTile icon={Bandage} title="Injury Management" to="/app/injuries">
+    <SummaryTile icon={Bandage} title="Injury Management" to="/app/injuries" athleteId={athleteId}>
       {!data || data.length === 0 ? (
         <p className="text-muted-foreground">No active injuries.</p>
       ) : (
@@ -315,7 +331,7 @@ function BicarbSummary({ athleteId }: { athleteId: string }) {
   });
 
   return (
-    <SummaryTile icon={FlaskConical} title="Bicarb" to="/app/bicarb">
+    <SummaryTile icon={FlaskConical} title="Bicarb" to="/app/bicarb" athleteId={athleteId}>
       {data ? (
         <>
           <div className="text-muted-foreground text-xs mb-1">{fmtShortDate(data.log_date)}</div>
@@ -351,7 +367,7 @@ function LactateSummary({ athleteId }: { athleteId: string }) {
   }, [points, spotChecks]);
 
   return (
-    <SummaryTile icon={TestTube2} title="Lactate" to="/app/lactate">
+    <SummaryTile icon={TestTube2} title="Lactate" to="/app/lactate" athleteId={athleteId}>
       {latest ? (
         <>
           <div className="text-muted-foreground text-xs mb-1">{fmtShortDate(latest.date as string)}</div>
@@ -413,7 +429,7 @@ function AthleteHealthView() {
           <p className="text-sm text-muted-foreground mt-1">Vitals, recovery, and injury status in one place.</p>
         </div>
       </div>
-      <BucketTabStrip items={HEALTH_TABS} active="/app/health" />
+      <BucketTabStrip items={healthTabsFor(athlete.id)} active="/app/health" />
       {isLoading ? <p className="text-sm text-muted-foreground">Loading…</p> : <HealthSnapshotCard snapshot={snapshot} />}
       <HealthOverviewExtras athleteId={athlete.id} />
       <Card>
