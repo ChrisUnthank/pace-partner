@@ -19,6 +19,7 @@ import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, useMap, Toolti
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { RouteFlyoverMap, type FlyoverPoint } from "@/components/route-flyover-map";
+import { SaveRouteDialog } from "@/components/save-route-dialog";
 import { FEEL_LEVELS } from "@/components/feel-faces";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -988,7 +989,13 @@ function SessionAnalysis() {
           {/* ✅ LEFT COLUMN (visual + session content) */}
           <div className="lg:col-span-2 flex flex-col">
             <div className="flex-1">
-              <MapPanel points={Array.isArray(gpsPoints) ? gpsPoints : []} terrain={session?.terrain} />
+              <MapPanel
+                points={Array.isArray(gpsPoints) ? gpsPoints : []}
+                terrain={session?.terrain}
+                sessionId={sessionId}
+                athleteId={session?.athlete_id}
+                routeName={session?.title ?? undefined}
+              />
             </div>
           </div>
 
@@ -1605,9 +1612,15 @@ function treadmillDivIcon() {
 function MapPanel({
   points,
   terrain,
+  sessionId,
+  athleteId,
+  routeName,
 }: {
   points: { lat?: number; lng?: number; stepKind?: string; t?: number; d?: number; hr?: number; elev?: number }[];
   terrain?: string | null;
+  sessionId: string;
+  athleteId?: string | null;
+  routeName?: string;
 }) {
   const safePoints = useMemo(() => {
     return Array.isArray(points)
@@ -1841,6 +1854,7 @@ function MapPanel({
             >
               {playing ? "Pause" : "▶ Replay"}
             </Button>
+            <SaveRouteDialog points={geoPoints} sessionId={sessionId} athleteId={athleteId} defaultName={routeName} />
           </div>
         </div>
       </CardHeader>
