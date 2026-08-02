@@ -22,6 +22,7 @@ import {
   YourAthletesWidget,
   UpcomingRacesWidget,
   RecentReviewsWidget,
+  QuickLinksSelfWidget,
   AthleteLoadStripWidget,
   AthleteTodayWidget,
   AthleteAttentionWidget,
@@ -80,6 +81,32 @@ function AppHome() {
     ? Object.fromEntries(widgetsForRole(dashboardRole).map((w) => [w.id, { span: w.span, rowSpan: w.rowSpan ?? 1 }]))
     : {};
 
+  // Which of the three independent drag-and-drop areas each widget
+  // belongs to — see WidgetDef.zone. Undefined defaults to "full",
+  // which is every athlete widget today, so fullIds ends up being
+  // "all of them" and mainIds/sidebarIds stay empty for the athlete
+  // dashboard — the two-column section below simply doesn't render,
+  // no role branching needed to preserve that dashboard's original
+  // single-grid layout.
+  const zoneOf = dashboardRole
+    ? Object.fromEntries(widgetsForRole(dashboardRole).map((w) => [w.id, w.zone ?? "full"]))
+    : {};
+  const fullIds = visibleIds.filter((id) => (zoneOf[id] ?? "full") === "full");
+  const mainIds = visibleIds.filter((id) => zoneOf[id] === "main");
+  const sidebarIds = visibleIds.filter((id) => zoneOf[id] === "sidebar");
+
+  // Reordering within one zone (e.g. dragging inside the sidebar column)
+  // only ever touches that zone's own ids — this splices the zone's new
+  // relative order back into the master order at exactly the slots
+  // those ids already occupied, leaving every other id's position
+  // completely untouched. Same helper for all three zones.
+  function reorderZone(zoneIds: DashboardWidgetId[], newZoneOrder: DashboardWidgetId[]) {
+    const fullOrder = layout.order as DashboardWidgetId[];
+    const zoneIdSet = new Set(zoneIds);
+    let i = 0;
+    layout.reorder(fullOrder.map((id) => (zoneIdSet.has(id) ? newZoneOrder[i++] : id)));
+  }
+
   function renderWidget(id: DashboardWidgetId) {
     switch (id) {
       case "quick_actions":
@@ -98,6 +125,8 @@ function AppHome() {
         return <UpcomingRacesWidget />;
       case "recent_reviews":
         return <RecentReviewsWidget />;
+      case "quick_links_self":
+        return <QuickLinksSelfWidget />;
       case "athlete_load_strip":
         return athlete ? <AthleteLoadStripWidget athleteId={athlete.id} /> : null;
       case "athlete_today":
@@ -259,13 +288,37 @@ function AppHome() {
             )}
 
             <DashboardGrid
-              ids={visibleIds}
+              ids={fullIds}
               sizes={sizes}
               editMode={editMode}
-              onReorder={(next) => layout.reorder(next as DashboardWidgetId[])}
+              onReorder={(next) => reorderZone(fullIds, next as DashboardWidgetId[])}
               onHide={(id) => layout.setHidden(id as DashboardWidgetId, true)}
               renderWidget={(id) => renderWidget(id as DashboardWidgetId)}
+              columns={3}
             />
+
+            {(mainIds.length > 0 || sidebarIds.length > 0) && (
+              <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4 items-start">
+                <DashboardGrid
+                  ids={mainIds}
+                  sizes={sizes}
+                  editMode={editMode}
+                  onReorder={(next) => reorderZone(mainIds, next as DashboardWidgetId[])}
+                  onHide={(id) => layout.setHidden(id as DashboardWidgetId, true)}
+                  renderWidget={(id) => renderWidget(id as DashboardWidgetId)}
+                  columns={1}
+                />
+                <DashboardGrid
+                  ids={sidebarIds}
+                  sizes={sizes}
+                  editMode={editMode}
+                  onReorder={(next) => reorderZone(sidebarIds, next as DashboardWidgetId[])}
+                  onHide={(id) => layout.setHidden(id as DashboardWidgetId, true)}
+                  renderWidget={(id) => renderWidget(id as DashboardWidgetId)}
+                  columns={1}
+                />
+              </div>
+            )}
 
             <DashboardCustomizeSheet
               open={pickerOpen}
@@ -277,38 +330,6 @@ function AppHome() {
               onReorder={(next) => layout.reorder(next)}
             />
           </>
-        )}
-
-        {/* Coach who is also an athlete: unchanged fixed block, kept
-            outside the widget grid since it's a small, secondary set of
-            links rather than something worth making independently
-            movable. */}
-        {isAthlete && athlete && isCoach && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Quick links</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-wrap gap-2">
-              <Button asChild>
-                <Link to="/app/daily-log">Open Daily Log</Link>
-              </Button>
-              <Button asChild variant="outline">
-                <Link to="/app/health">Health & Vitals</Link>
-              </Button>
-              <Button asChild variant="outline">
-                <Link to="/app/my-schedule">Locker</Link>
-              </Button>
-              <Button asChild variant="outline">
-                <Link to="/app/sessions">All sessions</Link>
-              </Button>
-              <Button asChild variant="outline">
-                <Link to="/app/races">Races &amp; PBs</Link>
-              </Button>
-              <Button asChild variant="outline">
-                <Link to="/app/zones">Zones</Link>
-              </Button>
-            </CardContent>
-          </Card>
         )}
       </div>
     </AppShell>
