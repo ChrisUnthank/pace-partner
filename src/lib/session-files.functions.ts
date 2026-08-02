@@ -1264,6 +1264,53 @@ function buildIntervalRowsFromPlan(
  * Rebuild entire FIT/GPX-derived session from all attached files.
  * This is the single source of truth for raw_session_points / steps / interval_results.
  */
+// Detects a genuine 400m-track session from the actual recorded work-rep
+// distances, rather than relying on someone remembering to set the
+// terrain dropdown. Two signals, both required:
+//   1. "Round" distance — the median rep distance lands within 3% of a
+//      multiple of 100m (covers the common track distances: 200, 300,
+//      400, 600, 800, 1000, 1200, 1600...).
+//   2. Tight rep-to-rep consistency — coefficient of variation under
+//      1.5%. A track is a fixed measured distance, so the same lap
+//      repeats almost exactly every time; road/trail GPS reps naturally
+//      vary more rep to rep even when the athlete is genuinely
+//      consistent, since GPS drift and stopping points differ each time.
+// Needs at least 4 real work reps to be a meaningful pattern at all.
+//
+// Known limitation, tested against real numbers before shipping: this
+// can't fully separate a track session from an unusually GPS-tight road
+// session at exactly ~1km — that distance is common on both surfaces, so
+// a very consistent 5x1km road session can still pass. It's most
+// reliable at classic short track distances (400/800/1200/1600m,
+// typically 4+ reps) where road GPS variance is proportionally much more
+// likely to show through. Distance-based tolerance is the tradeoff of
+// detecting from rep distances rather than the GPS route's shape; if
+// false positives on ~1km road sessions turn out to be common in
+// practice, the fix is a loop-shape check instead, not a tighter number
+// here.
+function looksLikeTrackSession(workLaps: { total_distance: number }[]): boolean {
+  const distances = (workLaps ?? []).map((l) => Number(l.total_distance ?? 0)).filter((d) => d > 0);
+  if (distances.length < 4) return false;
+
+  const mean = distances.reduce((a, b) => a + b, 0) / distances.length;
+  if (mean <= 0) return false;
+
+  const sorted = [...distances].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const median = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+
+  const nearestHundred = Math.round(median / 100) * 100;
+  if (nearestHundred <= 0) return false;
+  const roundnessPct = Math.abs(median - nearestHundred) / nearestHundred;
+  if (roundnessPct > 0.03) return false;
+
+  const variance = distances.reduce((a, d) => a + (d - mean) ** 2, 0) / distances.length;
+  const cv = Math.sqrt(variance) / mean;
+  if (cv > 0.015) return false;
+
+  return true;
+}
+
 async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<void> {
   const { data: sess, error: sessErr } = await sb.from("sessions").select("*").eq("id", sessionId).single();
 
@@ -1482,6 +1529,10 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   const workLaps = classifiedLaps.filter((l) => l.kind === "work");
   const warmupLaps = classifiedLaps.filter((l) => l.kind === "warmup");
   const cooldownLaps = classifiedLaps.filter((l) => l.kind === "cooldown");
+
+  // Only ever fills in terrain when it's currently unset — never overrides
+  // a coach's own Track/Road/Trail/Path/Grass choice on the session page.
+  const detectedTrack = !sess.terrain && looksLikeTrackSession(workLaps);
 
   // Computed once here (not inside the hasManualPlan branch below) so these
   // are in scope for the final sessions.update() — previously work_avg_pace_
@@ -2326,6 +2377,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
       easy_avg_pace_sec_per_km: easyPaceSecPerKm,
       structure: isIntervals ? "intervals" : "continuous",
       needs_review: isIntervals,
+      ...(detectedTrack ? { terrain: "track" } : {}),
       ...(shouldUpdateIntent ? { intent: derivedIntent } : {}),
       ...(recomputedTitle ? { title: recomputedTitle } : {}),
     } as any)
