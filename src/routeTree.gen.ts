@@ -63,6 +63,7 @@ import { Route as ApiPublicHooksDispatchPushRouteImport } from './routes/api/pub
 import { Route as AuthenticatedAppSessionsNewRouteImport } from './routes/_authenticated/app.sessions.new'
 import { Route as AuthenticatedAppSessionsCalendarRouteImport } from './routes/_authenticated/app.sessions.calendar'
 import { Route as AuthenticatedAppSessionsSessionIdRouteImport } from './routes/_authenticated/app.sessions.$sessionId'
+import { Route as AuthenticatedAppReportsAiReviewRouteImport } from './routes/_authenticated/app.reports.ai-review'
 import { Route as AuthenticatedAppRacesRaceIdRouteImport } from './routes/_authenticated/app.races.$raceId'
 import { Route as AuthenticatedAppRaceTacticsNewRouteImport } from './routes/_authenticated/app.race-tactics.new'
 import { Route as AuthenticatedAppRaceTacticsPlanIdRouteImport } from './routes/_authenticated/app.race-tactics.$planId'
@@ -385,6 +386,12 @@ const AuthenticatedAppSessionsSessionIdRoute =
     path: '/$sessionId',
     getParentRoute: () => AuthenticatedAppSessionsRoute,
   } as any)
+const AuthenticatedAppReportsAiReviewRoute =
+  AuthenticatedAppReportsAiReviewRouteImport.update({
+    id: '/app/reports/ai-review',
+    path: '/app/reports/ai-review',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAppRacesRaceIdRoute =
   AuthenticatedAppRacesRaceIdRouteImport.update({
     id: '/$raceId',
@@ -537,6 +544,7 @@ export interface FileRoutesByFullPath {
   '/app/race-tactics/$planId': typeof AuthenticatedAppRaceTacticsPlanIdRoute
   '/app/race-tactics/new': typeof AuthenticatedAppRaceTacticsNewRoute
   '/app/races/$raceId': typeof AuthenticatedAppRacesRaceIdRouteWithChildren
+  '/app/reports/ai-review': typeof AuthenticatedAppReportsAiReviewRoute
   '/app/sessions/$sessionId': typeof AuthenticatedAppSessionsSessionIdRouteWithChildren
   '/app/sessions/calendar': typeof AuthenticatedAppSessionsCalendarRoute
   '/app/sessions/new': typeof AuthenticatedAppSessionsNewRoute
@@ -604,6 +612,7 @@ export interface FileRoutesByTo {
   '/app/coach/$slug': typeof AuthenticatedAppCoachSlugRoute
   '/app/race-tactics/$planId': typeof AuthenticatedAppRaceTacticsPlanIdRoute
   '/app/race-tactics/new': typeof AuthenticatedAppRaceTacticsNewRoute
+  '/app/reports/ai-review': typeof AuthenticatedAppReportsAiReviewRoute
   '/app/sessions/calendar': typeof AuthenticatedAppSessionsCalendarRoute
   '/app/sessions/new': typeof AuthenticatedAppSessionsNewRoute
   '/api/public/hooks/dispatch-push': typeof ApiPublicHooksDispatchPushRoute
@@ -677,6 +686,7 @@ export interface FileRoutesById {
   '/_authenticated/app/race-tactics/$planId': typeof AuthenticatedAppRaceTacticsPlanIdRoute
   '/_authenticated/app/race-tactics/new': typeof AuthenticatedAppRaceTacticsNewRoute
   '/_authenticated/app/races/$raceId': typeof AuthenticatedAppRacesRaceIdRouteWithChildren
+  '/_authenticated/app/reports/ai-review': typeof AuthenticatedAppReportsAiReviewRoute
   '/_authenticated/app/sessions/$sessionId': typeof AuthenticatedAppSessionsSessionIdRouteWithChildren
   '/_authenticated/app/sessions/calendar': typeof AuthenticatedAppSessionsCalendarRoute
   '/_authenticated/app/sessions/new': typeof AuthenticatedAppSessionsNewRoute
@@ -751,6 +761,7 @@ export interface FileRouteTypes {
     | '/app/race-tactics/$planId'
     | '/app/race-tactics/new'
     | '/app/races/$raceId'
+    | '/app/reports/ai-review'
     | '/app/sessions/$sessionId'
     | '/app/sessions/calendar'
     | '/app/sessions/new'
@@ -818,6 +829,7 @@ export interface FileRouteTypes {
     | '/app/coach/$slug'
     | '/app/race-tactics/$planId'
     | '/app/race-tactics/new'
+    | '/app/reports/ai-review'
     | '/app/sessions/calendar'
     | '/app/sessions/new'
     | '/api/public/hooks/dispatch-push'
@@ -890,6 +902,7 @@ export interface FileRouteTypes {
     | '/_authenticated/app/race-tactics/$planId'
     | '/_authenticated/app/race-tactics/new'
     | '/_authenticated/app/races/$raceId'
+    | '/_authenticated/app/reports/ai-review'
     | '/_authenticated/app/sessions/$sessionId'
     | '/_authenticated/app/sessions/calendar'
     | '/_authenticated/app/sessions/new'
@@ -1305,6 +1318,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppSessionsSessionIdRouteImport
       parentRoute: typeof AuthenticatedAppSessionsRoute
     }
+    '/_authenticated/app/reports/ai-review': {
+      id: '/_authenticated/app/reports/ai-review'
+      path: '/app/reports/ai-review'
+      fullPath: '/app/reports/ai-review'
+      preLoaderRoute: typeof AuthenticatedAppReportsAiReviewRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/app/races/$raceId': {
       id: '/_authenticated/app/races/$raceId'
       path: '/$raceId'
@@ -1585,6 +1605,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAppCoachSlugRoute: typeof AuthenticatedAppCoachSlugRoute
   AuthenticatedAppRaceTacticsPlanIdRoute: typeof AuthenticatedAppRaceTacticsPlanIdRoute
   AuthenticatedAppRaceTacticsNewRoute: typeof AuthenticatedAppRaceTacticsNewRoute
+  AuthenticatedAppReportsAiReviewRoute: typeof AuthenticatedAppReportsAiReviewRoute
   AuthenticatedAppAthleteIndexRoute: typeof AuthenticatedAppAthleteIndexRoute
   AuthenticatedAppCoachIndexRoute: typeof AuthenticatedAppCoachIndexRoute
   AuthenticatedAppRaceTacticsIndexRoute: typeof AuthenticatedAppRaceTacticsIndexRoute
@@ -1636,6 +1657,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAppRaceTacticsPlanIdRoute:
     AuthenticatedAppRaceTacticsPlanIdRoute,
   AuthenticatedAppRaceTacticsNewRoute: AuthenticatedAppRaceTacticsNewRoute,
+  AuthenticatedAppReportsAiReviewRoute: AuthenticatedAppReportsAiReviewRoute,
   AuthenticatedAppAthleteIndexRoute: AuthenticatedAppAthleteIndexRoute,
   AuthenticatedAppCoachIndexRoute: AuthenticatedAppCoachIndexRoute,
   AuthenticatedAppRaceTacticsIndexRoute: AuthenticatedAppRaceTacticsIndexRoute,
