@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
-import { LayoutGrid, IdCard, Gauge, CalendarRange, CalendarDays, LineChart, Trophy, Globe, HeartPulse } from "lucide-react";
+import { LayoutGrid, IdCard, Gauge, CalendarRange, CalendarDays, LineChart, Trophy, Globe, HeartPulse, PersonStanding } from "lucide-react";
 
 export type AthleteSubnavTab =
   | "overview"
@@ -10,18 +10,20 @@ export type AthleteSubnavTab =
   | "calendar"
   | "sessions"
   | "analytics"
+  | "biomechanics"
   | "performance-profile"
   | "zones"
   | "races"
   | "athlete-page";
 
 // Shared tab strip for every page reached from an athlete's full view —
-// Overview, Calendar, Sessions, Analytics, Health, Performance Profile,
-// Zones, Races, and the athlete's public Athlete Page. Lets a coach jump
-// directly from any one of these to any other, rather than only being able
-// to navigate back to Overview and out again. Race Tactics deliberately isn't
-// a tab here — it's reached via a prominent link on the Races page instead,
-// since it's conceptually a sub-area of race results, not a peer of it.
+// Overview, Calendar, Sessions, Analytics, Biomechanics, Health,
+// Performance Profile, Zones, Races, and the athlete's public Athlete
+// Page. Lets a coach jump directly from any one of these to any other,
+// rather than only being able to navigate back to Overview and out
+// again. Race Tactics deliberately isn't a tab here — it's reached via
+// a prominent link on the Races page instead, since it's conceptually a
+// sub-area of race results, not a peer of it.
 export function AthleteSubnav({ athleteId, active }: { athleteId: string; active: AthleteSubnavTab }) {
   // The Athlete Page tab needs to know whether this athlete already has a
   // public page (link straight to it) or not (fall back to the
@@ -50,6 +52,7 @@ export function AthleteSubnav({ athleteId, active }: { athleteId: string; active
     { key: "calendar", label: "Calendar", icon: CalendarRange, to: "/app/sessions/calendar", search: { athleteId } },
     { key: "sessions", label: "Sessions", icon: CalendarDays, to: "/app/sessions", search: { athleteId } },
     { key: "analytics", label: "Analytics", icon: LineChart, to: "/app/analytics", search: { athleteId } },
+    { key: "biomechanics", label: "Biomechanics", icon: PersonStanding, to: "/app/biomechanics", search: { athleteId } },
     { key: "health", label: "Health", icon: HeartPulse, to: "/app/health", search: { athleteId } },
     {
       key: "performance-profile",
