@@ -906,7 +906,8 @@ function SessionDetail() {
         {/* ───────────────── Header card: who / what / when + primary actions ───────────────── */}
         <Card>
           <CardContent className="pt-6">
-            <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="flex items-start gap-4">
+            <div className="flex-1 min-w-0 flex items-start justify-between gap-4 flex-wrap">
               <div className="flex items-start gap-3 min-w-0">
                 <UserAvatar
                   name={session.athletes?.name}
@@ -1120,10 +1121,10 @@ function SessionDetail() {
             </div>
 
             {routeLatLngs.length >= 2 && (
-              <div className="mt-4 h-36 w-full rounded-lg overflow-hidden border">
+              <div className="shrink-0 w-40 h-24 rounded-lg overflow-hidden border">
                 <MapContainer
                   bounds={routeLatLngs}
-                  boundsOptions={{ padding: [12, 12] }}
+                  boundsOptions={{ padding: [8, 8] }}
                   zoomControl={false}
                   dragging={false}
                   scrollWheelZoom={false}
@@ -1137,6 +1138,7 @@ function SessionDetail() {
                 </MapContainer>
               </div>
             )}
+            </div>
           </CardContent>
         </Card>
 
