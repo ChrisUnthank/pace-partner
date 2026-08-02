@@ -736,6 +736,7 @@ function NewSession() {
                       <SelectItem value="gym">Gym</SelectItem>
                       <SelectItem value="ride">Ride</SelectItem>
                       <SelectItem value="swim">Swim</SelectItem>
+                      <SelectItem value="walk">Walk</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
