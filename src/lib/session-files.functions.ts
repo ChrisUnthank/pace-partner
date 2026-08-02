@@ -79,7 +79,7 @@ async function fetchWeather(lat: number, lon: number, timestamp: string) {
   }
 }
 
-async function fetchLocationName(lat: number, lon: number) {
+async function fetchLocationName(lat: number, lon: number): Promise<{ location: string | null; venue: string | null }> {
   try {
     const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`;
 
@@ -92,23 +92,49 @@ async function fetchLocationName(lat: number, lon: number) {
 
     if (!res.ok) {
       console.error("Location fetch failed:", res.status);
-      return null;
+      return { location: null, venue: null };
     }
 
     const data = await res.json();
+    const address = data?.address ?? {};
 
-    return (
-      data?.address?.city ||
-      data?.address?.town ||
-      data?.address?.suburb ||
-      data?.address?.village ||
-      data?.address?.county ||
-      data?.address?.state ||
-      (data?.display_name ? data.display_name.split(",")[0] : "Unknown location")
-    );
+    const location =
+      address.city ||
+      address.town ||
+      address.suburb ||
+      address.village ||
+      address.county ||
+      address.state ||
+      (data?.display_name ? data.display_name.split(",")[0] : "Unknown location");
+
+    // A named venue is a genuinely more specific place than the city/suburb
+    // above — a park, athletics track, sports ground, stadium, or similar —
+    // and only worth surfacing when Nominatim actually has one tagged at
+    // this exact point (e.g. reverse-geocoding a point inside "Landy
+    // Field"'s mapped boundary returns its name here). Most runs don't
+    // start somewhere with a name more specific than their suburb, so this
+    // is frequently null — that's the correct, honest result, not a gap to
+    // paper over with a guess. address.road (a street name) is deliberately
+    // excluded: a street isn't a venue, and including it here would make
+    // "venue" redundant with a location line that's already just as
+    // recognisable without it.
+    const venueCandidate =
+      address.leisure ||
+      address.sport ||
+      address.pitch ||
+      address.sports_centre ||
+      address.stadium ||
+      address.track ||
+      address.recreation_ground ||
+      address.park ||
+      (typeof data?.name === "string" && data.name.trim() ? data.name : null);
+
+    const venue = venueCandidate && venueCandidate !== location ? venueCandidate : null;
+
+    return { location, venue };
   } catch (err) {
     console.error("Location fetch failed", err);
-    return null;
+    return { location: null, venue: null };
   }
 }
 
@@ -1985,6 +2011,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   let weatherTemp: number | null = null;
   let weatherWind: number | null = null;
   let locationName: string | null = null;
+  let venueName: string | null = null;
 
   if (mergedPoints.length > 0) {
     const withGps = mergedPoints.filter(
@@ -2011,7 +2038,9 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
       const weather = await fetchWeather(firstPoint.lat!, firstPoint.lng!, firstPoint.timestamp);
       weatherTemp = weather.temp;
       weatherWind = weather.wind;
-      locationName = await fetchLocationName(firstPoint.lat!, firstPoint.lng!);
+      const geocode = await fetchLocationName(firstPoint.lat!, firstPoint.lng!);
+      locationName = geocode.location;
+      venueName = geocode.venue;
     }
   }
 
@@ -2368,6 +2397,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
       average_temp_c: weatherTemp ?? avgTemp,
       wind_kph: weatherWind ?? null,
       location: locationName ?? null,
+      ...(venueName ? { venue: venueName } : {}),
       completion_pct: 100,
       work_distance_m: workDistance || null,
       work_time_s: workTime || null,
