@@ -16,13 +16,15 @@ export const SPORT_TYPES: { key: string; label: string; color: string; icon: any
   { key: "run", label: "Run", color: "#ef4444", icon: Footprints },
   { key: "ride", label: "Ride", color: "#22c55e", icon: Bike },
   { key: "swim", label: "Swim", color: "#06b6d4", icon: Waves },
+  { key: "walk", label: "Walk", color: "#f59e0b", icon: Footprints },
   { key: "gym", label: "Gym", color: "#a78bfa", icon: Dumbbell },
   { key: "cross_train", label: "Cross-train (other)", color: "#94a3b8", icon: Shuffle },
 ];
 
 export function sportKey(s: { day_type?: string | null; activity_type?: string | null }): string {
   if (s.day_type === "cross_training") {
-    if (s.activity_type === "ride" || s.activity_type === "swim" || s.activity_type === "gym") return s.activity_type;
+    if (s.activity_type === "ride" || s.activity_type === "swim" || s.activity_type === "gym" || s.activity_type === "walk")
+      return s.activity_type;
     return "cross_train";
   }
   return "run";
@@ -110,12 +112,21 @@ export function TrainingVolumeBySportCard({ athleteId, weeks = 10 }: { athleteId
   const tiles = useMemo(() => {
     const totalsBySport: Record<string, number> = {};
     for (const s of sessions ?? []) {
-      const durationS = s.total_moving_time_seconds ?? s.total_time_seconds;
+      // Moving time only — was falling back to total_time_seconds (whole
+      // elapsed time, including stopped/paused time) for any session
+      // without moving time recorded, which overstated actual training
+      // time for those sessions. A session with no moving-time data now
+      // contributes 0 here rather than an inflated elapsed-time figure.
+      const durationS = s.total_moving_time_seconds;
       if (!durationS) continue;
       const key = sportKey(s);
       totalsBySport[key] = (totalsBySport[key] ?? 0) + Number(durationS);
     }
     const totalSeconds = Object.values(totalsBySport).reduce((a, b) => a + b, 0);
+    // No longer filtered to hours > 0 — every sport type shows, including
+    // ones with zero logged time this period, so the grid reads as a
+    // complete, consistent breakdown rather than only whatever happened
+    // to have data.
     return SPORT_TYPES.map((sport) => {
       const seconds = totalsBySport[sport.key] ?? 0;
       return {
@@ -123,10 +134,10 @@ export function TrainingVolumeBySportCard({ athleteId, weeks = 10 }: { athleteId
         hours: seconds / 3600,
         pct: totalSeconds > 0 ? Math.round((seconds / totalSeconds) * 100) : 0,
       };
-    }).filter((t) => t.hours > 0);
+    });
   }, [sessions]);
 
-  const hasAny = tiles.length > 0;
+  const hasAny = (sessions ?? []).length > 0;
 
   return (
     <Card>
@@ -135,7 +146,7 @@ export function TrainingVolumeBySportCard({ athleteId, weeks = 10 }: { athleteId
           <PieChart className="h-4 w-4 text-[var(--accent-red)]" />
           Training Volume by Sport
         </CardTitle>
-        <CardDescription>Total hours by activity, last {weeks} weeks — run, ride, swim, gym, cross-train.</CardDescription>
+        <CardDescription>Total hours by activity, last {weeks} weeks — run, ride, swim, walk, gym, cross-train. Moving time only.</CardDescription>
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -147,7 +158,7 @@ export function TrainingVolumeBySportCard({ athleteId, weeks = 10 }: { athleteId
         ) : !hasAny ? (
           <p className="text-sm text-muted-foreground">No completed sessions in this window yet.</p>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
             {tiles.map((t) => (
               <SportTile key={t.sport.key} sport={t.sport} hours={t.hours} pct={t.pct} />
             ))}
