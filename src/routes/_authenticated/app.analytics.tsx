@@ -1392,7 +1392,11 @@ function AthleteAnalytics({
         </div>
       </div>
 
-      <TrainingVolumeBySportCard athleteId={athleteId} />
+      <TrainingVolumeBySportCard
+        athleteId={athleteId}
+        since={since}
+        periodLabel={(customFrom || customTo) ? "in the selected range" : RANGES[range].label.toLowerCase()}
+      />
 
       <div className="grid md:grid-cols-2 gap-6">
         <Card>
