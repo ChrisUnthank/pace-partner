@@ -2332,6 +2332,19 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
     .eq("id", sessionId);
 
   if (updErr) throw updErr;
+
+  // Continuous sessions get their within-session fatigue (pace/HR drift,
+  // first half vs second half) computed here, right after upload — the
+  // same way interval sessions already get theirs computed automatically
+  // via the zones_on_rep trigger on interval_results. Previously this only
+  // ran when someone happened to open that specific session's Analysis
+  // page (see computeContinuousFatigue in ai.functions.ts), so most real
+  // sessions never got a session_fatigue row at all. Non-fatal: a failure
+  // here shouldn't block the upload from completing.
+  if (!isIntervals) {
+    const { error: fatigueErr } = await sb.rpc("compute_continuous_fatigue", { _session_id: sessionId });
+    if (fatigueErr) console.error("compute_continuous_fatigue error:", fatigueErr);
+  }
 }
 
 // Max gap (in ms) between one file's estimated end and the next file's start
