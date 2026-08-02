@@ -1431,7 +1431,7 @@ function AthleteAnalytics({
           <CardHeader>
             <CardTitle>Within-session fatigue trend</CardTitle>
             <CardDescription>
-              Average efficiency score across interval sessions, by {granularity}. Higher = holding pace better late.
+              Average efficiency score across completed sessions, by {granularity}. Higher = holding pace better late.
             </CardDescription>
           </CardHeader>
           <CardContent>
