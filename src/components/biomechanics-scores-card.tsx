@@ -199,11 +199,7 @@ function RawMeasurementsPanel({
               {gctBalancePct != null && (
                 <>
                   {" · "}
-                  {gctBalancePct > 50
-                    ? `${(gctBalancePct - 50).toFixed(1)}% more time on right foot`
-                    : gctBalancePct < 50
-                      ? `${(50 - gctBalancePct).toFixed(1)}% more time on left foot`
-                      : "perfectly balanced L/R"}
+                  {Math.round(gctBalancePct)}/{Math.round(100 - gctBalancePct)} R/L
                 </>
               )}
             </div>
