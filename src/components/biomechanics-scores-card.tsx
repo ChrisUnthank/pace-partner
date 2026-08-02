@@ -159,14 +159,24 @@ function HeadlineScore({ score, delta, label }: { score: number | null; delta: n
 }
 
 // Level 1 raw measurements — never scored, shown as plain numbers.
+// Vertical Ratio replaces raw Vertical Oscillation (cm) here — VO alone
+// isn't comparable across athletes of different heights/stride lengths,
+// which Vertical Ratio (VO as a % of stride length) corrects for. This is
+// computed client-side from the two raw measurements the RPC already
+// returns (avg_vo_cm, stride_length_m), not a new server-side figure —
+// with VO in cm and stride length in meters, the unit conversion happens
+// to cancel out: VR% = (VO_cm × 10 mm/cm) / (stride_m × 1000 mm/m) × 100
+// = VO_cm / stride_m.
 function RawMeasurementsPanel({
   voCm,
+  strideLengthM,
   driftCm,
   veScore,
   gctMs,
   gctBalancePct,
 }: {
   voCm: number | null;
+  strideLengthM: number | null;
   driftCm: number | null;
   veScore: number | null;
   gctMs: number | null;
@@ -174,6 +184,7 @@ function RawMeasurementsPanel({
 }) {
   if (voCm == null && gctMs == null) return null;
   const veBand = bandFor(veScore);
+  const verticalRatioPct = voCm != null && strideLengthM != null && strideLengthM > 0 ? voCm / strideLengthM : null;
   return (
     <div className="border rounded-lg p-4 sm:col-span-2 lg:col-span-3">
       <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
@@ -198,13 +209,13 @@ function RawMeasurementsPanel({
             </div>
           </div>
         )}
-        {voCm != null && (
+        {verticalRatioPct != null && (
           <div>
-            <div className="text-2xl font-bold tabular-nums">{voCm.toFixed(1)} cm</div>
+            <div className="text-2xl font-bold tabular-nums">{verticalRatioPct.toFixed(1)}%</div>
             <div className="text-xs text-muted-foreground">
-              Vertical Oscillation
+              Vertical Ratio (VO ÷ stride length)
               {driftCm != null && (
-                <> · drift {driftCm > 0 ? "+" : ""}{driftCm.toFixed(1)} cm (first-fifth vs. last-fifth)</>
+                <> · VO drift {driftCm > 0 ? "+" : ""}{driftCm.toFixed(1)} cm (first-fifth vs. last-fifth)</>
               )}
             </div>
           </div>
@@ -215,7 +226,7 @@ function RawMeasurementsPanel({
           </div>
           <div className="text-xs text-muted-foreground">
             Vertical Efficiency{veBand ? ` — ${veBand.emoji} ${veBand.label}` : ""}: forward motion per unit of
-            bounce, the actual scored version of VO above
+            bounce, the actual scored version of Vertical Ratio above
           </div>
         </div>
       </div>
@@ -234,6 +245,18 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
       const { data, error } = await supabase.rpc("get_athlete_biomechanics_trend" as any, {
         _athlete_id: athleteId,
         _limit: 200,
+        // Was omitted entirely (defaults to whole-session — warmup +
+        // work + recovery + cooldown all blended together), which is
+        // very likely why Vertical Efficiency and friends could read
+        // artificially low: slow, bouncy warmup/cooldown jogging
+        // dragging the average down. "work" excludes recovery jogs
+        // too, not just warmup/cooldown — per direct confirmation, a
+        // deliberate choice, not an oversight (recovery-jog mechanics
+        // aren't "form" in the same sense work-effort mechanics are).
+        // Unlike the Trend card below, this card has no segment picker
+        // of its own — this is now its one fixed default rather than
+        // something the person viewing it can change.
+        _segment_type: "work",
       });
       if (error) throw error;
       return (data ?? []) as ScoreRow[];
@@ -265,6 +288,7 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
       overall_economy_score: average(all.map((r) => r.overall_economy_score)),
       avg_vo_cm: average(all.map((r) => r.avg_vo_cm)),
       vo_drift_cm: average(all.map((r) => r.vo_drift_cm)),
+      stride_length_m: average(all.map((r) => r.stride_length_m)),
       avg_gct_ms: average(all.map((r) => r.avg_gct_ms)),
       gct_balance_pct: average(all.map((r) => r.gct_balance_pct)),
     };
@@ -283,7 +307,8 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
               Efficiency Scores
             </CardTitle>
             <CardDescription>
-              Scored against expected ranges for this workout type and athlete level, blended with recent history.
+              Work-effort only — warmup, recovery jogs, and cooldown excluded. Scored against expected ranges for
+              this workout type and athlete level, blended with recent history.
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
@@ -376,6 +401,7 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
               />
               <RawMeasurementsPanel
                 voCm={active.avg_vo_cm}
+                strideLengthM={active.stride_length_m}
                 driftCm={active.vo_drift_cm}
                 veScore={active.vertical_efficiency_score}
                 gctMs={active.avg_gct_ms}
