@@ -23,6 +23,7 @@ import { EventSuitabilityCard } from "@/components/event-suitability-card";
 import { DevelopmentTimelineCard } from "@/components/development-timeline-card";
 import { RecordsMilestonesCard } from "@/components/records-milestones-card";
 import { FitnessHistoryCard } from "@/components/fitness-history-card";
+import { AthleteActivityHistoryCard } from "@/components/athlete-activity-history-card";
 
 export const Route = createFileRoute("/_authenticated/app/athletes/$athleteId_/performance-profile")({
   component: PerformanceProfilePage,
@@ -193,15 +194,18 @@ function PerformanceProfilePage() {
             <RaceProfileCard athleteId={athleteId} />
           </TabsContent>
 
-          {/* Phase 2 of 3 — Fitness History (weekly/monthly volume + TSS
-              rollup, TrainingPeaks-style) added alongside Records &
-              Milestones. Race highlights (a small "pulled live, not
-              copied" strip linking out to the full Races page) and the
-              per-session activity log (All/Notable toggle) still land in
-              a follow-up pass. */}
+          {/* Phase 2 of 3 was Fitness History (weekly/monthly volume + TSS
+              rollup) alongside Records & Milestones. Phase 3 — a real
+              activity log — is AthleteActivityHistoryCard below: sessions
+              (logged, uploaded, bulk-uploaded), AI-generated content,
+              messages, plans built/sent, races, PBs, and report runs, all
+              in one chronological, filterable feed. Race highlights as
+              their own separate "pulled live" strip (distinct from this
+              log) is still a follow-up piece. */}
           <TabsContent value="history" className="mt-4 space-y-6">
             <FitnessHistoryCard athleteId={athleteId} />
             <RecordsMilestonesCard athleteId={athleteId} />
+            <AthleteActivityHistoryCard athleteId={athleteId} />
           </TabsContent>
 
           <TabsContent value="goals" className="mt-4 space-y-6">
