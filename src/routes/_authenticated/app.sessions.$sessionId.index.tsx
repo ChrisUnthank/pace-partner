@@ -25,6 +25,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { MapContainer, TileLayer, Polyline } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
 import {
   CheckCircle2,
   Apple,
@@ -43,6 +45,7 @@ import {
   Flame,
   Droplet,
   AlertTriangle,
+  Landmark,
 } from "lucide-react";
 import {
   DndContext,
@@ -302,7 +305,7 @@ function SessionDetail() {
       while (true) {
         const { data, error } = await supabase
           .from("raw_session_points")
-          .select("elapsed_s, distance_m")
+          .select("elapsed_s, distance_m, lat, lng")
           .eq("session_id", sessionId)
           .order("elapsed_s")
           .range(from, from + PAGE_SIZE - 1);
@@ -314,6 +317,28 @@ function SessionDetail() {
       return all;
     },
   });
+
+  // Mini route map in the top card — a lightweight, non-interactive preview
+  // reusing the same raw points already fetched above for split-reconstruction
+  // confidence, rather than a second query. Thinned to a max of ~300 points
+  // since a preview thumbnail doesn't need full GPS resolution, and a
+  // multi-thousand-point Polyline is wasted render cost at that size.
+  const routeLatLngs = useMemo(() => {
+    const withGps = rawPointsForConfidence.filter(
+      (p: any) => typeof p.lat === "number" && typeof p.lng === "number" && (p.lat !== 0 || p.lng !== 0),
+    );
+    if (withGps.length < 2) return [];
+    const step = Math.max(1, Math.floor(withGps.length / 300));
+    const thinned: [number, number][] = [];
+    for (let i = 0; i < withGps.length; i += step) {
+      thinned.push([withGps[i].lat, withGps[i].lng]);
+    }
+    const last = withGps[withGps.length - 1];
+    if (thinned[thinned.length - 1]?.[0] !== last.lat || thinned[thinned.length - 1]?.[1] !== last.lng) {
+      thinned.push([last.lat, last.lng]);
+    }
+    return thinned;
+  }, [rawPointsForConfidence]);
 
   const splitReconstruction = useMemo(() => {
     if (!rawPointsForConfidence.length) return null;
@@ -502,6 +527,38 @@ function SessionDetail() {
       return data ?? [];
     },
   });
+
+  // Time/distance/pace broken out by segment kind for the Overview card —
+  // warmup, work, recovery, strides, cooldown, each summed from the real
+  // recorded reps (interval_results), plus a Moving total (their sum) and
+  // the session's own Elapsed total for comparison. A kind is only shown
+  // if it actually has recorded reps — a session with no strides doesn't
+  // get a fabricated zero row.
+  const SEGMENT_KIND_ORDER = ["warmup", "work", "recovery", "strides", "cooldown"] as const;
+  const segmentBreakdown = useMemo(() => {
+    const stepKindById = new Map<string, string>((steps ?? []).map((s: any) => [s.id, s.kind]));
+    const totals: Record<string, { timeS: number; distanceM: number }> = {};
+    for (const k of SEGMENT_KIND_ORDER) totals[k] = { timeS: 0, distanceM: 0 };
+
+    for (const r of results ?? []) {
+      const kind = stepKindById.get((r as any).step_id);
+      if (!kind || !totals[kind]) continue;
+      totals[kind].timeS += Number((r as any).actual_time_seconds ?? 0);
+      totals[kind].distanceM += Number((r as any).actual_distance_m ?? 0);
+    }
+
+    const rows = SEGMENT_KIND_ORDER.map((kind) => ({
+      kind,
+      label: kind === "warmup" ? "Warm-up" : kind === "cooldown" ? "Cool-down" : kind.charAt(0).toUpperCase() + kind.slice(1),
+      timeS: totals[kind].timeS,
+      distanceM: totals[kind].distanceM,
+    })).filter((row) => row.timeS > 0 || row.distanceM > 0);
+
+    const movingTimeS = SEGMENT_KIND_ORDER.reduce((a, k) => a + totals[k].timeS, 0);
+    const movingDistanceM = SEGMENT_KIND_ORDER.reduce((a, k) => a + totals[k].distanceM, 0);
+
+    return { rows, movingTimeS, movingDistanceM };
+  }, [steps, results]);
 
   const { data: fuelEvents } = useQuery({
     queryKey: ["fuel-events", sessionId],
@@ -1034,16 +1091,21 @@ function SessionDetail() {
                   {rebuilding ? "Rebuilding…" : "↻ Recompute classification"}
                 </Button>
                 {session.completed_at && (
-                  <Button asChild size="sm" variant="outline">
+                  <Button
+                    asChild
+                    size="default"
+                    className="bg-[var(--accent-red)] hover:bg-[var(--accent-red)]/90 text-white"
+                  >
                     <Link to="/app/sessions/$sessionId/analysis" params={{ sessionId }}>
-                      <LineChart className="h-4 w-4 mr-1" />
+                      <LineChart className="h-5 w-5 mr-1.5" />
                       View analysis
                     </Link>
                   </Button>
                 )}
                 <Button
                   size="sm"
-                  variant="destructive"
+                  variant="ghost"
+                  className="text-muted-foreground/60 hover:text-destructive hover:bg-destructive/10"
                   onClick={() => {
                     if (!confirm("Delete this session? This cannot be undone.")) return;
 
@@ -1056,6 +1118,25 @@ function SessionDetail() {
                 </Button>
               </div>
             </div>
+
+            {routeLatLngs.length >= 2 && (
+              <div className="mt-4 h-36 w-full rounded-lg overflow-hidden border">
+                <MapContainer
+                  bounds={routeLatLngs}
+                  boundsOptions={{ padding: [12, 12] }}
+                  zoomControl={false}
+                  dragging={false}
+                  scrollWheelZoom={false}
+                  doubleClickZoom={false}
+                  touchZoom={false}
+                  attributionControl={false}
+                  style={{ height: "100%", width: "100%" }}
+                >
+                  <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" />
+                  <Polyline positions={routeLatLngs} pathOptions={{ color: "var(--accent-red)", weight: 3 }} />
+                </MapContainer>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -1133,12 +1214,18 @@ function SessionDetail() {
           </CardHeader>
 
           <CardContent className="space-y-3">
-            {(session.location || session.terrain || session.average_temp_c != null || session.wind_kph != null) && (
+            {(session.location || (session as any).venue || session.terrain || session.average_temp_c != null || session.wind_kph != null) && (
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-                {session.location && (
+                {((session as any).venue || session.location) && (
                   <span className="flex items-center gap-1">
-                    <MapPin className="h-3.5 w-3.5 text-sky-400" />
-                    {session.location}
+                    {(session as any).venue ? (
+                      <Landmark className="h-3.5 w-3.5 text-sky-400" />
+                    ) : (
+                      <MapPin className="h-3.5 w-3.5 text-sky-400" />
+                    )}
+                    {(session as any).venue && session.location
+                      ? `${(session as any).venue}, ${session.location}`
+                      : (session as any).venue || session.location}
                   </span>
                 )}
                 {session.terrain && (
@@ -1184,36 +1271,19 @@ function SessionDetail() {
               </div>
             )}
 
-            {/* ✅ METRICS GRID */}
+            {/* Compact headline strip — Total Time deliberately isn't given
+                its own box here anymore; it's the "Elapsed" row in the
+                breakdown table below, alongside the segments that make it
+                up, rather than the one number everything else has to be
+                inferred from. */}
             <div className="space-y-3">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-                {/* Time */}
-                <div className="border rounded-lg px-3 py-2">
-                  <div className="text-xs text-muted-foreground">Total Time</div>
-                  <div className="text-lg font-semibold tabular-nums">
-                    {secToClock(session.total_time_seconds || 0)}
-                  </div>
-                  {(() => {
-                    // Only worth a second line when there was a real stop —
-                    // ordinary GPS/lap-boundary noise (a couple of seconds)
-                    // shouldn't clutter every session with two near-identical
-                    // numbers. 15s threshold keeps this to genuine pauses.
-                    const movingS = (session as any).total_moving_time_seconds;
-                    const totalS = session.total_time_seconds;
-                    const hasRealStop = movingS != null && totalS != null && totalS - movingS >= 15;
-                    return hasRealStop ? (
-                      <div className="text-xs text-muted-foreground mt-0.5">Moving: {secToClock(movingS)}</div>
-                    ) : null;
-                  })()}
-                </div>
-
+              <div className="grid grid-cols-3 gap-3 text-sm">
                 {/* Distance */}
                 <div className="border rounded-lg px-3 py-2">
                   <div className="text-xs text-muted-foreground">
                     {session.day_type === "race" ? "Official Distance (editable)" : "GPS Distance"}
                   </div>
 
-                  {/* ✅ MAIN VALUE */}
                   <div className="text-lg font-semibold tabular-nums">
                     {session.day_type === "race" && race ? (
                       <Input
@@ -1221,7 +1291,7 @@ function SessionDetail() {
                         value={distanceInput}
                         className="h-7 text-sm"
                         onChange={(e) => {
-                          setDistanceInput(e.target.value); // ✅ this makes it editable
+                          setDistanceInput(e.target.value);
                         }}
                         onBlur={async () => {
                           const val = Number(distanceInput) || 0;
@@ -1253,7 +1323,6 @@ function SessionDetail() {
                     </div>
                   )}
 
-                  {/* ✅ ✅ GPS REFERENCE LINE (THIS IS THE FIX) */}
                   {session.day_type === "race" && (
                     <div className="text-xs text-muted-foreground mt-1">
                       GPS: {metersFmt(session.total_distance_m ?? 0)}
@@ -1285,28 +1354,60 @@ function SessionDetail() {
                 </div>
               </div>
 
-              {/* Split pace — overall (above) can blend warmup/cooldown/work
-                  paces together into something misleading. Shown only when
-                  there's a real warmup/cooldown to distinguish from work. */}
-              {((session as any).work_avg_pace_sec_per_km != null ||
-                (session as any).easy_avg_pace_sec_per_km != null) && (
-                <div className="grid grid-cols-2 gap-3 border-t pt-3">
-                  {(session as any).work_avg_pace_sec_per_km != null && (
-                    <div className="border rounded-lg px-3 py-2">
-                      <div className="text-xs text-muted-foreground">Work pace</div>
-                      <div className="text-lg font-semibold tabular-nums">
-                        {secToClock((session as any).work_avg_pace_sec_per_km)}/km
-                      </div>
-                    </div>
-                  )}
-                  {(session as any).easy_avg_pace_sec_per_km != null && (
-                    <div className="border rounded-lg px-3 py-2">
-                      <div className="text-xs text-muted-foreground">Warm-up/Cool-down avg</div>
-                      <div className="text-lg font-semibold tabular-nums">
-                        {secToClock((session as any).easy_avg_pace_sec_per_km)}/km
-                      </div>
-                    </div>
-                  )}
+              {/* Full time/distance/pace breakdown by segment — warmup,
+                  work, recovery, strides, cooldown (only the ones this
+                  session actually has), then Moving (their sum) and Elapsed
+                  (the session's own recorded total) so it's clear at a
+                  glance how much of the elapsed time was actually spent
+                  moving vs standing around between reps or at lights. */}
+              {(segmentBreakdown.rows.length > 0 || session.total_time_seconds) && (
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/30 text-xs text-muted-foreground">
+                        <th className="text-left font-medium px-3 py-1.5">Segment</th>
+                        <th className="text-right font-medium px-3 py-1.5">Time</th>
+                        <th className="text-right font-medium px-3 py-1.5">Distance</th>
+                        <th className="text-right font-medium px-3 py-1.5">Pace</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {segmentBreakdown.rows.map((row) => (
+                        <tr key={row.kind} className="border-b last:border-b-0">
+                          <td className="px-3 py-1.5">{row.label}</td>
+                          <td className="px-3 py-1.5 text-right tabular-nums">{secToClock(row.timeS)}</td>
+                          <td className="px-3 py-1.5 text-right tabular-nums">{metersFmt(row.distanceM)}</td>
+                          <td className="px-3 py-1.5 text-right tabular-nums">
+                            {row.distanceM > 0 ? `${secToClock((row.timeS / row.distanceM) * 1000)}/km` : "—"}
+                          </td>
+                        </tr>
+                      ))}
+
+                      {segmentBreakdown.rows.length > 0 && (
+                        <tr className="border-b bg-muted/20 font-medium">
+                          <td className="px-3 py-1.5">Moving</td>
+                          <td className="px-3 py-1.5 text-right tabular-nums">{secToClock(segmentBreakdown.movingTimeS)}</td>
+                          <td className="px-3 py-1.5 text-right tabular-nums">{metersFmt(segmentBreakdown.movingDistanceM)}</td>
+                          <td className="px-3 py-1.5 text-right tabular-nums">
+                            {segmentBreakdown.movingDistanceM > 0
+                              ? `${secToClock((segmentBreakdown.movingTimeS / segmentBreakdown.movingDistanceM) * 1000)}/km`
+                              : "—"}
+                          </td>
+                        </tr>
+                      )}
+
+                      <tr className="font-semibold">
+                        <td className="px-3 py-1.5">Elapsed</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">{secToClock(session.total_time_seconds || 0)}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">{metersFmt(session.total_distance_m ?? 0)}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">
+                          {(session.total_distance_m ?? 0) > 0 && session.total_time_seconds
+                            ? `${secToClock((session.total_time_seconds / (session.total_distance_m ?? 0)) * 1000)}/km`
+                            : "—"}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
               )}
 
