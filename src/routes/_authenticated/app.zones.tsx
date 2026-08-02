@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { ZoneBoundariesCard } from "@/components/zone-boundaries-card";
 import { AthleteSubnav } from "@/components/athlete-subnav";
 import { CoachAthletePicker } from "@/components/coach-athlete-picker";
+import { ChartInsightCard } from "@/components/chart-insight-card";
 import { paceFmt, secToClock } from "@/lib/format";
 import { AlertTriangle, Search, Gauge } from "lucide-react";
 import {
@@ -286,6 +287,10 @@ function AthleteZonesView() {
               </div>
             )}
 
+            {hasAnyZoneTime && (
+              <ChartInsightCard athleteId={athlete.id} kind="zone_distribution" title="AI Insight: Zone Distribution" />
+            )}
+
             {hrBoundaryHistory.length >= 2 && (
               <Card>
                 <CardHeader>
@@ -552,6 +557,10 @@ function CoachAthleteZonesView({ athleteId }: { athleteId: string }) {
           <TimeInZoneCard title="Time in zone — pace" data={monthly.pace} />
           <TimeInZoneCard title="Time in zone — heart rate" data={monthly.hr} />
         </div>
+      )}
+
+      {hasAnyZoneTime && (
+        <ChartInsightCard athleteId={athleteId} kind="zone_distribution" title="AI Insight: Zone Distribution" />
       )}
 
       {hrBoundaryHistory.length >= 2 && (
