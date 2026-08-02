@@ -18,6 +18,7 @@ import {
   Newspaper,
   BookmarkCheck,
   Activity,
+  Link2,
 } from "lucide-react";
 
 export type DashboardRole = "coach" | "athlete";
@@ -40,7 +41,8 @@ export type DashboardWidgetId =
   | "athlete_activity_snapshot"
   | "athlete_mini_calendar"
   | "athlete_ai_coach"
-  | "athlete_ai_reviews";
+  | "athlete_ai_reviews"
+  | "quick_links_self";
 
 export type WidgetDef = {
   id: DashboardWidgetId;
@@ -50,7 +52,12 @@ export type WidgetDef = {
   icon: any;
   // Column span out of the dashboard's 3-column grid (was 2-column —
   // widened so Training Load / Activity Snapshot can run 2/3-width
-  // alongside a narrower 1/3 Calendar).
+  // alongside a narrower 1/3 Calendar). Still meaningful for "full"-zone
+  // widgets and for the athlete dashboard (which has no zone concept);
+  // for "main"/"sidebar" zone widgets it's cosmetic/self-documenting
+  // only — those each render at the full width of their own narrower
+  // column regardless of this number, since that column is itself a
+  // single-column grid.
   span: 1 | 2 | 3;
   // Row span — currently only used by the Calendar widget, which is
   // deliberately tall (1/3 width, 2 rows) to visually match the combined
@@ -58,6 +65,16 @@ export type WidgetDef = {
   // means 1 (every existing widget's implicit height before this).
   rowSpan?: 1 | 2;
   defaultVisible: boolean;
+  // Which of the coach dashboard's three independent drag-and-drop
+  // areas this widget lives in — "full" (full page width, above the
+  // split, e.g. Quick actions/Community), "main" (the 2/3-width column,
+  // e.g. Your athletes/Coaching Insights), or "sidebar" (the 1/3-width
+  // column everything else stacks in). Each area is its own separate
+  // drag context — reordering only ever happens within one area, never
+  // across them. Absent/undefined defaults to "full", which is what
+  // every athlete widget uses (the athlete dashboard has no column
+  // split at all, unchanged from before this feature existed).
+  zone?: "full" | "main" | "sidebar";
 };
 
 // The catalog — single source of truth for what a widget is called, what
@@ -73,6 +90,7 @@ export const COACH_WIDGETS: WidgetDef[] = [
     icon: CalendarRange,
     span: 3,
     defaultVisible: true,
+    zone: "full",
   },
   // Was "Quick tiles" (Messages/Noticeboard/Athletes/Health & Vitals) —
   // Athletes and Health & Vitals now have their own dedicated widgets
@@ -88,6 +106,7 @@ export const COACH_WIDGETS: WidgetDef[] = [
     icon: MessageSquare,
     span: 3,
     defaultVisible: true,
+    zone: "full",
   },
   {
     id: "coaching_hub",
@@ -97,6 +116,7 @@ export const COACH_WIDGETS: WidgetDef[] = [
     icon: BookmarkCheck,
     span: 1,
     defaultVisible: true,
+    zone: "sidebar",
   },
   {
     id: "health_vitals",
@@ -106,6 +126,7 @@ export const COACH_WIDGETS: WidgetDef[] = [
     icon: HeartPulse,
     span: 1,
     defaultVisible: true,
+    zone: "sidebar",
   },
   {
     id: "your_athletes",
@@ -113,8 +134,9 @@ export const COACH_WIDGETS: WidgetDef[] = [
     label: "Your athletes",
     description: "Roster list with a quick-look summary on click.",
     icon: Users,
-    span: 3,
+    span: 2,
     defaultVisible: true,
+    zone: "main",
   },
   // Combines the old separate "Squad readiness" and "Needs attention"
   // widgets into one card — a single place for at-a-glance coaching
@@ -127,8 +149,9 @@ export const COACH_WIDGETS: WidgetDef[] = [
     label: "Coaching Insights",
     description: "Squad readiness and flagged athletes worth a look, together in one card.",
     icon: Sparkles,
-    span: 3,
+    span: 2,
     defaultVisible: true,
+    zone: "main",
   },
   {
     id: "upcoming_races",
@@ -138,6 +161,7 @@ export const COACH_WIDGETS: WidgetDef[] = [
     icon: Trophy,
     span: 1,
     defaultVisible: true,
+    zone: "sidebar",
   },
   // Was "Recent reviews" — broadened to pair with the Reports page
   // (Metrics bucket) rather than reading as AI-reviews-only.
@@ -149,6 +173,23 @@ export const COACH_WIDGETS: WidgetDef[] = [
     icon: FileText,
     span: 1,
     defaultVisible: true,
+    zone: "sidebar",
+  },
+  // Was a fixed block outside the widget grid entirely, only ever shown
+  // to a coach who's also an athlete — that gate is unchanged (still
+  // null for a coach with no athlete profile of their own), but it's
+  // now a real movable/hideable/resizable-by-catalog widget like
+  // everything else, instead of always pinned to the bottom of the
+  // page regardless of layout customization.
+  {
+    id: "quick_links_self",
+    role: "coach",
+    label: "Quick links",
+    description: "Shortcuts to your own athlete pages — Daily Log, Health & Vitals, Locker, and more (dual-role only).",
+    icon: Link2,
+    span: 2,
+    defaultVisible: true,
+    zone: "sidebar",
   },
 ];
 
