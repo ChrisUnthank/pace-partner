@@ -2278,8 +2278,14 @@ function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any
   const distanceLabelCap = isTrack ? "Lap" : "Km";
 
   const repRows = useMemo(() => rows.filter((r) => r.type === "work" || r.type === "strides"), [rows]);
-  const distanceRows = useMemo(() => buildEvenDistanceSplits(points, splitDistanceM), [points, splitDistanceM]);
   const hasReps = repRows.length > 1;
+  const distanceRows = useMemo(
+    () =>
+      hasReps
+        ? buildEvenDistanceSplitsForReps(points, splitDistanceM)
+        : buildEvenDistanceSplits(points, splitDistanceM),
+    [points, splitDistanceM, hasReps],
+  );
   const hasDistanceSplits = distanceRows.length > 1;
 
   const [mode, setMode] = useState<"reps" | "distance">(hasReps ? "reps" : "distance");
@@ -2314,7 +2320,9 @@ function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any
             <CardDescription>
               {mode === "reps"
                 ? "One bar per recorded rep."
-                : `Recomputed at even ${distanceLabel === "lap" ? "400m laps" : "1km splits"}, with dead/standing time excluded.`}
+                : hasReps
+                  ? `Work reps re-split at even ${distanceLabel === "lap" ? "400m laps" : "1km splits"} — warmup, recovery, and cooldown excluded.`
+                  : `Recomputed at even ${distanceLabel === "lap" ? "400m laps" : "1km splits"}, with dead/standing time excluded.`}
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
@@ -2849,6 +2857,71 @@ function computeMetricsFromTraceSlice(slice: any[]) {
     avgGct: gcts.length ? Math.round(gcts.reduce((a, b) => a + b, 0) / gcts.length) : null,
     strideLength,
   };
+}
+
+// "By km"/"By laps" for a session with real rep structure needs to stay
+// within each rep's own trace and use that rep's own distance — not the
+// whole session's cumulative distance the way buildEvenDistanceSplits
+// does for a continuous effort. Otherwise warmup miles and the ground
+// covered during recovery jogs between reps get silently folded into
+// whichever km bucket they land in alongside real work meters, which is
+// why a straight 5x1km session used to show a completely different (and
+// much slower) set of bars in "By km" than in "By reps" instead of
+// reproducing them.
+//
+// A rep at or under ~1 split's worth of distance becomes exactly one
+// bucket (its own real recorded metrics, not a re-bucketed
+// approximation) — so a session of near-exact-splitDistanceM reps
+// collapses to one bucket per rep, matching "By reps" almost exactly
+// (any remaining difference is the separate GPS-overrun-trim correction
+// already flagged). A longer rep (e.g. mile repeats against 1km splits)
+// gets sub-split within just that rep's own trace instead of bleeding
+// into the next one. Bucket numbering continues across all work groups
+// so the chart still reads left-to-right as one session.
+function buildEvenDistanceSplitsForReps(
+  points: any[],
+  splitDistanceM: number,
+): { index: number; durationS: number; distanceM: number; avgPace: number | null }[] {
+  if (!Array.isArray(points) || points.length === 0 || !splitDistanceM || splitDistanceM <= 0) return [];
+
+  const groups = buildTraceGroups(points).filter((g) => g.type === "work" || g.type === "strides");
+  const out: { index: number; durationS: number; distanceM: number; avgPace: number | null }[] = [];
+  let globalIndex = 1;
+
+  for (const g of groups) {
+    if (!g.points || g.points.length < 2) continue;
+
+    const startDistance = Number(g.points[0]?.distance_m ?? 0);
+    const endDistance = Number(g.points[g.points.length - 1]?.distance_m ?? 0);
+    const groupDistance = Math.max(0, endDistance - startDistance);
+
+    if (groupDistance <= splitDistanceM * 1.15) {
+      // Rep already matches (or is close to) one split's worth of
+      // distance — one bucket for the whole rep.
+      const m = computeMetricsFromTraceSlice(g.points);
+      if (m.distanceM > 0) {
+        const deadS = computeDeadSecondsInSlice(g.points);
+        const movingDurationS = Math.max(0, m.durationS - deadS);
+        const avgPace = movingDurationS > 0 && m.distanceM > 0 ? (movingDurationS / m.distanceM) * 1000 : m.avgPace;
+        out.push({ index: globalIndex++, durationS: movingDurationS, distanceM: m.distanceM, avgPace });
+      }
+      continue;
+    }
+
+    // Longer rep — sub-split within just this rep's own trace, relative
+    // to its own start distance so it doesn't inherit the session's
+    // cumulative mileage.
+    const relPoints = g.points.map((p: any) => ({
+      ...p,
+      distance_m: Number(p.distance_m ?? 0) - startDistance,
+    }));
+    const groupSplits = buildEvenDistanceSplits(relPoints, splitDistanceM);
+    for (const s of groupSplits) {
+      out.push({ ...s, index: globalIndex++ });
+    }
+  }
+
+  return out;
 }
 
 function trimTraceGroupToDistance(group: any[], targetDistanceM: number) {
