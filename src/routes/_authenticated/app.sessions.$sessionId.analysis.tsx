@@ -2272,26 +2272,34 @@ function SessionInsightCard({ rows }: { rows: SplitRow[] }) {
 // walking recoveries not captured as their own step) gets excluded from
 // each split's duration so it doesn't inflate that split's time.
 function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any[]; terrain?: string | null }) {
-  const isTrack = terrain === "track";
-  const splitDistanceM = isTrack ? 400 : 1000;
-  const distanceLabel = isTrack ? "lap" : "km";
-  const distanceLabelCap = isTrack ? "Lap" : "Km";
-
   const repRows = useMemo(() => rows.filter((r) => r.type === "work" || r.type === "strides"), [rows]);
   const hasReps = repRows.length > 1;
-  const distanceRows = useMemo(
-    () =>
-      hasReps
-        ? buildEvenDistanceSplitsForReps(points, splitDistanceM)
-        : buildEvenDistanceSplits(points, splitDistanceM),
-    [points, splitDistanceM, hasReps],
-  );
-  const hasDistanceSplits = distanceRows.length > 1;
 
-  const [mode, setMode] = useState<"reps" | "distance">(hasReps ? "reps" : "distance");
+  // Both distance-based views are always available side by side now — not
+  // a single toggle that swaps meaning based on terrain. "By lap" (400m)
+  // is useful on a track session; "By km" (1km) is useful pretty much
+  // anywhere else — a coach shouldn't have to pick a terrain tag correctly
+  // just to see both.
+  const kmRows = useMemo(
+    () => (hasReps ? buildEvenDistanceSplitsForReps(points, 1000) : buildEvenDistanceSplits(points, 1000)),
+    [points, hasReps],
+  );
+  const lapRows = useMemo(
+    () => (hasReps ? buildEvenDistanceSplitsForReps(points, 400) : buildEvenDistanceSplits(points, 400)),
+    [points, hasReps],
+  );
+  const hasKmSplits = kmRows.length > 1;
+  const hasLapSplits = lapRows.length > 1;
+
+  const [mode, setMode] = useState<"reps" | "km" | "lap">(
+    hasReps ? "reps" : hasKmSplits ? "km" : "lap",
+  );
   const [metric, setMetric] = useState<"pace" | "time">("pace");
 
-  if (!hasReps && !hasDistanceSplits) return null;
+  if (!hasReps && !hasKmSplits && !hasLapSplits) return null;
+
+  const distanceRows = mode === "lap" ? lapRows : kmRows;
+  const distanceLabelCap = mode === "lap" ? "Lap" : "Km";
 
   const chartData =
     mode === "reps"
@@ -2311,37 +2319,40 @@ function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any
   const values = chartData.map((d) => Number(d[metric])).filter((v) => v > 0);
   const avgY = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
 
+  const description =
+    mode === "reps"
+      ? "One bar per recorded rep."
+      : hasReps
+        ? `Work reps re-split at even ${mode === "lap" ? "400m laps" : "1km splits"} — warmup, recovery, and cooldown excluded.`
+        : `Recomputed at even ${mode === "lap" ? "400m laps" : "1km splits"}, with dead/standing time excluded.`;
+
+  const availableModes = [
+    hasReps && { key: "reps" as const, label: "By reps" },
+    hasKmSplits && { key: "km" as const, label: "By km" },
+    hasLapSplits && { key: "lap" as const, label: "By lap" },
+  ].filter((m): m is { key: "reps" | "km" | "lap"; label: string } => !!m);
+
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div>
             <CardTitle>Lap times</CardTitle>
-            <CardDescription>
-              {mode === "reps"
-                ? "One bar per recorded rep."
-                : hasReps
-                  ? `Work reps re-split at even ${distanceLabel === "lap" ? "400m laps" : "1km splits"} — warmup, recovery, and cooldown excluded.`
-                  : `Recomputed at even ${distanceLabel === "lap" ? "400m laps" : "1km splits"}, with dead/standing time excluded.`}
-            </CardDescription>
+            <CardDescription>{description}</CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            {hasReps && hasDistanceSplits && (
+            {availableModes.length > 1 && (
               <div className="flex border rounded-md overflow-hidden text-xs">
-                <button
-                  type="button"
-                  onClick={() => setMode("reps")}
-                  className={`px-2.5 py-1 ${mode === "reps" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
-                >
-                  By reps
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMode("distance")}
-                  className={`px-2.5 py-1 border-l ${mode === "distance" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
-                >
-                  {isTrack ? "By laps" : "By km"}
-                </button>
+                {availableModes.map((m, i) => (
+                  <button
+                    key={m.key}
+                    type="button"
+                    onClick={() => setMode(m.key)}
+                    className={`px-2.5 py-1 ${i > 0 ? "border-l" : ""} ${mode === m.key ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
               </div>
             )}
             <div className="flex border rounded-md overflow-hidden text-xs">
