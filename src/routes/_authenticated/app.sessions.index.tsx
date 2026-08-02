@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { AthleteSubnav } from "@/components/athlete-subnav";
+import { CoachAthletePicker } from "@/components/coach-athlete-picker";
 import { useQuery, useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { z } from "zod";
@@ -127,13 +128,25 @@ function SessionsList() {
     queryKey: ["visible-athlete-names", (athleteIds ?? []).join(",")],
     enabled: !!athleteIds && athleteIds.length > 0,
     queryFn: async () => {
-      const { data, error } = await supabase.from("athletes").select("id, name").in("id", athleteIds!);
+      const { data, error } = await supabase.from("athletes").select("id, name, profile_image_url").in("id", athleteIds!);
       if (error) throw error;
       return data ?? [];
     },
   });
   const athleteOptions = useMemo(
     () => (athleteNameRows ?? []).map((a: any) => [a.id, a.name] as [string, string]),
+    [athleteNameRows],
+  );
+  // Same rows, shaped for CoachAthletePicker (the icon + dropdown picker
+  // already used on Zones/Analytics/Biomechanics/etc.) — this page's
+  // roster query already blends the coach's own athlete profile into
+  // the same list (unlike those other pages, which keep it separate via
+  // their own `myAthlete` prop), so passing `athlete` as myAthlete here
+  // too still works correctly: CoachAthletePicker filters its `roster`
+  // prop to exclude whichever id matches `myAthlete`, so there's no
+  // double-listing.
+  const pickerRoster = useMemo(
+    () => (athleteNameRows ?? []).map((a: any) => ({ id: a.id, name: a.name, profile_image_url: a.profile_image_url })),
     [athleteNameRows],
   );
 
@@ -600,20 +613,14 @@ function SessionsList() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="flex flex-col gap-3">
-                {athleteOptions.length > 1 && (
-                  <Select value={filterAthlete} onValueChange={setFilterAthlete}>
-                    <SelectTrigger className="h-9 w-full">
-                      <SelectValue placeholder="All athletes" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All athletes</SelectItem>
-                      {athleteOptions.map(([id, name]) => (
-                        <SelectItem key={id} value={id}>
-                          {name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                {pickerRoster.length > 1 && (
+                  <CoachAthletePicker
+                    roster={pickerRoster}
+                    myAthlete={athlete as any}
+                    value={filterAthlete}
+                    onChange={setFilterAthlete}
+                    allowAll
+                  />
                 )}
                 <div>
                   <Label className="text-xs text-muted-foreground mb-1 block">Status</Label>
