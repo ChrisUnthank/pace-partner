@@ -30,6 +30,7 @@ export function activityIconFor(s: {
       return Waves;
     case "gym":
       return Dumbbell;
+    case "walk":
     case "run":
     case "track":
       return Footprints;
