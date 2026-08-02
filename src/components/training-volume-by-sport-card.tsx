@@ -87,13 +87,15 @@ function SportTile({ sport, hours, pct }: { sport: (typeof SPORT_TYPES)[number];
   );
 }
 
-export function TrainingVolumeBySportCard({ athleteId, weeks = 10 }: { athleteId: string; weeks?: number }) {
-  const since = useMemo(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - weeks * 7);
-    return d.toISOString().slice(0, 10);
-  }, [weeks]);
-
+export function TrainingVolumeBySportCard({
+  athleteId,
+  since,
+  periodLabel,
+}: {
+  athleteId: string;
+  since: string;
+  periodLabel: string;
+}) {
   const { data: sessions, isLoading, isError, error } = useQuery({
     queryKey: ["athlete-volume-by-sport", athleteId, since],
     enabled: !!athleteId,
@@ -147,7 +149,7 @@ export function TrainingVolumeBySportCard({ athleteId, weeks = 10 }: { athleteId
           <PieChart className="h-4 w-4 text-[var(--accent-red)]" />
           Training Volume by Sport
         </CardTitle>
-        <CardDescription>Total hours by activity, last {weeks} weeks — run, ride, swim, walk, gym, cross-train. Moving time for distance sports, total recorded time for gym/cross-train.</CardDescription>
+        <CardDescription>Total hours by activity, {periodLabel} — run, ride, swim, walk, gym, cross-train. Moving time for distance sports, total recorded time for gym/cross-train.</CardDescription>
       </CardHeader>
       <CardContent>
         {isLoading ? (
