@@ -533,21 +533,21 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
           </div>
         </header>
 
-        {/* Mobile bottom nav — buckets collapse to their first visible
-            child (see mobileItems above); the in-page tab-strip (phase 2)
-            is what lets someone switch to a sibling from there.
-            `fixed` (not `sticky`) so it's always pinned to the actual
-            viewport bottom regardless of which ancestor happens to be the
-            scrolling element, with safe-area padding for iOS's home-
-            indicator gesture area. Each item is `flex-1` (no more
-            min-w/overflow-x-auto) so all six tabs share the width evenly
-            and never require a horizontal scroll — long labels wrap to a
-            second line instead of forcing overflow. `main` gets matching
-            bottom padding on mobile so its last content isn't hidden
-            behind the now-fixed (out-of-flow) bar. */}
+        {/* Mobile nav — was a fixed bottom bar with icon+label (labels
+            wrapping to a second line to fit); now icon-only and moved to
+            sit right below the header instead, per direct request. Icon-
+            only buys enough width that every top-level item — including
+            collapsed bucket entries — fits in one row without crowding,
+            and `title` on each Link keeps the label available on a
+            long-press/tooltip rather than dropping it entirely.
+            `sticky top-14` stacks it directly under the header (which is
+            itself `sticky top-0`, 56px/h-14 tall) — both scroll together
+            as one fixed-feeling top cluster, standard stacked-sticky-bars
+            behavior, no separate fixed-position bookkeeping needed. Since
+            it's no longer pinned out-of-flow at the bottom, `main` no
+            longer needs the old bottom padding reserved to clear it. */}
         <nav
-          className="md:hidden fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 backdrop-blur-md flex print:hidden"
-          style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+          className="md:hidden sticky top-14 z-10 border-b border-border bg-background/95 backdrop-blur-md flex print:hidden"
         >
           {mobileItems.map((n) => {
             const active = n.bucketActive ?? isPathActive(path, n.to);
@@ -555,13 +555,14 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
               <Link
                 key={n.to}
                 to={n.to}
+                title={n.label}
+                aria-label={n.label}
                 className={cn(
-                  "flex-1 min-w-0 flex flex-col items-center justify-center gap-0.5 px-1 py-2 text-center text-[9px] leading-tight font-bold uppercase tracking-wider",
+                  "flex-1 min-w-0 flex items-center justify-center py-2.5",
                   active ? "text-[var(--accent-red)]" : "text-muted-foreground",
                 )}
               >
-                <n.icon className="h-4 w-4 shrink-0" />
-                <span className="break-words">{n.label}</span>
+                <n.icon className="h-4.5 w-4.5 shrink-0" strokeWidth={active ? 2.5 : 2} />
               </Link>
             );
           })}
@@ -569,7 +570,7 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
 
         <main
           className={cn(
-            "flex-1 px-4 md:px-8 py-6 md:py-8 pb-24 md:pb-8 w-full mx-auto print:p-0 print:max-w-none",
+            "flex-1 px-4 md:px-8 py-6 md:py-8 w-full mx-auto print:p-0 print:max-w-none",
             fullWidth ? "max-w-none" : "max-w-7xl",
           )}
         >
