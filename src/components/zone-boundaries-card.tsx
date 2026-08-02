@@ -1,11 +1,24 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { secToClock, clockToSec, paceFmt, metersFmt } from "@/lib/format";
+import { bulkRecomputeSessionClassification } from "@/lib/session-files.functions";
+import { RefreshCw, Loader2 } from "lucide-react";
 
 // ----------------------------------------------------------------------------
 // Small inline-edit primitives. Hoisted to module scope (not defined inside
@@ -198,6 +211,41 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
   const qc = useQueryClient();
   const [savingKey, setSavingKey] = useState<string | null>(null);
 
+  // Recompute flow — prompted automatically right after a real
+  // preferred-basis change (see savePreferredBasis below), and also
+  // available any time via the standalone button, since a zone boundary
+  // edit (not just a basis switch) can just as easily make past
+  // classifications stale.
+  const bulkRecompute = useServerFn(bulkRecomputeSessionClassification);
+  const [recomputePromptOpen, setRecomputePromptOpen] = useState(false);
+  const [recomputing, setRecomputing] = useState(false);
+  const [recomputeResult, setRecomputeResult] = useState<{ total: number; succeeded: number; errors: { sessionId: string; message: string }[] } | null>(null);
+
+  async function runBulkRecompute() {
+    setRecomputing(true);
+    setRecomputeResult(null);
+    try {
+      const result = await bulkRecompute({ data: { athleteId } });
+      setRecomputeResult(result);
+      if (result.total === 0) {
+        toast.success("No uploaded-file sessions to recompute for this athlete.");
+        setRecomputePromptOpen(false);
+      } else if (result.errors.length === 0) {
+        toast.success(`Recomputed ${result.succeeded} of ${result.total} sessions.`);
+        setRecomputePromptOpen(false);
+      } else {
+        toast.error(`Recomputed ${result.succeeded} of ${result.total} — ${result.errors.length} failed. See details below.`);
+        // Left open so the failure list stays visible rather than
+        // vanishing into a toast that scrolls away.
+      }
+      invalidate();
+    } catch (err: any) {
+      toast.error(err?.message ?? "Recompute failed");
+    } finally {
+      setRecomputing(false);
+    }
+  }
+
   // Only fetched for the VDOT race-override picker — qualifying races
   // (>=3000m, same distance floor the auto-pick itself uses), most recent
   // first, so a coach can see and choose among them without needing to
@@ -296,13 +344,22 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
 
   // Which basis (HR or pace) actually drives session/zone classification
   // for this athlete — both stay visible on this card regardless of which
-  // one is preferred.
+  // one is preferred. Every past FIT-derived session was classified
+  // against whichever basis was active AT THE TIME, so switching this
+  // doesn't retroactively fix anything by itself — prompts for a bulk
+  // recompute right after a real change (not fired on re-selecting the
+  // value already in place, e.g. from a stale click).
   async function savePreferredBasis(basis: "hr" | "pace") {
+    const changed = profile?.preferred_zone_basis !== basis;
     await run(
       "preferred_basis",
       () => supabase.from("athlete_zone_profiles").update({ preferred_zone_basis: basis } as any).eq("athlete_id", athleteId),
       "Preferred basis updated",
     );
+    if (changed) {
+      setRecomputeResult(null);
+      setRecomputePromptOpen(true);
+    }
   }
 
   // Switching the pace auto-method (Best effort vs VDOT) always implies
@@ -421,18 +478,80 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
               Which one actually drives session zone/intent classification for this athlete.
             </div>
           </div>
-          <Select
-            value={profile.preferred_zone_basis}
-            onValueChange={(v) => savePreferredBasis(v as "hr" | "pace")}
-            disabled={savingKey === "preferred_basis"}
-          >
-            <SelectTrigger className="w-32 h-8 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="hr">Heart rate</SelectItem>
-              <SelectItem value="pace">Pace</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex items-center gap-2">
+            <Select
+              value={profile.preferred_zone_basis}
+              onValueChange={(v) => savePreferredBasis(v as "hr" | "pace")}
+              disabled={savingKey === "preferred_basis"}
+            >
+              <SelectTrigger className="w-32 h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="hr">Heart rate</SelectItem>
+                <SelectItem value="pace">Pace</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 text-xs text-muted-foreground"
+              onClick={() => {
+                setRecomputeResult(null);
+                setRecomputePromptOpen(true);
+              }}
+            >
+              <RefreshCw className="h-3 w-3 mr-1" /> Recompute
+            </Button>
+          </div>
         </div>
+
+        <AlertDialog open={recomputePromptOpen} onOpenChange={(open) => !recomputing && setRecomputePromptOpen(open)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Recompute past sessions?</AlertDialogTitle>
+              <AlertDialogDescription asChild>
+                <div className="space-y-2">
+                  <p>
+                    Every past session built from an uploaded FIT/GPX file was classified (intent, title, zone time)
+                    against whichever basis and boundaries were active at the time. Changing the basis or a boundary
+                    value doesn't retroactively fix those — this re-runs classification for every uploaded-file
+                    session this athlete has, using the current settings.
+                  </p>
+                  <p>
+                    This can take a while for a long history and re-reads each session's stored files. Manually-
+                    entered sessions with no uploaded file aren't affected — there's nothing to reclassify there.
+                  </p>
+                  {recomputeResult && recomputeResult.errors.length > 0 && (
+                    <div className="border rounded-md p-2 text-xs text-destructive space-y-1 max-h-32 overflow-y-auto">
+                      {recomputeResult.errors.map((e, i) => (
+                        <p key={i}>Session {e.sessionId.slice(0, 8)}…: {e.message}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={recomputing}>
+                {recomputeResult ? "Close" : "Not now"}
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault();
+                  runBulkRecompute();
+                }}
+                disabled={recomputing}
+              >
+                {recomputing ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Recomputing…
+                  </>
+                ) : (
+                  "Recompute now"
+                )}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         <div className="grid sm:grid-cols-3 gap-3">
           <div className="rounded-md border border-border bg-card/40 p-4">
