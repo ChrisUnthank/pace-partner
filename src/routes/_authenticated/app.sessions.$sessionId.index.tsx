@@ -64,7 +64,6 @@ import { CSS } from "@dnd-kit/utilities";
 import { PostSessionInsightModal } from "@/components/post-session-insight-modal";
 import { FeelFaces } from "@/components/feel-faces";
 import { useServerFn } from "@tanstack/react-start";
-import { SessionAiNote } from "@/components/session-ai-note";
 import ReactMarkdown from "react-markdown";
 import { markAttendance } from "@/lib/messages.functions";
 import { Switch } from "@/components/ui/switch";
@@ -1589,9 +1588,6 @@ function SessionDetail() {
         athleteId={session.athlete_id}
         onSaved={() => qc.invalidateQueries({ queryKey: ["session_insights", sessionId] })}
       />
-      <div className="max-w-4xl mt-4">
-        <SessionAiNote sessionId={sessionId} athleteId={session.athlete_id} />
-      </div>
     </AppShell>
   );
 }
