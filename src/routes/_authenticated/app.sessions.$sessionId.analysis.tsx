@@ -2921,6 +2921,26 @@ function computeMetricsFromTraceSlice(slice: any[]) {
 // of the next. Cutting by each rep's own known distance instead means a
 // split can never straddle two different reps, regardless of how
 // segment_type happened to land in the raw data.
+//
+// Distance alone isn't quite enough on its own, though: if GPS sampling
+// didn't land a point close enough to a rep's true finish before recovery
+// started, the distance target wouldn't be satisfied yet within that rep's
+// own points, and the walk would reach past the recovery gap into the
+// NEXT rep's first point to satisfy it — recovery points themselves were
+// already filtered out, but the elapsed time they covered wasn't, so the
+// duration between "last point of rep N" and "first point of rep N+1"
+// would silently include the recovery's real duration (this is exactly
+// what was inflating the trailing partial-lap bucket for rep 2 onward).
+// Same 20s gap threshold already used elsewhere in this codebase
+// (session-files.functions.ts's STOP_GAP_THRESHOLD_S) to mean "this is a
+// real stop/break in recording, not just consecutive samples" — a gap
+// that size between two consecutive filtered points means something was
+// excised in between (recovery or otherwise), so the slice stops there
+// even if the rep's own distance target wasn't fully reached. The rep's
+// bucket then just reflects its real recorded distance/time up to that
+// point, rather than an inflated one borrowed from the next rep.
+const REP_SLICE_GAP_THRESHOLD_S = 20;
+
 function sliceRawPointsByRep(points: any[], repRows: SplitRow[]): any[][] {
   const workPoints = (points ?? [])
     .filter((p) => p && (p.segment_type === "work" || p.segment_type === "strides"))
@@ -2939,10 +2959,14 @@ function sliceRawPointsByRep(points: any[], repRows: SplitRow[]): any[][] {
     const startIdx = cursor;
     const startDist = Number(workPoints[startIdx]?.distance_m ?? 0);
     let endIdx = startIdx;
-    while (
-      endIdx < workPoints.length - 1 &&
-      Number(workPoints[endIdx].distance_m ?? 0) - startDist < targetDist
-    ) {
+
+    while (endIdx < workPoints.length - 1) {
+      const distSoFar = Number(workPoints[endIdx].distance_m ?? 0) - startDist;
+      if (distSoFar >= targetDist) break;
+
+      const gap = Number(workPoints[endIdx + 1].elapsed_s ?? 0) - Number(workPoints[endIdx].elapsed_s ?? 0);
+      if (gap >= REP_SLICE_GAP_THRESHOLD_S) break;
+
       endIdx++;
     }
 
