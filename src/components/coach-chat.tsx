@@ -35,11 +35,19 @@ export function CoachChat({ athleteId, athleteName }: { athleteId: string; athle
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ai-messages", thread?.id] });
       setInput("");
-      setTimeout(() => inputRef.current?.focus(), 50);
+      setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 50);
     },
   });
 
-  useEffect(() => { inputRef.current?.focus(); }, [thread?.id]);
+  // preventScroll matters here specifically — this fires as soon as the
+  // thread loads, which includes on first mount/page load. CoachChat
+  // usually sits well below the fold on the Athlete Overview page, and
+  // a bare .focus() call on an off-screen element makes the browser
+  // auto-scroll the whole page down to it — landing someone who just
+  // clicked into an athlete's page scrolled halfway down with the
+  // cursor sitting in this textarea, not at the top of the page they
+  // actually navigated to.
+  useEffect(() => { inputRef.current?.focus({ preventScroll: true }); }, [thread?.id]);
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
