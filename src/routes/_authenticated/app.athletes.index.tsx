@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -63,6 +63,7 @@ function AthletesPage() {
   const { data: rawRoles = [] } = useMyRawRoles();
   const isManager = rawRoles.includes("manager");
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [name, setName] = useState("");
   const [event, setEvent] = useState("");
   const [email, setEmail] = useState("");
@@ -390,14 +391,23 @@ function AthletesPage() {
                     return (
                       <div
                         key={r.athlete_id}
-                        className={`flex flex-col gap-2 px-4 py-3 rounded-md border-2 transition-colors hover:bg-accent/40 hover:border-[var(--accent-red)] ${
+                        onClick={() => navigate({ to: "/app/athletes/$athleteId", params: { athleteId: r.athlete_id } })}
+                        className={`flex flex-col gap-2 px-4 py-3 rounded-md border-2 transition-colors hover:bg-accent/40 hover:border-[var(--accent-red)] cursor-pointer ${
                           selectedAthleteId === r.athlete_id ? "bg-accent/60 border-[var(--accent-red)]" : "border-transparent"
                         }`}
                       >
                         <div className="flex items-center justify-between gap-3 flex-wrap">
                           <button
                             type="button"
-                            onClick={() => setSelectedAthleteId(r.athlete_id)}
+                            onClick={(e) => {
+                              // Keeps opening Quick View, not Full View —
+                              // this is the one deliberate exception (see
+                              // the comment above selectedAthleteId) to the
+                              // row's new click-anywhere-for-Full-View
+                              // fallback below.
+                              e.stopPropagation();
+                              setSelectedAthleteId(r.athlete_id);
+                            }}
                             title="Quick view"
                             className="flex items-center gap-3 min-w-0 text-left group"
                           >
@@ -451,8 +461,13 @@ function AthletesPage() {
                                 Health, Performance Profile, Zones, Races,
                                 Athlete Page), always red so it reads as a
                                 distinct row of quick links rather than
-                                generic toolbar buttons. */}
-                            <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar">
+                                generic toolbar buttons. Own stopPropagation
+                                so a click here goes to that specific
+                                sub-page, not the row's Full-View fallback. */}
+                            <div
+                              className="flex items-center gap-0.5 overflow-x-auto no-scrollbar"
+                              onClick={(e) => e.stopPropagation()}
+                            >
                               {tabs.map((t) => (
                                 <Button
                                   key={t.key}
@@ -471,7 +486,16 @@ function AthletesPage() {
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-between gap-3 flex-wrap pl-12">
+                        {/* Second line's own controls (invite, email, parent,
+                            remove) each need the click to stay theirs, not
+                            fall through to the row's Full-View navigation —
+                            one shared stopPropagation on the whole line
+                            rather than repeating it on every button/badge
+                            inside it. */}
+                        <div
+                          className="flex items-center justify-between gap-3 flex-wrap pl-12"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           <div className="flex items-center gap-1.5 flex-wrap">
                             {r.athletes?.user_id ? (
                               <Badge variant="secondary">Linked</Badge>
