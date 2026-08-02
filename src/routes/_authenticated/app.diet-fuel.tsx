@@ -1,8 +1,10 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useEffect, useMemo, useState } from "react";
+import { z } from "zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useMyAthlete } from "@/lib/use-auth";
+import { useMyAthlete, useMyRoles, useCoachRoster } from "@/lib/use-auth";
+import { useEffectiveRole } from "@/lib/view-mode";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,22 +14,77 @@ import { Textarea } from "@/components/ui/textarea";
 import { todayISO } from "@/lib/format";
 import { toast } from "sonner";
 import { ChevronLeft, ChevronRight, Droplet, Flame, Apple } from "lucide-react";
-import { BucketTabStrip, HEALTH_TABS } from "@/components/bucket-tab-strip";
+import { BucketTabStrip, healthTabsFor } from "@/components/bucket-tab-strip";
+import { AthleteSubnav } from "@/components/athlete-subnav";
+import { CoachAthletePicker } from "@/components/coach-athlete-picker";
+
+const searchSchema = z.object({
+  athleteId: z.string().optional(),
+});
 
 export const Route = createFileRoute("/_authenticated/app/diet-fuel")({
+  validateSearch: searchSchema,
   component: DietFuel,
 });
 
 function DietFuel() {
-  const { data: athlete, isLoading } = useMyAthlete();
+  const search = Route.useSearch();
+  const navigate = useNavigate({ from: Route.fullPath });
+  const { data: roles = [] } = useMyRoles();
+  const isCoach = roles.includes("coach");
+  const { isCoachView } = useEffectiveRole();
+  const { data: myAthlete } = useMyAthlete();
+
+  // Same resolution pattern as Zones/Analytics/Biomechanics — an explicit
+  // athleteId in the URL wins (a coach arriving via another page's link),
+  // otherwise a non-coach-view user sees their own data.
+  const selectedAthleteId = search.athleteId ?? (!isCoachView ? myAthlete?.id : undefined);
+
+  const { data: roster } = useCoachRoster();
+  const rosterAthletes = useMemo(() => (roster ?? []).map((r: any) => r.athletes).filter(Boolean), [roster]);
+  const sortedRoster = useMemo(
+    () => [...rosterAthletes].sort((a: any, b: any) => (a.name ?? "").localeCompare(b.name ?? "")),
+    [rosterAthletes],
+  );
+
+  // Coach landing with no athlete in context yet — auto-default to the
+  // first roster athlete rather than a dead-end "select an athlete"
+  // page, same fix already applied to Biomechanics.
+  useEffect(() => {
+    if (isCoachView && !search.athleteId && sortedRoster.length > 0) {
+      navigate({ search: { athleteId: sortedRoster[0].id } as any });
+    }
+  }, [isCoachView, search.athleteId, sortedRoster, navigate]);
+
+  const { data: athleteRow, isLoading: athleteRowLoading } = useQuery({
+    queryKey: ["diet-fuel-athlete", selectedAthleteId],
+    enabled: !!selectedAthleteId,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("athletes").select("id, name").eq("id", selectedAthleteId!).single();
+      if (error) throw error;
+      return data as any;
+    },
+  });
+
   // Same date-nav pattern as Daily Log — defaults to today, can be moved
   // back to fill in a missed day. Nutrition below is keyed off this date;
   // the sessions list below it shows whatever sessions actually fall on
   // this date, same as how Daily Log's own sessions section works.
   const [logDate, setLogDate] = useState(todayISO());
 
-  if (isLoading) return <AppShell fullWidth><p>Loading…</p></AppShell>;
-  if (!athlete)
+  if (isCoachView && !selectedAthleteId) {
+    if (rosterAthletes.length === 0) {
+      return (
+        <AppShell fullWidth>
+          <p className="text-sm text-muted-foreground">No athletes on your roster yet — add one from Manage Athletes.</p>
+        </AppShell>
+      );
+    }
+    return <AppShell fullWidth><p className="text-sm text-muted-foreground">Loading…</p></AppShell>;
+  }
+
+  if (athleteRowLoading) return <AppShell fullWidth><p>Loading…</p></AppShell>;
+  if (!selectedAthleteId || !athleteRow)
     return (
       <AppShell fullWidth>
         <p className="text-sm">
@@ -39,6 +96,28 @@ function DietFuel() {
   return (
     <AppShell fullWidth>
       <div className="space-y-6 max-w-3xl">
+        {isCoach && (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-3 min-w-0">
+              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground shrink-0">
+                <Link to="/app/athletes" className="hover:text-foreground">Athletes</Link>
+                <span className="text-border">/</span>
+                <Link to="/app/athletes/$athleteId" params={{ athleteId: selectedAthleteId }} className="hover:text-foreground">
+                  {athleteRow.name}
+                </Link>
+              </div>
+              <AthleteSubnav athleteId={selectedAthleteId} active="health" />
+            </div>
+            <div className="shrink-0">
+              <CoachAthletePicker
+                roster={rosterAthletes}
+                myAthlete={myAthlete as any}
+                value={selectedAthleteId}
+                onChange={(v) => navigate({ search: { athleteId: v } as any })}
+              />
+            </div>
+          </div>
+        )}
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3">
             <div
@@ -57,9 +136,9 @@ function DietFuel() {
           </div>
           <DateNav date={logDate} onChange={setLogDate} />
         </div>
-        <BucketTabStrip items={HEALTH_TABS} active="/app/diet-fuel" />
-        <NutritionSection athleteId={athlete.id} date={logDate} />
-        <SessionsFuelingSection athleteId={athlete.id} date={logDate} />
+        <BucketTabStrip items={healthTabsFor(selectedAthleteId)} active="/app/diet-fuel" />
+        <NutritionSection athleteId={selectedAthleteId} date={logDate} />
+        <SessionsFuelingSection athleteId={selectedAthleteId} date={logDate} />
       </div>
     </AppShell>
   );
