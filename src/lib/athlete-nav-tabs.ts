@@ -8,9 +8,10 @@ import {
   Trophy,
   Globe,
   HeartPulse,
+  PersonStanding,
 } from "lucide-react";
 
-// Same nine destinations as AthleteSubnav (the tab strip shown once a coach
+// Same ten destinations as AthleteSubnav (the tab strip shown once a coach
 // is already inside a single athlete's pages), just rendered as a bare icon
 // row wherever a coach needs to jump straight to any one of them without
 // opening the athlete first — currently the Roster page and the Home
@@ -25,6 +26,7 @@ export function athleteNavTabs(athleteId: string, slug?: string | null) {
     { key: "calendar", label: "Calendar", icon: CalendarRange, to: "/app/sessions/calendar", search: { athleteId } },
     { key: "sessions", label: "Sessions", icon: CalendarDays, to: "/app/sessions", search: { athleteId } },
     { key: "analytics", label: "Analytics", icon: LineChart, to: "/app/analytics", search: { athleteId } },
+    { key: "biomechanics", label: "Biomechanics", icon: PersonStanding, to: "/app/biomechanics", search: { athleteId } },
     { key: "health", label: "Health", icon: HeartPulse, to: "/app/health", search: { athleteId } },
     {
       key: "performance-profile",
