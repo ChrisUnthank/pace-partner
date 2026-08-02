@@ -32,6 +32,7 @@ export function DashboardGrid({
   onReorder,
   onHide,
   renderWidget,
+  columns = 3,
 }: {
   ids: string[];
   sizes: Record<string, { span: 1 | 2 | 3; rowSpan?: 1 | 2 }>;
@@ -39,6 +40,16 @@ export function DashboardGrid({
   onReorder: (next: string[]) => void;
   onHide: (id: string) => void;
   renderWidget: (id: string) => ReactNode;
+  // 1 = a narrow single-column zone (used by the coach dashboard's main/
+  // sidebar split below) — each item just stacks full-width within it,
+  // regardless of its own catalog `span` value. A span exceeding the
+  // grid's actual column count is standard, already-exercised CSS Grid
+  // behavior here: this exact situation already happens today on any
+  // mobile viewport, where `grid-cols-1` applies below the `md:`
+  // breakpoint and a span-2/3 item still renders correctly, just
+  // constrained to the one column that exists. Default 3 preserves
+  // every existing call site's behavior unchanged.
+  columns?: 1 | 2 | 3;
 }) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -54,10 +65,12 @@ export function DashboardGrid({
     onReorder(arrayMove(ids, from, to));
   }
 
+  const colsClass = columns === 1 ? "md:grid-cols-1" : columns === 2 ? "md:grid-cols-2" : "md:grid-cols-3";
+
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
       <SortableContext items={ids} strategy={rectSortingStrategy}>
-        <div className="grid grid-cols-1 md:grid-cols-3 md:grid-flow-row-dense gap-4">
+        <div className={`grid grid-cols-1 ${colsClass} md:grid-flow-row-dense gap-4`}>
           {ids.map((id, i) => (
             <DashboardGridItem
               key={id}
