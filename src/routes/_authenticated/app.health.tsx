@@ -13,7 +13,7 @@ import { AthleteSubnav } from "@/components/athlete-subnav";
 import { BucketTabStrip, HEALTH_TABS, healthTabsFor } from "@/components/bucket-tab-strip";
 import { CoachAthletePicker } from "@/components/coach-athlete-picker";
 import { todayISO } from "@/lib/format";
-import { AlertTriangle, Search, Apple, Bath, Bandage, FlaskConical, TestTube2, HeartPulse } from "lucide-react";
+import { AlertTriangle, Search, Apple, Bath, Bandage, FlaskConical, TestTube2, HeartPulse, ClipboardList } from "lucide-react";
 import { useLactateSessionPoints, useLactateSpotChecks } from "./app.lactate";
 
 const searchSchema = z.object({
@@ -165,7 +165,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 // ----------------------------------------------------------------------------
-// Per-tab summary tiles — one small card per remaining Health tab (Diet &
+// Per-tab summary tiles — one small card per Health tab (Daily Log, Diet &
 // Fuel, Recovery, Injury Management, Bicarb, Lactate), each just showing
 // its single most-recent entry with a link through to the full page. Kept
 // deliberately lightweight — the full detail/history/forms already live on
@@ -208,6 +208,57 @@ function SummaryTile({
 
 function fmtShortDate(dateStr: string) {
   return new Date(dateStr + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+// Deliberately separate from HealthSnapshotCard ("Latest entry") above —
+// that card is the detailed, prominent vitals readout; this is the same
+// glance-plus-link tile every other Health area gets, for the same
+// reason: consistency, and an actual "Open →" straight into Daily Log
+// itself, which the snapshot card never had.
+function DailyLogSummary({ athleteId }: { athleteId: string }) {
+  const { data } = useQuery({
+    queryKey: ["health-overview-daily-log", athleteId],
+    queryFn: async () => {
+      const [{ data: v, error: vErr }, { data: c, error: cErr }] = await Promise.all([
+        supabase
+          .from("daily_vitals")
+          .select("vitals_date, sleep_hours, resting_hr")
+          .eq("athlete_id", athleteId)
+          .order("vitals_date", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from("daily_checkins")
+          .select("checkin_date, soreness")
+          .eq("athlete_id", athleteId)
+          .order("checkin_date", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
+      if (vErr) throw vErr;
+      if (cErr) throw cErr;
+      return { vitals: v as any, checkin: c as any };
+    },
+  });
+
+  const lastDate = [data?.vitals?.vitals_date, data?.checkin?.checkin_date].filter(Boolean).sort().pop();
+
+  return (
+    <SummaryTile icon={ClipboardList} title="Daily Log" to="/app/daily-log" athleteId={athleteId}>
+      {lastDate ? (
+        <>
+          <div className="text-muted-foreground text-xs mb-1">{fmtShortDate(lastDate)}</div>
+          <div className="font-medium">
+            {data?.vitals?.sleep_hours != null ? `${data.vitals.sleep_hours}h sleep` : "No sleep logged"}
+            {data?.vitals?.resting_hr != null && ` · ${data.vitals.resting_hr} bpm`}
+            {data?.checkin?.soreness != null && ` · soreness ${data.checkin.soreness}/5`}
+          </div>
+        </>
+      ) : (
+        <p className="text-muted-foreground">No daily log entries yet.</p>
+      )}
+    </SummaryTile>
+  );
 }
 
 function DietFuelSummary({ athleteId }: { athleteId: string }) {
@@ -382,13 +433,14 @@ function LactateSummary({ athleteId }: { athleteId: string }) {
   );
 }
 
-// Groups the five tiles above into one responsive grid — shared by both
+// Groups the six tiles above into one responsive grid — shared by both
 // the athlete's own view and a coach viewing one specific athlete, so the
 // two stay in lockstep rather than risking drift between two separate
-// copies of the same five queries.
+// copies of the same six queries.
 function HealthOverviewExtras({ athleteId }: { athleteId: string }) {
   return (
     <div className="grid sm:grid-cols-2 gap-3">
+      <DailyLogSummary athleteId={athleteId} />
       <DietFuelSummary athleteId={athleteId} />
       <RecoverySummary athleteId={athleteId} />
       <InjurySummary athleteId={athleteId} />
@@ -511,16 +563,9 @@ function CoachAthleteHealthView({ athleteId }: { athleteId: string }) {
         </div>
       </div>
 
+      <BucketTabStrip items={healthTabsFor(athleteId)} active="/app/health" />
       {isLoading ? <p className="text-sm text-muted-foreground">Loading…</p> : <HealthSnapshotCard snapshot={snapshot} />}
       <HealthOverviewExtras athleteId={athleteId} />
-      {/* Daily Log itself is still self-service (athlete-only) — a coach
-          view of another athlete's Daily Log entries is a follow-up piece,
-          not yet built. This snapshot is read from the same daily_vitals /
-          daily_checkins rows so it stays accurate without that. */}
-      <p className="text-xs text-muted-foreground">
-        Daily Log is still self-service for the athlete only, so it isn't linked from here yet — this snapshot reads
-        the same underlying data.
-      </p>
     </div>
   );
 }
