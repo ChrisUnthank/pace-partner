@@ -979,7 +979,7 @@ export function AthleteQuickTilesWidget() {
       <QuickTile to="/app/sessions" icon={CalendarDays} label="Sessions" />
       <QuickTile to="/app/health" icon={HeartPulse} label="Health & Vitals" />
       <QuickTile to="/app/my-schedule" icon={Backpack} label="Locker" />
-      <QuickTile to="/app/noticeboard" icon={Megaphone} label="Noticeboard" />
+      <QuickTile to="/app/analytics" icon={LineChart} label="Analytics" />
       <QuickTile to="/app/messages" icon={MessageSquare} label="Messages" />
     </div>
   );
