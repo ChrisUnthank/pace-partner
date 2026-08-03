@@ -19,6 +19,7 @@ import {
   BookmarkCheck,
   Activity,
   Link2,
+  History,
 } from "lucide-react";
 
 export type DashboardRole = "coach" | "athlete";
@@ -36,6 +37,7 @@ export type DashboardWidgetId =
   | "athlete_today"
   | "athlete_attention"
   | "athlete_next_session"
+  | "athlete_latest_session"
   | "athlete_quick_tiles"
   | "athlete_recent_notices"
   | "athlete_activity_snapshot"
@@ -244,6 +246,15 @@ export const ATHLETE_WIDGETS: WidgetDef[] = [
     label: "Next session",
     description: "Your next planned session.",
     icon: CalendarDays,
+    span: 1,
+    defaultVisible: true,
+  },
+  {
+    id: "athlete_latest_session",
+    role: "athlete",
+    label: "Latest session",
+    description: "A snapshot of your most recently logged session.",
+    icon: History,
     span: 1,
     defaultVisible: true,
   },
