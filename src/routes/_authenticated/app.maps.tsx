@@ -3,6 +3,8 @@ import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuthUser, useMyRoles } from "@/lib/use-auth";
+import { secToClock } from "@/lib/format";
+import { UserAvatar } from "@/components/user-avatar";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,8 +21,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Map as MapIcon, Search, Trash2, MapPinned, Mountain, Pencil, MapPin, Plus, Settings2 } from "lucide-react";
-import { MapContainer, TileLayer, Polyline, CircleMarker, useMap } from "react-leaflet";
+import { Map as MapIcon, Search, Trash2, MapPinned, Mountain, Pencil, MapPin, Plus, Settings2, Trophy, Repeat } from "lucide-react";
+import { MapContainer, TileLayer, Polyline, CircleMarker, useMap, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
 export const Route = createFileRoute("/_authenticated/app/maps")({
@@ -316,6 +318,8 @@ function MapsRoutesPage() {
                 )}
               </CardContent>
             </Card>
+
+            {selected && <RouteStatsCard route={selected} />}
           </div>
         )}
       </div>
@@ -611,6 +615,8 @@ function LocationEditForm({
   const [surface, setSurface] = useState(location?.surface ?? "");
   const [altitude, setAltitude] = useState(location?.altitude_m != null ? String(location.altitude_m) : "");
   const [notes, setNotes] = useState(location?.notes ?? "");
+  const [lat, setLat] = useState<number | null>(location?.lat ?? null);
+  const [lng, setLng] = useState<number | null>(location?.lng ?? null);
   const [saving, setSaving] = useState(false);
 
   async function save() {
@@ -625,6 +631,8 @@ function LocationEditForm({
       surface: surface.trim() || null,
       altitude_m: altitude.trim() === "" ? null : Math.round(Number(altitude)),
       notes: notes.trim() || null,
+      lat,
+      lng,
     };
     const { error } = location
       ? await supabase.from("training_locations").update(patch).eq("id", location.id)
@@ -658,6 +666,45 @@ function LocationEditForm({
           <Input type="number" value={altitude} onChange={(e) => setAltitude(e.target.value)} />
         </div>
       </div>
+
+      <div>
+        <Label className="text-xs">Map pin (optional)</Label>
+        <p className="text-[11px] text-muted-foreground mb-1.5">
+          Click the map to drop or move the pin. This is what lets the location show a real map wherever it's
+          assigned — Training Schedule, Noticeboard posts, and so on.
+        </p>
+        <LocationPinPicker lat={lat} lng={lng} onPick={(la, ln) => { setLat(la); setLng(ln); }} />
+        <div className="grid grid-cols-2 gap-3 mt-2">
+          <div>
+            <Label className="text-[10px] text-muted-foreground">Latitude</Label>
+            <Input
+              type="number"
+              step="any"
+              value={lat ?? ""}
+              onChange={(e) => setLat(e.target.value === "" ? null : Number(e.target.value))}
+            />
+          </div>
+          <div>
+            <Label className="text-[10px] text-muted-foreground">Longitude</Label>
+            <Input
+              type="number"
+              step="any"
+              value={lng ?? ""}
+              onChange={(e) => setLng(e.target.value === "" ? null : Number(e.target.value))}
+            />
+          </div>
+        </div>
+        {lat != null && lng != null && (
+          <button
+            type="button"
+            onClick={() => { setLat(null); setLng(null); }}
+            className="text-[11px] text-muted-foreground hover:text-destructive mt-1"
+          >
+            Clear pin
+          </button>
+        )}
+      </div>
+
       <div>
         <Label className="text-xs">Notes (optional)</Label>
         <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Parking, access, anything worth knowing" rows={2} />
@@ -666,6 +713,151 @@ function LocationEditForm({
         <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
         <Button size="sm" onClick={save} disabled={saving}>{saving ? "Saving…" : location ? "Save changes" : "Add location"}</Button>
       </div>
+    </div>
+  );
+}
+
+const MEDAL_STYLES = [
+  { bg: "#fbbf24", label: "1st" }, // gold
+  { bg: "#cbd5e1", label: "2nd" }, // silver
+  { bg: "#d97706", label: "3rd" }, // bronze
+];
+
+// Strava-style leaderboard for the selected route — best, 2nd best, 3rd
+// best time, one entry per athlete (their own fastest effort), plus a
+// total-times-run count across everyone. Built entirely from sessions
+// tagged to this route via the Session Detail page's Route panel —
+// there's no GPS-matching here, tagging is how a session counts as "run
+// on this route."
+function RouteStatsCard({ route }: { route: TrainingRoute }) {
+  const { data: attempts, isLoading } = useQuery({
+    queryKey: ["route-stats", route.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("sessions")
+        .select("id, athlete_id, session_date, total_time_seconds, total_moving_time_seconds, athletes(name, profile_image_url)")
+        .eq("route_id", route.id)
+        .not("completed_at", "is", null);
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+
+  const { leaderboard, totalRuns, distinctAthletes } = useMemo(() => {
+    const withTime = (attempts ?? [])
+      .map((a) => ({ ...a, timeS: a.total_moving_time_seconds ?? a.total_time_seconds }))
+      .filter((a) => a.timeS != null && a.athlete_id);
+
+    // Best (lowest) time per athlete — a leaderboard ranks people, not
+    // an individual's repeated attempts, same convention Strava segment
+    // leaderboards use.
+    const bestByAthlete = new Map<string, any>();
+    for (const a of withTime) {
+      const existing = bestByAthlete.get(a.athlete_id);
+      if (!existing || a.timeS < existing.timeS) bestByAthlete.set(a.athlete_id, a);
+    }
+    const ranked = Array.from(bestByAthlete.values()).sort((a, b) => a.timeS - b.timeS);
+
+    return {
+      leaderboard: ranked.slice(0, 3),
+      totalRuns: (attempts ?? []).length,
+      distinctAthletes: new Set((attempts ?? []).map((a) => a.athlete_id).filter(Boolean)).size,
+    };
+  }, [attempts]);
+
+  return (
+    <Card className="lg:col-span-3">
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Trophy className="h-4 w-4 text-[var(--accent-red)]" />
+          Route stats
+        </CardTitle>
+        <CardDescription>
+          Based on sessions tagged to this route from the session's own Route panel — not every past run on it
+          automatically counts.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : totalRuns === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No sessions tagged to this route yet — tag one from a session's detail page ("Route" panel) to start the leaderboard.
+          </p>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Repeat className="h-4 w-4" />
+              Run {totalRuns} time{totalRuns === 1 ? "" : "s"}
+              {distinctAthletes > 0 && ` by ${distinctAthletes} athlete${distinctAthletes === 1 ? "" : "s"}`}
+            </div>
+            {leaderboard.length > 0 && (
+              <div className="space-y-2">
+                {leaderboard.map((a, i) => (
+                  <div key={a.athlete_id} className="flex items-center gap-3 border rounded-lg px-3 py-2">
+                    <div
+                      className="h-7 w-7 shrink-0 rounded-full grid place-items-center text-xs font-bold text-white"
+                      style={{ background: MEDAL_STYLES[i].bg }}
+                    >
+                      {i + 1}
+                    </div>
+                    <UserAvatar name={a.athletes?.name} imageUrl={a.athletes?.profile_image_url} size="sm" className="shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium truncate">{a.athletes?.name ?? "Athlete"}</div>
+                      <div className="text-xs text-muted-foreground">{a.session_date}</div>
+                    </div>
+                    <div className="font-semibold tabular-nums text-sm shrink-0">{secToClock(a.timeS)}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// Melbourne — a reasonable, non-degenerate default center given the app's
+// existing venue examples (Deakin Track etc.) rather than (0,0), which
+// would open on open ocean and make the first click harder to place
+// accurately. Only ever used when a location has no pin yet; any
+// existing lat/lng always takes priority.
+const DEFAULT_PIN_CENTER: [number, number] = [-37.8136, 144.9631];
+
+function PinClickHandler({ onPick }: { onPick: (lat: number, lng: number) => void }) {
+  useMapEvents({
+    click(e) {
+      onPick(e.latlng.lat, e.latlng.lng);
+    },
+  });
+  return null;
+}
+
+function LocationPinPicker({
+  lat,
+  lng,
+  onPick,
+}: {
+  lat: number | null;
+  lng: number | null;
+  onPick: (lat: number, lng: number) => void;
+}) {
+  const hasPin = lat != null && lng != null;
+  return (
+    <div className="h-56 rounded overflow-hidden border">
+      <MapContainer
+        center={hasPin ? [lat!, lng!] : DEFAULT_PIN_CENTER}
+        zoom={hasPin ? 14 : 11}
+        scrollWheelZoom
+        style={{ height: "100%", width: "100%" }}
+      >
+        <TileLayer attribution={TILE_ATTRIBUTION} url={TILE_URL} />
+        <PinClickHandler onPick={onPick} />
+        {hasPin && (
+          <CircleMarker center={[lat!, lng!]} radius={8} pathOptions={{ color: "#ef4444", fillColor: "#ef4444", fillOpacity: 1 }} />
+        )}
+      </MapContainer>
     </div>
   );
 }
