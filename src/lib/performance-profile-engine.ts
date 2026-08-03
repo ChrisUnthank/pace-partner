@@ -119,8 +119,37 @@ export type WeightedPb = PbRecord & {
   // Filled in by Stage 3 — starts at 1.0 before the curve exists to
   // measure consistency against.
   consistencyWeight: number;
-  weight: number; // recency x reliability x consistency
+  // How strong this specific performance is relative to the athlete's
+  // own best (by VDOT) — the "World Athletics points or an equivalent
+  // standard" factor. VDOT itself already is that equivalent standard:
+  // it's a physiologically-grounded, cross-distance-comparable fitness
+  // score (the same formulas WA-style scoring tables are built from
+  // conceptually), so an exceptional PB naturally scores a high VDOT
+  // and this just turns that into more influence on predictions,
+  // rather than a mediocre PB counting equally.
+  qualityWeight: number;
+  // recency x reliability x consistency (NOT including quality or the
+  // per-target distance kernel — both of those are applied fresh at
+  // prediction time in predictFromProfile, since quality matters
+  // globally but the kernel is target-specific).
+  weight: number;
 };
+
+// Distance-decay kernel for locally weighted prediction — a target's
+// prediction is built primarily from nearby PBs, with influence fading
+// as distance grows, rather than one global curve applying equally
+// everywhere. Bandwidth tuned (and checked numerically before shipping)
+// so a 1000m target gets ~95% influence from an 800m PB and ~85% from
+// 1500m but under 1% from a 10K; a Half Marathon target gets ~57% from
+// a 10K and ~61% from a marathon but under 1% from 1500m — matching
+// "predict primarily from nearby events, distant ones contribute
+// little or none."
+const DISTANCE_KERNEL_BANDWIDTH = 0.7;
+
+function distanceKernel(lnDistanceKm: number, lnTargetKm: number): number {
+  const gap = lnDistanceKm - lnTargetKm;
+  return Math.exp(-(gap * gap) / (2 * DISTANCE_KERNEL_BANDWIDTH * DISTANCE_KERNEL_BANDWIDTH));
+}
 
 // ---------------------------------------------------------------------
 // Weighted linear regression: y = intercept + slope * x, plus weighted
@@ -149,8 +178,15 @@ function weightedLinearFit(points: { x: number; y: number; w: number }[]): Linea
 }
 
 // ---------------------------------------------------------------------
-// Stage 2/3 combined — the athlete profile: weighted PBs, the final
-// (consistency-reweighted) curve, and the derived shape/index metrics.
+// Stage 2/3 combined — the athlete profile: weighted PBs, and the
+// derived shape/index metrics. NOTE: the single "global" curve fitted
+// here is used only for the descriptive Profile Shape / Speed Endurance
+// / Aerobic Durability display — actual predictions (predictFromProfile,
+// below) no longer read from it. A single curve flattens exactly the
+// case this refactor exists to fix: an athlete's strongest, most
+// physiologically-relevant nearby PBs getting diluted by distant ones
+// that happen to share the same fit. Predictions instead get their own
+// fresh, locally-weighted fit per target distance.
 // ---------------------------------------------------------------------
 
 export type ProfileShape = {
@@ -165,13 +201,15 @@ export type ProfileShape = {
 
 export type AthleteProfile = {
   weighted: WeightedPb[];
-  curve: LinearFit | null;
+  // Descriptive only now — see the note above. Predictions build their
+  // own local fit per target instead of reading this.
+  globalCurve: LinearFit | null;
   shape: ProfileShape;
   speedScore: number | null; // weighted-average VDOT, 800m-1500m PBs
   aerobicScore: number | null; // weighted-average VDOT, 5K-Half PBs
   speedEnduranceDecay: number | null; // dVDOT/d(ln km), 800m-3000m
   aerobicDurabilityDecay: number | null; // dVDOT/d(ln km), 5K-Half
-  overallConsistency: number; // 0-1, the final curve's weighted R^2 (0 if no curve)
+  overallConsistency: number; // 0-1, the global curve's weighted R^2 (0 if no curve) — descriptive; per-target fit quality is used for prediction confidence instead
 };
 
 const SHAPE_BAND_POSITIONS = [-1, -0.5, 0, 0.5, 1];
@@ -206,19 +244,30 @@ export function buildAthleteProfile(pbs: PbRecord[], now: Date = new Date()): At
     .filter((p): p is PbRecord & { vdot: number } => p.vdot != null);
   if (withVdot.length === 0) return null;
 
+  // Quality weight — the athlete's own best (by VDOT) sets the ceiling
+  // (weight 1.0); everything else scales down from there. Squared
+  // rather than linear so the effect is real but not so aggressive
+  // that a merely-solid PB gets nearly zeroed out next to an
+  // exceptional one.
+  const maxVdot = Math.max(...withVdot.map((p) => p.vdot));
+
   // Stage 1
   let weighted: WeightedPb[] = withVdot.map((p) => {
     const rec = recencyWeight(p.dateISO, now);
     const rel = reliabilityWeight(p.isRace);
-    return { ...p, recencyWeight: rec, reliabilityWeight: rel, consistencyWeight: 1, weight: rec * rel };
+    const quality = maxVdot > 0 ? (p.vdot / maxVdot) ** 2 : 1;
+    return { ...p, recencyWeight: rec, reliabilityWeight: rel, consistencyWeight: 1, qualityWeight: quality, weight: rec * rel };
   });
 
-  // Stage 2 (first pass) + Stage 3 (residual-based reweight, then refit)
-  const fitPoints = (list: WeightedPb[]) => list.map((p) => ({ x: Math.log(p.distanceKm), y: p.vdot, w: p.weight }));
-  let curve = weightedLinearFit(fitPoints(weighted));
+  // Stage 2 (first pass) + Stage 3 (residual-based reweight, then
+  // refit) — this fit is GLOBAL (no distance kernel), used only to
+  // derive consistencyWeight and the descriptive shape/index metrics,
+  // never for predictions themselves (see predictFromProfile).
+  const fitPoints = (list: WeightedPb[]) => list.map((p) => ({ x: Math.log(p.distanceKm), y: p.vdot, w: p.weight * p.qualityWeight }));
+  let globalCurve = weightedLinearFit(fitPoints(weighted));
 
-  if (curve && weighted.length >= 3) {
-    const residuals = weighted.map((p) => p.vdot - (curve!.intercept + curve!.slope * Math.log(p.distanceKm)));
+  if (globalCurve && weighted.length >= 3) {
+    const residuals = weighted.map((p) => p.vdot - (globalCurve!.intercept + globalCurve!.slope * Math.log(p.distanceKm)));
     const sumW = weighted.reduce((s, p) => s + p.weight, 0);
     const weightedVar = weighted.reduce((s, p, i) => s + p.weight * residuals[i] ** 2, 0) / (sumW || 1);
     const sigma = Math.sqrt(weightedVar) || 1;
@@ -230,10 +279,10 @@ export function buildAthleteProfile(pbs: PbRecord[], now: Date = new Date()): At
       const consistencyWeight = z <= 1 ? 1 : z <= 2 ? 0.6 : 0.25;
       return { ...p, consistencyWeight, weight: p.recencyWeight * p.reliabilityWeight * consistencyWeight };
     });
-    curve = weightedLinearFit(fitPoints(weighted)); // final, reweighted curve
+    globalCurve = weightedLinearFit(fitPoints(weighted)); // final, reweighted global curve
   }
 
-  const shape = curve ? shapeFromSlope(curve.slope) : { biasScore: 0, label: "Balanced" as const, bars: [2, 4, 10, 4, 2] };
+  const shape = globalCurve ? shapeFromSlope(globalCurve.slope) : { biasScore: 0, label: "Balanced" as const, bars: [2, 4, 10, 4, 2] };
 
   const speedScore = weightedAverage(weighted.filter((p) => p.distanceKm >= 0.7 && p.distanceKm <= 1.7).map((p) => ({ y: p.vdot, w: p.weight })));
   const aerobicScore = weightedAverage(weighted.filter((p) => p.distanceKm >= 4.5 && p.distanceKm <= 22).map((p) => ({ y: p.vdot, w: p.weight })));
@@ -247,13 +296,13 @@ export function buildAthleteProfile(pbs: PbRecord[], now: Date = new Date()): At
 
   return {
     weighted,
-    curve,
+    globalCurve,
     shape,
     speedScore,
     aerobicScore,
     speedEnduranceDecay: speedEnduranceFit?.slope ?? null,
     aerobicDurabilityDecay: aerobicDurabilityFit?.slope ?? null,
-    overallConsistency: curve?.rSquared ?? 0,
+    overallConsistency: globalCurve?.rSquared ?? 0,
   };
 }
 
@@ -294,10 +343,12 @@ const PB_EXACT_MATCH_TOLERANCE = 0.03;
 
 export function predictFromProfile(profile: AthleteProfile, targetLabel: string, targetKm: number): ProfilePrediction | null {
   if (!Number.isFinite(targetKm) || targetKm <= 0) return null;
+  const lnTarget = Math.log(targetKm);
 
   // A real result at (or essentially at) this distance beats any
-  // projection from the curve — same principle as before, still holds
-  // here.
+  // projection. Still given a small range (not zero-width) — even a
+  // proven result has some real day-to-day variance, and a flat single
+  // number reads as falsely precise next to every other row's range.
   let exactPb: WeightedPb | null = null;
   let bestGap = Infinity;
   for (const p of profile.weighted) {
@@ -308,12 +359,13 @@ export function predictFromProfile(profile: AthleteProfile, targetLabel: string,
     }
   }
   if (exactPb && bestGap <= PB_EXACT_MATCH_TOLERANCE) {
+    const pbRangePct = TIER_META[5].rangePct;
     return {
       label: targetLabel,
       km: targetKm,
       timeSec: exactPb.timeSec,
-      lowSec: exactPb.timeSec,
-      highSec: exactPb.timeSec,
+      lowSec: exactPb.timeSec * (1 - pbRangePct / 100),
+      highSec: exactPb.timeSec * (1 + pbRangePct / 100),
       paceSecPerKm: exactPb.timeSec / exactPb.distanceKm,
       tier: 5,
       confidencePct: 100,
@@ -321,24 +373,56 @@ export function predictFromProfile(profile: AthleteProfile, targetLabel: string,
     };
   }
 
-  if (!profile.curve) return null; // not enough distinct-distance PBs to fit a curve at all
+  // Locally weighted fit — this target's own fresh regression, built
+  // primarily from nearby PBs (the distance kernel) weighted by
+  // recency, reliability, consistency, and performance quality, NOT a
+  // read from one global curve. This is what stops a 1000m prediction
+  // from being dragged toward a marathon PB just because they're both
+  // on the same overall line — distant PBs contribute almost nothing
+  // to the weight sum here, so they can barely move the local fit.
+  const localPoints = profile.weighted.map((p) => ({
+    x: Math.log(p.distanceKm),
+    y: p.vdot,
+    w: p.weight * p.qualityWeight * distanceKernel(Math.log(p.distanceKm), lnTarget),
+  }));
+  const localFit = weightedLinearFit(localPoints);
 
-  const predictedVdot = profile.curve.intercept + profile.curve.slope * Math.log(targetKm);
+  let predictedVdot: number;
+  if (localFit) {
+    predictedVdot = localFit.intercept + localFit.slope * lnTarget;
+  } else {
+    // Fewer than 2 points carry meaningful local weight (an isolated
+    // target far from everything, or too little data) — fall back to
+    // the single most locally-relevant PB, extrapolated with the
+    // global curve's slope if one exists, or held flat if not. Always
+    // produces a prediction rather than giving up.
+    const usable = localPoints.filter((p) => p.w > 1e-4);
+    if (usable.length === 0) return null;
+    const nearest = usable.reduce((a, b) => (b.w > a.w ? b : a));
+    const slope = profile.globalCurve?.slope ?? 0;
+    predictedVdot = nearest.y + slope * (lnTarget - nearest.x);
+  }
+
   const timeSec = raceTimeFromVdot(targetKm, predictedVdot);
   if (timeSec == null) return null;
 
   // Stage 4 — confidence: data volume (40%) + recency (30%) +
   // consistency (20%) + distance from target (10%), in that priority
-  // order, as specified.
-  const lnTarget = Math.log(targetKm);
-  const nearby = profile.weighted.filter((p) => Math.abs(Math.log(p.distanceKm) - lnTarget) <= 1.0);
-  const nearbyWeight = nearby.reduce((s, p) => s + p.weight, 0);
+  // order, as specified. "Nearby" now uses the same distance kernel
+  // the prediction itself was built from, so confidence and the
+  // prediction are answering the same question about the same evidence.
+  const nearby = profile.weighted.filter((p) => distanceKernel(Math.log(p.distanceKm), lnTarget) > 0.05);
+  const nearbyWeight = nearby.reduce((s, p) => s + p.weight * p.qualityWeight * distanceKernel(Math.log(p.distanceKm), lnTarget), 0);
   const dataVolumeScore = Math.min(100, (nearbyWeight / 2.5) * 100);
 
   const recencyBasis = nearby.length > 0 ? nearby : profile.weighted;
   const recencyScore = 100 * (weightedAverage(recencyBasis.map((p) => ({ y: p.recencyWeight, w: p.weight }))) ?? 0.5);
 
-  const consistencyScore = 100 * profile.overallConsistency;
+  // Local fit quality where one exists (this target's own R^2, not the
+  // whole-athlete average); falls back to the descriptive global
+  // consistency figure when there wasn't enough nearby data for a
+  // local fit at all.
+  const consistencyScore = 100 * (localFit?.rSquared ?? profile.overallConsistency);
 
   const nearestGap = Math.min(...profile.weighted.map((p) => Math.abs(Math.log(p.distanceKm) - lnTarget)));
   const distanceScore = Math.max(0, 100 * (1 - nearestGap / 1.5));
