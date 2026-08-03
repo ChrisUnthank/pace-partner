@@ -1,100 +1,849 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { secToClock } from "@/lib/format";
-import { ChevronLeft } from "lucide-react";
+import { useMyRoles, useMyAthlete } from "@/lib/use-auth";
+import { AppShell } from "@/components/app-shell";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { toast } from "sonner";
+import { AlertTriangle, ChevronLeft, Flag, RotateCcw, Trash2 } from "lucide-react";
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
+import { EventTacticsCard } from "@/components/event-tactics-card";
+import { TacticalDecisionPointsCard } from "@/components/tactical-decision-points-card";
+import { AthleteContextCard } from "@/components/athlete-context-card";
+import { AiStrategySuggestionCard } from "@/components/ai-strategy-suggestion-card";
+import { CollaborationCard } from "@/components/collaboration-card";
+import { PrivateNotesCard } from "@/components/race-plan-private-notes-card";
+import { PostRaceAnalysisCard, PostRaceReflectionCards } from "@/components/post-race-analysis-card";
+import { clockToSec, secToClock, paceFmt } from "@/lib/format";
+import {
+  type SplitRow,
+  type Strategy,
+  generateStrategySplits,
+  splitIncrementOptions,
+  recalcAfterEdit,
+  recalcFromEditedFlags,
+  isOverGoalTime,
+  averagePaceSecPerKm,
+  averageSpeedKmh,
+  STRATEGY_OPTIONS,
+} from "@/lib/race-tactics-calc";
 
-// Phase 14 — Race Day Mode. Deliberately NOT wrapped in AppShell — no
-// sidebar, no header chrome, nothing to tap by accident with cold/sweaty
-// hands. Just the goal, the splits, and the decision points, in as few
-// large blocks as possible. This is the one screen in the whole feature
-// designed to be read at a glance mid-race, not studied at a desk.
-
-export const Route = createFileRoute("/_authenticated/app/race-tactics/$planId_/race-day")({
-  component: RaceDayMode,
+export const Route = createFileRoute("/_authenticated/app/race-tactics/$planId")({
+  component: RaceTacticsDetail,
 });
 
-function RaceDayMode() {
+const STATUS_OPTIONS = [
+  { value: "draft", label: "Draft" },
+  { value: "coach_review", label: "Coach Review" },
+  { value: "approved", label: "Approved" },
+  { value: "race_ready", label: "Race Ready" },
+  { value: "completed", label: "Completed" },
+];
+
+const RACE_TYPE_OPTIONS = [
+  { value: "track", label: "Track" },
+  { value: "road", label: "Road" },
+  { value: "cross_country", label: "Cross Country" },
+];
+
+function RaceTacticsDetail() {
   const { planId } = Route.useParams();
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const { data: roles = [] } = useMyRoles();
+  const isCoach = roles.includes("coach");
+  const { data: myAthlete } = useMyAthlete();
 
   const { data: plan, isLoading } = useQuery({
     queryKey: ["race-tactics-plan", planId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("race_tactics_plans" as any).select("*").eq("id", planId).single();
+      const { data, error } = await supabase
+        .from("race_tactics_plans" as any)
+        .select("*, athletes(id, name)")
+        .eq("id", planId)
+        .single();
       if (error) throw error;
       return data as any;
     },
   });
 
-  const { data: decisionPoints } = useQuery({
-    queryKey: ["decision-points", planId],
+  const canEdit = isCoach || myAthlete?.id === plan?.athlete_id;
+
+  // Resolves the Race Analysis page to send someone back to, for anyone
+  // who arrived here from that page's own "Race tactics" banner link.
+  // Prefers the performance this plan's post-race results were
+  // explicitly saved to (the deliberate, unambiguous link); falls back
+  // to whatever performance already exists for the linked session if
+  // results haven't been saved that way yet. No button at all if
+  // neither exists — nothing to send anyone back to.
+  const { data: raceAnalysisId } = useQuery({
+    queryKey: ["race-analysis-target", planId, plan?.linked_session_id],
+    enabled: !!plan,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("race_tactics_decision_points" as any)
-        .select("*")
+      const { data: postRace } = await supabase
+        .from("race_tactics_post_race" as any)
+        .select("linked_performance_id")
         .eq("plan_id", planId)
-        .order("distance_m", { ascending: true });
-      if (error) throw error;
-      return (data ?? []) as any[];
+        .maybeSingle();
+      if ((postRace as any)?.linked_performance_id) return (postRace as any).linked_performance_id as string;
+      if (!plan?.linked_session_id) return null;
+      const { data: perf } = await supabase
+        .from("performances")
+        .select("id")
+        .eq("session_id", plan.linked_session_id)
+        .maybeSingle();
+      return perf?.id ?? null;
     },
   });
 
-  if (isLoading || !plan) {
+  // Local editable copy of the splits array — every edit recalculates
+  // locally first (instant feedback), then persists to the DB. Re-synced
+  // from the fetched plan whenever the plan itself changes underneath
+  // (e.g. reloading the page).
+  const [splits, setSplits] = useState<SplitRow[]>([]);
+  const [savingSplits, setSavingSplits] = useState(false);
+  useEffect(() => {
+    if (plan?.splits) setSplits(plan.splits as SplitRow[]);
+  }, [plan?.id, plan?.splits]);
+
+  async function persistSplits(next: SplitRow[]) {
+    setSplits(next);
+    setSavingSplits(true);
+    const { error } = await supabase
+      .from("race_tactics_plans" as any)
+      .update({ splits: next as any, updated_at: new Date().toISOString() })
+      .eq("id", planId);
+    setSavingSplits(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    qc.invalidateQueries({ queryKey: ["race-tactics-plan", planId] });
+  }
+
+  function editSplit(index: number, newTimeInput: string) {
+    const sec = clockToSec(newTimeInput);
+    if (sec == null || sec <= 0 || !plan) return;
+    const next = recalcAfterEdit(splits, index, sec, Number(plan.goal_time_seconds));
+    persistSplits(next);
+  }
+
+  function resetSplit(index: number) {
+    if (!plan) return;
+    const cleared = splits.map((s, i) => (i === index ? { ...s, is_edited: false } : s));
+    const next = recalcFromEditedFlags(cleared, Number(plan.goal_time_seconds));
+    persistSplits(next);
+  }
+
+  function resetAllSplits() {
+    if (!plan) return;
+    const next = generateStrategySplits(plan.race_distance_m, plan.split_increment_m, Number(plan.goal_time_seconds), plan.strategy as Strategy);
+    persistSplits(next);
+  }
+
+  async function changeStrategy(strategy: Strategy) {
+    if (!plan) return;
+    const next = generateStrategySplits(plan.race_distance_m, plan.split_increment_m, Number(plan.goal_time_seconds), strategy);
+    setSplits(next);
+    const { error } = await supabase
+      .from("race_tactics_plans" as any)
+      .update({ strategy, splits: next as any, updated_at: new Date().toISOString() })
+      .eq("id", planId);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(`Strategy set to ${STRATEGY_OPTIONS.find((o) => o.value === strategy)?.label}`);
+    qc.invalidateQueries({ queryKey: ["race-tactics-plan", planId] });
+  }
+
+  // Goal time / distance / split increment are the inputs the whole split
+  // engine is built from — editing any of them means the existing splits
+  // no longer correspond to the new numbers, so they're regenerated (using
+  // whatever strategy shape is already set) exactly like changeStrategy
+  // does. Editing anything else here (name, date, PBs, conditions) is a
+  // plain field update with no effect on splits.
+  async function saveRaceDetails(fields: {
+    eventName: string;
+    raceType: string;
+    raceDistanceM: number;
+    raceDate: string | null;
+    goalTimeSeconds: number;
+    currentPbSeconds: number | null;
+    targetPbSeconds: number | null;
+    splitIncrementM: number;
+    conditions: Record<string, string> | null;
+  }) {
+    if (!plan) return;
+    const needsRegeneration =
+      fields.raceDistanceM !== plan.race_distance_m ||
+      fields.goalTimeSeconds !== Number(plan.goal_time_seconds) ||
+      fields.splitIncrementM !== plan.split_increment_m;
+
+    const nextSplits = needsRegeneration
+      ? generateStrategySplits(fields.raceDistanceM, fields.splitIncrementM, fields.goalTimeSeconds, plan.strategy as Strategy)
+      : splits;
+
+    if (needsRegeneration) setSplits(nextSplits);
+
+    const { error } = await supabase
+      .from("race_tactics_plans" as any)
+      .update({
+        event_name: fields.eventName,
+        race_type: fields.raceType,
+        race_distance_m: fields.raceDistanceM,
+        race_date: fields.raceDate,
+        goal_time_seconds: fields.goalTimeSeconds,
+        current_pb_seconds: fields.currentPbSeconds,
+        target_pb_seconds: fields.targetPbSeconds,
+        split_increment_m: fields.splitIncrementM,
+        conditions: fields.conditions as any,
+        splits: nextSplits as any,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", planId);
+    if (error) {
+      toast.error(error.message);
+      throw error;
+    }
+    toast.success(needsRegeneration ? "Race details updated — splits regenerated" : "Race details updated");
+    qc.invalidateQueries({ queryKey: ["race-tactics-plan", planId] });
+  }
+
+  async function updateStatus(status: string) {
+    const { error } = await supabase.from("race_tactics_plans" as any).update({ status }).eq("id", planId);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    qc.invalidateQueries({ queryKey: ["race-tactics-plan", planId] });
+  }
+
+  async function deletePlan() {
+    const { error } = await supabase.from("race_tactics_plans" as any).delete().eq("id", planId);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("Plan deleted");
+    navigate({ to: "/app/race-tactics" });
+  }
+
+  if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background text-foreground">
-        <p className="text-muted-foreground">Loading…</p>
-      </div>
+      <AppShell>
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      </AppShell>
+    );
+  }
+  if (!plan) {
+    return (
+      <AppShell>
+        <p className="text-sm text-muted-foreground">Plan not found.</p>
+      </AppShell>
     );
   }
 
-  const splits = (plan.splits ?? []) as Array<{ cumulative_distance_m: number; cumulative_time_seconds: number }>;
+  const goalTime = Number(plan.goal_time_seconds);
+  const overBudget = isOverGoalTime(splits, goalTime);
+  const avgPace = averagePaceSecPerKm(plan.race_distance_m, goalTime);
+  const avgSpeed = averageSpeedKmh(plan.race_distance_m, goalTime);
 
   return (
-    <div className="min-h-screen bg-background text-foreground px-4 py-6 max-w-md mx-auto">
-      <Link to="/app/race-tactics/$planId" params={{ planId }} className="inline-flex items-center gap-1 text-sm text-muted-foreground mb-4">
-        <ChevronLeft className="h-4 w-4" />
-        Full plan
-      </Link>
+    <AppShell>
+      <div className="space-y-6">
+        {isCoach ? (
+          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+            <Link to="/app/athletes" className="hover:text-foreground">
+              Athletes
+            </Link>
+            <span className="text-border">/</span>
+            <Link
+              to="/app/athletes/$athleteId"
+              params={{ athleteId: plan.athlete_id }}
+              className="hover:text-foreground"
+            >
+              {plan.athletes?.name ?? "Athlete"}
+            </Link>
+            <span className="text-border">/</span>
+            <Link to="/app/race-tactics" search={{ athleteId: plan.athlete_id } as any} className="hover:text-foreground">
+              Race Tactics
+            </Link>
+          </div>
+        ) : (
+          <Button asChild variant="ghost" size="sm">
+            <Link to="/app/race-tactics">
+              <ChevronLeft className="h-4 w-4 mr-1" />
+              Race Tactics
+            </Link>
+          </Button>
+        )}
 
-      <div className="text-center mb-8">
-        <div className="text-sm uppercase tracking-widest text-muted-foreground">{plan.event_name}</div>
-        <div className="text-xs text-muted-foreground mt-1">GOAL</div>
-        <div className="text-6xl font-extrabold tabular-nums mt-1">{secToClock(plan.goal_time_seconds)}</div>
-      </div>
-
-      {splits.length > 0 && (
-        <div className="mb-8">
-          <div className="grid grid-cols-2 gap-3">
-            {splits.map((s, i) => (
-              <div key={i} className="rounded-lg border-2 py-3 text-center">
-                <div className="text-xs text-muted-foreground tabular-nums">{s.cumulative_distance_m}m</div>
-                <div className="text-2xl font-bold tabular-nums">{secToClock(s.cumulative_time_seconds)}</div>
-              </div>
-            ))}
+        <div className="flex items-start justify-between flex-wrap gap-2">
+          <div>
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <Flag className="h-5 w-5 text-[var(--accent-red)]" />
+              {plan.event_name}
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              {plan.athletes?.name} · {plan.race_distance_m}m {plan.race_type} {plan.race_date ? `· ${plan.race_date}` : ""}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {raceAnalysisId && (
+              <Button asChild size="sm" variant="outline">
+                <Link to="/app/races/$raceId/analysis" params={{ raceId: raceAnalysisId }}>
+                  Race Analysis
+                </Link>
+              </Button>
+            )}
+            <Button asChild size="sm" variant="outline">
+              <Link to="/app/race-tactics/$planId/race-day" params={{ planId }}>
+                Race Day
+              </Link>
+            </Button>
+            {canEdit ? (
+              <Select value={plan.status} onValueChange={updateStatus}>
+                <SelectTrigger className="h-8 w-[150px] text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {STATUS_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Badge variant="outline">{STATUS_OPTIONS.find((o) => o.value === plan.status)?.label ?? plan.status}</Badge>
+            )}
+            {canEdit && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" title="Delete plan">
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete this race plan?</AlertDialogTitle>
+                    <AlertDialogDescription>This can't be undone.</AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={deletePlan}>Delete</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
           </div>
         </div>
-      )}
 
-      {(decisionPoints ?? []).length > 0 && (
-        <div className="space-y-3">
-          {(decisionPoints ?? []).map((p: any) => {
-            const toGo = plan.race_distance_m - p.distance_m;
-            return (
-              <div key={p.id} className="rounded-lg bg-[var(--accent-red)] text-white px-4 py-4 text-center">
-                <div className="text-sm font-semibold tabular-nums opacity-90">
-                  {toGo > 0 ? `${toGo}m TO GO` : "FINISH"}
+        {/* PLAN — the pace strategy itself: what's being built/edited most
+            often, pre-race. Wider main column. */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-4">
+            <RaceDetailsCard
+              plan={plan}
+              canEdit={!!canEdit}
+              hasManualSplitEdits={splits.some((s) => s.is_edited)}
+              avgPace={avgPace}
+              avgSpeed={avgSpeed}
+              onSave={saveRaceDetails}
+            />
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Strategy</CardTitle>
+                <CardDescription>Shapes how pace is distributed across the race, not just the total time.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {canEdit ? (
+                  <Select value={plan.strategy} onValueChange={(v) => changeStrategy(v as Strategy)}>
+                    <SelectTrigger className="w-64">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STRATEGY_OPTIONS.map((o) => (
+                        <SelectItem key={o.value} value={o.value}>
+                          {o.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Badge variant="outline">{STRATEGY_OPTIONS.find((o) => o.value === plan.strategy)?.label ?? plan.strategy}</Badge>
+                )}
+                <p className="text-xs text-muted-foreground">{STRATEGY_OPTIONS.find((o) => o.value === plan.strategy)?.description}</p>
+                {canEdit && splits.some((s) => s.is_edited) && (
+                  <p className="text-xs text-amber-600">Changing strategy regenerates every split and discards your manual edits above.</p>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Pace plan</CardTitle>
+                <CardDescription>Planned pace at each split against the flat goal pace — the shape is the strategy.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart
+                      data={splits.map((s) => ({
+                        label: `${s.cumulative_distance_m}m`,
+                        plannedPace: (s.segment_time_seconds / s.distance_m) * 1000,
+                        goalPace: avgPace,
+                      }))}
+                      margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                      <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                      <YAxis reversed tickFormatter={(v) => secToClock(v)} tick={{ fontSize: 11 }} width={55} />
+                      <Tooltip formatter={(value: number) => paceFmt(value)} />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Line type="monotone" dataKey="plannedPace" name="Planned pace" stroke="#2563eb" strokeWidth={2} dot={{ r: 3 }} />
+                      <Line type="monotone" dataKey="goalPace" name="Goal pace (flat)" stroke="#94a3b8" strokeDasharray="4 4" strokeWidth={1.5} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
                 </div>
-                <div className="text-3xl font-extrabold uppercase tracking-wide mt-1">{p.action_text}</div>
-                <div className="text-xs opacity-80 mt-1">if {p.trigger_text}</div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+              </CardContent>
+            </Card>
 
-      {splits.length === 0 && (decisionPoints ?? []).length === 0 && (
-        <p className="text-center text-sm text-muted-foreground">No splits or decision points on this plan yet.</p>
-      )}
+            <Card>
+              <CardHeader className="flex flex-row items-start justify-between gap-2">
+                <div>
+                  <CardTitle className="text-base">Splits</CardTitle>
+                  <CardDescription>
+                    Click a split time to edit it — the remaining splits recalculate automatically to keep the goal time
+                    exact.
+                  </CardDescription>
+                </div>
+                {canEdit && (
+                  <Button size="sm" variant="ghost" onClick={resetAllSplits}>
+                    <RotateCcw className="h-4 w-4 mr-1" />
+                    Reset all to {STRATEGY_OPTIONS.find((o) => o.value === plan.strategy)?.label ?? "strategy"}
+                  </Button>
+                )}
+              </CardHeader>
+              <CardContent className="p-0">
+                {overBudget && (
+                  <div className="flex items-center gap-2 px-4 py-2 text-sm bg-rose-50 text-rose-700 border-b border-rose-200">
+                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                    Edited splits already add up to more than the goal time — remaining splits are floored at 0s until an
+                    edited split is loosened or reset.
+                  </div>
+                )}
+                <div className="divide-y">
+                  {splits.map((s, i) => (
+                    <SplitRowView
+                      key={i}
+                      split={s}
+                      canEdit={!!canEdit}
+                      onEdit={(t) => editSplit(i, t)}
+                      onReset={() => resetSplit(i)}
+                    />
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* CONTEXT & TACTICS — supporting information that informs the
+              plan (recent form, AI suggestion, course-specific tactics,
+              decision points), kept alongside the plan rather than mixed
+              into its main flow. Narrower side column. */}
+          <div className="space-y-4">
+            <AthleteContextCard
+              athleteId={plan.athlete_id}
+              raceDistanceM={plan.race_distance_m}
+              goalTimeSeconds={goalTime}
+              currentStrategy={plan.strategy}
+              canEdit={!!canEdit}
+              onApplyStrategy={changeStrategy}
+            />
+
+            <AiStrategySuggestionCard planId={planId} onApplyStrategy={changeStrategy} />
+
+            <EventTacticsCard
+              planId={planId}
+              raceDistanceM={plan.race_distance_m}
+              raceType={plan.race_type}
+              eventTactics={plan.event_tactics}
+              canEdit={!!canEdit}
+            />
+
+            <TacticalDecisionPointsCard planId={planId} raceDistanceM={plan.race_distance_m} canEdit={!!canEdit} />
+          </div>
+        </div>
+
+        {/* POST-RACE — its own zone: a completely different phase of the
+            race's lifecycle to everything above, so it reads as its own
+            section rather than just another card in the same scroll. */}
+        <PostRaceAnalysisCard planId={planId} athleteId={plan.athlete_id} plan={plan} plannedSplits={splits} />
+
+        {/* Reflections (coach + athlete) get the wider column since
+            they're the substance of the post-race review; sharing,
+            the athlete's own intentions, and comments are the more
+            occasional/meta side of it, grouped into the final third. */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2">
+            <PostRaceReflectionCards planId={planId} athleteId={plan.athlete_id} />
+          </div>
+          <div>
+            <CollaborationCard
+              planId={planId}
+              athleteId={plan.athlete_id}
+              publishedAt={plan.published_at}
+              athleteIntentions={plan.athlete_intentions}
+              canEdit={!!canEdit}
+            />
+          </div>
+        </div>
+
+        <PrivateNotesCard planId={planId} />
+      </div>
+    </AppShell>
+  );
+}
+
+// Goal time, distance, and split increment are the actual inputs the
+// whole split engine is built from — this card is the only place they
+// (plus name/date/PBs/conditions) can be edited after creation, since
+// there was previously no way back to the create form. Editing any of the
+// three regenerates splits (see saveRaceDetails in the parent); everything
+// else here is a plain field update.
+function RaceDetailsCard({
+  plan,
+  canEdit,
+  hasManualSplitEdits,
+  avgPace,
+  avgSpeed,
+  onSave,
+}: {
+  plan: any;
+  canEdit: boolean;
+  hasManualSplitEdits: boolean;
+  avgPace: number;
+  avgSpeed: number;
+  onSave: (fields: {
+    eventName: string;
+    raceType: string;
+    raceDistanceM: number;
+    raceDate: string | null;
+    goalTimeSeconds: number;
+    currentPbSeconds: number | null;
+    targetPbSeconds: number | null;
+    splitIncrementM: number;
+    conditions: Record<string, string> | null;
+  }) => Promise<void>;
+}) {
+  const conditions = (plan.conditions as { temperature_c?: string; wind?: string; weather?: string; surface?: string } | null) ?? {};
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const [eventName, setEventName] = useState(plan.event_name);
+  const [raceType, setRaceType] = useState(plan.race_type);
+  const [distance, setDistance] = useState(String(plan.race_distance_m));
+  const [raceDate, setRaceDate] = useState(plan.race_date ?? "");
+  const [goalTimeInput, setGoalTimeInput] = useState(secToClock(plan.goal_time_seconds));
+  const [currentPbInput, setCurrentPbInput] = useState(plan.current_pb_seconds ? secToClock(plan.current_pb_seconds) : "");
+  const [targetPbInput, setTargetPbInput] = useState(plan.target_pb_seconds ? secToClock(plan.target_pb_seconds) : "");
+  const [splitIncrement, setSplitIncrement] = useState(plan.split_increment_m);
+  const [temperature, setTemperature] = useState(conditions.temperature_c ?? "");
+  const [wind, setWind] = useState(conditions.wind ?? "");
+  const [weather, setWeather] = useState(conditions.weather ?? "");
+  const [surface, setSurface] = useState(conditions.surface ?? "");
+
+  const incrementOptions = splitIncrementOptions(raceType);
+
+  function startEditing() {
+    setEventName(plan.event_name);
+    setRaceType(plan.race_type);
+    setDistance(String(plan.race_distance_m));
+    setRaceDate(plan.race_date ?? "");
+    setGoalTimeInput(secToClock(plan.goal_time_seconds));
+    setCurrentPbInput(plan.current_pb_seconds ? secToClock(plan.current_pb_seconds) : "");
+    setTargetPbInput(plan.target_pb_seconds ? secToClock(plan.target_pb_seconds) : "");
+    setSplitIncrement(plan.split_increment_m);
+    setTemperature(conditions.temperature_c ?? "");
+    setWind(conditions.wind ?? "");
+    setWeather(conditions.weather ?? "");
+    setSurface(conditions.surface ?? "");
+    setEditing(true);
+  }
+
+  const distanceNum = Number(distance);
+  const goalSec = clockToSec(goalTimeInput);
+  const willRegenerate =
+    (Number.isFinite(distanceNum) && distanceNum !== plan.race_distance_m) ||
+    (goalSec != null && goalSec !== Number(plan.goal_time_seconds)) ||
+    splitIncrement !== plan.split_increment_m;
+
+  async function save() {
+    if (!eventName.trim()) {
+      toast.error("Enter an event name");
+      return;
+    }
+    if (!Number.isFinite(distanceNum) || distanceNum <= 0) {
+      toast.error("Enter a valid race distance");
+      return;
+    }
+    if (!goalSec || goalSec <= 0) {
+      toast.error("Enter a goal time (mm:ss or h:mm:ss)");
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave({
+        eventName: eventName.trim(),
+        raceType,
+        raceDistanceM: Math.round(distanceNum),
+        raceDate: raceDate || null,
+        goalTimeSeconds: goalSec,
+        currentPbSeconds: currentPbInput ? clockToSec(currentPbInput) : null,
+        targetPbSeconds: targetPbInput ? clockToSec(targetPbInput) : null,
+        splitIncrementM: splitIncrement,
+        conditions: temperature || wind || weather || surface ? { temperature_c: temperature, wind, weather, surface } : null,
+      });
+      setEditing(false);
+    } catch {
+      // onSave already toasts the error
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between gap-2">
+        <CardTitle className="text-base">Race details</CardTitle>
+        {canEdit && !editing && (
+          <Button size="sm" variant="outline" onClick={startEditing}>
+            Edit
+          </Button>
+        )}
+      </CardHeader>
+      <CardContent>
+        {!editing ? (
+          <>
+            <div className="grid sm:grid-cols-4 gap-3 text-sm">
+              <div>
+                <div className="text-xs text-muted-foreground">Goal time</div>
+                <div className="font-semibold tabular-nums">{secToClock(Number(plan.goal_time_seconds))}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Average pace</div>
+                <div className="font-semibold tabular-nums">{paceFmt(avgPace)}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Average speed</div>
+                <div className="font-semibold tabular-nums">{avgSpeed.toFixed(1)} km/h</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Current PB / Target PB</div>
+                <div className="font-semibold tabular-nums">
+                  {plan.current_pb_seconds ? secToClock(plan.current_pb_seconds) : "—"} /{" "}
+                  {plan.target_pb_seconds ? secToClock(plan.target_pb_seconds) : "—"}
+                </div>
+              </div>
+            </div>
+            {(conditions.temperature_c || conditions.wind || conditions.weather || conditions.surface) && (
+              <div className="flex flex-wrap gap-1.5 mt-3">
+                {conditions.temperature_c && <Badge variant="outline">{conditions.temperature_c}</Badge>}
+                {conditions.wind && <Badge variant="outline">{conditions.wind}</Badge>}
+                {conditions.weather && <Badge variant="outline">{conditions.weather}</Badge>}
+                {conditions.surface && <Badge variant="outline">{conditions.surface}</Badge>}
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="space-y-3">
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Event name</Label>
+                <Input value={eventName} onChange={(e) => setEventName(e.target.value)} />
+              </div>
+              <div>
+                <Label className="text-xs">Race date</Label>
+                <Input type="date" value={raceDate} onChange={(e) => setRaceDate(e.target.value)} />
+              </div>
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Race type</Label>
+                <Select value={raceType} onValueChange={setRaceType}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {RACE_TYPE_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Distance (meters)</Label>
+                <Input type="number" value={distance} onChange={(e) => setDistance(e.target.value)} />
+              </div>
+            </div>
+
+            <div className="grid sm:grid-cols-3 gap-3">
+              <div>
+                <Label className="text-xs">Goal time (mm:ss)</Label>
+                <Input value={goalTimeInput} onChange={(e) => setGoalTimeInput(e.target.value)} />
+              </div>
+              <div>
+                <Label className="text-xs">Current PB</Label>
+                <Input value={currentPbInput} onChange={(e) => setCurrentPbInput(e.target.value)} placeholder="mm:ss" />
+              </div>
+              <div>
+                <Label className="text-xs">Target PB</Label>
+                <Input value={targetPbInput} onChange={(e) => setTargetPbInput(e.target.value)} placeholder="mm:ss" />
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-xs">Split every</Label>
+              <Select value={String(splitIncrement)} onValueChange={(v) => setSplitIncrement(Number(v))}>
+                <SelectTrigger className="mt-1 w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {incrementOptions.map((inc) => (
+                    <SelectItem key={inc} value={String(inc)}>
+                      {inc}m
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label className="text-xs">Conditions</Label>
+              <div className="grid sm:grid-cols-4 gap-2 mt-1">
+                <Input value={temperature} onChange={(e) => setTemperature(e.target.value)} placeholder="Temp" />
+                <Input value={wind} onChange={(e) => setWind(e.target.value)} placeholder="Wind" />
+                <Input value={weather} onChange={(e) => setWeather(e.target.value)} placeholder="Weather" />
+                <Input value={surface} onChange={(e) => setSurface(e.target.value)} placeholder="Surface" />
+              </div>
+            </div>
+
+            {willRegenerate && (
+              <p className="text-xs text-amber-600 flex items-center gap-1">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                Changing distance, goal time, or split increment regenerates every split
+                {hasManualSplitEdits ? " and discards your manual split edits" : ""}.
+              </p>
+            )}
+
+            <div className="flex gap-2">
+              <Button size="sm" onClick={save} disabled={saving}>
+                {saving ? "Saving…" : "Save"}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function SplitRowView({
+  split,
+  canEdit,
+  onEdit,
+  onReset,
+}: {
+  split: SplitRow;
+  canEdit: boolean;
+  onEdit: (timeInput: string) => void;
+  onReset: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(secToClock(split.segment_time_seconds));
+
+  useEffect(() => {
+    if (!editing) setDraft(secToClock(split.segment_time_seconds));
+  }, [split.segment_time_seconds, editing]);
+
+  function commit() {
+    setEditing(false);
+    if (draft !== secToClock(split.segment_time_seconds)) onEdit(draft);
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-3 px-4 py-2 text-sm">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="font-medium tabular-nums shrink-0">{split.cumulative_distance_m}m</span>
+        <span className="text-xs text-muted-foreground shrink-0">({split.distance_m}m segment)</span>
+        {split.is_edited && (
+          <Badge variant="outline" className="text-[10px] bg-sky-100 text-sky-700 border-sky-200">
+            Edited
+          </Badge>
+        )}
+      </div>
+      <div className="flex items-center gap-3 shrink-0">
+        <span className="text-xs text-muted-foreground tabular-nums">cum {secToClock(split.cumulative_time_seconds)}</span>
+        {canEdit && editing ? (
+          <Input
+            autoFocus
+            type="text"
+            inputMode="numeric"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              if (e.key === "Escape") {
+                setDraft(secToClock(split.segment_time_seconds));
+                setEditing(false);
+              }
+            }}
+            className="w-20 h-7 text-sm tabular-nums text-right"
+          />
+        ) : canEdit ? (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="tabular-nums underline decoration-dotted underline-offset-2 hover:decoration-solid hover:text-foreground"
+          >
+            {secToClock(split.segment_time_seconds)}
+          </button>
+        ) : (
+          <span className="tabular-nums">{secToClock(split.segment_time_seconds)}</span>
+        )}
+        {canEdit && split.is_edited && (
+          <Button size="sm" variant="ghost" className="h-6 px-1.5" onClick={onReset}>
+            <RotateCcw className="h-3 w-3" />
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
