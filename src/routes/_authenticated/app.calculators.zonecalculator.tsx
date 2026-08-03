@@ -111,7 +111,7 @@ function ZoneCalculatorPage() {
   const [maxHrInput, setMaxHrInput] = useState("190");
   const [thresholdHrInput, setThresholdHrInput] = useState("165");
 
-  const result: ComputedResult = useMemo(() => {
+  const localResult: ComputedResult = useMemo(() => {
     if (!method) return null;
     const basis = METHOD_META[method].basis;
     if (basis === "pace") {
@@ -147,6 +147,74 @@ function ZoneCalculatorPage() {
     maxHrInput,
     thresholdHrInput,
   ]);
+
+  // Daniels VDOT specifically has a real, already-in-production database
+  // function for VDOT -> threshold pace (vdot_threshold_pace_sec_per_km) —
+  // the exact same one Zone Boundaries' own "VDOT (Daniels)" auto-method
+  // already uses. Calling it here (rather than the local Daniels & Gilbert
+  // reimplementation above) means this method's anchor matches the app's
+  // real number exactly, not a close approximation of it.
+  const vdotNum = Number(vdotInput);
+  const { data: rpcVdotPace } = useQuery({
+    queryKey: ["zone-calc-vdot-pace", vdotNum],
+    enabled: method === "daniels_vdot" && Number.isFinite(vdotNum) && vdotNum > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("vdot_threshold_pace_sec_per_km", { _vdot: vdotNum });
+      if (error) throw error;
+      return data as number;
+    },
+  });
+
+  // Every other method's anchor still comes from localResult — only the
+  // VDOT path swaps in the real server value once it's back, instant
+  // client-side estimate visible in the meantime rather than a blank
+  // state during the round trip.
+  const anchorResult: ComputedResult = useMemo(() => {
+    if (!localResult || method !== "daniels_vdot" || rpcVdotPace == null) return localResult;
+    return { ...localResult, thresholdPace: rpcVdotPace, zones: deriveZonesFromPaceThreshold(rpcVdotPace) };
+  }, [localResult, method, rpcVdotPace]);
+
+  // The real, authoritative zone boundaries for whatever anchor is
+  // currently active — same zones_from_pace_threshold / zones_from_hr_threshold
+  // functions Zone Boundaries itself is built on, not this calculator's
+  // own approximation of them. Falls back to the local band model
+  // (still shown in anchorResult) while this is loading or if it errors,
+  // so the preview is never blank, just briefly less exact.
+  const { data: rpcZoneCutoffs } = useQuery({
+    queryKey: ["zone-calc-real-zones", anchorResult?.basis, anchorResult?.thresholdPace, anchorResult?.thresholdHr],
+    enabled: !!anchorResult,
+    queryFn: async () => {
+      if (!anchorResult) return null;
+      const { data, error } =
+        anchorResult.basis === "pace"
+          ? await supabase.rpc("zones_from_pace_threshold", { _threshold_sec_per_km: anchorResult.thresholdPace! })
+          : await supabase.rpc("zones_from_hr_threshold", { _hr_threshold: anchorResult.thresholdHr! });
+      if (error) throw error;
+      return (Array.isArray(data) ? data[0] : data) as Record<string, number> | null;
+    },
+  });
+
+  const result: ComputedResult = useMemo(() => {
+    if (!anchorResult) return null;
+    if (!rpcZoneCutoffs) return anchorResult; // fallback: local approximation
+    // z1_max..z6_max are cutoffs (one bound per zone), same convention
+    // target-resolution.ts already uses for the athlete's real profile:
+    // zone n's far bound is z_n_max, its near bound is z_(n-1)_max.
+    const cutoff = (i: number) => rpcZoneCutoffs[`z${i}_max`] ?? null;
+    const rows: ZoneRow[] = ZONE_ORDER.map((key, idx) => {
+      const n = idx + 1;
+      const name = METHOD_ZONE_NAMES[idx];
+      if (anchorResult.basis === "pace") {
+        const fast = cutoff(n) ?? (anchorResult.thresholdPace as number);
+        const slow = n > 1 ? cutoff(n - 1) : null;
+        return { key, name, low: fast, high: slow };
+      }
+      const hi = cutoff(n) ?? (anchorResult.thresholdHr as number);
+      const lo = n > 1 ? (cutoff(n - 1) != null ? (cutoff(n - 1) as number) + 1 : null) : null;
+      return { key, name, low: lo ?? 0, high: hi };
+    });
+    return { ...anchorResult, zones: rows };
+  }, [anchorResult, rpcZoneCutoffs]);
 
   const [compareList, setCompareList] = useState<CompareEntry[]>([]);
 
@@ -536,9 +604,13 @@ function ZoneCalculatorPage() {
         )}
 
         <p className="text-xs text-muted-foreground">
-          These are preview estimates for comparing methods against each other. The zone boundaries that actually
-          apply once saved are computed by the same engine Zone Boundaries already uses for a manually-entered
-          threshold — this calculator's job is choosing a good threshold, not replacing that engine.
+          Zone boundaries shown here come from the same database functions Zone Boundaries itself uses
+          (<code className="text-[11px]">zones_from_pace_threshold</code> /{" "}
+          <code className="text-[11px]">zones_from_hr_threshold</code>) — not a separate approximation — so what
+          you see here is what you'll get after saving. Daniels VDOT also calls the app's own real VDOT→pace
+          function. What's still this calculator's own estimate is each method's specific *anchor* derivation
+          (Recent Race, Critical Speed, MAS, Karvonen, %MaxHR, or a directly-entered threshold) — those aren't
+          existing auto-methods elsewhere in the app, so there's nothing to defer to for them.
         </p>
       </div>
 
@@ -697,6 +769,7 @@ function MethodInputs(props: {
 // Comparison table
 // ---------------------------------------------------------------------
 const ZONE_ORDER = ["recovery", "endurance", "tempo", "threshold", "vo2max", "anaerobic"];
+const METHOD_ZONE_NAMES = ["Recovery", "Endurance", "Tempo", "Threshold", "VO₂ Max", "Anaerobic"];
 
 function ComparisonTable({ entries, onRemove }: { entries: CompareEntry[]; onRemove: (id: string) => void }) {
   return (
