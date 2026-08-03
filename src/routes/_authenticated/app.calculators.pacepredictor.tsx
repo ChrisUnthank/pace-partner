@@ -190,9 +190,13 @@ function PerformancePredictorPage() {
                 <h1 className="text-2xl font-bold leading-tight">Performance Predictor</h1>
               </div>
             </div>
-            {isCoach && (
-              <CoachAthletePicker roster={roster ?? []} myAthlete={myAthlete} value={athleteId} onChange={setAthleteId} />
-            )}
+            {isCoach && (roster && roster.length > 0 ? (
+              <CoachAthletePicker roster={roster} myAthlete={myAthlete} value={athleteId} onChange={setAthleteId} />
+            ) : (
+              <span className="text-xs text-muted-foreground">
+                {roster == null ? "Loading athletes…" : "No athletes on your roster yet"}
+              </span>
+            ))}
           </div>
           <p className="text-sm text-muted-foreground mt-2">
             A recent race, read through this athlete's actual event specialty — not the same flat formula assuming
