@@ -23,6 +23,10 @@
 // concern layered on top: how far the target sits from the athlete's
 // declared specialty, independent of which direction the number moved.
 
+import { personalizedExponent } from "@/lib/race-predict";
+
+export type PbPoint = { distanceKm: number; timeSec: number };
+
 export type AthleteProfile = "speed_specialist" | "middle_distance" | "balanced" | "distance" | "road_marathon";
 
 export const PROFILE_META: Record<AthleteProfile, { label: string; blurb: string; exponent: number; coreHalfWidthLn: number }> = {
@@ -106,6 +110,14 @@ export type PredictionInput = {
   // there's a real value to pass into it.
   weeklyVolumeKm?: number | null;
   trainingAgeYears?: number | null;
+  // The athlete's real PBs across whatever distances they've actually
+  // raced — grounds predictions in demonstrated ability instead of pure
+  // extrapolation from a single recent race. See predictAtDistance for
+  // exactly how each PB gets used (exact-match substitution,
+  // bracketing-exponent grounding, or pace-monotonicity clamping).
+  // Optional and additive — every existing call site without this still
+  // behaves exactly as before.
+  pbs?: PbPoint[] | null;
 };
 
 export type DistancePrediction = {
@@ -116,6 +128,21 @@ export type DistancePrediction = {
   highSec: number;
   paceSecPerKm: number;
   tier: ConfidenceTier;
+  // True when this row IS an actual raced PB (within tolerance of the
+  // target distance) rather than a projection — shown as a known result,
+  // not a prediction, and never given a range since there's nothing to
+  // estimate.
+  isPb: boolean;
+  // True when the exponent used came from two of the athlete's own real
+  // PBs bracketing this target (via personalizedExponent), rather than
+  // the profile's generic default — a materially better-grounded number,
+  // reflected as a confidence boost.
+  groundedByPbs: boolean;
+  // Set when a raw prediction was adjusted to stay consistent with a
+  // real PB at a shorter or longer distance (pace can't sensibly get
+  // faster as distance increases past a point) — surfaced so the
+  // adjustment is visible, not silent.
+  clampNote: string | null;
 };
 
 // Long-distance-only volume adjustment — nudges the effective exponent
@@ -145,20 +172,135 @@ function trainingAgeGapAdjustment(trainingAgeYears: number | null | undefined): 
   return 0;
 }
 
+// A PB within this relative distance of the target counts as "this IS
+// the target" rather than something to project towards — e.g. a real
+// 5000m PB stands in directly for a 5000m prediction rather than
+// deriving one via Riegel from a different recent race.
+const PB_EXACT_MATCH_TOLERANCE = 0.08;
+
+function findExactPb(pbs: PbPoint[], targetKm: number): PbPoint | null {
+  let best: PbPoint | null = null;
+  let bestGap = Infinity;
+  for (const pb of pbs) {
+    const gap = Math.abs(Math.log(pb.distanceKm / targetKm));
+    if (gap < bestGap) {
+      bestGap = gap;
+      best = pb;
+    }
+  }
+  return best && bestGap <= PB_EXACT_MATCH_TOLERANCE ? best : null;
+}
+
+// The nearest real PB shorter than the target, and the nearest longer
+// than it — the two points personalizedExponent needs to solve the
+// athlete's own actual speed/endurance curve, when both exist.
+function bracketingPbs(pbs: PbPoint[], targetKm: number): { shorter: PbPoint | null; longer: PbPoint | null } {
+  let shorter: PbPoint | null = null;
+  let longer: PbPoint | null = null;
+  for (const pb of pbs) {
+    if (pb.distanceKm < targetKm && (!shorter || pb.distanceKm > shorter.distanceKm)) shorter = pb;
+    if (pb.distanceKm > targetKm && (!longer || pb.distanceKm < longer.distanceKm)) longer = pb;
+  }
+  return { shorter, longer };
+}
+
+// Pace should not sensibly get FASTER as distance increases past a real
+// demonstrated result, nor SLOWER than a real result at a longer
+// distance — this is what actually stops a prediction from landing
+// "well above or below current ability" regardless of what the formula
+// alone would say. A small buffer (2%) avoids clamping genuinely close
+// calls at the boundary, only catching real violations.
+function clampAgainstPbs(targetKm: number, timeSec: number, pbs: PbPoint[]): { timeSec: number; note: string | null } {
+  let pace = timeSec / targetKm;
+  let note: string | null = null;
+  for (const pb of pbs) {
+    const pbPace = pb.timeSec / pb.distanceKm;
+    if (pb.distanceKm < targetKm && pace < pbPace * 0.98) {
+      pace = pbPace * 0.98;
+      note = `Adjusted to stay consistent with your ${formatKmLabel(pb.distanceKm)} PB`;
+    } else if (pb.distanceKm > targetKm && pace > pbPace * 1.02) {
+      pace = pbPace * 1.02;
+      note = `Adjusted to stay consistent with your ${formatKmLabel(pb.distanceKm)} PB`;
+    }
+  }
+  return { timeSec: pace * targetKm, note };
+}
+
+function formatKmLabel(km: number): string {
+  if (Math.abs(km - 1.60934) < 0.01) return "Mile";
+  if (Math.abs(km - 21.0975) < 0.05) return "Half Marathon";
+  if (Math.abs(km - 42.195) < 0.05) return "Marathon";
+  return km < 1 ? `${Math.round(km * 1000)}m` : `${km % 1 === 0 ? km : km.toFixed(1)}K`;
+}
+
 export function predictAtDistance(input: PredictionInput, targetLabel: string, targetKm: number): DistancePrediction | null {
   const { recentDistanceKm, recentTimeSec, primaryEventKm, profile, weeklyVolumeKm, trainingAgeYears } = input;
   if (!Number.isFinite(recentDistanceKm) || recentDistanceKm <= 0 || !Number.isFinite(recentTimeSec) || recentTimeSec <= 0) return null;
 
+  const pbs = (input.pbs ?? []).filter((p) => Number.isFinite(p.distanceKm) && p.distanceKm > 0 && Number.isFinite(p.timeSec) && p.timeSec > 0);
+
+  // A real PB at (or essentially at) this exact distance beats any
+  // projection — show what actually happened, not an estimate of it.
+  const exact = findExactPb(pbs, targetKm);
+  if (exact) {
+    return {
+      label: targetLabel,
+      km: targetKm,
+      timeSec: exact.timeSec,
+      lowSec: exact.timeSec,
+      highSec: exact.timeSec,
+      paceSecPerKm: exact.timeSec / exact.distanceKm,
+      tier: 5,
+      isPb: true,
+      groundedByPbs: true,
+      clampNote: null,
+    };
+  }
+
   const meta = PROFILE_META[profile];
-  const exponent = meta.exponent + volumeExponentDelta(targetKm, weeklyVolumeKm);
-  const timeSec = recentTimeSec * Math.pow(targetKm / recentDistanceKm, exponent);
+  let exponent = meta.exponent + volumeExponentDelta(targetKm, weeklyVolumeKm);
+  let groundedByPbs = false;
+
+  // Two real PBs bracketing the target solve the athlete's own actual
+  // curve directly (personalizedExponent, already built for exactly
+  // this) — a strictly better source for the exponent than the
+  // profile's generic guess, so it takes over whenever both sides exist.
+  const { shorter, longer } = bracketingPbs(pbs, targetKm);
+  if (shorter && longer) {
+    const personal = personalizedExponent(shorter.timeSec, shorter.distanceKm, longer.timeSec, longer.distanceKm);
+    if (personal != null) {
+      exponent = personal + volumeExponentDelta(targetKm, weeklyVolumeKm);
+      groundedByPbs = true;
+    }
+  }
+
+  // Project from whichever single point — the manually-entered recent
+  // race, or the closest available PB — sits nearer the target, so a
+  // long-buried recent-race entry doesn't out-rank a much closer, more
+  // relevant PB when only one-sided PB data exists (no bracket to solve
+  // a personalized exponent from, but still a better anchor to project
+  // from than a distant recent race).
+  let anchorKm = recentDistanceKm;
+  let anchorTimeSec = recentTimeSec;
+  const closestPb = [shorter, longer].filter((p): p is PbPoint => p != null).sort(
+    (a, b) => Math.abs(Math.log(a.distanceKm / targetKm)) - Math.abs(Math.log(b.distanceKm / targetKm)),
+  )[0];
+  if (closestPb && Math.abs(Math.log(closestPb.distanceKm / targetKm)) < Math.abs(Math.log(recentDistanceKm / targetKm))) {
+    anchorKm = closestPb.distanceKm;
+    anchorTimeSec = closestPb.timeSec;
+  }
+
+  let timeSec = anchorTimeSec * Math.pow(targetKm / anchorKm, exponent);
+
+  const clamped = clampAgainstPbs(targetKm, timeSec, pbs);
+  timeSec = clamped.timeSec;
 
   const coreLo = primaryEventKm * Math.exp(-meta.coreHalfWidthLn);
   const coreHi = primaryEventKm * Math.exp(meta.coreHalfWidthLn);
   let excessGap = 0;
   if (targetKm > coreHi) excessGap = Math.log(targetKm / coreHi);
   else if (targetKm < coreLo) excessGap = Math.log(coreLo / targetKm);
-  excessGap = Math.max(0, excessGap + trainingAgeGapAdjustment(trainingAgeYears));
+  excessGap = Math.max(0, excessGap + trainingAgeGapAdjustment(trainingAgeYears) - (groundedByPbs ? 0.3 : 0));
 
   const tier = tierFromExcessGap(excessGap);
   const rangePct = CONFIDENCE_META[tier].rangePct;
@@ -171,33 +313,36 @@ export function predictAtDistance(input: PredictionInput, targetLabel: string, t
     highSec: timeSec * (1 + rangePct / 100),
     paceSecPerKm: timeSec / targetKm,
     tier,
+    isPb: false,
+    groundedByPbs,
+    clampNote: clamped.note,
   };
 }
 
 // ---------------------------------------------------------------------
-// Future integration — NOT wired up yet, documented here so the next
-// pass has a clear target rather than needing to re-derive it:
+// Future integration — PBs (all of them, across every distance the
+// athlete's raced) are wired up now via `pbs` on PredictionInput; the
+// rest below is still NOT wired up, documented here so the next pass
+// has a clear target rather than needing to re-derive it:
 //
 // - Running DNA -> could set/refine `profile` automatically instead of
 //   a manual pick, from the athlete's actual event-distribution history.
 // - Threshold pace (athlete_zone_profiles) -> could replace or sanity-
 //   check the "recent race" input with a live, always-current anchor
 //   instead of a one-off manually-entered result.
-// - Weekly training volume / long run distance / training consistency /
-//   recent training load -> `weeklyVolumeKm` above is the one already
-//   wired; long run distance and consistency would refine the Half/
-//   Marathon-specific adjustment the same volumeExponentDelta already
-//   makes room for, recent load would feed a short-term form adjustment
-//   this version doesn't attempt.
+// - Long run distance / training consistency / recent training load ->
+//   `weeklyVolumeKm` is wired; long run distance and consistency would
+//   refine the Half/Marathon-specific adjustment the same
+//   volumeExponentDelta already makes room for, recent load would feed
+//   a short-term form adjustment this version doesn't attempt.
 // - Biomechanical efficiency (Biomechanics page scores) -> a plausible
 //   confidence modifier (an athlete with efficient, low-drift mechanics
 //   at race pace is a more reliable extrapolation subject) — no attempt
 //   made here to guess the right weighting without real data to check
 //   it against.
 //
-// The intent is that all of these become additional optional fields on
-// PredictionInput, each nudging either the exponent (real ability) or
-// the confidence gap (how much to trust the extrapolation) — the same
-// two knobs this version already uses for profile/volume/training age,
-// not a parallel scoring system.
+// The intent is that each of these still nudges one of the same two
+// knobs this version already uses — the exponent (real ability) or the
+// confidence gap (how much to trust the extrapolation) — not a parallel
+// scoring system, the same pattern PBs themselves just followed.
 // ---------------------------------------------------------------------
