@@ -5,34 +5,58 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronLeft, Timer } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { ChevronLeft, Timer, Star, ChevronDown } from "lucide-react";
 import { clockToSec, secToClock, paceFmt } from "@/lib/format";
-import { predictTime, REFERENCE_DISTANCES } from "@/lib/race-predict";
+import { REFERENCE_DISTANCES } from "@/lib/race-predict";
+import {
+  predictAtDistance,
+  PROFILE_META,
+  PRIMARY_EVENTS,
+  CONFIDENCE_META,
+  type AthleteProfile,
+  type DistancePrediction,
+} from "@/lib/performance-predictor";
 
 export const Route = createFileRoute("/_authenticated/app/calculators/pacepredictor")({
-  component: PacePredictorPage,
+  component: PerformancePredictorPage,
 });
 
-// Common race distances in km. "Custom" lets someone enter any distance —
-// e.g. a road relay leg or a non-standard trail race.
-const DISTANCE_OPTIONS = [
-  { value: "1500", label: "1500m", km: 1.5 },
-  { value: "mile", label: "1 Mile", km: 1.60934 },
-  { value: "3k", label: "3K", km: 3 },
-  { value: "5k", label: "5K", km: 5 },
-  { value: "8k", label: "8K", km: 8 },
-  { value: "10k", label: "10K", km: 10 },
-  { value: "15k", label: "15K", km: 15 },
-  { value: "10mile", label: "10 Mile", km: 16.0934 },
-  { value: "half", label: "Half Marathon", km: 21.0975 },
-  { value: "marathon", label: "Marathon", km: 42.195 },
-  { value: "custom", label: "Custom distance", km: null },
-] as const;
+const PROFILE_ORDER: AthleteProfile[] = ["speed_specialist", "middle_distance", "balanced", "distance", "road_marathon"];
 
-function PacePredictorPage() {
+function ConfidenceStars({ tier }: { tier: 1 | 2 | 3 | 4 | 5 }) {
+  return (
+    <span className="inline-flex items-center gap-0.5" title={`${CONFIDENCE_META[tier].label} confidence`}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <Star key={n} className={`h-3 w-3 ${n <= tier ? "fill-amber-400 text-amber-400" : "text-muted-foreground/30"}`} />
+      ))}
+    </span>
+  );
+}
+
+function PerformancePredictorPage() {
   const [distanceKey, setDistanceKey] = useState<string>("5k");
   const [customKm, setCustomKm] = useState<string>("10");
   const [timeInput, setTimeInput] = useState<string>("22:00");
+  const [primaryEventKm, setPrimaryEventKm] = useState<number>(1.5);
+  const [profile, setProfile] = useState<AthleteProfile>("balanced");
+  const [weeklyVolume, setWeeklyVolume] = useState<string>("");
+  const [trainingAge, setTrainingAge] = useState<string>("");
+  const [showAll, setShowAll] = useState(false);
+
+  const DISTANCE_OPTIONS = [
+    { value: "1500", label: "1500m", km: 1.5 },
+    { value: "mile", label: "1 Mile", km: 1.60934 },
+    { value: "3k", label: "3K", km: 3 },
+    { value: "5k", label: "5K", km: 5 },
+    { value: "8k", label: "8K", km: 8 },
+    { value: "10k", label: "10K", km: 10 },
+    { value: "15k", label: "15K", km: 15 },
+    { value: "10mile", label: "10 Mile", km: 16.0934 },
+    { value: "half", label: "Half Marathon", km: 21.0975 },
+    { value: "marathon", label: "Marathon", km: 42.195 },
+    { value: "custom", label: "Custom distance", km: null },
+  ] as const;
 
   const distanceKm = useMemo(() => {
     const opt = DISTANCE_OPTIONS.find((d) => d.value === distanceKey);
@@ -43,35 +67,46 @@ function PacePredictorPage() {
 
   const timeSec = clockToSec(timeInput);
 
-  const results = useMemo(() => {
+  const predictions: DistancePrediction[] | null = useMemo(() => {
     if (!distanceKm || !timeSec || timeSec <= 0) return null;
+    const input = {
+      recentDistanceKm: distanceKm,
+      recentTimeSec: timeSec,
+      primaryEventKm,
+      profile,
+      weeklyVolumeKm: weeklyVolume.trim() ? Number(weeklyVolume) : null,
+      trainingAgeYears: trainingAge.trim() ? Number(trainingAge) : null,
+    };
+    return REFERENCE_DISTANCES.map((ref) => predictAtDistance(input, ref.label, ref.km)).filter(
+      (p): p is DistancePrediction => p != null,
+    );
+  }, [distanceKm, timeSec, primaryEventKm, profile, weeklyVolume, trainingAge]);
 
-    const equivalents = REFERENCE_DISTANCES.map((ref) => {
-      const t = predictTime(timeSec, distanceKm, ref.km);
-      return { ...ref, timeSec: t, paceSecPerKm: t / ref.km };
-    });
+  const shown = predictions?.filter((p) => p.tier >= 3) ?? [];
+  const collapsed = predictions?.filter((p) => p.tier < 3) ?? [];
 
-    // Training paces, derived entirely from Riegel-predicted equivalent
-    // paces at reference distances — not a reproduction of any specific
-    // commercial system's exact numbers, just a self-contained model built
-    // on the same public formula used above.
-    const paceAt = (km: number) => predictTime(timeSec, distanceKm, km) / km;
-
-    const thresholdPace = paceAt(16); // ~15-16K effort, a common tempo/threshold anchor
-    const marathonPace = paceAt(42.195);
-    const vo2Pace = paceAt(5);
-    const repPace = paceAt(1.60934);
-
-    const zones = [
+  // Training paces reuse this same profile-adjusted engine's own
+  // predictions at fixed anchor distances, rather than a second,
+  // separate calculation — so a speed specialist's or marathoner's
+  // training paces are now shaped by their profile too, same as their
+  // race predictions are, not left on the old one-size-fits-all model.
+  const trainingPaces = useMemo(() => {
+    if (!predictions) return null;
+    const at = (km: number) => predictions.find((p) => Math.abs(p.km - km) < 0.01)?.paceSecPerKm ?? null;
+    const thresholdPace = at(16.0934) ?? at(15);
+    const marathonPace = at(42.195);
+    const vo2Pace = at(5);
+    const repPace = at(1.60934);
+    if (!thresholdPace) return null;
+    const rows: { name: string; low: number; high: number }[] = [
       { name: "Easy", low: thresholdPace * 1.18, high: thresholdPace * 1.3 },
-      { name: "Marathon", low: marathonPace * 0.99, high: marathonPace * 1.02 },
-      { name: "Threshold / Tempo", low: thresholdPace * 0.98, high: thresholdPace * 1.03 },
-      { name: "Interval (VO2 max)", low: vo2Pace * 0.97, high: vo2Pace * 1.02 },
-      { name: "Repetition", low: repPace * 0.98, high: repPace * 1.03 },
     ];
-
-    return { equivalents, zones };
-  }, [distanceKm, timeSec]);
+    if (marathonPace) rows.push({ name: "Marathon", low: marathonPace * 0.99, high: marathonPace * 1.02 });
+    rows.push({ name: "Threshold / Tempo", low: thresholdPace * 0.98, high: thresholdPace * 1.03 });
+    if (vo2Pace) rows.push({ name: "Interval (VO2 max)", low: vo2Pace * 0.97, high: vo2Pace * 1.02 });
+    if (repPace) rows.push({ name: "Repetition", low: repPace * 0.98, high: repPace * 1.03 });
+    return rows;
+  }, [predictions]);
 
   return (
     <AppShell fullWidth>
@@ -92,12 +127,12 @@ function PacePredictorPage() {
             </div>
             <div>
               <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Metrics</div>
-              <h1 className="text-2xl font-bold leading-tight">Pace / Race Predictor</h1>
+              <h1 className="text-2xl font-bold leading-tight">Performance Predictor</h1>
             </div>
           </div>
           <p className="text-sm text-muted-foreground mt-2">
-            Enter a recent race result to get equivalent times at other distances, plus training paces built from that
-            same performance.
+            A recent race, read through this athlete's actual event specialty — not the same flat formula assuming
+            every athlete trades speed for endurance identically.
           </p>
         </div>
 
@@ -144,61 +179,165 @@ function PacePredictorPage() {
           </CardContent>
         </Card>
 
-        {!results ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Athlete profile</CardTitle>
+            <CardDescription>Shapes how this athlete's pace actually scales with distance — the core fix over a flat formula.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Primary event</Label>
+                <Select value={String(primaryEventKm)} onValueChange={(v) => setPrimaryEventKm(Number(v))}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PRIMARY_EVENTS.map((e) => (
+                      <SelectItem key={e.label} value={String(e.km)}>
+                        {e.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Weekly running volume (optional, km)</Label>
+                <Input type="number" min={0} className="mt-1" value={weeklyVolume} onChange={(e) => setWeeklyVolume(e.target.value)} placeholder="e.g. 60" />
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-xs">Athlete profile</Label>
+              <div className="grid sm:grid-cols-2 gap-2 mt-1">
+                {PROFILE_ORDER.map((p) => {
+                  const meta = PROFILE_META[p];
+                  const selected = profile === p;
+                  return (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => setProfile(p)}
+                      className={`text-left rounded-md border p-2.5 text-xs transition-colors hover:border-primary/50 ${
+                        selected ? "border-[var(--accent-red)] bg-accent/30" : ""
+                      }`}
+                    >
+                      <div className="font-semibold">{meta.label}</div>
+                      <div className="text-muted-foreground mt-0.5">{meta.blurb}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="sm:w-1/2">
+              <Label className="text-xs">Training age (optional, years)</Label>
+              <Input type="number" min={0} step={0.5} value={trainingAge} onChange={(e) => setTrainingAge(e.target.value)} placeholder="e.g. 4" />
+            </div>
+          </CardContent>
+        </Card>
+
+        {!predictions ? (
           <p className="text-sm text-muted-foreground">Enter a valid distance and time above to see predictions.</p>
         ) : (
           <>
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Equivalent race times</CardTitle>
+                <CardTitle className="text-base">Predicted performances</CardTitle>
                 <CardDescription>
-                  Predicted from your result using Riegel's formula (T2 = T1 × (D2/D1)^1.06).
+                  Predictions are strongest around your primary event. Longer- and shorter-distance predictions
+                  become less reliable unless supported by specific training.
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-0">
                 <div className="divide-y">
-                  {results.equivalents.map((r) => (
-                    <div key={r.label} className="flex items-center justify-between px-4 py-2 text-sm">
-                      <span className="font-medium">{r.label}</span>
-                      <span className="tabular-nums text-muted-foreground">
-                        {secToClock(r.timeSec)} <span className="ml-2">{paceFmt(r.paceSecPerKm)}</span>
-                      </span>
-                    </div>
+                  {shown.map((p) => (
+                    <PredictionRow key={p.label} p={p} />
                   ))}
                 </div>
+                {collapsed.length > 0 && (
+                  <div className="border-t">
+                    {!showAll ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowAll(true)}
+                        className="w-full flex items-center justify-center gap-1.5 py-2.5 text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        <ChevronDown className="h-3.5 w-3.5" /> Show {collapsed.length} lower-confidence prediction{collapsed.length === 1 ? "" : "s"}
+                      </button>
+                    ) : (
+                      <div className="divide-y">
+                        {collapsed.map((p) => (
+                          <PredictionRow key={p.label} p={p} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Training paces</CardTitle>
-                <CardDescription>
-                  Built from the same predicted performance, not a separate lookup table.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="p-0">
-                <div className="divide-y">
-                  {results.zones.map((z) => (
-                    <div key={z.name} className="flex items-center justify-between px-4 py-2 text-sm">
-                      <span className="font-medium">{z.name}</span>
-                      <span className="tabular-nums text-muted-foreground">
-                        {paceFmt(z.low)} – {paceFmt(z.high)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+            {trainingPaces && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Training paces</CardTitle>
+                  <CardDescription>Built from the same profile-adjusted predictions above, not a separate lookup table.</CardDescription>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="divide-y">
+                    {trainingPaces.map((z) => (
+                      <div key={z.name} className="flex items-center justify-between px-4 py-2 text-sm">
+                        <span className="font-medium">{z.name}</span>
+                        <span className="tabular-nums text-muted-foreground">
+                          {paceFmt(z.low)} – {paceFmt(z.high)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             <p className="text-xs text-muted-foreground">
-              These are estimates, most accurate for distances reasonably close to your entered result — a 5K predicts a
-              10K well, but predicting a marathon from it leans heavily on the formula alone, since aerobic endurance
-              and fueling matter more over that gap than any pace formula can know. Treat the marathon prediction
-              especially as a rough guide, not a guarantee.
+              Predictions combine the standard Riegel formula with an exponent shaped by the declared athlete
+              profile — a speed-biased profile fades faster over distance than a flat formula assumes, an
+              endurance-biased one holds pace better, in both directions (projecting up AND down in distance).
+              Weekly volume only nudges Half Marathon/Marathon-length predictions, where aerobic durability
+              actually matters most. None of this replaces real training-specific evidence at an unfamiliar
+              distance — a range and a confidence rating, not a guarantee.
             </p>
           </>
         )}
       </div>
     </AppShell>
+  );
+}
+
+function PredictionRow({ p }: { p: DistancePrediction }) {
+  const meta = CONFIDENCE_META[p.tier];
+  return (
+    <div className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-medium">{p.label}</span>
+          {p.tier <= 2 && (
+            <Badge variant="outline" className="text-[10px] text-muted-foreground">
+              Lower confidence
+            </Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 mt-0.5">
+          <ConfidenceStars tier={p.tier} />
+          <span className="text-[11px] text-muted-foreground">{meta.label}</span>
+        </div>
+      </div>
+      <div className="text-right shrink-0">
+        <div className="tabular-nums font-semibold">{secToClock(p.timeSec)}</div>
+        <div className="tabular-nums text-xs text-muted-foreground">{paceFmt(p.paceSecPerKm)}</div>
+        <div className="tabular-nums text-[11px] text-muted-foreground">
+          {secToClock(p.lowSec)}–{secToClock(p.highSec)}
+        </div>
+      </div>
+    </div>
   );
 }
