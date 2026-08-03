@@ -65,6 +65,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { PostSessionInsightModal } from "@/components/post-session-insight-modal";
+import { SessionCommentsCard } from "@/components/session-comments-card";
 import { FeelFaces } from "@/components/feel-faces";
 import { useServerFn } from "@tanstack/react-start";
 import ReactMarkdown from "react-markdown";
@@ -1619,6 +1620,7 @@ function SessionDetail() {
 
         <FuelingPanel session={session} />
         <GearPanel session={session} />
+        <SessionCommentsCard sessionId={sessionId} athleteId={session.athlete_id} />
       </div>
 
       <Dialog open={!!mergeTarget} onOpenChange={(open) => !open && setMergeTarget(null)}>
