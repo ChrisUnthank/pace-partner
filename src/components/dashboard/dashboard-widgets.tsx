@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuthUser, useMyRawRoles, useMyAthlete } from "@/lib/use-auth";
-import { todayISO } from "@/lib/format";
+import { todayISO, metersFmt, secToClock } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +39,7 @@ import {
   Sparkles,
   BookmarkCheck,
   ChevronDown,
+  History,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------
@@ -966,6 +967,87 @@ export function AthleteNextSessionWidget({ athleteId }: { athleteId: string }) {
           </Link>
         ) : (
           <p className="text-sm text-muted-foreground">No upcoming sessions scheduled.</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function AthleteLatestSessionWidget({ athleteId }: { athleteId: string }) {
+  // "Latest" = most recently completed session, not most recently created —
+  // a backdated manual entry shouldn't jump ahead of an actually-recent
+  // upload. Tiebreak on created_at so same-day sessions still resolve to
+  // whichever was actually logged last.
+  const { data: latest } = useQuery({
+    queryKey: ["home-latest-session", athleteId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("sessions")
+        .select("id, title, session_date, day_type, intent, activity_type, total_distance_m, total_time_seconds, total_moving_time_seconds, rpe")
+        .eq("athlete_id", athleteId)
+        .not("completed_at", "is", null)
+        .order("session_date", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return data;
+    },
+  });
+
+  // Prefer moving time (elapsed minus detected stops) for pace, same
+  // fallback as everywhere else in the app that computes pace from a
+  // session missing that field (older uploads pre-dating the column).
+  const timeForPace = latest ? ((latest as any).total_moving_time_seconds ?? latest.total_time_seconds) : null;
+  const pace =
+    timeForPace && (latest?.total_distance_m ?? 0) > 0
+      ? secToClock((timeForPace / (latest!.total_distance_m ?? 0)) * 1000)
+      : null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <History className="h-4 w-4 text-muted-foreground" />
+          Latest session
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {latest ? (
+          <Link
+            to="/app/sessions/$sessionId"
+            params={{ sessionId: latest.id }}
+            className="block hover:bg-accent/50 rounded p-2 -m-2"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <ActivityIcon session={latest as any} size={20} className="text-muted-foreground shrink-0" />
+              <div className="min-w-0">
+                <div className="text-xs text-muted-foreground">{relativeDate(latest.session_date)}</div>
+                <div className="font-medium truncate">{latest.title ?? "Session"}</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 mt-3 text-sm">
+              {(latest.total_distance_m ?? 0) > 0 && (
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Distance</div>
+                  <div className="font-semibold tabular-nums">{metersFmt(latest.total_distance_m)}</div>
+                </div>
+              )}
+              {pace && (
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Pace</div>
+                  <div className="font-semibold tabular-nums">{pace}</div>
+                </div>
+              )}
+              {latest.rpe != null && (
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">RPE</div>
+                  <div className="font-semibold tabular-nums">{latest.rpe}/10</div>
+                </div>
+              )}
+            </div>
+          </Link>
+        ) : (
+          <p className="text-sm text-muted-foreground">No completed sessions logged yet.</p>
         )}
       </CardContent>
     </Card>
