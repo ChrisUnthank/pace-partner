@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuthUser } from "@/lib/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -80,8 +81,24 @@ export function SaveRouteDialog({
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(defaultName ?? "");
+  // Free text was the only option before — now a route can instead link
+  // to a saved location (see the "Manage locations" dialog on Maps &
+  // Routes), so the same location can have several routes grouped
+  // under it there. Defaults to custom text since that's zero-friction
+  // for a one-off route; switching to "saved" is opt-in.
+  const [locationMode, setLocationMode] = useState<"custom" | "saved">("custom");
   const [locationName, setLocationName] = useState("");
+  const [locationId, setLocationId] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const { data: locations = [] } = useQuery({
+    queryKey: ["maps-locations"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("training_locations").select("id, name").order("name");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
 
   const validPoints = points.filter(
     (p) => p.lat != null && p.lng != null && Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)),
@@ -101,12 +118,14 @@ export function SaveRouteDialog({
       return;
     }
     setSaving(true);
+    const chosenLocation = locationMode === "saved" ? locations.find((l: any) => l.id === locationId) : null;
     const { error } = await supabase.from("training_routes" as any).insert({
       created_by: user.id,
       athlete_id: athleteId ?? null,
       source_session_id: sessionId,
       name: name.trim(),
-      location_name: locationName.trim() || null,
+      location_id: chosenLocation?.id ?? null,
+      location_name: locationMode === "saved" ? chosenLocation?.name ?? null : locationName.trim() || null,
       distance_m: distanceM,
       elevation_gain_m: elevGain,
       start_lat: Number(first.lat),
@@ -144,7 +163,32 @@ export function SaveRouteDialog({
           </div>
           <div>
             <Label className="text-xs">Location / venue (optional)</Label>
-            <Input value={locationName} onChange={(e) => setLocationName(e.target.value)} placeholder="e.g. Hyde Park, London" />
+            {locations.length > 0 ? (
+              <Select value={locationMode} onValueChange={(v) => setLocationMode(v as "custom" | "saved")}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="custom">Type a location</SelectItem>
+                  <SelectItem value="saved">Pick a saved location</SelectItem>
+                </SelectContent>
+              </Select>
+            ) : null}
+            {locationMode === "saved" && locations.length > 0 ? (
+              <Select value={locationId} onValueChange={setLocationId}>
+                <SelectTrigger className="mt-2"><SelectValue placeholder="Pick a location…" /></SelectTrigger>
+                <SelectContent>
+                  {locations.map((l: any) => (
+                    <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                value={locationName}
+                onChange={(e) => setLocationName(e.target.value)}
+                placeholder="e.g. Hyde Park, London"
+                className="mt-2"
+              />
+            )}
           </div>
           <div className="flex gap-4 text-xs text-muted-foreground">
             <span>{distanceM != null ? `${(distanceM / 1000).toFixed(2)} km` : "Distance unavailable"}</span>
