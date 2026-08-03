@@ -183,3 +183,47 @@ export function generateStrategySplits(raceDistanceM: number, incrementM: number
     };
   });
 }
+
+// Given a GPS-corrected point series (elapsed_s + final_distance_m,
+// increasing distance — the shape gps-reconstruction.ts's
+// reconstructTrack() already produces) and a set of target checkpoint
+// distances, linearly interpolates the elapsed time at each target.
+// This is what lets Post-Race Analysis pull real actual splits from an
+// athlete's GPS-recorded race session instead of only manual entry —
+// targets deliberately match the plan's own plannedSplits distances
+// exactly (not a fixed increment) so the result lines up with the
+// existing Planned vs Actual comparison, which matches rows by exact
+// cumulative_distance_m.
+export function interpolateActualSplitsFromGps(
+  points: { elapsed_s: number; final_distance_m: number }[],
+  targetDistancesM: number[],
+): { cumulative_distance_m: number; cumulative_time_seconds: number }[] {
+  if (!points || points.length < 2) return [];
+  const sorted = [...points].sort((a, b) => a.final_distance_m - b.final_distance_m);
+  const first = sorted[0];
+  const last = sorted[sorted.length - 1];
+  const results: { cumulative_distance_m: number; cumulative_time_seconds: number }[] = [];
+
+  for (const target of targetDistancesM) {
+    // Skip checkpoints the recording never reached (race cut short,
+    // GPS stopped early) or that sit before the very first point —
+    // left as "no actual" rather than guessed at.
+    if (target <= first.final_distance_m || target > last.final_distance_m) continue;
+
+    for (let i = 1; i < sorted.length; i++) {
+      const prev = sorted[i - 1];
+      const curr = sorted[i];
+      if (prev.final_distance_m <= target && curr.final_distance_m >= target) {
+        const dd = curr.final_distance_m - prev.final_distance_m;
+        const dt = curr.elapsed_s - prev.elapsed_s;
+        const ratio = dd > 0 ? (target - prev.final_distance_m) / dd : 0;
+        results.push({
+          cumulative_distance_m: target,
+          cumulative_time_seconds: Math.round(prev.elapsed_s + ratio * dt),
+        });
+        break;
+      }
+    }
+  }
+  return results;
+}
