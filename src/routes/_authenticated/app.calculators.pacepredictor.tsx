@@ -135,11 +135,11 @@ function PerformancePredictorPage() {
 
   // Stages 1-3: build the athlete's profile from the whole PB set. Only
   // meaningful with 2+ distinct-distance PBs (a curve needs two points
-  // minimum) — below that, `profile.curve` is null and the page falls
+  // minimum) — below that, `profile.globalCurve` is null and the page falls
   // back to the recent-race + declared-profile system further down,
   // clearly labeled as a fallback rather than silently swapped in.
   const profile: EngineProfile | null = useMemo(() => (athleteId ? buildAthleteProfile(pbRecords) : null), [pbRecords, athleteId]);
-  const usingEngine = !!profile?.curve;
+  const usingEngine = !!profile?.globalCurve;
 
   const DISTANCE_OPTIONS = [
     { value: "1500", label: "1500m", km: 1.5 },
