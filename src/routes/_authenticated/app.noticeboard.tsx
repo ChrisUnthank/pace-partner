@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { UserAvatar } from "@/components/user-avatar";
 import { supabase } from "@/integrations/supabase/client";
 import { listMedia } from "@/lib/noticeboard.functions";
+import { LocationChip } from "@/components/location-detail";
 
 export const Route = createFileRoute("/_authenticated/app/noticeboard")({
   component: () => (
@@ -178,6 +179,15 @@ function Noticeboard() {
                 <CardContent className="space-y-2">
                   {p.body && <p className="text-sm">{p.body}</p>}
 
+                  {p.location_id && (
+                    <LocationChip
+                      locationId={p.location_id}
+                      fallbackName={p.training_locations?.name}
+                      fallbackLat={p.training_locations?.lat}
+                      fallbackLng={p.training_locations?.lng}
+                    />
+                  )}
+
                   {p.link_url && (
                     <a
                       href={p.link_url}
@@ -322,6 +332,16 @@ function Composer({
   const [link, setLink] = useState(initial?.link_url ?? "");
   const [eventDate, setEventDate] = useState(initial?.event_date ?? "");
   const [pinned, setPinned] = useState(!!initial?.pinned);
+  const [locationId, setLocationId] = useState(initial?.location_id ?? "none");
+
+  const { data: locations = [] } = useQuery({
+    queryKey: ["maps-locations"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("training_locations").select("id, name").order("name");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
 
   const m = useMutation({
     mutationFn: () =>
@@ -335,6 +355,7 @@ function Composer({
               link_url: link || null,
               event_date: eventDate || null,
               pinned,
+              location_id: locationId === "none" ? null : locationId,
             },
           })
         : createFn({
@@ -345,6 +366,7 @@ function Composer({
               link_url: link || undefined,
               event_date: eventDate || undefined,
               pinned,
+              location_id: locationId === "none" ? undefined : locationId,
             },
           }),
     onSuccess: () => {
@@ -355,6 +377,7 @@ function Composer({
         setLink("");
         setEventDate("");
         setPinned(false);
+        setLocationId("none");
         setOpen(false);
       }
       onCreated();
@@ -409,6 +432,23 @@ function Composer({
         <div>
           <Label className="text-xs">Body</Label>
           <Textarea rows={3} value={body} onChange={(e) => setBody(e.target.value)} />
+        </div>
+        <div>
+          <Label className="text-xs">Location (optional)</Label>
+          <Select value={locationId} onValueChange={setLocationId}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">No location</SelectItem>
+              {locations.map((l: any) => (
+                <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {locations.length === 0 && (
+            <p className="text-[11px] text-muted-foreground mt-1">
+              No saved locations yet — add one from "Manage locations" on the Maps & Routes page.
+            </p>
+          )}
         </div>
         <div>
           <Label className="text-xs">Link (optional)</Label>
