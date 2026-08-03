@@ -19,7 +19,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Map, Search, Trash2, MapPinned, Mountain, Pencil, MapPin, Plus, Settings2 } from "lucide-react";
+import { Map as MapIcon, Search, Trash2, MapPinned, Mountain, Pencil, MapPin, Plus, Settings2 } from "lucide-react";
 import { MapContainer, TileLayer, Polyline, CircleMarker, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -162,7 +162,7 @@ function MapsRoutesPage() {
               className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
               style={{ background: "var(--accent-red)" }}
             >
-              <Map className="h-5 w-5 text-white" strokeWidth={2} />
+              <MapIcon className="h-5 w-5 text-white" strokeWidth={2} />
             </div>
             <div>
               <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Training</div>
