@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Trash2, Plus, Trophy, Heart, AlertTriangle } from "lucide-react";
+import { Trash2, Plus, Trophy, Heart, AlertTriangle, ClipboardCheck } from "lucide-react";
 import { metersFmt, secToClock, clockToSec, paceFmt } from "@/lib/format";
 import { reconstructTrack, buildSplitsFromCorrectedPoints, smoothSeries } from "@/lib/gps-reconstruction";
 import { MapContainer, TileLayer, Polyline, CircleMarker } from "react-leaflet";
@@ -42,6 +42,41 @@ function RaceAnalysisPage() {
       return data as any;
     },
   });
+
+  // Flags when a Race Tactics plan exists for this exact race — linked
+  // via the same session (see race_tactics_plans.linked_session_id) —
+  // so a coach/athlete looking at the GPS analysis knows a plan exists
+  // and can jump straight to it, rather than the two features living in
+  // silent isolation from each other.
+  const { data: linkedPlans } = useQuery({
+    queryKey: ["race-tactics-for-session", race?.session_id],
+    enabled: !!race?.session_id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("race_tactics_plans" as any)
+        .select("id, event_name")
+        .eq("linked_session_id", race.session_id)
+        .limit(1);
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+  const linkedPlan = linkedPlans?.[0] ?? null;
+
+  const { data: linkedPlanResults } = useQuery({
+    queryKey: ["race-tactics-post-race-check", linkedPlan?.id],
+    enabled: !!linkedPlan?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("race_tactics_post_race" as any)
+        .select("actual_splits")
+        .eq("plan_id", linkedPlan.id)
+        .maybeSingle();
+      if (error) throw error;
+      return data as any;
+    },
+  });
+  const tacticsHasResults = (linkedPlanResults?.actual_splits?.length ?? 0) > 0;
 
   const [splits, setSplits] = useState<Split[]>([newSplit()]);
   const [localAdjustments, setLocalAdjustments] = useState<any[]>([]);
@@ -360,6 +395,24 @@ function RaceAnalysisPage() {
             </p>
           </div>
         </div>
+
+        {linkedPlan && (
+          <Link to="/app/race-tactics/$planId" params={{ planId: linkedPlan.id }} className="block">
+            <div
+              className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm transition-colors hover:bg-accent/40 ${
+                tacticsHasResults ? "border-emerald-500/30 bg-emerald-500/5" : "border-amber-500/30 bg-amber-500/5"
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                <ClipboardCheck className={`h-4 w-4 ${tacticsHasResults ? "text-emerald-600" : "text-amber-600"}`} />
+                {tacticsHasResults
+                  ? "Post-race results already added to Race Tactics"
+                  : "Race tactics exist for this race — update post-race results"}
+              </span>
+              <span className="text-xs text-muted-foreground underline shrink-0">View race tactics</span>
+            </div>
+          </Link>
+        )}
 
         <Card>
           <CardHeader>
