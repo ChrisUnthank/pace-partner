@@ -777,7 +777,7 @@ function ComparePage() {
                       <CardTitle className="text-base">Predicted {targetLabel} equivalent, over time</CardTitle>
                       <CardDescription>
                         Each selected session's work pace/distance projected onto the chosen distance via Riegel's
-                        formula — the same engine behind the Pace/Race Predictor calculator.
+                        formula — the same baseline engine behind the Performance Predictor calculator.
                       </CardDescription>
                     </div>
                     <div className="w-[140px] shrink-0">
