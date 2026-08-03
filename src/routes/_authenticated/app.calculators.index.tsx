@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Gauge, Timer, Mountain, Flame, ArrowRight, Calculator } from "lucide-react";
+import { Gauge, Timer, Mountain, Flame, ArrowRight, Calculator, HeartPulse } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/app/calculators/")({
@@ -10,6 +10,14 @@ export const Route = createFileRoute("/_authenticated/app/calculators/")({
 });
 
 const CALCULATORS = [
+  {
+    to: "/app/calculators/zonecalculator",
+    title: "Zone Calculator",
+    description:
+      "Work out training zones from any of 8 methods — Daniels VDOT, a recent race, Critical Speed, Karvonen, and more — then save them straight to Zone Boundaries.",
+    icon: HeartPulse,
+    available: true,
+  },
   {
     to: "/app/calculators/startingfitness",
     title: "Starting Fitness",
