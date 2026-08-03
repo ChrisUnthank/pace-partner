@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { Sparkles, User2 } from "lucide-react";
+import { Sparkles, User2, History } from "lucide-react";
 import { ProfileImageUploader } from "@/components/profile-image-uploader";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { setStoredUnits } from "@/lib/units";
@@ -19,6 +19,7 @@ import { ContactDetailsCard } from "@/components/contact-details-card";
 import { Link } from "@tanstack/react-router";
 import { UserCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { logAccountActivity } from "@/lib/account-activity-log";
 
 export const Route = createFileRoute("/_authenticated/app/account")({
   component: Account,
@@ -109,11 +110,13 @@ function Account() {
 
             {user && <ProfileImageUploader userId={user.id} name={user.user_metadata?.full_name ?? user.email ?? ""} />}
 
-            <ChangePasswordCard />
+            <ChangePasswordCard userId={user?.id} />
 
             {user && <PreferencesCard userId={user.id} />}
           </div>
         </div>
+
+        {user && <AccountActivityLogCard userId={user.id} />}
       </div>
     </AppShell>
   );
@@ -162,6 +165,7 @@ function PreferencesCard({ userId }: { userId: string }) {
     setStoredUnits(units as any);
     toast.success("Preferences saved");
     qc.invalidateQueries({ queryKey: ["my-profile", userId] });
+    logAccountActivity(userId, "preferences_updated", `Display preferences updated (${units}, ${tz})`, { units, timezone: tz });
   }
 
   return (
@@ -212,7 +216,7 @@ function PreferencesCard({ userId }: { userId: string }) {
   );
 }
 
-function ChangePasswordCard() {
+function ChangePasswordCard({ userId }: { userId: string | undefined }) {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [saving, setSaving] = useState(false);
@@ -240,6 +244,7 @@ function ChangePasswordCard() {
     setNewPassword("");
     setConfirmPassword("");
     toast.success("Password updated");
+    if (userId) logAccountActivity(userId, "password_changed", "Password changed");
   }
 
   return (
@@ -575,5 +580,90 @@ function AiAccessCard({ userId, isAthlete, isCoach }: { userId: string; isAthlet
         </CardDescription>
       </CardHeader>
     </Card>
+  );
+}
+
+// New, separate system log — distinct from Athlete History's training
+// activity feed (that one stays exactly where it is, untouched). This
+// is account-level activity only (password changes, preference
+// updates, and whatever else gets wired up over time), private to the
+// account it belongs to. Kept for 1 month, then shown as "Archived"
+// for 3 more (a display-only distinction by age, not a physical move —
+// both live in the same table), then a daily job hard-deletes anything
+// past 4 months total so this never just grows forever.
+const ONE_MONTH_MS = 30 * 24 * 60 * 60 * 1000;
+
+function AccountActivityLogCard({ userId }: { userId: string }) {
+  const { data: entries, isLoading } = useQuery({
+    queryKey: ["account-activity-log", userId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("account_activity_log" as any)
+        .select("id, action, description, created_at")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (error) throw error;
+      return (data ?? []) as { id: string; action: string; description: string; created_at: string }[];
+    },
+  });
+
+  const cutoff = Date.now() - ONE_MONTH_MS;
+  const recent = (entries ?? []).filter((e) => new Date(e.created_at).getTime() >= cutoff);
+  const archived = (entries ?? []).filter((e) => new Date(e.created_at).getTime() < cutoff);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <History className="h-4 w-4 text-[var(--accent-red)]" /> Account activity log
+        </CardTitle>
+        <CardDescription>
+          A record of activity on this account — password changes, preference updates, and similar. Kept for 1
+          month, archived for 3 more, then removed automatically. Private to this account; not visible to your
+          coach or athletes.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : !entries || entries.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No activity recorded yet.</p>
+        ) : (
+          <div className="space-y-4">
+            {recent.length > 0 && (
+              <div className="divide-y">
+                {recent.map((e) => (
+                  <AccountLogRow key={e.id} entry={e} />
+                ))}
+              </div>
+            )}
+            {archived.length > 0 && (
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
+                  Archived
+                </div>
+                <div className="divide-y opacity-60">
+                  {archived.map((e) => (
+                    <AccountLogRow key={e.id} entry={e} />
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function AccountLogRow({ entry }: { entry: { description: string; created_at: string } }) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-1.5 text-sm">
+      <span>{entry.description}</span>
+      <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
+        {new Date(entry.created_at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}
+      </span>
+    </div>
   );
 }
