@@ -43,6 +43,11 @@ type Block = {
   uploadedFiles: { name: string; started_at: string | null; points: number }[];
   uploading: boolean;
   saved: boolean;
+  // True once the athlete has touched this block's fields since it was
+  // last loaded/saved. The refresh effect below skips re-syncing a dirty
+  // block from fresh server data so it never clobbers an in-progress
+  // edit — cleared back to false right after a successful save.
+  dirty: boolean;
 };
 
 function newBlock(): Block {
@@ -64,6 +69,7 @@ function newBlock(): Block {
     uploadedFiles: [],
     uploading: false,
     saved: false,
+    dirty: false,
   };
 }
 
@@ -104,6 +110,7 @@ function sessionToBlock(s: any): Block {
     })),
     uploading: false,
     saved: s.rpe != null,
+    dirty: false,
   };
 }
 
@@ -119,8 +126,8 @@ export function DailyLogSessions({ athleteId }: { athleteId: string }) {
         .select(`
           id, title, activity_type, day_type, total_distance_m, total_time_seconds,
           rpe, completed_at, notes, gym_category, gym_subtype,
-          session_insights (feel_score, went_well, was_difficult, niggles),
-          session_files (original_filename, file_kind, started_at)
+          session_insights(feel_score, went_well, was_difficult, niggles),
+          session_files(original_filename, file_kind, started_at)
         `)
         .eq("athlete_id", athleteId).eq("session_date", today)
         .order("created_at");
@@ -134,23 +141,36 @@ export function DailyLogSessions({ athleteId }: { athleteId: string }) {
   // Recognizes any session that already exists for today — regardless of
   // where it came from — and turns it into a linked, pre-filled block
   // instead of leaving it invisible until the athlete happens to pick a
-  // matching activity type and save. Runs on every fetch (not just once)
-  // so a session uploaded elsewhere while this page is already open still
-  // shows up here on the next refetch, but a ref of session ids already
-  // turned into a block keeps it from ever duplicating one.
+  // matching activity type and save. Runs on every fetch (not just once),
+  // so this does two things every time fresh data lands:
+  //  1. Refreshes any block that's already linked to a session, picking
+  //     up edits made elsewhere (e.g. RPE/feel updated from the session's
+  //     own detail page) — skipped for a block the athlete is actively
+  //     mid-edit on (dirty), so an in-progress edit here is never clobbered.
+  //  2. Seeds a brand-new block for any session not yet represented here
+  //     at all — a ref of already-seeded session ids keeps this from ever
+  //     duplicating a block once it exists.
   const seededSessionIds = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!isFetched) return;
     setBlocks((prev) => {
-      const known = new Set(prev.map((b) => b.sessionId).filter(Boolean) as string[]);
+      const bySessionId = new Map((existing as any[]).map((s) => [s.id, s]));
+      const refreshed = prev.map((b) => {
+        if (!b.sessionId || b.dirty) return b;
+        const s = bySessionId.get(b.sessionId);
+        if (!s) return b;
+        return { ...sessionToBlock(s), uid: b.uid, uploading: b.uploading };
+      });
+      const known = new Set(refreshed.map((b) => b.sessionId).filter(Boolean) as string[]);
       const newOnes = (existing as any[]).filter((s) => !known.has(s.id) && !seededSessionIds.current.has(s.id));
-      if (newOnes.length === 0) return prev;
+      seededSessionIds.current.forEach((id) => { if (!bySessionId.has(id)) seededSessionIds.current.delete(id); });
+      if (newOnes.length === 0) return refreshed;
       newOnes.forEach((s) => seededSessionIds.current.add(s.id));
       const newBlocks = newOnes.map(sessionToBlock);
       // Drop the still-untouched starter block once real sessions are
       // found, so an athlete doesn't see a stray empty "Session 1" sitting
       // next to the one that's already uploaded and just needs RPE.
-      const withoutBlankStarter = prev.filter(
+      const withoutBlankStarter = refreshed.filter(
         (b) => b.sessionId || b.rpe != null || b.note || b.wentWell || b.wasDifficult || b.niggles || b.uploadedFiles.length > 0,
       );
       return [...withoutBlankStarter, ...newBlocks];
@@ -158,7 +178,7 @@ export function DailyLogSessions({ athleteId }: { athleteId: string }) {
   }, [existing, isFetched]);
 
   function updateBlock(uid: string, patch: Partial<Block>) {
-    setBlocks((prev) => prev.map((b) => b.uid === uid ? { ...b, ...patch } : b));
+    setBlocks((prev) => prev.map((b) => b.uid === uid ? { ...b, dirty: true, ...patch } : b));
   }
 
   async function ensureSession(b: Block, title: string): Promise<string> {
@@ -245,7 +265,7 @@ export function DailyLogSessions({ athleteId }: { athleteId: string }) {
         was_difficult: b.wasDifficult || null,
         niggles: b.niggles || null,
       } as any, { onConflict: "session_id" } as any);
-      updateBlock(b.uid, { saved: true });
+      updateBlock(b.uid, { saved: true, dirty: false });
       toast.success("Session saved");
       invalidateSession(qc, sessionId, athleteId);
     } catch (err: any) {
