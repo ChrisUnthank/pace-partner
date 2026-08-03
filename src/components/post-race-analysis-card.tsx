@@ -9,10 +9,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { ClipboardCheck, Save, Link as LinkIcon, ExternalLink, Download } from "lucide-react";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
-import { clockToSec, secToClock, paceFmt } from "@/lib/format";
+import { clockToSec, secToClock, paceFmt, metersFmt } from "@/lib/format";
 import { averagePaceSecPerKm, interpolateActualSplitsFromGps, type SplitRow } from "@/lib/race-tactics-calc";
 import { reconstructTrack } from "@/lib/gps-reconstruction";
 
@@ -66,6 +74,10 @@ export function PostRaceAnalysisCard({
   const [decisionNotes, setDecisionNotes] = useState<Record<string, string>>({});
   const [savingResults, setSavingResults] = useState(false);
   const [savingToPerformances, setSavingToPerformances] = useState(false);
+  const [duplicateChoice, setDuplicateChoice] = useState<{
+    existing: { id: string; performance_date: string; distance_m: number; time_seconds: number };
+    finish: { cumulative_distance_m: number; cumulative_time_seconds: number };
+  } | null>(null);
 
   // Candidate sessions to link this plan to — the athlete's own race-day
   // sessions (day_type = 'race', actually completed). Sorted so anything
@@ -229,9 +241,33 @@ export function PostRaceAnalysisCard({
     qc.invalidateQueries({ queryKey: ["post-race-analysis", planId] });
   }
 
+  // A session marked "Race" (day_type = 'race') already auto-creates its
+  // own performances row keyed by session_id — see createPerformanceRecord
+  // in the session detail page. This button used to insert blindly with
+  // no idea that row might already exist, which is exactly how a race
+  // could end up counted twice in the athlete's PBs. Now it checks first
+  // and, if found, asks rather than silently duplicating or silently
+  // doing nothing.
   async function saveToPerformances() {
     if (actualSplits.length === 0) return;
     const finish = actualSplits.reduce((best, s) => (s.cumulative_distance_m > best.cumulative_distance_m ? s : best), actualSplits[0]);
+
+    if (plan.linked_session_id) {
+      const { data: existing } = await supabase
+        .from("performances")
+        .select("id, performance_date, distance_m, time_seconds")
+        .eq("session_id", plan.linked_session_id)
+        .maybeSingle();
+      if (existing) {
+        setDuplicateChoice({ existing: existing as any, finish });
+        return;
+      }
+    }
+
+    await insertNewPerformance(finish);
+  }
+
+  async function insertNewPerformance(finish: { cumulative_distance_m: number; cumulative_time_seconds: number }) {
     setSavingToPerformances(true);
     const { data: row, error } = await supabase
       .from("performances")
@@ -243,6 +279,7 @@ export function PostRaceAnalysisCard({
         event_name: plan.event_name,
         race_type: plan.race_type,
         context: "race",
+        session_id: plan.linked_session_id ?? null,
         notes: "Saved from Race Tactics post-race analysis",
       })
       .select("id")
@@ -252,9 +289,13 @@ export function PostRaceAnalysisCard({
       toast.error(error?.message ?? "Failed to save");
       return;
     }
+    await linkPerformance(row.id);
+  }
+
+  async function linkPerformance(performanceId: string) {
     const { error: linkError } = await supabase
       .from("race_tactics_post_race" as any)
-      .update({ linked_performance_id: row.id })
+      .update({ linked_performance_id: performanceId })
       .eq("plan_id", planId);
     setSavingToPerformances(false);
     if (linkError) {
@@ -263,6 +304,43 @@ export function PostRaceAnalysisCard({
     }
     toast.success("Saved to Performances — this now counts toward the athlete's PBs and performance curve");
     qc.invalidateQueries({ queryKey: ["post-race-analysis", planId] });
+  }
+
+  // "Keep current" — the existing performances row (created when the
+  // session was marked as Race) stays exactly as it is; this plan just
+  // links to it rather than creating a second one.
+  async function keepExistingPerformance() {
+    if (!duplicateChoice) return;
+    setSavingToPerformances(true);
+    await linkPerformance(duplicateChoice.existing.id);
+    setDuplicateChoice(null);
+  }
+
+  // "Overwrite" — updates that same existing row with these actual
+  // splits instead of inserting a new one, so there's still only ever
+  // one performances row for this race no matter which path created it
+  // first.
+  async function overwriteExistingPerformance() {
+    if (!duplicateChoice) return;
+    setSavingToPerformances(true);
+    const { error } = await supabase
+      .from("performances")
+      .update({
+        performance_date: plan.race_date ?? duplicateChoice.existing.performance_date,
+        distance_m: plan.race_distance_m,
+        time_seconds: duplicateChoice.finish.cumulative_time_seconds,
+        event_name: plan.event_name,
+        race_type: plan.race_type,
+        notes: "Updated from Race Tactics post-race analysis",
+      })
+      .eq("id", duplicateChoice.existing.id);
+    if (error) {
+      setSavingToPerformances(false);
+      toast.error(error.message);
+      return;
+    }
+    await linkPerformance(duplicateChoice.existing.id);
+    setDuplicateChoice(null);
   }
 
   const comparisonRows = useMemo(() => {
@@ -296,6 +374,7 @@ export function PostRaceAnalysisCard({
   if (isLoading) return null;
 
   return (
+    <>
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-2">
           <div>
@@ -506,6 +585,47 @@ export function PostRaceAnalysisCard({
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!duplicateChoice} onOpenChange={(o) => !o && setDuplicateChoice(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>This race already has a saved performance</DialogTitle>
+            <DialogDescription>
+              Marking the linked session as a Race already created a performance record for it — saving here again
+              would count the same race twice toward this athlete's PBs. Keep the existing one, or overwrite it
+              with these actual results?
+            </DialogDescription>
+          </DialogHeader>
+          {duplicateChoice && (
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="rounded border px-3 py-2">
+                <div className="text-xs text-muted-foreground mb-1">Existing</div>
+                <div className="tabular-nums">{metersFmt(duplicateChoice.existing.distance_m)}</div>
+                <div className="tabular-nums">{secToClock(duplicateChoice.existing.time_seconds)}</div>
+                <div className="text-xs text-muted-foreground">{duplicateChoice.existing.performance_date}</div>
+              </div>
+              <div className="rounded border px-3 py-2">
+                <div className="text-xs text-muted-foreground mb-1">From this analysis</div>
+                <div className="tabular-nums">{metersFmt(plan.race_distance_m)}</div>
+                <div className="tabular-nums">{secToClock(duplicateChoice.finish.cumulative_time_seconds)}</div>
+                <div className="text-xs text-muted-foreground">{plan.race_date ?? "—"}</div>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button variant="ghost" onClick={() => setDuplicateChoice(null)}>
+              Cancel
+            </Button>
+            <Button variant="outline" onClick={keepExistingPerformance} disabled={savingToPerformances}>
+              Keep existing
+            </Button>
+            <Button onClick={overwriteExistingPerformance} disabled={savingToPerformances}>
+              Overwrite with these results
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
