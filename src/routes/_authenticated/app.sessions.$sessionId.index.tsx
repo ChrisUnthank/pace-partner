@@ -1595,20 +1595,18 @@ function SessionDetail() {
             )}
           </div>
         </div>
-        {/* Daily Log is the primary place feedback (RPE, feel, reflection) gets
-            entered now — this editable card is only a fallback for sessions
-            completed directly from here (a coach logging on an athlete's
-            behalf, or a planned session with no Daily Log entry at all).
-            Once a session is complete, the read-only card below takes over
-            so there's exactly one place to edit, not two live copies. */}
-        {!session.completed_at && (
-          <SessionSummary
-            session={session}
-            results={results ?? []}
-            onSaved={() => invalidateSession(qc, sessionId, session.athlete_id)}
-            onCompleted={() => setInsightOpen(true)}
-          />
-        )}
+        {/* Daily Log is still the fastest place to log a same-day session,
+            but this card is no longer hidden once a session is complete —
+            RPE, feel, and description all write straight to sessions /
+            session_insights, the exact same rows Daily Log reads and
+            writes, so an update made here shows up in Daily Log next time
+            it loads (and vice versa) with no separate copy to go stale. */}
+        <SessionSummary
+          session={session}
+          results={results ?? []}
+          onSaved={() => invalidateSession(qc, sessionId, session.athlete_id)}
+          onCompleted={() => setInsightOpen(true)}
+        />
 
         {isCoach && (
           <AttendanceCard
@@ -3088,11 +3086,22 @@ function SessionSummary({
   onCompleted?: () => void;
 }) {
   const qc = useQueryClient();
-  const [rpe, setRpe] = useState<number>(5);
+  // Null (not defaulted to 5) so an unset RPE is genuinely distinguishable
+  // from a real answer of 5 — same reasoning, and the same required-before-
+  // save gate, as Daily Log's own per-session blocks.
+  const [rpe, setRpe] = useState<number | null>(null);
   // Re-sync whenever the underlying session row changes (after server-side recompute).
   useEffect(() => {
-    setRpe(session.rpe ?? 5);
-  }, [session.rpe]);
+    setRpe(session.rpe ?? null);
+  }, [session.id, session.rpe]);
+
+  // Description mirrors Daily Log's "Description (optional)" field —
+  // both read and write sessions.notes, so whichever place it's entered,
+  // the other shows the same value.
+  const [note, setNote] = useState(session.notes ?? "");
+  useEffect(() => {
+    setNote(session.notes ?? "");
+  }, [session.id, session.notes]);
 
   // Feel (Very Weak..Very Strong faces) lives on session_insights, not
   // sessions — same field the post-session reflection modal already saves
@@ -3132,6 +3141,7 @@ function SessionSummary({
   })();
 
   async function complete() {
+    if (rpe == null) return; // button is disabled in this state too — belt and braces
     const wasAlreadyComplete = !!session.completed_at;
 
     const [sessionRes, insightRes] = await Promise.all([
@@ -3139,6 +3149,7 @@ function SessionSummary({
         .from("sessions")
         .update({
           rpe,
+          notes: note.trim() || null,
           ...(wasAlreadyComplete ? {} : { completed_at: new Date().toISOString() }),
         })
         .eq("id", session.id),
@@ -3190,35 +3201,46 @@ function SessionSummary({
       </CardHeader>
 
       <CardContent className="space-y-4">
-        <div className="flex items-center gap-4">
-          <div className="flex-1">
-            <Label className="text-xs">RPE ({rpe})</Label>
-
-            <Slider min={1} max={10} step={1} value={[rpe]} onValueChange={(v) => setRpe(v[0])} />
-          </div>
-
-          <Button onClick={complete} size="sm">
-            {session.completed_at ? "Update" : "Complete"}
-          </Button>
+        <div>
+          <Label className="text-xs">
+            RPE — how hard did it feel? {rpe != null ? `(${rpe}/10)` : <span className="text-amber-600">(required)</span>}
+          </Label>
+          <Slider min={1} max={10} step={1} value={[rpe ?? 5]} onValueChange={(v) => setRpe(v[0])} className="mt-2" />
         </div>
 
         <div>
-          <Label className="text-xs">How did you feel?</Label>
+          <Label className="text-xs">How did you feel? (optional)</Label>
           <div className="mt-2">
             <FeelFaces value={feel} onChange={setFeel} />
           </div>
         </div>
 
-        {!session.completed_at && (
-          <Button
-            onClick={completeWithoutReflection}
-            size="sm"
-            variant="ghost"
-            className="text-xs text-muted-foreground h-auto py-1 px-2 -ml-2"
-          >
-            Mark complete without reflection
+        <div>
+          <Label className="text-xs">Description (optional)</Label>
+          <Textarea
+            placeholder="Anything worth noting about this session"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            className="mt-1"
+          />
+        </div>
+
+        <div className="flex items-center gap-3">
+          <Button onClick={complete} size="sm" disabled={rpe == null}>
+            {rpe == null ? "Enter RPE to save" : session.completed_at ? "Update" : "Complete"}
           </Button>
-        )}
+
+          {!session.completed_at && (
+            <Button
+              onClick={completeWithoutReflection}
+              size="sm"
+              variant="ghost"
+              className="text-xs text-muted-foreground h-auto py-1 px-2"
+            >
+              Mark complete without reflection
+            </Button>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
