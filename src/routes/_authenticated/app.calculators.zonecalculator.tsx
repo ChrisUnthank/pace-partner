@@ -1,209 +1,754 @@
-// Zone Calculator — calculation engine (pure functions, no React/Supabase,
-// same convention as race-tactics-calc.ts and race-predict.ts).
-//
-// Architecture: every method's only job is to produce ONE canonical anchor —
-// thresholdPaceSecPerKm for pace-based methods, thresholdHrBpm for HR-based
-// ones. A single shared band model then turns that anchor into the same six
-// named zones (Recovery/Endurance/Tempo/Threshold/VO2 Max/Anaerobic) for
-// every method, which is what makes "compare three methods side by side"
-// mean something — they're all read off the same ruler, just anchored at a
-// different point by each method's own math. This mirrors how
-// ZoneBoundariesCard itself already works: many ways to arrive at a
-// threshold value, one zone formula from threshold.
-//
-// IMPORTANT: this is a *preview* model — genuinely useful for comparing
-// methods against each other, but the actual persisted Z1-Z6 boundaries
-// (after "Save to Zone Boundaries") are computed by the app's existing
-// set_pace_threshold_manual / set_hr_threshold_manual database functions,
-// which this deliberately does not try to reverse-engineer or duplicate.
-// Saving hands the computed threshold value off to those exact same
-// functions a coach would otherwise call by typing a threshold in by hand
-// on Zone Boundaries — so the real, persisted zones always come from the
-// app's one actual source of truth, not a client-side approximation of it.
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { z } from "zod";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuthUser, useMyRoles, useMyRawRoles, useMyAthlete } from "@/lib/use-auth";
+import { AppShell } from "@/components/app-shell";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { CoachAthletePicker } from "@/components/coach-athlete-picker";
+import { toast } from "sonner";
+import { ChevronLeft, ChevronRight, Gauge, Check, X, Save, Scale, Trash2 } from "lucide-react";
+import { secToClock, clockToSec, paceFmt } from "@/lib/format";
+import {
+  METHOD_META,
+  deriveZonesFromPaceThreshold,
+  deriveZonesFromHrThreshold,
+  paceFromVdot,
+  paceFromRecentRace,
+  paceFromCriticalSpeedTest,
+  paceFromMas,
+  hrFromKarvonen,
+  hrFromPctMaxHr,
+  type ZoneMethod,
+  type ZoneRow,
+} from "@/lib/zone-calculator";
 
-import { predictPaceAt } from "@/lib/race-predict";
+export const Route = createFileRoute("/_authenticated/app/calculators/zonecalculator")({
+  validateSearch: z.object({ athleteId: z.string().optional() }),
+  component: ZoneCalculatorPage,
+});
 
-export type ZoneMethod =
-  | "daniels_vdot"
-  | "recent_race"
-  | "threshold_pace"
-  | "critical_speed"
-  | "mas"
-  | "karvonen"
-  | "threshold_hr"
-  | "pct_max_hr";
+type ComputedResult = {
+  basis: "pace" | "hr";
+  thresholdPace: number | null;
+  thresholdHr: number | null;
+  zones: ZoneRow[];
+} | null;
 
-export type ZoneBasis = "pace" | "hr";
+type CompareEntry = { id: string; method: ZoneMethod; result: NonNullable<ComputedResult> };
 
-export const METHOD_META: Record<
-  ZoneMethod,
-  { label: string; basis: ZoneBasis; blurb: string; bestFor: string }
-> = {
-  daniels_vdot: {
-    label: "Daniels VDOT",
-    basis: "pace",
-    blurb: "Jack Daniels' VDOT model — one fitness number driving every training pace.",
-    bestFor: "Best when you already know (or have just raced to establish) a current VDOT.",
-  },
-  recent_race: {
-    label: "Recent Race Result",
-    basis: "pace",
-    blurb: "Predicts threshold pace from any recent race, using the same Riegel formula as the Pace Predictor.",
-    bestFor: "Best straight after a race — the most direct, least assumption-laden pace method.",
-  },
-  threshold_pace: {
-    label: "Threshold Pace",
-    basis: "pace",
-    blurb: "Enter a known threshold pace directly — from a lab test, a time trial, or a coach's judgement.",
-    bestFor: "Best when threshold pace is already known with confidence and doesn't need deriving.",
-  },
-  critical_speed: {
-    label: "Critical Speed",
-    basis: "pace",
-    blurb: "The classic two-time-trial Critical Speed test (CS = distance difference ÷ time difference).",
-    bestFor: "Best for a physiologically grounded threshold estimate from two all-out efforts of different lengths.",
-  },
-  mas: {
-    label: "Maximum Aerobic Speed (MAS)",
-    basis: "pace",
-    blurb: "Anchors everything off your maximum aerobic (≈vVO2max) speed rather than threshold directly.",
-    bestFor: "Best for athletes who've done a MAS/VAM-Eval-style test and train off %MAS.",
-  },
-  karvonen: {
-    label: "Karvonen (Heart Rate Reserve)",
-    basis: "hr",
-    blurb: "Uses resting + max HR to compute Heart Rate Reserve, the classic %HRR zone model.",
-    bestFor: "Best when resting HR is known and tracked — more individualised than %HRmax alone.",
-  },
-  threshold_hr: {
-    label: "Threshold Heart Rate (Joe Friel)",
-    basis: "hr",
-    blurb: "Enter a known lactate-threshold HR directly — Friel's published %LTHR zone bands.",
-    bestFor: "Best when threshold HR is already known from a field test (e.g. a 30-minute time trial).",
-  },
-  pct_max_hr: {
-    label: "% Maximum Heart Rate",
-    basis: "hr",
-    blurb: "The simplest HR model — zones as a percentage of max HR alone.",
-    bestFor: "Best as a rough starting point when only max HR is known, nothing else.",
-  },
-};
-
-export type ZoneRow = { key: string; name: string; low: number; high: number | null };
-
-// ---------------------------------------------------------------------
-// Shared band models — the "one ruler" every method's anchor gets read
-// against. Pace bands are multipliers on threshold PACE (sec/km) — a
-// smaller multiplier is a FASTER pace, so a band's "low" (fast) edge
-// uses its lower multiplier and "high" (slow) edge uses its higher one.
-// HR bands are % of threshold HR, ascending the normal way.
-// ---------------------------------------------------------------------
-
-const PACE_BANDS: { key: string; name: string; lowMult: number; highMult: number | null }[] = [
-  { key: "recovery", name: "Recovery", lowMult: 1.5, highMult: null },
-  { key: "endurance", name: "Endurance", lowMult: 1.3, highMult: 1.5 },
-  { key: "tempo", name: "Tempo", lowMult: 1.04, highMult: 1.3 },
-  { key: "threshold", name: "Threshold", lowMult: 0.97, highMult: 1.04 },
-  { key: "vo2max", name: "VO₂ Max", lowMult: 0.9, highMult: 0.97 },
-  { key: "anaerobic", name: "Anaerobic", lowMult: 0.8, highMult: 0.9 },
+const METHOD_ORDER: ZoneMethod[] = [
+  "daniels_vdot",
+  "recent_race",
+  "threshold_pace",
+  "critical_speed",
+  "mas",
+  "karvonen",
+  "threshold_hr",
+  "pct_max_hr",
 ];
 
-// Friel's published %LTHR (lactate-threshold heart rate) zone bands —
-// the same well-known model cited directly by the Threshold HR method,
-// reused here as the shared band for every HR-based method so they stay
-// comparable to each other.
-const HR_BANDS: { key: string; name: string; lowPct: number; highPct: number | null }[] = [
-  { key: "recovery", name: "Recovery", lowPct: 0, highPct: 81 },
-  { key: "endurance", name: "Endurance", lowPct: 81, highPct: 89 },
-  { key: "tempo", name: "Tempo", lowPct: 90, highPct: 93 },
-  { key: "threshold", name: "Threshold", lowPct: 94, highPct: 99 },
-  { key: "vo2max", name: "VO₂ Max", lowPct: 100, highPct: 102 },
-  { key: "anaerobic", name: "Anaerobic", lowPct: 103, highPct: null },
-];
+function ZoneCalculatorPage() {
+  const search = Route.useSearch();
+  const { user } = useAuthUser();
+  const { data: roles = [] } = useMyRoles();
+  const { data: rawRoles = [] } = useMyRawRoles();
+  const { data: myAthlete } = useMyAthlete();
+  const isCoach = roles.includes("coach");
+  const isManager = rawRoles.includes("manager");
+  const qc = useQueryClient();
 
-export function deriveZonesFromPaceThreshold(thresholdSecPerKm: number): ZoneRow[] {
-  return PACE_BANDS.map((b) => ({
-    key: b.key,
-    name: b.name,
-    low: thresholdSecPerKm * b.lowMult,
-    high: b.highMult != null ? thresholdSecPerKm * b.highMult : null,
-  }));
-}
+  const { data: roster } = useQuery({
+    queryKey: ["zone-calc-roster", user?.id, isManager],
+    enabled: !!user && isCoach,
+    queryFn: async () => {
+      if (isManager) {
+        const { data } = await supabase.from("athletes").select("id, name, profile_image_url").order("name");
+        return data ?? [];
+      }
+      const { data } = await supabase
+        .from("coach_athletes")
+        .select("athletes(id, name, profile_image_url)")
+        .eq("coach_user_id", user!.id);
+      return (data ?? []).map((r: any) => r.athletes).filter(Boolean);
+    },
+  });
 
-export function deriveZonesFromHrThreshold(thresholdBpm: number): ZoneRow[] {
-  return HR_BANDS.map((b) => ({
-    key: b.key,
-    name: b.name,
-    low: Math.round(thresholdBpm * (b.lowPct / 100)),
-    high: b.highPct != null ? Math.round(thresholdBpm * (b.highPct / 100)) : null,
-  }));
+  const [athleteId, setAthleteId] = useState<string>(search.athleteId ?? myAthlete?.id ?? "");
+  useEffect(() => {
+    if (!athleteId && !isCoach && myAthlete?.id) setAthleteId(myAthlete.id);
+  }, [isCoach, myAthlete, athleteId]);
+
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [method, setMethod] = useState<ZoneMethod | null>(null);
+
+  // ---- Flat input state — each method only ever reads the handful of
+  // fields relevant to it, so one shared bucket is simpler than eight
+  // separate per-method sub-states. ----
+  const [vdotInput, setVdotInput] = useState("50");
+  const [raceDistanceKm, setRaceDistanceKm] = useState("5");
+  const [raceTimeInput, setRaceTimeInput] = useState("20:00");
+  const [thresholdPaceInput, setThresholdPaceInput] = useState("4:00");
+  const [csD1, setCsD1] = useState("1.2");
+  const [csT1, setCsT1] = useState("4:00");
+  const [csD2, setCsD2] = useState("3");
+  const [csT2, setCsT2] = useState("11:00");
+  const [masInput, setMasInput] = useState("18");
+  const [restingHrInput, setRestingHrInput] = useState("50");
+  const [maxHrInput, setMaxHrInput] = useState("190");
+  const [thresholdHrInput, setThresholdHrInput] = useState("165");
+
+  const result: ComputedResult = useMemo(() => {
+    if (!method) return null;
+    const basis = METHOD_META[method].basis;
+    if (basis === "pace") {
+      let pace: number | null = null;
+      if (method === "daniels_vdot") pace = paceFromVdot(Number(vdotInput));
+      else if (method === "recent_race") pace = paceFromRecentRace(Number(raceDistanceKm), clockToSec(raceTimeInput) ?? 0);
+      else if (method === "threshold_pace") pace = clockToSec(thresholdPaceInput);
+      else if (method === "critical_speed")
+        pace = paceFromCriticalSpeedTest(Number(csD1), clockToSec(csT1) ?? 0, Number(csD2), clockToSec(csT2) ?? 0);
+      else if (method === "mas") pace = paceFromMas(Number(masInput));
+      if (pace == null || !Number.isFinite(pace) || pace <= 0) return null;
+      return { basis, thresholdPace: pace, thresholdHr: null, zones: deriveZonesFromPaceThreshold(pace) };
+    } else {
+      let hr: number | null = null;
+      if (method === "karvonen") hr = hrFromKarvonen(Number(restingHrInput), Number(maxHrInput));
+      else if (method === "threshold_hr") hr = Math.round(Number(thresholdHrInput));
+      else if (method === "pct_max_hr") hr = hrFromPctMaxHr(Number(maxHrInput));
+      if (hr == null || !Number.isFinite(hr) || hr <= 0) return null;
+      return { basis, thresholdPace: null, thresholdHr: hr, zones: deriveZonesFromHrThreshold(hr) };
+    }
+  }, [
+    method,
+    vdotInput,
+    raceDistanceKm,
+    raceTimeInput,
+    thresholdPaceInput,
+    csD1,
+    csT1,
+    csD2,
+    csT2,
+    masInput,
+    restingHrInput,
+    maxHrInput,
+    thresholdHrInput,
+  ]);
+
+  const [compareList, setCompareList] = useState<CompareEntry[]>([]);
+
+  function addToCompare() {
+    if (!method || !result) return;
+    if (compareList.length >= 3) {
+      toast.error("Comparison mode holds up to 3 methods — remove one first.");
+      return;
+    }
+    if (compareList.some((c) => c.method === method)) {
+      toast.error(`${METHOD_META[method].label} is already in the comparison.`);
+      return;
+    }
+    setCompareList((list) => [...list, { id: crypto.randomUUID(), method, result }]);
+  }
+
+  // ---- Save ----
+  const [saving, setSaving] = useState<"active" | "secondary" | null>(null);
+  const [secondaryDialogOpen, setSecondaryDialogOpen] = useState(false);
+  const [secondaryLabel, setSecondaryLabel] = useState("");
+
+  const currentInputsSnapshot = () => {
+    if (!method) return {};
+    switch (method) {
+      case "daniels_vdot":
+        return { vdot: vdotInput };
+      case "recent_race":
+        return { distanceKm: raceDistanceKm, time: raceTimeInput };
+      case "threshold_pace":
+        return { thresholdPace: thresholdPaceInput };
+      case "critical_speed":
+        return { d1: csD1, t1: csT1, d2: csD2, t2: csT2 };
+      case "mas":
+        return { masKmh: masInput };
+      case "karvonen":
+        return { restingHr: restingHrInput, maxHr: maxHrInput };
+      case "threshold_hr":
+        return { thresholdHr: thresholdHrInput };
+      case "pct_max_hr":
+        return { maxHr: maxHrInput };
+    }
+  };
+
+  async function saveActive() {
+    if (!athleteId) {
+      toast.error("Pick an athlete first.");
+      return;
+    }
+    if (!method || !result) return;
+    setSaving("active");
+    const { error } =
+      result.basis === "pace"
+        ? await supabase.rpc("set_pace_threshold_manual", {
+            _athlete_id: athleteId,
+            _threshold_sec_per_km: result.thresholdPace,
+            _source: "manual",
+          })
+        : await supabase.rpc("set_hr_threshold_manual", {
+            _athlete_id: athleteId,
+            _hr_threshold: result.thresholdHr,
+            _source: "manual",
+          });
+    setSaving(null);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("Saved as this athlete's active zones — see Zone Boundaries.");
+    qc.invalidateQueries({ queryKey: ["zone-profile", athleteId] });
+  }
+
+  async function saveSecondary() {
+    if (!athleteId || !method || !result) return;
+    setSaving("secondary");
+    const { error } = await supabase.from("athlete_zone_calculator_saves" as any).insert({
+      athlete_id: athleteId,
+      created_by: user?.id ?? null,
+      label: secondaryLabel.trim() || `${METHOD_META[method].label} — ${new Date().toLocaleDateString()}`,
+      method,
+      basis: result.basis,
+      threshold_pace_sec_per_km: result.thresholdPace,
+      threshold_hr_bpm: result.thresholdHr,
+      inputs: currentInputsSnapshot(),
+    });
+    setSaving(null);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("Saved for reference — doesn't change this athlete's active zones.");
+    setSecondaryDialogOpen(false);
+    setSecondaryLabel("");
+    qc.invalidateQueries({ queryKey: ["zone-calc-saves", athleteId] });
+  }
+
+  const { data: savedResults } = useQuery({
+    queryKey: ["zone-calc-saves", athleteId],
+    enabled: !!athleteId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("athlete_zone_calculator_saves" as any)
+        .select("id, label, method, basis, threshold_pace_sec_per_km, threshold_hr_bpm, created_at")
+        .eq("athlete_id", athleteId)
+        .order("created_at", { ascending: false })
+        .limit(20);
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+
+  async function deleteSaved(id: string) {
+    const { error } = await supabase.from("athlete_zone_calculator_saves" as any).delete().eq("id", id);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    qc.invalidateQueries({ queryKey: ["zone-calc-saves", athleteId] });
+  }
+
+  return (
+    <AppShell fullWidth>
+      <div className="space-y-6 max-w-4xl">
+        <div>
+          <Link to="/app/calculators" className="text-sm text-muted-foreground inline-flex items-center gap-1 hover:underline">
+            <ChevronLeft className="h-3.5 w-3.5" /> Calculators
+          </Link>
+          <div className="flex items-center justify-between gap-3 mt-1 flex-wrap">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 shrink-0 rounded-lg grid place-items-center" style={{ background: "var(--accent-red)" }}>
+                <Gauge className="h-5 w-5 text-white" strokeWidth={2} />
+              </div>
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Metrics</div>
+                <h1 className="text-2xl font-bold leading-tight">Zone Calculator</h1>
+              </div>
+            </div>
+            {isCoach && (
+              <CoachAthletePicker
+                roster={roster ?? []}
+                myAthlete={myAthlete}
+                value={athleteId}
+                onChange={setAthleteId}
+              />
+            )}
+          </div>
+          <p className="text-sm text-muted-foreground mt-2">
+            Work through a method, compare it against others, then save the one that fits — either as this
+            athlete's active zones, or kept for reference without changing anything live.
+          </p>
+        </div>
+
+        {/* Step indicator */}
+        <div className="flex items-center gap-2 text-xs font-medium">
+          {[
+            { n: 1, label: "Method" },
+            { n: 2, label: "Inputs" },
+            { n: 3, label: "Zones" },
+          ].map((s, i) => (
+            <div key={s.n} className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => (s.n === 1 || method) && setStep(s.n as 1 | 2 | 3)}
+                className={`h-6 w-6 rounded-full grid place-items-center ${
+                  step === s.n ? "bg-[var(--accent-red)] text-white" : step > s.n ? "bg-emerald-500 text-white" : "bg-muted text-muted-foreground"
+                }`}
+              >
+                {step > s.n ? <Check className="h-3.5 w-3.5" /> : s.n}
+              </button>
+              <span className={step === s.n ? "" : "text-muted-foreground"}>{s.label}</span>
+              {i < 2 && <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+            </div>
+          ))}
+        </div>
+
+        {/* ---- Step 1: method ---- */}
+        {step === 1 && (
+          <div className="grid sm:grid-cols-2 gap-3">
+            {METHOD_ORDER.map((m) => {
+              const meta = METHOD_META[m];
+              const selected = method === m;
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => {
+                    setMethod(m);
+                    setStep(2);
+                  }}
+                  className={`text-left rounded-lg border p-4 transition-colors hover:border-primary/50 ${
+                    selected ? "border-[var(--accent-red)] bg-accent/30" : ""
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-sm">{meta.label}</span>
+                    <Badge variant="outline" className="text-[10px] shrink-0">
+                      {meta.basis === "pace" ? "Pace" : "HR"}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">{meta.blurb}</p>
+                  <p className="text-[11px] text-muted-foreground mt-1.5 italic">{meta.bestFor}</p>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* ---- Step 2: inputs ---- */}
+        {step === 2 && method && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">{METHOD_META[method].label}</CardTitle>
+              <CardDescription>{METHOD_META[method].blurb}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <MethodInputs
+                method={method}
+                vdotInput={vdotInput}
+                setVdotInput={setVdotInput}
+                raceDistanceKm={raceDistanceKm}
+                setRaceDistanceKm={setRaceDistanceKm}
+                raceTimeInput={raceTimeInput}
+                setRaceTimeInput={setRaceTimeInput}
+                thresholdPaceInput={thresholdPaceInput}
+                setThresholdPaceInput={setThresholdPaceInput}
+                csD1={csD1}
+                setCsD1={setCsD1}
+                csT1={csT1}
+                setCsT1={setCsT1}
+                csD2={csD2}
+                setCsD2={setCsD2}
+                csT2={csT2}
+                setCsT2={setCsT2}
+                masInput={masInput}
+                setMasInput={setMasInput}
+                restingHrInput={restingHrInput}
+                setRestingHrInput={setRestingHrInput}
+                maxHrInput={maxHrInput}
+                setMaxHrInput={setMaxHrInput}
+                thresholdHrInput={thresholdHrInput}
+                setThresholdHrInput={setThresholdHrInput}
+              />
+
+              {result && (
+                <div className="rounded-md border bg-accent/20 px-3 py-2 text-sm">
+                  <span className="text-muted-foreground">Anchor: </span>
+                  <span className="font-semibold tabular-nums">
+                    {result.basis === "pace" ? `${paceFmt(result.thresholdPace)} threshold pace` : `${result.thresholdHr} bpm threshold HR`}
+                  </span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between pt-2">
+                <Button variant="ghost" size="sm" onClick={() => setStep(1)}>
+                  <ChevronLeft className="h-4 w-4 mr-1" /> Change method
+                </Button>
+                <Button size="sm" onClick={() => setStep(3)} disabled={!result}>
+                  See zones <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ---- Step 3: zones + save + compare ---- */}
+        {step === 3 && method && (
+          <>
+            {!result ? (
+              <Card>
+                <CardContent className="py-6 text-sm text-muted-foreground text-center">
+                  Enter valid inputs on the previous step to see calculated zones.
+                </CardContent>
+              </Card>
+            ) : (
+              <Card>
+                <CardHeader className="flex flex-row items-start justify-between gap-2 flex-wrap">
+                  <div>
+                    <CardTitle className="text-base">Calculated zones — {METHOD_META[method].label}</CardTitle>
+                    <CardDescription>
+                      {result.basis === "pace" ? "Pace range" : "Heart rate range"} for each zone, from a{" "}
+                      {result.basis === "pace" ? paceFmt(result.thresholdPace) : `${result.thresholdHr} bpm`} threshold.
+                    </CardDescription>
+                  </div>
+                  <Button size="sm" variant="outline" onClick={addToCompare}>
+                    <Scale className="h-3.5 w-3.5 mr-1" /> Add to comparison
+                  </Button>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="divide-y">
+                    {result.zones.map((z) => (
+                      <div key={z.key} className="flex items-center justify-between px-4 py-2 text-sm">
+                        <span className="font-medium">{z.name}</span>
+                        <span className="tabular-nums text-muted-foreground">
+                          {result.basis === "pace"
+                            ? `${paceFmt(z.low)} – ${z.high != null ? paceFmt(z.high) : "open"}`
+                            : `${z.low}${z.high != null ? ` – ${z.high}` : "+"} bpm`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {result && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Save</CardTitle>
+                  <CardDescription>
+                    {athleteId
+                      ? "Active Zones updates this athlete's real Zone Boundaries immediately — everything else on their profile that reads zones (Analytics, session classification) picks it up right away."
+                      : "Pick an athlete above before saving."}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-wrap gap-2">
+                  <Button onClick={saveActive} disabled={!athleteId || saving === "active"}>
+                    <Save className="h-4 w-4 mr-1" /> {saving === "active" ? "Saving…" : "Save as Active Zones"}
+                  </Button>
+                  <Button variant="outline" onClick={() => setSecondaryDialogOpen(true)} disabled={!athleteId}>
+                    Save as Secondary Profile
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setMethod(null);
+                      setStep(1);
+                    }}
+                  >
+                    <X className="h-4 w-4 mr-1" /> Cancel
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+
+            <div className="flex items-center justify-between">
+              <Button variant="ghost" size="sm" onClick={() => setStep(2)}>
+                <ChevronLeft className="h-4 w-4 mr-1" /> Back to inputs
+              </Button>
+            </div>
+          </>
+        )}
+
+        {/* ---- Comparison table ---- */}
+        {compareList.length > 0 && (
+          <Card>
+            <CardHeader className="flex flex-row items-start justify-between gap-2">
+              <div>
+                <CardTitle className="text-base">Compare methods</CardTitle>
+                <CardDescription>Up to 3 side by side — differences beyond 5% of the row's own range are highlighted.</CardDescription>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setCompareList([])}>
+                Clear
+              </Button>
+            </CardHeader>
+            <CardContent className="p-0 overflow-x-auto">
+              <ComparisonTable entries={compareList} onRemove={(id) => setCompareList((l) => l.filter((e) => e.id !== id))} />
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ---- Saved calculations (secondary profile saves) ---- */}
+        {athleteId && (savedResults?.length ?? 0) > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Saved calculations</CardTitle>
+              <CardDescription>Kept for reference — none of these are this athlete's active zones unless also saved as Active Zones above.</CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="divide-y">
+                {(savedResults ?? []).map((s) => (
+                  <div key={s.id} className="flex items-center justify-between gap-3 px-4 py-2 text-sm">
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{s.label}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {METHOD_META[s.method as ZoneMethod]?.label ?? s.method} ·{" "}
+                        {s.basis === "pace" ? paceFmt(s.threshold_pace_sec_per_km) : `${s.threshold_hr_bpm} bpm`} ·{" "}
+                        {new Date(s.created_at).toLocaleDateString()}
+                      </div>
+                    </div>
+                    <button type="button" onClick={() => deleteSaved(s.id)} className="text-muted-foreground hover:text-destructive shrink-0" aria-label="Delete saved calculation">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        <p className="text-xs text-muted-foreground">
+          These are preview estimates for comparing methods against each other. The zone boundaries that actually
+          apply once saved are computed by the same engine Zone Boundaries already uses for a manually-entered
+          threshold — this calculator's job is choosing a good threshold, not replacing that engine.
+        </p>
+      </div>
+
+      <Dialog open={secondaryDialogOpen} onOpenChange={setSecondaryDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save for reference</DialogTitle>
+            <DialogDescription>Doesn't change this athlete's active zones — just keeps this calculation for later.</DialogDescription>
+          </DialogHeader>
+          <div>
+            <Label className="text-xs">Label</Label>
+            <Input
+              value={secondaryLabel}
+              onChange={(e) => setSecondaryLabel(e.target.value)}
+              placeholder={method ? `${METHOD_META[method].label} — ${new Date().toLocaleDateString()}` : ""}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSecondaryDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={saveSecondary} disabled={saving === "secondary"}>
+              {saving === "secondary" ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </AppShell>
+  );
 }
 
 // ---------------------------------------------------------------------
-// Method-specific anchor calculations
+// Step 2 inputs — one component, switches on method internally so the
+// parent stays a flat prop bucket rather than 8 near-identical siblings.
+// Future methods only need a new case here, nothing else in the file
+// changes shape — the method-select grid, the live-preview calc, the
+// save flow, and comparison mode are all already method-agnostic.
 // ---------------------------------------------------------------------
-
-// Daniels & Gilbert (1979) published VO2/velocity/%VO2max equations —
-// the standard formulas VDOT calculators are built on, not a
-// reproduction of Daniels' own proprietary lookup tables. Threshold
-// ("T") pace is anchored at 86% VO2max, the midpoint of Daniels' cited
-// 83-88% T-pace intensity range.
-const T_PACE_PCT_VO2MAX = 0.86;
-
-export function paceFromVdot(vdot: number): number | null {
-  if (!Number.isFinite(vdot) || vdot <= 0) return null;
-  const vo2Target = vdot * T_PACE_PCT_VO2MAX;
-  // Solve 0.000104*v^2 + 0.182258*v - (4.60 + vo2Target) = 0 for v (m/min).
-  const a = 0.000104;
-  const b = 0.182258;
-  const c = -(4.6 + vo2Target);
-  const v = (-b + Math.sqrt(b * b - 4 * a * c)) / (2 * a);
-  if (!Number.isFinite(v) || v <= 0) return null;
-  return (1000 / v) * 60; // sec/km
+function MethodInputs(props: {
+  method: ZoneMethod;
+  vdotInput: string;
+  setVdotInput: (v: string) => void;
+  raceDistanceKm: string;
+  setRaceDistanceKm: (v: string) => void;
+  raceTimeInput: string;
+  setRaceTimeInput: (v: string) => void;
+  thresholdPaceInput: string;
+  setThresholdPaceInput: (v: string) => void;
+  csD1: string;
+  setCsD1: (v: string) => void;
+  csT1: string;
+  setCsT1: (v: string) => void;
+  csD2: string;
+  setCsD2: (v: string) => void;
+  csT2: string;
+  setCsT2: (v: string) => void;
+  masInput: string;
+  setMasInput: (v: string) => void;
+  restingHrInput: string;
+  setRestingHrInput: (v: string) => void;
+  maxHrInput: string;
+  setMaxHrInput: (v: string) => void;
+  thresholdHrInput: string;
+  setThresholdHrInput: (v: string) => void;
+}) {
+  switch (props.method) {
+    case "daniels_vdot":
+      return (
+        <div>
+          <Label className="text-xs">VDOT</Label>
+          <Input type="number" step="0.1" value={props.vdotInput} onChange={(e) => props.setVdotInput(e.target.value)} />
+        </div>
+      );
+    case "recent_race":
+      return (
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div>
+            <Label className="text-xs">Distance (km)</Label>
+            <Input type="number" step="0.01" value={props.raceDistanceKm} onChange={(e) => props.setRaceDistanceKm(e.target.value)} />
+          </div>
+          <div>
+            <Label className="text-xs">Finish time (mm:ss or h:mm:ss)</Label>
+            <Input value={props.raceTimeInput} onChange={(e) => props.setRaceTimeInput(e.target.value)} placeholder="20:00" />
+          </div>
+        </div>
+      );
+    case "threshold_pace":
+      return (
+        <div>
+          <Label className="text-xs">Threshold pace (mm:ss per km)</Label>
+          <Input value={props.thresholdPaceInput} onChange={(e) => props.setThresholdPaceInput(e.target.value)} placeholder="4:00" />
+        </div>
+      );
+    case "critical_speed":
+      return (
+        <div className="space-y-3">
+          <p className="text-xs text-muted-foreground">Two recent all-out efforts of clearly different lengths — e.g. a 3-4 minute effort and a 10-12 minute effort.</p>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs">Trial 1 — distance (km)</Label>
+              <Input type="number" step="0.01" value={props.csD1} onChange={(e) => props.setCsD1(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs">Trial 1 — time</Label>
+              <Input value={props.csT1} onChange={(e) => props.setCsT1(e.target.value)} placeholder="4:00" />
+            </div>
+            <div>
+              <Label className="text-xs">Trial 2 — distance (km)</Label>
+              <Input type="number" step="0.01" value={props.csD2} onChange={(e) => props.setCsD2(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs">Trial 2 — time</Label>
+              <Input value={props.csT2} onChange={(e) => props.setCsT2(e.target.value)} placeholder="11:00" />
+            </div>
+          </div>
+        </div>
+      );
+    case "mas":
+      return (
+        <div>
+          <Label className="text-xs">MAS speed (km/h)</Label>
+          <Input type="number" step="0.1" value={props.masInput} onChange={(e) => props.setMasInput(e.target.value)} />
+        </div>
+      );
+    case "karvonen":
+      return (
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div>
+            <Label className="text-xs">Resting HR (bpm)</Label>
+            <Input type="number" value={props.restingHrInput} onChange={(e) => props.setRestingHrInput(e.target.value)} />
+          </div>
+          <div>
+            <Label className="text-xs">Max HR (bpm)</Label>
+            <Input type="number" value={props.maxHrInput} onChange={(e) => props.setMaxHrInput(e.target.value)} />
+          </div>
+        </div>
+      );
+    case "threshold_hr":
+      return (
+        <div>
+          <Label className="text-xs">Threshold heart rate (bpm)</Label>
+          <Input type="number" value={props.thresholdHrInput} onChange={(e) => props.setThresholdHrInput(e.target.value)} />
+        </div>
+      );
+    case "pct_max_hr":
+      return (
+        <div>
+          <Label className="text-xs">Max HR (bpm)</Label>
+          <Input type="number" value={props.maxHrInput} onChange={(e) => props.setMaxHrInput(e.target.value)} />
+        </div>
+      );
+  }
 }
 
-export function paceFromRecentRace(distanceKm: number, timeSec: number): number | null {
-  if (!Number.isFinite(distanceKm) || distanceKm <= 0 || !Number.isFinite(timeSec) || timeSec <= 0) return null;
-  // Same ~15-16K "threshold effort" anchor the Pace Predictor calculator
-  // already uses for its own Threshold/Tempo training pace.
-  return predictPaceAt(timeSec, distanceKm, 16);
-}
+// ---------------------------------------------------------------------
+// Comparison table
+// ---------------------------------------------------------------------
+const ZONE_ORDER = ["recovery", "endurance", "tempo", "threshold", "vo2max", "anaerobic"];
 
-export function paceFromCriticalSpeedTest(d1: number, t1: number, d2: number, t2: number): number | null {
-  if (![d1, t1, d2, t2].every((n) => Number.isFinite(n) && n > 0)) return null;
-  if (d1 === d2 || t1 === t2) return null;
-  // Orders the two trials by distance so the subtraction is always
-  // (longer − shorter), regardless of which one was entered first.
-  const [shortD, shortT, longD, longT] = d1 < d2 ? [d1, t1, d2, t2] : [d2, t2, d1, t1];
-  const csMetersPerSec = ((longD - shortD) * 1000) / (longT - shortT);
-  if (!Number.isFinite(csMetersPerSec) || csMetersPerSec <= 0) return null;
-  // Critical Speed sits very close to, and is commonly used directly as,
-  // a real-world proxy for sustainable lactate-threshold pace.
-  return 1000 / csMetersPerSec;
-}
+function ComparisonTable({ entries, onRemove }: { entries: CompareEntry[]; onRemove: (id: string) => void }) {
+  return (
+    <table className="w-full text-sm">
+      <thead>
+        <tr className="text-xs text-muted-foreground text-left border-b">
+          <th className="py-2 px-4">Zone</th>
+          {entries.map((e) => (
+            <th key={e.id} className="py-2 px-4">
+              <div className="flex items-center gap-1.5">
+                {METHOD_META[e.method].label}
+                <button type="button" onClick={() => onRemove(e.id)} className="text-muted-foreground hover:text-destructive" aria-label="Remove from comparison">
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {ZONE_ORDER.map((zoneKey) => {
+          const cells = entries.map((e) => e.result.zones.find((z) => z.key === zoneKey) ?? null);
+          // Highlights a row when methods disagree meaningfully — compares
+          // each entry's low bound as a fraction of its own threshold, so
+          // pace (smaller = faster) and HR (larger = harder) both compare
+          // sensibly on the same 5%-spread rule.
+          const lows = entries.map((e, i) => {
+            const anchor = e.result.basis === "pace" ? e.result.thresholdPace : e.result.thresholdHr;
+            const cell = cells[i];
+            return anchor && cell ? cell.low / anchor : null;
+          }).filter((n): n is number => n != null);
+          const spread = lows.length > 1 ? Math.max(...lows) - Math.min(...lows) : 0;
+          const disagreement = spread > 0.05;
 
-export function paceFromMas(masKmh: number): number | null {
-  if (!Number.isFinite(masKmh) || masKmh <= 0) return null;
-  const masPaceSecPerKm = 3600 / masKmh;
-  // MAS (≈vVO2max) is a harder/faster intensity than threshold —
-  // threshold pace is slower, so divide by a sub-1.0 factor to lengthen
-  // the per-km time.
-  return masPaceSecPerKm / 0.86;
-}
-
-export function hrFromKarvonen(restingHr: number, maxHr: number): number | null {
-  if (!Number.isFinite(restingHr) || !Number.isFinite(maxHr) || maxHr <= restingHr) return null;
-  const hrr = maxHr - restingHr;
-  // 85% HRR is a commonly-cited threshold-equivalent intensity in
-  // Karvonen-based models — anchors Karvonen onto the same
-  // threshold-based band system every other HR method uses, so it stays
-  // comparable in the side-by-side table.
-  return Math.round(restingHr + 0.85 * hrr);
-}
-
-export function hrFromPctMaxHr(maxHr: number): number | null {
-  if (!Number.isFinite(maxHr) || maxHr <= 0) return null;
-  // Commonly cited: lactate threshold sits ~85-90% of HRmax for trained
-  // runners — 88% used as a single representative point.
-  return Math.round(maxHr * 0.88);
+          return (
+            <tr key={zoneKey} className={`border-b last:border-b-0 ${disagreement ? "bg-amber-500/10" : ""}`}>
+              <td className="py-2 px-4 font-medium">{entries[0]?.result.zones.find((z) => z.key === zoneKey)?.name ?? zoneKey}</td>
+              {entries.map((e, i) => {
+                const cell = cells[i];
+                if (!cell) return <td key={e.id} className="py-2 px-4 text-muted-foreground">—</td>;
+                return (
+                  <td key={e.id} className="py-2 px-4 tabular-nums">
+                    {e.result.basis === "pace"
+                      ? `${paceFmt(cell.low)} – ${cell.high != null ? paceFmt(cell.high) : "open"}`
+                      : `${cell.low}${cell.high != null ? ` – ${cell.high}` : "+"} bpm`}
+                  </td>
+                );
+              })}
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
 }
