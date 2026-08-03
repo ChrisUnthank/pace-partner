@@ -28,8 +28,9 @@ const CALCULATORS = [
   },
   {
     to: "/app/calculators/pacepredictor",
-    title: "Pace / Race Predictor",
-    description: "Convert a recent race time into equivalent times at other distances, plus training paces.",
+    title: "Performance Predictor",
+    description:
+      "Predict times across distances from a recent race, adjusted for the athlete's actual speed/endurance profile — not the same flat formula for every athlete.",
     icon: Timer,
     available: true,
   },
