@@ -18,7 +18,8 @@ import {
 import { toast } from "sonner";
 import { secToClock, clockToSec, paceFmt, metersFmt } from "@/lib/format";
 import { bulkRecomputeSessionClassification } from "@/lib/session-files.functions";
-import { RefreshCw, Loader2 } from "lucide-react";
+import { RefreshCw, Loader2, Calculator } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 
 // ----------------------------------------------------------------------------
 // Small inline-edit primitives. Hoisted to module scope (not defined inside
@@ -436,6 +437,13 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
           <CardTitle>Zone boundaries</CardTitle>
           <CardDescription>No zone profile yet — set HR max and log a 5K PB.</CardDescription>
         </CardHeader>
+        <CardContent>
+          <Button asChild size="sm" variant="outline">
+            <Link to="/app/calculators/zonecalculator" search={{ athleteId }}>
+              <Calculator className="h-3.5 w-3.5 mr-1.5" /> Try the Zone Calculator
+            </Link>
+          </Button>
+        </CardContent>
       </Card>
     );
   }
@@ -460,13 +468,20 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Zone boundaries</CardTitle>
-        <CardDescription>
-          One threshold value drives each set of zones. Choose Auto, Manual, or Test for how each was determined —
-          click any number to edit it directly. Both HR and pace stay visible here regardless of which one is
-          actually applied for classification (set below).
-        </CardDescription>
+      <CardHeader className="flex flex-row items-start justify-between gap-2">
+        <div>
+          <CardTitle>Zone boundaries</CardTitle>
+          <CardDescription>
+            One threshold value drives each set of zones. Choose Auto, Manual, or Test for how each was determined —
+            click any number to edit it directly. Both HR and pace stay visible here regardless of which one is
+            actually applied for classification (set below).
+          </CardDescription>
+        </div>
+        <Button asChild size="sm" variant="outline" className="shrink-0">
+          <Link to="/app/calculators/zonecalculator" search={{ athleteId }}>
+            <Calculator className="h-3.5 w-3.5 mr-1.5" /> Zone Calculator
+          </Link>
+        </Button>
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="rounded-md border border-border bg-card/40 p-3 flex items-center justify-between gap-3">
