@@ -241,7 +241,7 @@ function RaceTacticsDetail() {
 
   return (
     <AppShell>
-      <div className="space-y-4 max-w-3xl">
+      <div className="space-y-6">
         {isCoach ? (
           <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
             <Link to="/app/athletes" className="hover:text-foreground">
@@ -323,143 +323,163 @@ function RaceTacticsDetail() {
           </div>
         </div>
 
-        <RaceDetailsCard
-          plan={plan}
-          canEdit={!!canEdit}
-          hasManualSplitEdits={splits.some((s) => s.is_edited)}
-          avgPace={avgPace}
-          avgSpeed={avgSpeed}
-          onSave={saveRaceDetails}
-        />
+        {/* PLAN — the pace strategy itself: what's being built/edited most
+            often, pre-race. Wider main column. */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-4">
+            <RaceDetailsCard
+              plan={plan}
+              canEdit={!!canEdit}
+              hasManualSplitEdits={splits.some((s) => s.is_edited)}
+              avgPace={avgPace}
+              avgSpeed={avgSpeed}
+              onSave={saveRaceDetails}
+            />
 
-        <AthleteContextCard
-          athleteId={plan.athlete_id}
-          raceDistanceM={plan.race_distance_m}
-          goalTimeSeconds={goalTime}
-          currentStrategy={plan.strategy}
-          canEdit={!!canEdit}
-          onApplyStrategy={changeStrategy}
-        />
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Strategy</CardTitle>
+                <CardDescription>Shapes how pace is distributed across the race, not just the total time.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {canEdit ? (
+                  <Select value={plan.strategy} onValueChange={(v) => changeStrategy(v as Strategy)}>
+                    <SelectTrigger className="w-64">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STRATEGY_OPTIONS.map((o) => (
+                        <SelectItem key={o.value} value={o.value}>
+                          {o.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Badge variant="outline">{STRATEGY_OPTIONS.find((o) => o.value === plan.strategy)?.label ?? plan.strategy}</Badge>
+                )}
+                <p className="text-xs text-muted-foreground">{STRATEGY_OPTIONS.find((o) => o.value === plan.strategy)?.description}</p>
+                {canEdit && splits.some((s) => s.is_edited) && (
+                  <p className="text-xs text-amber-600">Changing strategy regenerates every split and discards your manual edits above.</p>
+                )}
+              </CardContent>
+            </Card>
 
-        <AiStrategySuggestionCard planId={planId} onApplyStrategy={changeStrategy} />
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Pace plan</CardTitle>
+                <CardDescription>Planned pace at each split against the flat goal pace — the shape is the strategy.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart
+                      data={splits.map((s) => ({
+                        label: `${s.cumulative_distance_m}m`,
+                        plannedPace: (s.segment_time_seconds / s.distance_m) * 1000,
+                        goalPace: avgPace,
+                      }))}
+                      margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                      <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                      <YAxis reversed tickFormatter={(v) => secToClock(v)} tick={{ fontSize: 11 }} width={55} />
+                      <Tooltip formatter={(value: number) => paceFmt(value)} />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Line type="monotone" dataKey="plannedPace" name="Planned pace" stroke="#2563eb" strokeWidth={2} dot={{ r: 3 }} />
+                      <Line type="monotone" dataKey="goalPace" name="Goal pace (flat)" stroke="#94a3b8" strokeDasharray="4 4" strokeWidth={1.5} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Strategy</CardTitle>
-            <CardDescription>Shapes how pace is distributed across the race, not just the total time.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {canEdit ? (
-              <Select value={plan.strategy} onValueChange={(v) => changeStrategy(v as Strategy)}>
-                <SelectTrigger className="w-64">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {STRATEGY_OPTIONS.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.label}
-                    </SelectItem>
+            <Card>
+              <CardHeader className="flex flex-row items-start justify-between gap-2">
+                <div>
+                  <CardTitle className="text-base">Splits</CardTitle>
+                  <CardDescription>
+                    Click a split time to edit it — the remaining splits recalculate automatically to keep the goal time
+                    exact.
+                  </CardDescription>
+                </div>
+                {canEdit && (
+                  <Button size="sm" variant="ghost" onClick={resetAllSplits}>
+                    <RotateCcw className="h-4 w-4 mr-1" />
+                    Reset all to {STRATEGY_OPTIONS.find((o) => o.value === plan.strategy)?.label ?? "strategy"}
+                  </Button>
+                )}
+              </CardHeader>
+              <CardContent className="p-0">
+                {overBudget && (
+                  <div className="flex items-center gap-2 px-4 py-2 text-sm bg-rose-50 text-rose-700 border-b border-rose-200">
+                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                    Edited splits already add up to more than the goal time — remaining splits are floored at 0s until an
+                    edited split is loosened or reset.
+                  </div>
+                )}
+                <div className="divide-y">
+                  {splits.map((s, i) => (
+                    <SplitRowView
+                      key={i}
+                      split={s}
+                      canEdit={!!canEdit}
+                      onEdit={(t) => editSplit(i, t)}
+                      onReset={() => resetSplit(i)}
+                    />
                   ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <Badge variant="outline">{STRATEGY_OPTIONS.find((o) => o.value === plan.strategy)?.label ?? plan.strategy}</Badge>
-            )}
-            <p className="text-xs text-muted-foreground">{STRATEGY_OPTIONS.find((o) => o.value === plan.strategy)?.description}</p>
-            {canEdit && splits.some((s) => s.is_edited) && (
-              <p className="text-xs text-amber-600">Changing strategy regenerates every split and discards your manual edits above.</p>
-            )}
-          </CardContent>
-        </Card>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Pace plan</CardTitle>
-            <CardDescription>Planned pace at each split against the flat goal pace — the shape is the strategy.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart
-                  data={splits.map((s) => ({
-                    label: `${s.cumulative_distance_m}m`,
-                    plannedPace: (s.segment_time_seconds / s.distance_m) * 1000,
-                    goalPace: avgPace,
-                  }))}
-                  margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                  <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                  <YAxis reversed tickFormatter={(v) => secToClock(v)} tick={{ fontSize: 11 }} width={55} />
-                  <Tooltip formatter={(value: number) => paceFmt(value)} />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Line type="monotone" dataKey="plannedPace" name="Planned pace" stroke="#2563eb" strokeWidth={2} dot={{ r: 3 }} />
-                  <Line type="monotone" dataKey="goalPace" name="Goal pace (flat)" stroke="#94a3b8" strokeDasharray="4 4" strokeWidth={1.5} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
+          {/* CONTEXT & TACTICS — supporting information that informs the
+              plan (recent form, AI suggestion, course-specific tactics,
+              decision points), kept alongside the plan rather than mixed
+              into its main flow. Narrower side column. */}
+          <div className="space-y-4">
+            <AthleteContextCard
+              athleteId={plan.athlete_id}
+              raceDistanceM={plan.race_distance_m}
+              goalTimeSeconds={goalTime}
+              currentStrategy={plan.strategy}
+              canEdit={!!canEdit}
+              onApplyStrategy={changeStrategy}
+            />
 
-        <Card>
-          <CardHeader className="flex flex-row items-start justify-between gap-2">
-            <div>
-              <CardTitle className="text-base">Splits</CardTitle>
-              <CardDescription>
-                Click a split time to edit it — the remaining splits recalculate automatically to keep the goal time
-                exact.
-              </CardDescription>
-            </div>
-            {canEdit && (
-              <Button size="sm" variant="ghost" onClick={resetAllSplits}>
-                <RotateCcw className="h-4 w-4 mr-1" />
-                Reset all to {STRATEGY_OPTIONS.find((o) => o.value === plan.strategy)?.label ?? "strategy"}
-              </Button>
-            )}
-          </CardHeader>
-          <CardContent className="p-0">
-            {overBudget && (
-              <div className="flex items-center gap-2 px-4 py-2 text-sm bg-rose-50 text-rose-700 border-b border-rose-200">
-                <AlertTriangle className="h-4 w-4 shrink-0" />
-                Edited splits already add up to more than the goal time — remaining splits are floored at 0s until an
-                edited split is loosened or reset.
-              </div>
-            )}
-            <div className="divide-y">
-              {splits.map((s, i) => (
-                <SplitRowView
-                  key={i}
-                  split={s}
-                  canEdit={!!canEdit}
-                  onEdit={(t) => editSplit(i, t)}
-                  onReset={() => resetSplit(i)}
-                />
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+            <AiStrategySuggestionCard planId={planId} onApplyStrategy={changeStrategy} />
 
-        <EventTacticsCard
-          planId={planId}
-          raceDistanceM={plan.race_distance_m}
-          raceType={plan.race_type}
-          eventTactics={plan.event_tactics}
-          canEdit={!!canEdit}
-        />
+            <EventTacticsCard
+              planId={planId}
+              raceDistanceM={plan.race_distance_m}
+              raceType={plan.race_type}
+              eventTactics={plan.event_tactics}
+              canEdit={!!canEdit}
+            />
 
-        <TacticalDecisionPointsCard planId={planId} raceDistanceM={plan.race_distance_m} canEdit={!!canEdit} />
+            <TacticalDecisionPointsCard planId={planId} raceDistanceM={plan.race_distance_m} canEdit={!!canEdit} />
+          </div>
+        </div>
 
+        {/* POST-RACE — its own zone: a completely different phase of the
+            race's lifecycle to everything above, so it reads as its own
+            section rather than just another card in the same scroll. */}
         <PostRaceAnalysisCard planId={planId} athleteId={plan.athlete_id} plan={plan} plannedSplits={splits} />
 
-        <CollaborationCard
-          planId={planId}
-          athleteId={plan.athlete_id}
-          publishedAt={plan.published_at}
-          athleteIntentions={plan.athlete_intentions}
-          canEdit={!!canEdit}
-        />
+        {/* META — collaboration/publishing and private notes. Used far
+            less often than the plan itself day-to-day, so grouped
+            together at the bottom rather than interleaved above. */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <CollaborationCard
+            planId={planId}
+            athleteId={plan.athlete_id}
+            publishedAt={plan.published_at}
+            athleteIntentions={plan.athlete_intentions}
+            canEdit={!!canEdit}
+          />
 
-        <PrivateNotesCard planId={planId} />
+          <PrivateNotesCard planId={planId} />
+        </div>
       </div>
     </AppShell>
   );
