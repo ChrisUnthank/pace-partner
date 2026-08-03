@@ -27,6 +27,7 @@ import {
   AthleteTodayWidget,
   AthleteAttentionWidget,
   AthleteNextSessionWidget,
+  AthleteLatestSessionWidget,
   AthleteQuickTilesWidget,
   AthleteRecentNoticesWidget,
   AthleteAiCoachWidget,
@@ -135,6 +136,8 @@ function AppHome() {
         return athlete ? <AthleteAttentionWidget athleteId={athlete.id} /> : null;
       case "athlete_next_session":
         return athlete ? <AthleteNextSessionWidget athleteId={athlete.id} /> : null;
+      case "athlete_latest_session":
+        return athlete ? <AthleteLatestSessionWidget athleteId={athlete.id} /> : null;
       case "athlete_quick_tiles":
         return <AthleteQuickTilesWidget />;
       case "athlete_recent_notices":
