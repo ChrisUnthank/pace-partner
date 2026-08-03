@@ -1,12 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuthUser, useMyRoles, useMyRawRoles, useMyAthlete } from "@/lib/use-auth";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { ChevronLeft, Timer, Star, ChevronDown } from "lucide-react";
+import { CoachAthletePicker } from "@/components/coach-athlete-picker";
+import { ChevronLeft, Timer, Star, ChevronDown, Trophy } from "lucide-react";
 import { clockToSec, secToClock, paceFmt } from "@/lib/format";
 import { REFERENCE_DISTANCES } from "@/lib/race-predict";
 import {
@@ -16,6 +20,7 @@ import {
   CONFIDENCE_META,
   type AthleteProfile,
   type DistancePrediction,
+  type PbPoint,
 } from "@/lib/performance-predictor";
 
 export const Route = createFileRoute("/_authenticated/app/calculators/pacepredictor")({
@@ -35,6 +40,59 @@ function ConfidenceStars({ tier }: { tier: 1 | 2 | 3 | 4 | 5 }) {
 }
 
 function PerformancePredictorPage() {
+  const { user } = useAuthUser();
+  const { data: roles = [] } = useMyRoles();
+  const { data: rawRoles = [] } = useMyRawRoles();
+  const { data: myAthlete } = useMyAthlete();
+  const isCoach = roles.includes("coach");
+  const isManager = rawRoles.includes("manager");
+
+  const { data: roster } = useQuery({
+    queryKey: ["perf-predictor-roster", user?.id, isManager],
+    enabled: !!user && isCoach,
+    queryFn: async () => {
+      if (isManager) {
+        const { data } = await supabase.from("athletes").select("id, name, profile_image_url").order("name");
+        return data ?? [];
+      }
+      const { data } = await supabase
+        .from("coach_athletes")
+        .select("athletes(id, name, profile_image_url)")
+        .eq("coach_user_id", user!.id);
+      return (data ?? []).map((r: any) => r.athletes).filter(Boolean);
+    },
+  });
+
+  const [athleteId, setAthleteId] = useState<string>(myAthlete?.id ?? "");
+  useEffect(() => {
+    if (!athleteId && !isCoach && myAthlete?.id) setAthleteId(myAthlete.id);
+  }, [isCoach, myAthlete, athleteId]);
+
+  // Every distance this athlete has an official PB at — is_pb is the
+  // app's own already-computed, always-current best-per-distance flag
+  // (see the PB system's recompute trigger), not a separate calculation
+  // here. This is "all PBs in the app" for this athlete, exactly as
+  // asked, not a re-derivation of what counts as a best.
+  const { data: pbRows } = useQuery({
+    queryKey: ["perf-predictor-pbs", athleteId],
+    enabled: !!athleteId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("performances")
+        .select("distance_m, time_seconds, event_name, performance_date")
+        .eq("athlete_id", athleteId)
+        .eq("is_pb", true)
+        .not("time_seconds", "is", null)
+        .order("distance_m");
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+  const pbs: PbPoint[] = useMemo(
+    () => (pbRows ?? []).map((r) => ({ distanceKm: Number(r.distance_m) / 1000, timeSec: Number(r.time_seconds) })),
+    [pbRows],
+  );
+
   const [distanceKey, setDistanceKey] = useState<string>("5k");
   const [customKm, setCustomKm] = useState<string>("10");
   const [timeInput, setTimeInput] = useState<string>("22:00");
@@ -76,11 +134,12 @@ function PerformancePredictorPage() {
       profile,
       weeklyVolumeKm: weeklyVolume.trim() ? Number(weeklyVolume) : null,
       trainingAgeYears: trainingAge.trim() ? Number(trainingAge) : null,
+      pbs,
     };
     return REFERENCE_DISTANCES.map((ref) => predictAtDistance(input, ref.label, ref.km)).filter(
       (p): p is DistancePrediction => p != null,
     );
-  }, [distanceKm, timeSec, primaryEventKm, profile, weeklyVolume, trainingAge]);
+  }, [distanceKm, timeSec, primaryEventKm, profile, weeklyVolume, trainingAge, pbs]);
 
   const shown = predictions?.filter((p) => p.tier >= 3) ?? [];
   const collapsed = predictions?.filter((p) => p.tier < 3) ?? [];
@@ -118,17 +177,22 @@ function PerformancePredictorPage() {
           >
             <ChevronLeft className="h-3.5 w-3.5" /> Calculators
           </Link>
-          <div className="flex items-center gap-3 mt-1">
-            <div
-              className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
-              style={{ background: "var(--accent-red)" }}
-            >
-              <Timer className="h-5 w-5 text-white" strokeWidth={2} />
+          <div className="flex items-center justify-between gap-3 mt-1 flex-wrap">
+            <div className="flex items-center gap-3">
+              <div
+                className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+                style={{ background: "var(--accent-red)" }}
+              >
+                <Timer className="h-5 w-5 text-white" strokeWidth={2} />
+              </div>
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Metrics</div>
+                <h1 className="text-2xl font-bold leading-tight">Performance Predictor</h1>
+              </div>
             </div>
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Metrics</div>
-              <h1 className="text-2xl font-bold leading-tight">Performance Predictor</h1>
-            </div>
+            {isCoach && (
+              <CoachAthletePicker roster={roster ?? []} myAthlete={myAthlete} value={athleteId} onChange={setAthleteId} />
+            )}
           </div>
           <p className="text-sm text-muted-foreground mt-2">
             A recent race, read through this athlete's actual event specialty — not the same flat formula assuming
@@ -247,6 +311,14 @@ function PerformancePredictorPage() {
                 <CardDescription>
                   Predictions are strongest around your primary event. Longer- and shorter-distance predictions
                   become less reliable unless supported by specific training.
+                  {athleteId && pbs.length > 0 && (
+                    <span className="flex items-center gap-1.5 mt-1.5 text-emerald-600">
+                      <Trophy className="h-3.5 w-3.5" /> Grounded against {pbs.length} real PB{pbs.length === 1 ? "" : "s"} for this athlete.
+                    </span>
+                  )}
+                  {athleteId && pbs.length === 0 && (
+                    <span className="block mt-1.5 text-muted-foreground">No PBs on file for this athlete yet — predictions are based on the recent race and profile only.</span>
+                  )}
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-0">
@@ -302,6 +374,9 @@ function PerformancePredictorPage() {
               Predictions combine the standard Riegel formula with an exponent shaped by the declared athlete
               profile — a speed-biased profile fades faster over distance than a flat formula assumes, an
               endurance-biased one holds pace better, in both directions (projecting up AND down in distance).
+              {athleteId
+                ? " Where this athlete has a real PB near a distance, it's shown directly rather than estimated; where two PBs bracket a distance, the exponent is solved from those real results instead of the profile guess; and every prediction is checked against pace staying realistic relative to whatever PBs exist on either side."
+                : " Pick an athlete above to ground these against their actual PB history instead of the profile guess alone."}{" "}
               Weekly volume only nudges Half Marathon/Marathon-length predictions, where aerobic durability
               actually matters most. None of this replaces real training-specific evidence at an unfamiliar
               distance — a range and a confidence rating, not a guarantee.
@@ -318,8 +393,18 @@ function PredictionRow({ p }: { p: DistancePrediction }) {
   return (
     <div className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
       <div className="min-w-0">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="font-medium">{p.label}</span>
+          {p.isPb && (
+            <Badge className="text-[10px] bg-emerald-100 text-emerald-700 border-emerald-200">
+              <Trophy className="h-2.5 w-2.5 mr-1" /> Your PB
+            </Badge>
+          )}
+          {!p.isPb && p.groundedByPbs && (
+            <Badge variant="outline" className="text-[10px] text-emerald-600 border-emerald-300">
+              PB-grounded
+            </Badge>
+          )}
           {p.tier <= 2 && (
             <Badge variant="outline" className="text-[10px] text-muted-foreground">
               Lower confidence
@@ -327,16 +412,25 @@ function PredictionRow({ p }: { p: DistancePrediction }) {
           )}
         </div>
         <div className="flex items-center gap-1.5 mt-0.5">
-          <ConfidenceStars tier={p.tier} />
-          <span className="text-[11px] text-muted-foreground">{meta.label}</span>
+          {p.isPb ? (
+            <span className="text-[11px] text-muted-foreground">Actual result — not a projection</span>
+          ) : (
+            <>
+              <ConfidenceStars tier={p.tier} />
+              <span className="text-[11px] text-muted-foreground">{meta.label}</span>
+            </>
+          )}
         </div>
+        {p.clampNote && <div className="text-[10px] text-amber-600 mt-0.5">{p.clampNote}</div>}
       </div>
       <div className="text-right shrink-0">
         <div className="tabular-nums font-semibold">{secToClock(p.timeSec)}</div>
         <div className="tabular-nums text-xs text-muted-foreground">{paceFmt(p.paceSecPerKm)}</div>
-        <div className="tabular-nums text-[11px] text-muted-foreground">
-          {secToClock(p.lowSec)}–{secToClock(p.highSec)}
-        </div>
+        {!p.isPb && (
+          <div className="tabular-nums text-[11px] text-muted-foreground">
+            {secToClock(p.lowSec)}–{secToClock(p.highSec)}
+          </div>
+        )}
       </div>
     </div>
   );
