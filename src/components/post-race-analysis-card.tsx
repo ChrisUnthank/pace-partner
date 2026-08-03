@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyRoles, useMyAthlete } from "@/lib/use-auth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -7,11 +8,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { ClipboardCheck, Save } from "lucide-react";
+import { ClipboardCheck, Save, Link as LinkIcon, ExternalLink, Download } from "lucide-react";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 import { clockToSec, secToClock, paceFmt } from "@/lib/format";
-import { averagePaceSecPerKm, type SplitRow } from "@/lib/race-tactics-calc";
+import { averagePaceSecPerKm, interpolateActualSplitsFromGps, type SplitRow } from "@/lib/race-tactics-calc";
+import { reconstructTrack } from "@/lib/gps-reconstruction";
 
 // Phase 15 — Post-Race Analysis. Actual splits are entered against the
 // plan's own existing split checkpoints (same cumulative_distance_m
@@ -68,6 +71,119 @@ export function PostRaceAnalysisCard({
   const [athleteDraft, setAthleteDraft] = useState({ felt: "", different: "", learned: "" });
   const [editingCoach, setEditingCoach] = useState(false);
   const [editingAthlete, setEditingAthlete] = useState(false);
+
+  // Candidate sessions to link this plan to — the athlete's own race-day
+  // sessions (day_type = 'race', actually completed). Sorted so anything
+  // dated the same as the plan's race_date surfaces first, since that's
+  // overwhelmingly the one you want.
+  const { data: candidateSessions } = useQuery({
+    queryKey: ["race-session-candidates", athleteId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("sessions")
+        .select("id, title, session_date, total_distance_m, total_time_seconds")
+        .eq("athlete_id", athleteId)
+        .eq("day_type", "race")
+        .not("completed_at", "is", null)
+        .order("session_date", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+  const sortedCandidates = useMemo(() => {
+    return [...(candidateSessions ?? [])].sort((a, b) => {
+      const aMatch = a.session_date === plan.race_date ? 0 : 1;
+      const bMatch = b.session_date === plan.race_date ? 0 : 1;
+      return aMatch - bMatch;
+    });
+  }, [candidateSessions, plan.race_date]);
+
+  const [linkingOpen, setLinkingOpen] = useState(false);
+  const [pullingSplits, setPullingSplits] = useState(false);
+
+  async function linkSession(sessionId: string) {
+    const { error } = await supabase
+      .from("race_tactics_plans" as any)
+      .update({ linked_session_id: sessionId === "none" ? null : sessionId })
+      .eq("id", planId);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    setLinkingOpen(false);
+    toast.success(sessionId === "none" ? "Session unlinked" : "Linked to race session");
+    qc.invalidateQueries({ queryKey: ["race-tactics-plan", planId] });
+  }
+
+  // Pulls real actual splits straight from the linked session's GPS
+  // trace — same reconstruction pipeline (raw_session_points ->
+  // reconstructTrack) the session's own Race Analysis page uses, just
+  // interpolated at this plan's own checkpoint distances instead of a
+  // fixed increment, so the result lines up with the existing Planned
+  // vs Actual comparison below. Doesn't touch finishing_position or
+  // decision_point_notes — only the splits themselves.
+  async function pullSplitsFromSession() {
+    if (!plan.linked_session_id) return;
+    setPullingSplits(true);
+    try {
+      const PAGE_SIZE = 1000;
+      const all: any[] = [];
+      let from = 0;
+      while (true) {
+        const { data, error } = await supabase
+          .from("raw_session_points")
+          .select("elapsed_s, distance_m")
+          .eq("session_id", plan.linked_session_id)
+          .eq("segment_type", "work")
+          .order("elapsed_s")
+          .range(from, from + PAGE_SIZE - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
+
+      if (all.length < 2) {
+        toast.error("That session has no GPS trace to pull splits from — enter actual results manually instead.");
+        return;
+      }
+
+      const baseElapsed = Number(all[0].elapsed_s ?? 0);
+      const baseDistance = Number(all[0].distance_m ?? 0);
+      const rawPoints = all.map((p) => ({
+        elapsed_s: Number(p.elapsed_s ?? 0) - baseElapsed,
+        distance_m: p.distance_m != null ? Number(p.distance_m) - baseDistance : p.distance_m,
+      }));
+
+      const reconstruction = reconstructTrack(rawPoints, plan.race_distance_m);
+      const targets = plannedSplits.map((ps) => ps.cumulative_distance_m);
+      const pulled = interpolateActualSplitsFromGps(reconstruction.points, targets);
+
+      if (pulled.length === 0) {
+        toast.error("Couldn't match any checkpoint distances against that session's GPS trace.");
+        return;
+      }
+
+      const { error: saveError } = await supabase.from("race_tactics_post_race" as any).upsert(
+        {
+          plan_id: planId,
+          actual_splits: pulled as any,
+          updated_at: new Date().toISOString(),
+        } as any,
+        { onConflict: "plan_id" },
+      );
+      if (saveError) throw saveError;
+
+      toast.success(`Pulled ${pulled.length} of ${targets.length} checkpoint${targets.length === 1 ? "" : "s"} from the session's GPS data`);
+      qc.invalidateQueries({ queryKey: ["post-race-analysis", planId] });
+    } catch (err: any) {
+      toast.error(err?.message ?? "Couldn't pull splits from that session");
+    } finally {
+      setPullingSplits(false);
+    }
+  }
 
   const actualSplits: Array<{ cumulative_distance_m: number; cumulative_time_seconds: number }> = analysis?.actual_splits ?? [];
   const hasResults = actualSplits.length > 0;
@@ -214,13 +330,76 @@ export function PostRaceAnalysisCard({
             </CardTitle>
             <CardDescription>Planned vs actual, once the race has happened.</CardDescription>
           </div>
-          {canEditShared && !editingResults && (
-            <Button size="sm" variant="outline" onClick={startEditingResults}>
-              {hasResults ? "Edit results" : "Add actual results"}
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            {plan.linked_session_id && (
+              <Button asChild size="sm" variant="ghost">
+                <Link to="/app/sessions/$sessionId/analysis" params={{ sessionId: plan.linked_session_id }}>
+                  <ExternalLink className="h-3.5 w-3.5 mr-1" /> Race analysis
+                </Link>
+              </Button>
+            )}
+            {canEditShared && !editingResults && (
+              <Button size="sm" variant="outline" onClick={startEditingResults}>
+                {hasResults ? "Edit results" : "Add actual results"}
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          {canEditShared && (
+            <div className="rounded border px-3 py-2 text-sm">
+              {plan.linked_session_id ? (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-muted-foreground">
+                    Linked to {sortedCandidates.find((s) => s.id === plan.linked_session_id)?.title ?? "a race session"}
+                    {sortedCandidates.find((s) => s.id === plan.linked_session_id)?.session_date
+                      ? ` · ${sortedCandidates.find((s) => s.id === plan.linked_session_id)?.session_date}`
+                      : ""}
+                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button size="sm" variant="outline" onClick={pullSplitsFromSession} disabled={pullingSplits}>
+                      <Download className="h-3.5 w-3.5 mr-1" /> {pullingSplits ? "Pulling…" : "Pull actual splits"}
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setLinkingOpen((o) => !o)}>
+                      Change
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-muted-foreground flex items-center gap-1.5">
+                    <LinkIcon className="h-3.5 w-3.5" /> Not linked to a race session yet
+                  </span>
+                  <Button size="sm" variant="outline" onClick={() => setLinkingOpen((o) => !o)}>
+                    Link race session
+                  </Button>
+                </div>
+              )}
+              {linkingOpen && (
+                <div className="mt-2 pt-2 border-t">
+                  {sortedCandidates.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      No completed race-day sessions found for this athlete yet — mark a session's day type as
+                      "Race" once it's uploaded, then come back here to link it.
+                    </p>
+                  ) : (
+                    <Select value={plan.linked_session_id ?? "none"} onValueChange={linkSession}>
+                      <SelectTrigger><SelectValue placeholder="Pick a race session…" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Not linked</SelectItem>
+                        {sortedCandidates.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {s.title ?? "Race"} · {s.session_date}
+                            {s.session_date === plan.race_date ? " (matches plan date)" : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           {editingResults ? (
             <div className="space-y-3">
               <div className="grid sm:grid-cols-3 gap-2">
