@@ -254,7 +254,7 @@ export const ATHLETE_WIDGETS: WidgetDef[] = [
     id: "athlete_quick_tiles",
     role: "athlete",
     label: "Quick tiles",
-    description: "Daily Log, Sessions, Health, Locker, Noticeboard, Messages.",
+    description: "Daily Log, Sessions, Health, Locker, Analytics, Messages.",
     icon: ClipboardList,
     span: 3,
     defaultVisible: true,
