@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
+import { Link } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,7 +12,7 @@ import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FeelFaces } from "@/components/feel-faces";
 import { uploadAndParseSessionFile } from "@/lib/session-files.functions";
-import { Loader2, Plus, Trash2, Upload, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Loader2, Plus, Trash2, Upload, AlertTriangle, CheckCircle2, ExternalLink } from "lucide-react";
 import { todayISO } from "@/lib/format";
 import { toast } from "sonner";
 import { invalidateSession } from "@/lib/session-invalidation";
@@ -66,23 +67,95 @@ function newBlock(): Block {
   };
 }
 
+const KNOWN_ACTIVITIES: ActivityType[] = ["run", "track", "gym", "ride", "swim"];
+
+// Converts a session row that already exists for today — however it got
+// there (a FIT/GPX upload from Bulk Upload or the session's own detail
+// page, a coach logging on the athlete's behalf, a manual entry) — into
+// a pre-filled block, so Daily Log recognizes and links back to it
+// instead of treating it as something the athlete still needs to enter
+// from scratch. `session_insights` and `session_files` come back from a
+// same-table embed (real FK on both, unlike a cross-schema profiles
+// join), which PostgREST may shape as an array or a single object
+// depending on version — normalized defensively here either way.
+function sessionToBlock(s: any): Block {
+  const insight = Array.isArray(s.session_insights) ? s.session_insights[0] : s.session_insights;
+  const files = Array.isArray(s.session_files) ? s.session_files : s.session_files ? [s.session_files] : [];
+  const activity: ActivityType = KNOWN_ACTIVITIES.includes(s.activity_type) ? s.activity_type : "run";
+  return {
+    uid: crypto.randomUUID(),
+    sessionId: s.id,
+    activity,
+    rpe: s.rpe ?? null,
+    feel: insight?.feel_score ?? null,
+    wentWell: insight?.went_well ?? "",
+    wasDifficult: insight?.was_difficult ?? "",
+    niggles: insight?.niggles ?? "",
+    note: s.notes ?? "",
+    gymDuration: activity === "gym" && s.total_time_seconds ? Math.round(s.total_time_seconds / 60) : 60,
+    gymCategory: s.gym_category ?? "",
+    gymSubtype: s.gym_subtype ?? "",
+    swimDistance: activity === "swim" && s.total_distance_m ? s.total_distance_m : 1000,
+    swimDuration: activity === "swim" && s.total_time_seconds ? Math.round(s.total_time_seconds / 60) : 30,
+    uploadedFiles: files.map((f: any) => ({
+      name: f.original_filename ?? (f.file_kind ? `${f.file_kind} file` : "file"),
+      started_at: f.started_at ?? null,
+      points: 0,
+    })),
+    uploading: false,
+    saved: s.rpe != null,
+  };
+}
+
 export function DailyLogSessions({ athleteId }: { athleteId: string }) {
   const qc = useQueryClient();
   const today = todayISO();
   const upload = useServerFn(uploadAndParseSessionFile);
 
-  const { data: existing = [] } = useQuery({
+  const { data: existing = [], isFetched } = useQuery({
     queryKey: ["daily-log-sessions", athleteId, today],
     queryFn: async () => {
-      const { data } = await supabase.from("sessions")
-        .select("id, title, activity_type, total_distance_m, total_time_seconds, rpe, completed_at")
+      const { data, error } = await supabase.from("sessions")
+        .select(`
+          id, title, activity_type, day_type, total_distance_m, total_time_seconds,
+          rpe, completed_at, notes, gym_category, gym_subtype,
+          session_insights (feel_score, went_well, was_difficult, niggles),
+          session_files (original_filename, file_kind, started_at)
+        `)
         .eq("athlete_id", athleteId).eq("session_date", today)
         .order("created_at");
+      if (error) throw error;
       return data ?? [];
     },
   });
 
   const [blocks, setBlocks] = useState<Block[]>([newBlock()]);
+
+  // Recognizes any session that already exists for today — regardless of
+  // where it came from — and turns it into a linked, pre-filled block
+  // instead of leaving it invisible until the athlete happens to pick a
+  // matching activity type and save. Runs on every fetch (not just once)
+  // so a session uploaded elsewhere while this page is already open still
+  // shows up here on the next refetch, but a ref of session ids already
+  // turned into a block keeps it from ever duplicating one.
+  const seededSessionIds = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!isFetched) return;
+    setBlocks((prev) => {
+      const known = new Set(prev.map((b) => b.sessionId).filter(Boolean) as string[]);
+      const newOnes = (existing as any[]).filter((s) => !known.has(s.id) && !seededSessionIds.current.has(s.id));
+      if (newOnes.length === 0) return prev;
+      newOnes.forEach((s) => seededSessionIds.current.add(s.id));
+      const newBlocks = newOnes.map(sessionToBlock);
+      // Drop the still-untouched starter block once real sessions are
+      // found, so an athlete doesn't see a stray empty "Session 1" sitting
+      // next to the one that's already uploaded and just needs RPE.
+      const withoutBlankStarter = prev.filter(
+        (b) => b.sessionId || b.rpe != null || b.note || b.wentWell || b.wasDifficult || b.niggles || b.uploadedFiles.length > 0,
+      );
+      return [...withoutBlankStarter, ...newBlocks];
+    });
+  }, [existing, isFetched]);
 
   function updateBlock(uid: string, patch: Partial<Block>) {
     setBlocks((prev) => prev.map((b) => b.uid === uid ? { ...b, ...patch } : b));
@@ -203,7 +276,18 @@ export function DailyLogSessions({ athleteId }: { athleteId: string }) {
           <Card key={b.uid}>
             <CardContent className="pt-4 space-y-4">
               <div className="flex items-center justify-between">
-                <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Session {idx + 1}</div>
+                <div className="flex items-center gap-2">
+                  <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Session {idx + 1}</div>
+                  {b.sessionId && (
+                    <Link
+                      to="/app/sessions/$sessionId"
+                      params={{ sessionId: b.sessionId }}
+                      className="inline-flex items-center gap-0.5 text-[10px] font-medium text-[var(--accent-red)] hover:underline"
+                    >
+                      <ExternalLink className="h-3 w-3" /> Linked session
+                    </Link>
+                  )}
+                </div>
                 <Button variant="ghost" size="sm" onClick={() => removeBlock(b.uid)}><Trash2 className="h-3.5 w-3.5" /></Button>
               </div>
               <div className="grid sm:grid-cols-2 gap-3">
