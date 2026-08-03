@@ -67,11 +67,6 @@ export function PostRaceAnalysisCard({
   const [savingResults, setSavingResults] = useState(false);
   const [savingToPerformances, setSavingToPerformances] = useState(false);
 
-  const [coachDraft, setCoachDraft] = useState({ worked: "", didnt: "", change: "" });
-  const [athleteDraft, setAthleteDraft] = useState({ felt: "", different: "", learned: "" });
-  const [editingCoach, setEditingCoach] = useState(false);
-  const [editingAthlete, setEditingAthlete] = useState(false);
-
   // Candidate sessions to link this plan to — the athlete's own race-day
   // sessions (day_type = 'race', actually completed). Sorted so anything
   // dated the same as the plan's race_date surfaces first, since that's
@@ -234,25 +229,6 @@ export function PostRaceAnalysisCard({
     qc.invalidateQueries({ queryKey: ["post-race-analysis", planId] });
   }
 
-  async function saveReflection(kind: "coach" | "athlete") {
-    const payload =
-      kind === "coach"
-        ? { coach_what_worked: coachDraft.worked.trim() || null, coach_what_didnt: coachDraft.didnt.trim() || null, coach_what_to_change: coachDraft.change.trim() || null }
-        : { athlete_how_it_felt: athleteDraft.felt.trim() || null, athlete_what_different: athleteDraft.different.trim() || null, athlete_what_learned: athleteDraft.learned.trim() || null };
-
-    const { error } = await supabase.from("race_tactics_post_race" as any).upsert(
-      { plan_id: planId, ...payload, updated_at: new Date().toISOString() } as any,
-      { onConflict: "plan_id" },
-    );
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    if (kind === "coach") setEditingCoach(false);
-    else setEditingAthlete(false);
-    qc.invalidateQueries({ queryKey: ["post-race-analysis", planId] });
-  }
-
   async function saveToPerformances() {
     if (actualSplits.length === 0) return;
     const finish = actualSplits.reduce((best, s) => (s.cumulative_distance_m > best.cumulative_distance_m ? s : best), actualSplits[0]);
@@ -320,7 +296,6 @@ export function PostRaceAnalysisCard({
   if (isLoading) return null;
 
   return (
-    <div className="space-y-4">
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-2">
           <div>
@@ -531,7 +506,58 @@ export function PostRaceAnalysisCard({
           )}
         </CardContent>
       </Card>
+  );
+}
 
+// Split out from PostRaceAnalysisCard so the parent page can lay these
+// two out separately from the main results card (e.g. a 2/3-width
+// column alongside Collaboration in the final third) instead of always
+// stacking together. Self-contained — fetches its own copy of the
+// analysis row (same query key, so it shares the cache with the main
+// results card rather than double-fetching) and roles/athlete-identity,
+// so the parent doesn't need to thread any of that through.
+export function PostRaceReflectionCards({ planId, athleteId }: { planId: string; athleteId: string }) {
+  const qc = useQueryClient();
+  const { data: roles = [] } = useMyRoles();
+  const isCoach = roles.includes("coach");
+  const { data: myAthlete } = useMyAthlete();
+  const isSelf = myAthlete?.id === athleteId;
+
+  const { data: analysis } = useQuery({
+    queryKey: ["post-race-analysis", planId],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("race_tactics_post_race" as any).select("*").eq("plan_id", planId).maybeSingle();
+      if (error) throw error;
+      return data as any;
+    },
+  });
+
+  const [coachDraft, setCoachDraft] = useState({ worked: "", didnt: "", change: "" });
+  const [athleteDraft, setAthleteDraft] = useState({ felt: "", different: "", learned: "" });
+  const [editingCoach, setEditingCoach] = useState(false);
+  const [editingAthlete, setEditingAthlete] = useState(false);
+
+  async function saveReflection(kind: "coach" | "athlete") {
+    const payload =
+      kind === "coach"
+        ? { coach_what_worked: coachDraft.worked.trim() || null, coach_what_didnt: coachDraft.didnt.trim() || null, coach_what_to_change: coachDraft.change.trim() || null }
+        : { athlete_how_it_felt: athleteDraft.felt.trim() || null, athlete_what_different: athleteDraft.different.trim() || null, athlete_what_learned: athleteDraft.learned.trim() || null };
+
+    const { error } = await supabase.from("race_tactics_post_race" as any).upsert(
+      { plan_id: planId, ...payload, updated_at: new Date().toISOString() } as any,
+      { onConflict: "plan_id" },
+    );
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    if (kind === "coach") setEditingCoach(false);
+    else setEditingAthlete(false);
+    qc.invalidateQueries({ queryKey: ["post-race-analysis", planId] });
+  }
+
+  return (
+    <div className="space-y-4">
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-2">
           <CardTitle className="text-base">Coach reflection</CardTitle>
