@@ -6,7 +6,7 @@ export const listPosts = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("noticeboard_posts")
-      .select("id, author_id, post_type, title, body, link_url, event_date, pinned, created_at, edited_at")
+      .select("id, author_id, post_type, title, body, link_url, event_date, pinned, created_at, edited_at, location_id, training_locations(name, lat, lng)")
       .order("pinned", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(100);
@@ -42,6 +42,7 @@ export const createPost = createServerFn({ method: "POST" })
       link_url?: string;
       event_date?: string;
       pinned?: boolean;
+      location_id?: string;
     }) => d,
   )
   .handler(async ({ data, context }) => {
@@ -55,6 +56,7 @@ export const createPost = createServerFn({ method: "POST" })
         link_url: data.link_url ?? null,
         event_date: data.event_date ?? null,
         pinned: !!data.pinned,
+        location_id: data.location_id ?? null,
       })
       .select("id")
       .single();
@@ -82,6 +84,7 @@ export const updatePost = createServerFn({ method: "POST" })
       event_date?: string | null;
       pinned?: boolean;
       post_type?: "announcement" | "result" | "upcoming_race" | "training_event" | "resource";
+      location_id?: string | null;
     }) => d,
   )
   .handler(async ({ data, context }) => {
