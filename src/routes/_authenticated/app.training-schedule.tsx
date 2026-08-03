@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Plus, Pencil, Trash2, MapPin, CalendarPlus, ExternalLink, Ban, Megaphone, ChevronRight, Users, Clock } from "lucide-react";
+import { Plus, Pencil, Trash2, CalendarPlus, ExternalLink, Ban, Megaphone, ChevronRight, Users, Clock } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -20,6 +20,7 @@ import { createPost } from "@/lib/noticeboard.functions";
 import { BucketTabStrip, TRAINING_TABS } from "@/components/bucket-tab-strip";
 import { DAY_TYPE_META, DAY_TYPE_OPTIONS, WEEKDAY_NAMES, WEEKDAY_SHORT, type TrainingDayType } from "@/lib/training-day-types";
 import { downloadICS, googleCalendarLink, mapLink } from "@/lib/training-schedule-helpers";
+import { LocationChip } from "@/components/location-detail";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/user-avatar";
 
@@ -129,7 +130,7 @@ function TrainingSchedulePage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("squad_training_sessions")
-        .select("*, training_locations(name, address, lat, lng)")
+        .select("*, training_locations(id, name, address, lat, lng)")
         .eq("group_id", activeGroupId)
         .eq("active", true);
       if (error) {
@@ -554,7 +555,7 @@ function SlotDetailDialog({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("squad_training_overrides")
-        .select("*, training_locations(name, address, lat, lng)")
+        .select("*, training_locations(id, name, address, lat, lng)")
         .eq("schedule_id", slot.id)
         .gte("occurrence_date", toISO(new Date()))
         .order("occurrence_date");
@@ -638,7 +639,12 @@ function SlotDetailDialog({
         <div className="space-y-3 text-sm">
           {locationName && (
             <div className="flex items-center justify-between gap-2">
-              <span className="flex items-center gap-1.5"><MapPin className="h-3.5 w-3.5 text-muted-foreground" /> {locationName}</span>
+              <LocationChip
+                locationId={slot.training_locations?.id}
+                fallbackName={locationName}
+                fallbackLat={slot.training_locations?.lat}
+                fallbackLng={slot.training_locations?.lng}
+              />
               {map && (
                 <Button asChild size="sm" variant="ghost">
                   <a href={map} target="_blank" rel="noreferrer"><ExternalLink className="h-3.5 w-3.5 mr-1" /> Map</a>
