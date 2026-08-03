@@ -11,15 +11,18 @@
 // ZoneBoundariesCard itself already works: many ways to arrive at a
 // threshold value, one zone formula from threshold.
 //
-// IMPORTANT: this is a *preview* model — genuinely useful for comparing
-// methods against each other, but the actual persisted Z1-Z6 boundaries
-// (after "Save to Zone Boundaries") are computed by the app's existing
-// set_pace_threshold_manual / set_hr_threshold_manual database functions,
-// which this deliberately does not try to reverse-engineer or duplicate.
-// Saving hands the computed threshold value off to those exact same
-// functions a coach would otherwise call by typing a threshold in by hand
-// on Zone Boundaries — so the real, persisted zones always come from the
-// app's one actual source of truth, not a client-side approximation of it.
+// IMPORTANT: deriveZonesFromPaceThreshold/deriveZonesFromHrThreshold below
+// and paceFromVdot are an instant, client-side approximation — genuinely
+// useful for typing-as-you-go feedback and for methods with no server-side
+// equivalent, but the calling page (app.calculators.zonecalculator.tsx)
+// fetches the app's real zones_from_pace_threshold / zones_from_hr_threshold
+// / vdot_threshold_pace_sec_per_km database functions and swaps their exact
+// output in wherever available, falling back to these only while that
+// round-trip is in flight or unavailable. Saving hands the computed
+// threshold value off to those exact same set_pace_threshold_manual /
+// set_hr_threshold_manual functions a coach would otherwise call by typing
+// a threshold in by hand on Zone Boundaries — so the real, persisted zones
+// always come from the app's one actual source of truth.
 
 import { predictPaceAt } from "@/lib/race-predict";
 
