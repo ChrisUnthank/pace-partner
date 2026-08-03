@@ -173,10 +173,12 @@ function trainingAgeGapAdjustment(trainingAgeYears: number | null | undefined): 
 }
 
 // A PB within this relative distance of the target counts as "this IS
-// the target" rather than something to project towards — e.g. a real
-// 5000m PB stands in directly for a 5000m prediction rather than
-// deriving one via Riegel from a different recent race.
-const PB_EXACT_MATCH_TOLERANCE = 0.08;
+// the target" rather than something to project towards — deliberately
+// tight (about 3%): loose enough to unify genuinely-identical distances
+// recorded under different labels (Half Marathon vs "13.1mi", 8K vs "5
+// mile"), but tight enough that a real 3000m PB (7% shorter than 2
+// Mile) never gets relabeled and shown AS a 2 Mile result it isn't.
+const PB_EXACT_MATCH_TOLERANCE = 0.03;
 
 function findExactPb(pbs: PbPoint[], targetKm: number): PbPoint | null {
   let best: PbPoint | null = null;
@@ -210,17 +212,28 @@ function bracketingPbs(pbs: PbPoint[], targetKm: number): { shorter: PbPoint | n
 // "well above or below current ability" regardless of what the formula
 // alone would say. A small buffer (2%) avoids clamping genuinely close
 // calls at the boundary, only catching real violations.
+//
+// Deliberately checks only the NEAREST shorter/longer PB (the same pair
+// bracketingPbs already finds), not every PB on file — a distant PB
+// (or one with bad underlying data — see sanitizePbs) has no business
+// overriding a much more locally-relevant one just because it happened
+// to be the last one checked in an unweighted loop.
 function clampAgainstPbs(targetKm: number, timeSec: number, pbs: PbPoint[]): { timeSec: number; note: string | null } {
   let pace = timeSec / targetKm;
   let note: string | null = null;
-  for (const pb of pbs) {
-    const pbPace = pb.timeSec / pb.distanceKm;
-    if (pb.distanceKm < targetKm && pace < pbPace * 0.98) {
-      pace = pbPace * 0.98;
-      note = `Adjusted to stay consistent with your ${formatKmLabel(pb.distanceKm)} PB`;
-    } else if (pb.distanceKm > targetKm && pace > pbPace * 1.02) {
-      pace = pbPace * 1.02;
-      note = `Adjusted to stay consistent with your ${formatKmLabel(pb.distanceKm)} PB`;
+  const { shorter, longer } = bracketingPbs(pbs, targetKm);
+  if (shorter) {
+    const floorPace = (shorter.timeSec / shorter.distanceKm) * 0.98;
+    if (pace < floorPace) {
+      pace = floorPace;
+      note = `Adjusted to stay consistent with your ${formatKmLabel(shorter.distanceKm)} PB`;
+    }
+  }
+  if (longer) {
+    const ceilPace = (longer.timeSec / longer.distanceKm) * 1.02;
+    if (pace > ceilPace) {
+      pace = ceilPace;
+      note = `Adjusted to stay consistent with your ${formatKmLabel(longer.distanceKm)} PB`;
     }
   }
   return { timeSec: pace * targetKm, note };
@@ -233,11 +246,29 @@ function formatKmLabel(km: number): string {
   return km < 1 ? `${Math.round(km * 1000)}m` : `${km % 1 === 0 ? km : km.toFixed(1)}K`;
 }
 
+// Guards against a single bad PB (wrong units, mislabeled distance, a
+// data-entry slip somewhere in the athlete's history) badly distorting
+// predictions nowhere near it — a real single athlete's PBs rarely span
+// more than about 3.5x in pace from fastest to slowest (sprint to
+// marathon is roughly 2-2.5x for most runners); anything beyond that is
+// far more likely corrupted data than a genuine result, so it's
+// excluded before anything else in this file ever sees it. Applied
+// once, at the top of predictAtDistance, so every downstream check
+// (exact match, bracketing, clamping) already sees the cleaned list.
+export function sanitizePbs(pbs: PbPoint[] | null | undefined): PbPoint[] {
+  const valid = (pbs ?? []).filter(
+    (p) => Number.isFinite(p.distanceKm) && p.distanceKm > 0 && Number.isFinite(p.timeSec) && p.timeSec > 0,
+  );
+  if (valid.length === 0) return [];
+  const fastestPace = Math.min(...valid.map((p) => p.timeSec / p.distanceKm));
+  return valid.filter((p) => p.timeSec / p.distanceKm <= fastestPace * 3.5);
+}
+
 export function predictAtDistance(input: PredictionInput, targetLabel: string, targetKm: number): DistancePrediction | null {
   const { recentDistanceKm, recentTimeSec, primaryEventKm, profile, weeklyVolumeKm, trainingAgeYears } = input;
   if (!Number.isFinite(recentDistanceKm) || recentDistanceKm <= 0 || !Number.isFinite(recentTimeSec) || recentTimeSec <= 0) return null;
 
-  const pbs = (input.pbs ?? []).filter((p) => Number.isFinite(p.distanceKm) && p.distanceKm > 0 && Number.isFinite(p.timeSec) && p.timeSec > 0);
+  const pbs = sanitizePbs(input.pbs);
 
   // A real PB at (or essentially at) this exact distance beats any
   // projection — show what actually happened, not an estimate of it.
