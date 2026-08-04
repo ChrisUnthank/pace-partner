@@ -280,6 +280,7 @@ export type AthleteProfile = {
   // built from.
   topEndSpeed: TopEndSpeed | null;
   conversionMetrics: ConversionMetrics;
+  speedEstimate: CurrentSpeedEstimate | null;
 };
 
 const SHAPE_BAND_POSITIONS = [-1, -0.5, 0, 0.5, 1];
@@ -444,6 +445,35 @@ export type ConversionScore = {
   detail: string;
 };
 
+export type SpeedConfidence = "High" | "Moderate" | "Low";
+
+// A coach's explicit correction — "that PB doesn't reflect current
+// ability." Always wins over anything computed. distanceKm is fixed at
+// 0.4 (400m) since that's the reference distance the whole speed
+// profile is expressed at; a coach entering "49.5s" is entering a
+// current 400m-equivalent capability, not necessarily a race they'd
+// actually run.
+export type ManualSpeedOverride = {
+  timeSec: number;
+  dateISO: string | null;
+  reason: string | null;
+};
+
+export type CurrentSpeedEstimate = {
+  km: number;
+  timeSec: number;
+  rangeLowSec: number;
+  rangeHighSec: number;
+  vdot: number;
+  confidence: SpeedConfidence;
+  basis: "manual" | "measured" | "measured_adjusted" | "estimated";
+  sourceDetail: string;
+  // Non-null whenever the raw PB was adjusted (age-based) or there's a
+  // reason attached (manual override) — the actual reasoning shown to
+  // a coach, not just a number with no explanation.
+  adjustmentDetail: string | null;
+};
+
 export type ConversionMetrics = {
   // Raw ability at 400-600m — the ceiling. Null only when there's
   // truly nothing on file to even estimate it from (no PBs at all).
@@ -569,22 +599,174 @@ function vdotToScore(vdot: number): number {
   return Math.max(0, Math.min(100, ((vdot - 30) / (85 - 30)) * 100));
 }
 
+// Recent enough that a PB can be trusted at face value without any
+// age-based adjustment.
+const SPEED_PB_RECENT_MONTHS = 6;
+// Beyond this, even a damped aerobic-progression adjustment is too
+// speculative to call anything better than Low confidence.
+const SPEED_PB_STALE_MONTHS = 48;
+// How much of the athlete's aerobic-side improvement (or decline) since
+// the sprint PB was set gets carried over to the speed estimate. Never
+// 1:1 — a training block that improves 5K time a lot doesn't
+// necessarily move raw 400m speed anywhere near as much, especially for
+// an athlete doing mostly aerobic work. This is a deliberately
+// conservative heuristic, not a measured transfer rate — worth
+// revisiting once tested against real athletes.
+const AEROBIC_PROGRESSION_TRANSFER = 0.6;
+
+// This is the actual fix for "a 2-year-old 400m PB gets treated as
+// today's speed ceiling": checks how much the athlete's AEROBIC side
+// has moved since the sprint PB's date, and adjusts the speed estimate
+// by a damped fraction of that — the same underlying idea a coach uses
+// when they say "that PB's outdated, they're clearly faster now."
+// Manual override always wins outright; a recent PB needs no
+// adjustment at all; an old PB with no aerobic-side evidence to check
+// progression against falls back to the raw PB with reduced confidence
+// rather than guessing at an adjustment with nothing to base it on.
+function currentSpeedEstimate(
+  speedIndicatorPbs: PbRecord[],
+  vdotWeighted: WeightedPb[],
+  globalCurve: LinearFit | null,
+  now: Date,
+  manualOverride: ManualSpeedOverride | null,
+): CurrentSpeedEstimate | null {
+  if (manualOverride) {
+    const vdot = estimateVdot(0.4, manualOverride.timeSec);
+    if (vdot == null) return null;
+    return {
+      km: 0.4,
+      timeSec: manualOverride.timeSec,
+      rangeLowSec: manualOverride.timeSec * 0.98,
+      rangeHighSec: manualOverride.timeSec * 1.02,
+      vdot,
+      confidence: "High",
+      basis: "manual",
+      sourceDetail: `Coach override${manualOverride.dateISO ? ` (set ${manualOverride.dateISO})` : ""}`,
+      adjustmentDetail: manualOverride.reason,
+    };
+  }
+
+  const sprintPb =
+    speedIndicatorPbs.length > 0
+      ? [...speedIndicatorPbs].sort((a, b) => Math.abs(a.distanceKm - 0.4) - Math.abs(b.distanceKm - 0.4))[0]
+      : null;
+
+  if (!sprintPb) {
+    const est = aerobicExtrapolatedPoint(0.4, globalCurve, vdotWeighted[0] ?? null);
+    if (!est) return null;
+    return {
+      km: 0.4,
+      timeSec: est.timeSec,
+      rangeLowSec: est.timeSec * 0.92,
+      rangeHighSec: est.timeSec * 1.1,
+      vdot: est.vdot,
+      confidence: "Low",
+      basis: "estimated",
+      sourceDetail: "No 400-600m PB on file",
+      adjustmentDetail: "Estimated purely from 800m-and-longer performances — no direct sprint data to confirm it.",
+    };
+  }
+
+  const sprintVdot = estimateVdot(sprintPb.distanceKm, sprintPb.timeSec);
+  if (sprintVdot == null) return null;
+  const monthsAgo = sprintPb.dateISO ? Math.max(0, (now.getTime() - new Date(sprintPb.dateISO).getTime()) / (1000 * 60 * 60 * 24 * 30.44)) : null;
+
+  if (monthsAgo == null || monthsAgo <= SPEED_PB_RECENT_MONTHS) {
+    return {
+      km: sprintPb.distanceKm,
+      timeSec: sprintPb.timeSec,
+      rangeLowSec: sprintPb.timeSec * 0.98,
+      rangeHighSec: sprintPb.timeSec * 1.02,
+      vdot: sprintVdot,
+      confidence: monthsAgo == null ? "Moderate" : "High",
+      basis: "measured",
+      sourceDetail: `${formatDistanceLabel(sprintPb.distanceKm)} PB: ${secToClock(sprintPb.timeSec)}${monthsAgo != null ? ` (${Math.round(monthsAgo)} months ago)` : " (date unknown)"}`,
+      adjustmentDetail: null,
+    };
+  }
+
+  // Old enough to check for progression. "Current" aerobic level =
+  // recency-weighted average of aerobic PBs; "back then" = aerobic PBs
+  // logged within ~9 months of the sprint PB's own date, falling back
+  // to the oldest aerobic evidence on file if nothing lines up that
+  // closely with it.
+  const currentAerobicVdot =
+    weightedAverage(vdotWeighted.filter((p) => p.recencyWeight >= 0.5).map((p) => ({ y: p.vdot, w: p.weight }))) ??
+    weightedAverage(vdotWeighted.map((p) => ({ y: p.vdot, w: p.weight })));
+  const sprintDateMs = new Date(sprintPb.dateISO!).getTime();
+  const nearSprintTime = vdotWeighted.filter((p) => p.dateISO && Math.abs(new Date(p.dateISO).getTime() - sprintDateMs) < 1000 * 60 * 60 * 24 * 30.44 * 9);
+  const aerobicBackThenVdot =
+    nearSprintTime.length > 0
+      ? weightedAverage(nearSprintTime.map((p) => ({ y: p.vdot, w: 1 })))
+      : (() => {
+          const oldest = [...vdotWeighted].filter((p) => p.dateISO).sort((a, b) => new Date(a.dateISO!).getTime() - new Date(b.dateISO!).getTime())[0];
+          return oldest?.vdot ?? null;
+        })();
+
+  let adjustedVdot = sprintVdot;
+  let adjustmentDetail = `${formatDistanceLabel(sprintPb.distanceKm)} PB is ${Math.round(monthsAgo)} months old.`;
+  if (currentAerobicVdot != null && aerobicBackThenVdot != null && aerobicBackThenVdot > 0) {
+    const progressionRatio = currentAerobicVdot / aerobicBackThenVdot;
+    const dampedRatio = 1 + (progressionRatio - 1) * AEROBIC_PROGRESSION_TRANSFER;
+    adjustedVdot = sprintVdot * dampedRatio;
+    const pct = Math.round((dampedRatio - 1) * 100);
+    adjustmentDetail +=
+      Math.abs(pct) >= 2
+        ? ` Aerobic-range performances have ${pct > 0 ? "improved" : "declined"} roughly ${Math.abs(pct)}% since then, so current speed is likely ${pct > 0 ? "faster" : "slower"} than that PB alone suggests.`
+        : " Aerobic-range performance hasn't moved much since then, so it's still a reasonable current estimate.";
+  } else {
+    adjustmentDetail += " No aerobic-range evidence to check progression against, so this is used as-is.";
+  }
+
+  const adjustedTimeSec = raceTimeFromVdot(sprintPb.distanceKm, adjustedVdot);
+  if (adjustedTimeSec == null) {
+    return {
+      km: sprintPb.distanceKm,
+      timeSec: sprintPb.timeSec,
+      rangeLowSec: sprintPb.timeSec * 0.95,
+      rangeHighSec: sprintPb.timeSec * 1.1,
+      vdot: sprintVdot,
+      confidence: "Low",
+      basis: "measured",
+      sourceDetail: `${formatDistanceLabel(sprintPb.distanceKm)} PB: ${secToClock(sprintPb.timeSec)} (${Math.round(monthsAgo)} months ago)`,
+      adjustmentDetail,
+    };
+  }
+
+  return {
+    km: sprintPb.distanceKm,
+    timeSec: adjustedTimeSec,
+    rangeLowSec: adjustedTimeSec * 0.95,
+    rangeHighSec: adjustedTimeSec * 1.05,
+    vdot: adjustedVdot,
+    confidence: monthsAgo > SPEED_PB_STALE_MONTHS ? "Low" : "Moderate",
+    basis: "measured_adjusted",
+    sourceDetail: `${formatDistanceLabel(sprintPb.distanceKm)} PB: ${secToClock(sprintPb.timeSec)} (${Math.round(monthsAgo)} months ago)`,
+    adjustmentDetail,
+  };
+}
+
 function deriveConversionMetrics(
   speedIndicatorPbs: PbRecord[],
   vdotWeighted: WeightedPb[],
   globalCurve: LinearFit | null,
   speedEnduranceDecay: number | null,
   aerobicDurabilityDecay: number | null,
+  currentSpeed: CurrentSpeedEstimate | null,
 ): ConversionMetrics {
-  const point400 = estimateSpeedPoint(0.4, speedIndicatorPbs, vdotWeighted, globalCurve);
+  // Speed Ceiling and Speed Availability both need to agree on what
+  // "this athlete's current speed" means — using the raw (possibly
+  // stale) PB for one and the age-adjusted estimate for the other
+  // would make them tell inconsistent stories about the same athlete.
+  const point400 = currentSpeed ? { km: currentSpeed.km, timeSec: currentSpeed.timeSec, vdot: currentSpeed.vdot, measured: currentSpeed.basis !== "estimated" } : null;
   const point800 = estimateSpeedPoint(0.8, speedIndicatorPbs, vdotWeighted, globalCurve);
 
-  const rawSpeedCeiling: ConversionScore | null = point400
+  const rawSpeedCeiling: ConversionScore | null = currentSpeed
     ? {
-        score: vdotToScore(point400.vdot),
-        bucket: bucketFromScore(vdotToScore(point400.vdot)),
-        measured: point400.measured,
-        detail: `400m ${point400.measured ? "PB" : "estimate"}: ${secToClock(point400.timeSec)} (${point400.sourceLabel})`,
+        score: vdotToScore(currentSpeed.vdot),
+        bucket: bucketFromScore(vdotToScore(currentSpeed.vdot)),
+        measured: currentSpeed.basis === "measured" || currentSpeed.basis === "manual",
+        detail: `Current estimate: ${secToClock(currentSpeed.timeSec)} (${currentSpeed.confidence} confidence)`,
       }
     : null;
 
@@ -642,7 +824,7 @@ function deriveConversionMetrics(
   return { rawSpeedCeiling, speedConversion, aerobicConversion };
 }
 
-export function buildAthleteProfile(pbs: PbRecord[], now: Date = new Date()): AthleteProfile | null {
+export function buildAthleteProfile(pbs: PbRecord[], now: Date = new Date(), manualSpeedOverride: ManualSpeedOverride | null = null): AthleteProfile | null {
   const clean = pbs.filter((p) => Number.isFinite(p.distanceKm) && p.distanceKm > 0 && Number.isFinite(p.timeSec) && p.timeSec > 0);
 
   // Distance-band partition — see EXCLUDE_BELOW_KM / TOP_END_SPEED_MAX_KM
@@ -716,12 +898,14 @@ export function buildAthleteProfile(pbs: PbRecord[], now: Date = new Date()): At
   );
 
   const topEndSpeed = topEndSpeedFromProfile(speedIndicatorPbs, weighted, globalCurve);
+  const speedEstimate = currentSpeedEstimate(speedIndicatorPbs, weighted, globalCurve, now, manualSpeedOverride);
   const conversionMetrics = deriveConversionMetrics(
     speedIndicatorPbs,
     weighted,
     globalCurve,
     speedEnduranceFit?.slope ?? null,
     aerobicDurabilityFit?.slope ?? null,
+    speedEstimate,
   );
   const insights = deriveProfileInsights(weighted);
   // This is the actual fix for "an athlete reads as Speed-Oriented off
@@ -745,6 +929,7 @@ export function buildAthleteProfile(pbs: PbRecord[], now: Date = new Date()): At
     insights,
     topEndSpeed,
     conversionMetrics,
+    speedEstimate,
   };
 }
 
