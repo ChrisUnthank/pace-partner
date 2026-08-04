@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { metersFmt, secToClock } from "@/lib/format";
-import { sessionClassificationLabel, SESSION_INTENTS, INTENT_LABEL, DAY_TYPE_LABEL } from "@/lib/session-categories";
+import { sessionClassificationLabel, SESSION_INTENTS, INTENT_LABEL, DAY_TYPE_LABEL, timeOfDayHintMs } from "@/lib/session-categories";
 import { Plus, Upload, Users, Search, Eye, Trash2, Download, RefreshCw, X, CalendarDays, HeartPulse, Flag } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -362,8 +362,12 @@ function SessionsList() {
       }
       const at = sessionStartTimes?.get(a.id);
       const bt = sessionStartTimes?.get(b.id);
-      const aVal = at ? new Date(at).getTime() : (titleTimeHintMs(a) ?? Infinity);
-      const bVal = bt ? new Date(bt).getTime() : (titleTimeHintMs(b) ?? Infinity);
+      // Priority for same-day ordering: a real recorded file timestamp
+      // beats an explicit time_of_day (set on Sessions > New — see
+      // TIME_OF_DAY in session-categories.ts), which beats the weaker
+      // title-text guess, which beats sorting last.
+      const aVal = at ? new Date(at).getTime() : (timeOfDayHintMs(a) ?? titleTimeHintMs(a) ?? Infinity);
+      const bVal = bt ? new Date(bt).getTime() : (timeOfDayHintMs(b) ?? titleTimeHintMs(b) ?? Infinity);
       return aVal - bVal; // earlier clock time first (AM before PM)
     });
   }, [sessions, sessionStartTimes]);
