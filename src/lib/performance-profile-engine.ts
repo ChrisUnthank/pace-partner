@@ -337,9 +337,64 @@ export type ProfilePrediction = {
   tier: ConfidenceTier;
   confidencePct: number;
   isPb: boolean;
+  // Only set on isPb rows — what the rest of the athlete's evidence
+  // (every OTHER PB, kernel-weighted the same way as any other target)
+  // implies is achievable here, independent of the PB itself. Lets a
+  // coach see whether a PB is right in line with the rest of the
+  // profile, or whether there's more in the tank (potential faster
+  // than the PB) or the PB was a standout day (potential slower).
+  potentialTimeSec?: number;
+  potentialLowSec?: number;
+  potentialHighSec?: number;
+  potentialTier?: ConfidenceTier;
 };
 
 const PB_EXACT_MATCH_TOLERANCE = 0.03;
+
+// Shared by both the main (non-PB) prediction path and the "potential"
+// figure computed alongside a PB — a locally-weighted VDOT estimate at
+// lnTarget from whichever weighted PBs are passed in, with the same
+// single-point/no-data fallback either caller would otherwise have to
+// duplicate.
+function localVdotEstimate(
+  points: WeightedPb[],
+  lnTarget: number,
+  globalSlope: number | null,
+): { vdot: number; rSquared: number | null } | null {
+  const weighted = points.map((p) => ({
+    x: Math.log(p.distanceKm),
+    y: p.vdot,
+    w: p.weight * p.qualityWeight * distanceKernel(Math.log(p.distanceKm), lnTarget),
+  }));
+  const localFit = weightedLinearFit(weighted);
+  if (localFit) return { vdot: localFit.intercept + localFit.slope * lnTarget, rSquared: localFit.rSquared };
+
+  const usable = weighted.filter((p) => p.w > 1e-4);
+  if (usable.length === 0) return null;
+  const nearest = usable.reduce((a, b) => (b.w > a.w ? b : a));
+  const slope = globalSlope ?? 0;
+  return { vdot: nearest.y + slope * (lnTarget - nearest.x), rSquared: null };
+}
+
+// Shared by both prediction paths — Stage 4's 40/30/20/10 confidence
+// formula, given whichever weighted PB set and local fit quality apply
+// (the full set for a normal prediction, or "every PB except this one"
+// for a PB row's potential).
+function confidenceForTarget(weightedPbs: WeightedPb[], lnTarget: number, localRSquared: number | null, overallConsistency: number): number {
+  const nearby = weightedPbs.filter((p) => distanceKernel(Math.log(p.distanceKm), lnTarget) > 0.05);
+  const nearbyWeight = nearby.reduce((s, p) => s + p.weight * p.qualityWeight * distanceKernel(Math.log(p.distanceKm), lnTarget), 0);
+  const dataVolumeScore = Math.min(100, (nearbyWeight / 2.5) * 100);
+
+  const recencyBasis = nearby.length > 0 ? nearby : weightedPbs;
+  const recencyScore = 100 * (weightedAverage(recencyBasis.map((p) => ({ y: p.recencyWeight, w: p.weight }))) ?? 0.5);
+
+  const consistencyScore = 100 * (localRSquared ?? overallConsistency);
+
+  const nearestGap = weightedPbs.length > 0 ? Math.min(...weightedPbs.map((p) => Math.abs(Math.log(p.distanceKm) - lnTarget))) : 1.5;
+  const distanceScore = Math.max(0, 100 * (1 - nearestGap / 1.5));
+
+  return 0.4 * dataVolumeScore + 0.3 * recencyScore + 0.2 * consistencyScore + 0.1 * distanceScore;
+}
 
 export function predictFromProfile(profile: AthleteProfile, targetLabel: string, targetKm: number): ProfilePrediction | null {
   if (!Number.isFinite(targetKm) || targetKm <= 0) return null;
@@ -360,7 +415,7 @@ export function predictFromProfile(profile: AthleteProfile, targetLabel: string,
   }
   if (exactPb && bestGap <= PB_EXACT_MATCH_TOLERANCE) {
     const pbRangePct = TIER_META[5].rangePct;
-    return {
+    const result: ProfilePrediction = {
       label: targetLabel,
       km: targetKm,
       timeSec: exactPb.timeSec,
@@ -371,6 +426,27 @@ export function predictFromProfile(profile: AthleteProfile, targetLabel: string,
       confidencePct: 100,
       isPb: true,
     };
+
+    // "Potential" — what every OTHER PB implies is achievable here,
+    // deliberately excluding this one (and anything else within the
+    // same match tolerance) so it's an independent read, not an echo
+    // of the PB itself back at ~full weight.
+    const others = profile.weighted.filter((p) => Math.abs(Math.log(p.distanceKm / targetKm)) > PB_EXACT_MATCH_TOLERANCE);
+    if (others.length > 0) {
+      const est = localVdotEstimate(others, lnTarget, profile.globalCurve?.slope ?? null);
+      const potentialTimeSec = est ? raceTimeFromVdot(targetKm, est.vdot) : null;
+      if (potentialTimeSec != null) {
+        const potentialConfidencePct = confidenceForTarget(others, lnTarget, est!.rSquared, profile.overallConsistency);
+        const potentialTier = tierFromPct(potentialConfidencePct);
+        const potentialRangePct = TIER_META[potentialTier].rangePct;
+        result.potentialTimeSec = potentialTimeSec;
+        result.potentialLowSec = potentialTimeSec * (1 - potentialRangePct / 100);
+        result.potentialHighSec = potentialTimeSec * (1 + potentialRangePct / 100);
+        result.potentialTier = potentialTier;
+      }
+    }
+
+    return result;
   }
 
   // Locally weighted fit — this target's own fresh regression, built
@@ -380,54 +456,17 @@ export function predictFromProfile(profile: AthleteProfile, targetLabel: string,
   // from being dragged toward a marathon PB just because they're both
   // on the same overall line — distant PBs contribute almost nothing
   // to the weight sum here, so they can barely move the local fit.
-  const localPoints = profile.weighted.map((p) => ({
-    x: Math.log(p.distanceKm),
-    y: p.vdot,
-    w: p.weight * p.qualityWeight * distanceKernel(Math.log(p.distanceKm), lnTarget),
-  }));
-  const localFit = weightedLinearFit(localPoints);
-
-  let predictedVdot: number;
-  if (localFit) {
-    predictedVdot = localFit.intercept + localFit.slope * lnTarget;
-  } else {
-    // Fewer than 2 points carry meaningful local weight (an isolated
-    // target far from everything, or too little data) — fall back to
-    // the single most locally-relevant PB, extrapolated with the
-    // global curve's slope if one exists, or held flat if not. Always
-    // produces a prediction rather than giving up.
-    const usable = localPoints.filter((p) => p.w > 1e-4);
-    if (usable.length === 0) return null;
-    const nearest = usable.reduce((a, b) => (b.w > a.w ? b : a));
-    const slope = profile.globalCurve?.slope ?? 0;
-    predictedVdot = nearest.y + slope * (lnTarget - nearest.x);
-  }
-
-  const timeSec = raceTimeFromVdot(targetKm, predictedVdot);
+  const est = localVdotEstimate(profile.weighted, lnTarget, profile.globalCurve?.slope ?? null);
+  if (!est) return null;
+  const timeSec = raceTimeFromVdot(targetKm, est.vdot);
   if (timeSec == null) return null;
 
   // Stage 4 — confidence: data volume (40%) + recency (30%) +
   // consistency (20%) + distance from target (10%), in that priority
-  // order, as specified. "Nearby" now uses the same distance kernel
-  // the prediction itself was built from, so confidence and the
-  // prediction are answering the same question about the same evidence.
-  const nearby = profile.weighted.filter((p) => distanceKernel(Math.log(p.distanceKm), lnTarget) > 0.05);
-  const nearbyWeight = nearby.reduce((s, p) => s + p.weight * p.qualityWeight * distanceKernel(Math.log(p.distanceKm), lnTarget), 0);
-  const dataVolumeScore = Math.min(100, (nearbyWeight / 2.5) * 100);
-
-  const recencyBasis = nearby.length > 0 ? nearby : profile.weighted;
-  const recencyScore = 100 * (weightedAverage(recencyBasis.map((p) => ({ y: p.recencyWeight, w: p.weight }))) ?? 0.5);
-
-  // Local fit quality where one exists (this target's own R^2, not the
-  // whole-athlete average); falls back to the descriptive global
-  // consistency figure when there wasn't enough nearby data for a
-  // local fit at all.
-  const consistencyScore = 100 * (localFit?.rSquared ?? profile.overallConsistency);
-
-  const nearestGap = Math.min(...profile.weighted.map((p) => Math.abs(Math.log(p.distanceKm) - lnTarget)));
-  const distanceScore = Math.max(0, 100 * (1 - nearestGap / 1.5));
-
-  const confidencePct = 0.4 * dataVolumeScore + 0.3 * recencyScore + 0.2 * consistencyScore + 0.1 * distanceScore;
+  // order, as specified. "Nearby" uses the same distance kernel the
+  // prediction itself was built from, so confidence and the prediction
+  // are answering the same question about the same evidence.
+  const confidencePct = confidenceForTarget(profile.weighted, lnTarget, est.rSquared, profile.overallConsistency);
   const tier = tierFromPct(confidencePct);
   const rangePct = TIER_META[tier].rangePct;
 
