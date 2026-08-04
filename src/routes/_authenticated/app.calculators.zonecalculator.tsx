@@ -19,6 +19,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { CoachAthletePicker } from "@/components/coach-athlete-picker";
+import { AthleteSubnav } from "@/components/athlete-subnav";
 import { toast } from "sonner";
 import { ChevronLeft, ChevronRight, Gauge, Check, X, Save, Scale, Trash2 } from "lucide-react";
 import { secToClock, clockToSec, paceFmt } from "@/lib/format";
@@ -341,6 +342,20 @@ function ZoneCalculatorPage() {
           <Link to="/app/calculators" className="text-sm text-muted-foreground inline-flex items-center gap-1 hover:underline">
             <ChevronLeft className="h-3.5 w-3.5" /> Calculators
           </Link>
+          {isCoach && athleteId && (
+            <div className="flex flex-wrap items-center gap-3 min-w-0 mt-1.5">
+              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground shrink-0">
+                <Link to="/app/athletes" className="hover:text-foreground">
+                  Athletes
+                </Link>
+                <span className="text-border">/</span>
+                <Link to="/app/athletes/$athleteId" params={{ athleteId }} className="hover:text-foreground">
+                  {(roster ?? []).find((a: any) => a.id === athleteId)?.name ?? "Athlete"}
+                </Link>
+              </div>
+              <AthleteSubnav athleteId={athleteId} active="zones" />
+            </div>
+          )}
           <div className="flex items-center justify-between gap-3 mt-1 flex-wrap">
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 shrink-0 rounded-lg grid place-items-center" style={{ background: "var(--accent-red)" }}>
