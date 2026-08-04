@@ -23,6 +23,35 @@ export const DAY_TYPE_LABEL: Record<SessionDayType, string> = {
   cross_training: "Cross-training", rest: "Rest",
 };
 
+// Coarse, manually-assignable time of day for sessions with no uploaded
+// file to derive a real start time from (e.g. a manually-logged Gym
+// session). Same 3-way split session-files.functions.ts already uses when
+// it auto-titles a session from a real recorded timestamp (Morning <11,
+// Afternoon 11-16, Evening 16+) — reusing it means a manual "Afternoon"
+// tag sorts into the same slot a real 1pm upload would, so the sessions
+// list stays chronologically consistent whether or not a given session
+// has a file behind it.
+export const TIME_OF_DAY_VALUES = ["morning", "afternoon", "evening"] as const;
+export type TimeOfDay = (typeof TIME_OF_DAY_VALUES)[number];
+export const TIME_OF_DAY_LABEL: Record<TimeOfDay, string> = {
+  morning: "Morning", afternoon: "Afternoon", evening: "Evening",
+};
+const TIME_OF_DAY_HOUR: Record<TimeOfDay, number> = {
+  morning: 8, afternoon: 13, evening: 18,
+};
+
+/**
+ * A comparable same-day timestamp (ms) derived from a session's explicit
+ * time_of_day, or null if it's unset / the session has no date yet.
+ * Used as a same-day sort key wherever a session might not have a real
+ * file-derived start time to sort by.
+ */
+export function timeOfDayHintMs(session: { session_date?: string | null; time_of_day?: string | null }): number | null {
+  const tod = session.time_of_day as TimeOfDay | null | undefined;
+  if (!tod || !session.session_date || !(tod in TIME_OF_DAY_HOUR)) return null;
+  return new Date(`${session.session_date}T${String(TIME_OF_DAY_HOUR[tod]).padStart(2, "0")}:00:00`).getTime();
+}
+
 export function sessionClassificationLabel(s: {
   day_type?: string | null;
   intent?: string | null;
