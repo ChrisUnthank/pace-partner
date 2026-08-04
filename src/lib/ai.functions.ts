@@ -96,10 +96,15 @@ export const buildAthletePayload = createServerFn({ method: "POST" })
     const sb = context.supabase;
     const since28 = new Date(Date.now() - 28 * 86400_000).toISOString().slice(0, 10);
     const since14 = new Date(Date.now() - 14 * 86400_000).toISOString().slice(0, 10);
+    // Load history needs a wider window than the rest of the payload — a
+    // trend can't be judged from 14 days of near-flat averaging (see
+    // load_trend below). 42 days gives enough runway to compare an early
+    // portion of the window against a recent one and see real direction.
+    const since42 = new Date(Date.now() - 42 * 86400_000).toISOString().slice(0, 10);
     const [athlete, sessions, load, vitals, insights, physio, zones, dna] = await Promise.all([
       sb.from("athletes").select("name, sex, primary_event, hr_max, hr_rest, training_age_years, weight, dob").eq("id", data.athleteId).maybeSingle(),
       sb.from("sessions").select("id, session_date, title, intent, day_type, rpe, completion_pct, total_distance_m, total_time_seconds, completed_at").eq("athlete_id", data.athleteId).gte("session_date", since28).order("session_date", { ascending: false }).limit(30),
-      sb.from("athlete_load_daily").select("load_date, combined_load, ctl, atl, tsb, readiness_status, readiness_score").eq("athlete_id", data.athleteId).gte("load_date", since14).order("load_date", { ascending: false }),
+      sb.from("athlete_load_daily").select("load_date, combined_load, ctl, atl, tsb, readiness_status, readiness_score").eq("athlete_id", data.athleteId).gte("load_date", since42).order("load_date", { ascending: false }),
       sb.from("daily_vitals").select("vitals_date, sleep_hours, resting_hr, weight_kg, hydration").eq("athlete_id", data.athleteId).gte("vitals_date", since14).order("vitals_date", { ascending: false }),
       sb.from("session_insights").select("created_at, feel_score, went_well, was_difficult, niggles").eq("athlete_id", data.athleteId).order("created_at", { ascending: false }).limit(5),
       // Was selecting vo2_max/lactate_threshold_pace/fatigue_resistance_score —
@@ -159,8 +164,45 @@ export const buildAthletePayload = createServerFn({ method: "POST" })
     }));
     const loadRows = load.data ?? [];
     const lastLoad = loadRows[0];
-    const meanCtl = loadRows.length ? Math.round(loadRows.reduce((a, r) => a + Number(r.ctl || 0), 0) / loadRows.length) : null;
-    const meanAtl = loadRows.length ? Math.round(loadRows.reduce((a, r) => a + Number(r.atl || 0), 0) / loadRows.length) : null;
+
+    // Trend, not just a snapshot. The old version of this payload only
+    // sent a flat 14-day mean of CTL/ATL — that hides direction entirely.
+    // An athlete's Fatigue (ATL) can be elevated in absolute terms while
+    // still clearly falling day over day, and a flat mean gives the model
+    // no way to see that; it ends up reading the single most-recent
+    // CTL/ATL/TSB snapshot in isolation and guessing at a trend that may
+    // be the opposite of what's actually happening. This compares the
+    // early portion of the window against the most recent portion for
+    // each metric and gives an explicit rising/falling/stable direction,
+    // plus a sparse chronological sample so the model can see the actual
+    // shape of the curve rather than inferring it from two numbers.
+    const loadRowsAsc = [...loadRows].reverse(); // chronological, oldest first
+    function trendFor(key: "ctl" | "atl" | "tsb") {
+      const vals = loadRowsAsc.map((r: any) => Number(r[key] ?? 0));
+      if (vals.length < 6) return { direction: "insufficient_data" as const, delta: null, early_mean: null, recent_mean: null };
+      const third = Math.max(2, Math.floor(vals.length / 3));
+      const early = vals.slice(0, third);
+      const recent = vals.slice(-third);
+      const earlyMean = early.reduce((a, b) => a + b, 0) / early.length;
+      const recentMean = recent.reduce((a, b) => a + b, 0) / recent.length;
+      const delta = +(recentMean - earlyMean).toFixed(1);
+      // TSB naturally sits closer to zero and swings more day-to-day, so
+      // it needs a slightly wider dead zone before calling it "stable"
+      // than CTL/ATL do.
+      const deadZone = key === "tsb" ? 2 : 1.5;
+      const direction = Math.abs(delta) < deadZone ? "stable" as const : delta > 0 ? "rising" as const : "falling" as const;
+      return { direction, delta, early_mean: +earlyMean.toFixed(1), recent_mean: +recentMean.toFixed(1) };
+    }
+    const trajectoryStep = Math.max(1, Math.floor(loadRowsAsc.length / 10));
+    const trajectory = loadRowsAsc
+      .filter((_: any, i: number) => i % trajectoryStep === 0)
+      .map((r: any) => ({
+        date: r.load_date,
+        ctl: r.ctl != null ? Math.round(r.ctl) : null,
+        atl: r.atl != null ? Math.round(r.atl) : null,
+        tsb: r.tsb != null ? Math.round(r.tsb) : null,
+      }));
+
     const vList = vitals.data ?? [];
     const meanSleep = vList.length ? +(vList.reduce((a, v: any) => a + (v.sleep_hours || 0), 0) / vList.length).toFixed(1) : null;
     const meanRhr = vList.length ? Math.round(vList.reduce((a, v: any) => a + (v.resting_hr || 0), 0) / vList.length) : null;
@@ -168,7 +210,14 @@ export const buildAthletePayload = createServerFn({ method: "POST" })
     return {
       athlete: athlete.data ?? {},
       readiness: lastLoad ? { status: lastLoad.readiness_status, score: lastLoad.readiness_score, ctl: lastLoad.ctl, atl: lastLoad.atl, tsb: lastLoad.tsb } : null,
-      load_trend: { ctl_mean_14d: meanCtl, atl_mean_14d: meanAtl, sample_n: loadRows.length },
+      load_trend: {
+        window_days: loadRows.length,
+        ctl_trend: trendFor("ctl"),
+        atl_trend: trendFor("atl"),
+        tsb_trend: trendFor("tsb"),
+        trajectory,
+      },
+      load_trend_legend: "ctl_trend/atl_trend/tsb_trend compare the early portion of this window against the most recent portion — direction is 'rising'/'falling'/'stable', delta is recent_mean minus early_mean (positive = increasing). trajectory is a sparse chronological sample across the window so you can see the actual shape of the curve. Always weigh the trend direction here, not just the single current-day snapshot in `readiness` — a metric (e.g. Fatigue/ATL) can be elevated in absolute terms while still clearly falling, or low while still climbing, and that direction is usually more useful to the athlete than the isolated current value.",
       vitals_trend_14d: { sleep_h_mean: meanSleep, rhr_mean: meanRhr, sample_n: vList.length },
       physio: physio.data ?? {},
       zones: zones.data ?? {},
@@ -240,6 +289,23 @@ export const generateWeeklySummary = createServerFn({ method: "POST" })
     });
     const { data: row, error } = await sb.from("ai_weekly_summaries").upsert({ athlete_id: data.athleteId, week_start: wk, summary_md: result.text, generated_at: new Date().toISOString() }, { onConflict: "athlete_id,week_start" }).select().single();
     if (error) throw error;
+
+    // Mirror into AI history. Weekly summaries are upserted by week
+    // (force-regenerate replaces, doesn't pile up), so clear any existing
+    // history row for this athlete+week before inserting the new one.
+    const weekEnd = new Date(new Date(wk).getTime() + 6 * 86400_000).toISOString().slice(0, 10);
+    await sb.from("ai_reviews" as any).delete().eq("athlete_id", data.athleteId).eq("source", "weekly_summary").eq("period_start", wk);
+    await sb.from("ai_reviews" as any).insert({
+      athlete_id: data.athleteId,
+      coach_id: context.userId,
+      source: "weekly_summary",
+      review_type: null,
+      title: null,
+      period_start: wk,
+      period_end: weekEnd,
+      content_md: result.text,
+    });
+
     return row;
   });
 
@@ -259,6 +325,22 @@ export const generateDailyAthleteNote = createServerFn({ method: "POST" })
     const today = new Date().toISOString().slice(0, 10);
     const { data: row, error } = await context.supabase.from("ai_athlete_notes").insert({ athlete_id: data.athleteId, note_date: today, kind: "daily", content: r.text }).select().single();
     if (error) throw error;
+
+    // Mirror into AI history. One per athlete per day — clear any earlier
+    // history row for today before inserting so re-generating doesn't
+    // pile up duplicates.
+    await context.supabase.from("ai_reviews" as any).delete().eq("athlete_id", data.athleteId).eq("source", "daily_note").eq("period_start", today);
+    await context.supabase.from("ai_reviews" as any).insert({
+      athlete_id: data.athleteId,
+      coach_id: context.userId,
+      source: "daily_note",
+      review_type: null,
+      title: null,
+      period_start: today,
+      period_end: today,
+      content_md: r.text,
+    });
+
     return row;
   });
 
@@ -280,6 +362,23 @@ export const generateSessionNote = createServerFn({ method: "POST" })
     });
     const { data: row, error } = await sb.from("ai_athlete_notes").insert({ athlete_id: sess.athlete_id, note_date: sess.session_date, kind: "session", session_id: data.sessionId, content: r.text }).select().single();
     if (error) throw error;
+
+    // Mirror into AI history. One per session — clear any earlier history
+    // row for this session before inserting so re-generating doesn't pile
+    // up duplicates.
+    await sb.from("ai_reviews" as any).delete().eq("session_id", data.sessionId).eq("source", "session_note");
+    await sb.from("ai_reviews" as any).insert({
+      athlete_id: sess.athlete_id,
+      coach_id: context.userId,
+      source: "session_note",
+      review_type: null,
+      session_id: data.sessionId,
+      title: sess.title ?? null,
+      period_start: sess.session_date,
+      period_end: sess.session_date,
+      content_md: r.text,
+    });
+
     return row;
   });
 
@@ -350,6 +449,46 @@ export const coachChatSend = createServerFn({ method: "POST" })
     });
     const { data: reply } = await sb.from("ai_chat_messages").insert({ thread_id: data.threadId, role: "assistant", content: r.text }).select().single();
     await sb.from("ai_chat_threads").update({ updated_at: new Date().toISOString() }).eq("id", data.threadId);
+
+    // Mirror this thread into AI history (Reports -> AI Review) so coach
+    // chats show up alongside generated reviews. One row per thread —
+    // upserted on the thread's unique index every time a reply lands, with
+    // the full transcript re-rendered each time, rather than a new history
+    // row per message.
+    if (thread.athlete_id) {
+      const { data: fullHistory } = await sb
+        .from("ai_chat_messages")
+        .select("role, content, created_at")
+        .eq("thread_id", data.threadId)
+        .order("created_at");
+      const rows = fullHistory ?? [];
+      const transcriptMd = rows
+        .filter((m: any) => m.role !== "system")
+        .map((m: any) => `**${m.role === "user" ? "Coach" : "AI"}:** ${m.content}`)
+        .join("\n\n");
+      const firstDate = rows[0]?.created_at?.slice(0, 10) ?? new Date().toISOString().slice(0, 10);
+      const lastDate = rows[rows.length - 1]?.created_at?.slice(0, 10) ?? firstDate;
+      // A snippet of the first question is a far more useful history-list
+      // title than a generic "Coaching chat" label would be — the athlete
+      // name is already shown by the join in listAllReviewsForCoach.
+      const firstUserMsg = rows.find((m: any) => m.role === "user")?.content ?? "";
+      const titleSnippet = firstUserMsg.length > 80 ? `${firstUserMsg.slice(0, 79)}…` : firstUserMsg;
+      await sb.from("ai_reviews" as any).upsert(
+        {
+          thread_id: data.threadId,
+          athlete_id: thread.athlete_id,
+          coach_id: context.userId,
+          source: "chat",
+          review_type: null,
+          title: titleSnippet || null,
+          period_start: firstDate,
+          period_end: lastDate,
+          content_md: transcriptMd,
+        },
+        { onConflict: "thread_id" },
+      );
+    }
+
     return reply!;
   });
 
