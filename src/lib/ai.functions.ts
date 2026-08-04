@@ -94,14 +94,16 @@ export const buildAthletePayload = createServerFn({ method: "POST" })
   .inputValidator((d: { athleteId: string }) => d)
   .handler(async ({ data, context }) => {
     const sb = context.supabase;
+    const today = new Date().toISOString().slice(0, 10);
     const since28 = new Date(Date.now() - 28 * 86400_000).toISOString().slice(0, 10);
     const since14 = new Date(Date.now() - 14 * 86400_000).toISOString().slice(0, 10);
+    const since90 = new Date(Date.now() - 90 * 86400_000).toISOString().slice(0, 10);
     // Load history needs a wider window than the rest of the payload — a
     // trend can't be judged from 14 days of near-flat averaging (see
     // load_trend below). 42 days gives enough runway to compare an early
     // portion of the window against a recent one and see real direction.
     const since42 = new Date(Date.now() - 42 * 86400_000).toISOString().slice(0, 10);
-    const [athlete, sessions, load, vitals, insights, physio, zones, dna] = await Promise.all([
+    const [athlete, sessions, load, vitals, insights, physio, zones, dna, upcomingRace, recentRace] = await Promise.all([
       sb.from("athletes").select("name, sex, primary_event, hr_max, hr_rest, training_age_years, weight, dob").eq("id", data.athleteId).maybeSingle(),
       sb.from("sessions").select("id, session_date, title, intent, day_type, rpe, completion_pct, total_distance_m, total_time_seconds, completed_at").eq("athlete_id", data.athleteId).gte("session_date", since28).order("session_date", { ascending: false }).limit(30),
       sb.from("athlete_load_daily").select("load_date, combined_load, ctl, atl, tsb, readiness_status, readiness_score").eq("athlete_id", data.athleteId).gte("load_date", since42).order("load_date", { ascending: false }),
@@ -120,6 +122,13 @@ export const buildAthletePayload = createServerFn({ method: "POST" })
       // page). Gives the AI a real, current-data basis for "what should
       // this athlete work on" instead of a generic suggestion.
       sb.from("athlete_dna_ratings" as any).select("endurance_score, endurance_bucket, speed_score, speed_bucket, aerobic_capacity_score, aerobic_capacity_bucket, anaerobic_capacity_score, anaerobic_capacity_bucket, consistency_score, consistency_bucket, status").eq("athlete_id", data.athleteId).maybeSingle(),
+      // Whether a race actually exists on the plan at all. Without this,
+      // the model had zero race information and would still write "race
+      // day" / taper / peaking language purely from generic coaching
+      // patterns — inventing a race that was never scheduled. null here
+      // is the signal to the model that there isn't one.
+      sb.from("sessions").select("session_date, title").eq("athlete_id", data.athleteId).eq("day_type", "race").gte("session_date", today).order("session_date", { ascending: true }).limit(1).maybeSingle(),
+      sb.from("sessions").select("session_date, title").eq("athlete_id", data.athleteId).eq("day_type", "race").gte("session_date", since90).lt("session_date", today).not("completed_at", "is", null).order("session_date", { ascending: false }).limit(1).maybeSingle(),
     ]);
 
     // Work-only distance per session — isolated to work/strides steps,
@@ -194,37 +203,52 @@ export const buildAthletePayload = createServerFn({ method: "POST" })
       return { direction, delta, early_mean: +earlyMean.toFixed(1), recent_mean: +recentMean.toFixed(1) };
     }
     const trajectoryStep = Math.max(1, Math.floor(loadRowsAsc.length / 10));
+    // Renamed ctl/atl/tsb -> fitness/fatigue/form here at the boundary
+    // going to the model. The DB columns stay ctl/atl/tsb (used all over
+    // the rest of the app) — but a model handed a field literally named
+    // "ctl" will parrot "CTL" straight back in its reply even when told
+    // not to. Renaming the keys themselves is a much more reliable fix
+    // than just instructing the model to avoid the jargon (that's also
+    // done in COACH_SYSTEM_PROMPT as a second layer, but this is the one
+    // that actually works).
     const trajectory = loadRowsAsc
       .filter((_: any, i: number) => i % trajectoryStep === 0)
       .map((r: any) => ({
         date: r.load_date,
-        ctl: r.ctl != null ? Math.round(r.ctl) : null,
-        atl: r.atl != null ? Math.round(r.atl) : null,
-        tsb: r.tsb != null ? Math.round(r.tsb) : null,
+        fitness: r.ctl != null ? Math.round(r.ctl) : null,
+        fatigue: r.atl != null ? Math.round(r.atl) : null,
+        form: r.tsb != null ? Math.round(r.tsb) : null,
       }));
 
     const vList = vitals.data ?? [];
     const meanSleep = vList.length ? +(vList.reduce((a, v: any) => a + (v.sleep_hours || 0), 0) / vList.length).toFixed(1) : null;
     const meanRhr = vList.length ? Math.round(vList.reduce((a, v: any) => a + (v.resting_hr || 0), 0) / vList.length) : null;
 
+    const nextRace = upcomingRace.data as any;
+    const lastRace = recentRace.data as any;
+    const daysBetween = (a: string, b: string) => Math.round((new Date(a).getTime() - new Date(b).getTime()) / 86400_000);
+
     return {
       athlete: athlete.data ?? {},
-      readiness: lastLoad ? { status: lastLoad.readiness_status, score: lastLoad.readiness_score, ctl: lastLoad.ctl, atl: lastLoad.atl, tsb: lastLoad.tsb } : null,
+      readiness: lastLoad ? { status: lastLoad.readiness_status, score: lastLoad.readiness_score, fitness: lastLoad.ctl, fatigue: lastLoad.atl, form: lastLoad.tsb } : null,
       load_trend: {
         window_days: loadRows.length,
-        ctl_trend: trendFor("ctl"),
-        atl_trend: trendFor("atl"),
-        tsb_trend: trendFor("tsb"),
+        fitness_trend: trendFor("ctl"),
+        fatigue_trend: trendFor("atl"),
+        form_trend: trendFor("tsb"),
         trajectory,
       },
-      load_trend_legend: "ctl_trend/atl_trend/tsb_trend compare the early portion of this window against the most recent portion — direction is 'rising'/'falling'/'stable', delta is recent_mean minus early_mean (positive = increasing). trajectory is a sparse chronological sample across the window so you can see the actual shape of the curve. Always weigh the trend direction here, not just the single current-day snapshot in `readiness` — a metric (e.g. Fatigue/ATL) can be elevated in absolute terms while still clearly falling, or low while still climbing, and that direction is usually more useful to the athlete than the isolated current value.",
+      load_trend_legend: "fitness_trend/fatigue_trend/form_trend compare the early portion of this window against the most recent portion — direction is 'rising'/'falling'/'stable', delta is recent_mean minus early_mean (positive = increasing). trajectory is a sparse chronological sample across the window so you can see the actual shape of the curve. Always weigh the trend direction here, not just the single current-day snapshot in `readiness` — a metric (e.g. Fatigue) can be elevated in absolute terms while still clearly falling, or low while still climbing, and that direction is usually more useful to the athlete than the isolated current value. Refer to these only as Fitness/Fatigue/Form in plain language — never by their underlying training-platform abbreviations.",
+      upcoming_race: nextRace ? { date: nextRace.session_date, title: nextRace.title, days_away: daysBetween(nextRace.session_date, today) } : null,
+      recent_race: lastRace ? { date: lastRace.session_date, title: lastRace.title, days_ago: daysBetween(today, lastRace.session_date) } : null,
+      race_legend: "upcoming_race is the next dated race on this athlete's actual plan, or null if none is scheduled. Do not mention a race, race day, taper, peaking, or race-specific periodization anywhere in your response unless upcoming_race is non-null — if it's null, there is no race to reference, so don't invent or assume one. recent_race is the most recent completed race in the last 90 days, or null.",
       vitals_trend_14d: { sleep_h_mean: meanSleep, rhr_mean: meanRhr, sample_n: vList.length },
       physio: physio.data ?? {},
       zones: zones.data ?? {},
       athlete_dna: dna.data ?? {},
       recent_sessions_28d: sList,
-      session_field_legend: "km = total session distance including warmup/cooldown. work_km = hard-effort portion only (work + strides steps), excludes warmup/recovery/cooldown. Use work_km, not km, for any question about work/quality volume.",
-      physio_field_legend: "archetype = this athlete's auto-computed performance-type label (e.g. 'Aerobic Engine, High Speed Reserve') — never a fixed identity, recalculates as new PBs are logged. aerobic_pct/anaerobic_pct = their own aerobic-vs-anaerobic development split (0-100, sums to 100). speed_reserve_bucket = Low/Moderate/High top-end speed relative to their own aerobic ability. Ground training and race advice in this athlete's actual archetype and speed reserve rather than generic guidance.",
+      session_field_legend: "km = total session distance including warmup/cooldown. work_km = hard-effort portion only (work + strides steps), excludes warmup/recovery/cooldown. Use work_km, not km, for any question about work/quality volume. ty = day_type ('training'/'race'/'recovery'/'cross_training'/'rest') — this is the only reliable signal for whether a given past session was a race; it does not tell you about future races (see upcoming_race for that).",
+      physio_field_legend: "archetype = this athlete's auto-computed performance-type label (e.g. 'Aerobic Engine, High Speed Reserve') — never a fixed identity, recalculates as new PBs are logged. aerobic_pct/anaerobic_pct = their own aerobic-vs-anaerobic development split (0-100, sums to 100). speed_reserve_bucket = Low/Moderate/High top-end speed relative to their own aerobic ability. Ground training advice in this athlete's actual archetype and speed reserve rather than generic guidance — but only frame it as race prep if upcoming_race is non-null.",
       athlete_dna_legend: "0-100 scores with Low/Developing/Good/Excellent/Elite buckets across this athlete's 5 best-supported development categories (Endurance, Speed, Aerobic Capacity, Anaerobic Capacity, Consistency) — status 'insufficient_pbs' means not enough PBs logged yet to score. Use the lowest-scoring category as the basis for 'what should this athlete work on' rather than a generic suggestion.",
       recent_insights: (insights.data ?? []).map((i: any) => ({ d: i.created_at?.slice(0, 10), feel: i.feel_score, well: i.went_well?.slice(0, 80), hard: i.was_difficult?.slice(0, 80), niggles: i.niggles?.slice(0, 80) })),
     };
@@ -502,6 +526,27 @@ export const getOrCreateAthleteThread = createServerFn({ method: "POST" })
     const { data: row, error } = await sb.from("ai_chat_threads").insert({ coach_id: context.userId, athlete_id: data.athleteId }).select().single();
     if (error) throw error;
     return row;
+  });
+
+/**
+ * Wipes the running AI Coaching Assistant conversation for one athlete —
+ * deletes the thread, which cascades to its messages (ai_chat_messages)
+ * and its mirrored AI-history row (ai_reviews.thread_id) automatically via
+ * their ON DELETE CASCADE foreign keys. The next message sent re-creates
+ * a fresh thread through getOrCreateAthleteThread, same as a brand-new
+ * conversation.
+ */
+export const clearAthleteThread = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { athleteId: string }) => d)
+  .handler(async ({ data, context }) => {
+    const { error } = await context.supabase
+      .from("ai_chat_threads")
+      .delete()
+      .eq("coach_id", context.userId)
+      .eq("athlete_id", data.athleteId);
+    if (error) throw error;
+    return { ok: true };
   });
 
 export const listThreadMessages = createServerFn({ method: "GET" })
