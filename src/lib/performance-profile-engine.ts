@@ -529,6 +529,50 @@ function confidenceForTarget(weightedPbs: WeightedPb[], lnTarget: number, localR
   return 0.4 * dataVolumeScore + 0.3 * recencyScore + 0.2 * consistencyScore + 0.1 * distanceScore;
 }
 
+// The nearest real PB shorter than the target, and the nearest longer
+// than it — used by clampToBrackets below to bound predictions against
+// real, proven results on either side.
+function bracketingPbs(pbs: WeightedPb[], targetKm: number): { shorter: WeightedPb | null; longer: WeightedPb | null } {
+  let shorter: WeightedPb | null = null;
+  let longer: WeightedPb | null = null;
+  for (const pb of pbs) {
+    if (pb.distanceKm < targetKm && (!shorter || pb.distanceKm > shorter.distanceKm)) shorter = pb;
+    if (pb.distanceKm > targetKm && (!longer || pb.distanceKm < longer.distanceKm)) longer = pb;
+  }
+  return { shorter, longer };
+}
+
+// Bounds ANY time value (a point estimate, or a range's low/high
+// endpoint individually) against the nearest real PBs bracketing the
+// target — pace can't sensibly be faster than a real shorter-distance
+// result, nor slower than a real longer-distance one. Same principle
+// the old recent-race system used (clampAgainstPbs in
+// performance-predictor.ts); this engine never had an equivalent,
+// which is exactly how a "potential" range could claim a 5K slower
+// than the athlete's actual 10K pace, or an 800m slower than what
+// their 1500m/3000m results already prove they can hold. A 3% buffer
+// leaves genuine room for day-to-day and distance-specific variation
+// without allowing a physiologically backwards number through.
+function clampToBrackets(targetKm: number, timeSec: number, others: WeightedPb[]): number {
+  let pace = timeSec / targetKm;
+  const { shorter, longer } = bracketingPbs(others, targetKm);
+  if (shorter) pace = Math.max(pace, (shorter.timeSec / shorter.distanceKm) * 0.97);
+  if (longer) pace = Math.min(pace, (longer.timeSec / longer.distanceKm) * 1.03);
+  return pace * targetKm;
+}
+
+// A flat percentage range doesn't mean the same thing at every
+// distance — 5% of an 800m time is ~5-6 seconds (a genuinely different
+// tactical race), while 5% of a marathon is several minutes (normal
+// day-to-day variability). Scales whatever the confidence tier already
+// decided by distance, referenced around 15km (roughly where a
+// percentage range starts feeling proportionate), floored so very
+// short distances still get a real range and capped so very long ones
+// don't balloon further than the tier system already allows.
+function distanceRangeScale(targetKm: number): number {
+  return Math.max(0.4, Math.min(1.3, Math.sqrt(targetKm / 15)));
+}
+
 export function predictFromProfile(profile: AthleteProfile, targetLabel: string, targetKm: number): ProfilePrediction | null {
   if (!Number.isFinite(targetKm) || targetKm <= 0) return null;
   const lnTarget = Math.log(targetKm);
@@ -547,7 +591,7 @@ export function predictFromProfile(profile: AthleteProfile, targetLabel: string,
     }
   }
   if (exactPb && bestGap <= PB_EXACT_MATCH_TOLERANCE) {
-    const pbRangePct = TIER_META[5].rangePct;
+    const pbRangePct = TIER_META[5].rangePct * distanceRangeScale(targetKm);
     const result: ProfilePrediction = {
       label: targetLabel,
       km: targetKm,
@@ -567,14 +611,29 @@ export function predictFromProfile(profile: AthleteProfile, targetLabel: string,
     const others = profile.weighted.filter((p) => Math.abs(Math.log(p.distanceKm / targetKm)) > PB_EXACT_MATCH_TOLERANCE);
     if (others.length > 0) {
       const est = localVdotEstimate(others, lnTarget, profile.globalCurve?.slope ?? null);
-      const potentialTimeSec = est ? raceTimeFromVdot(targetKm, est.vdot) : null;
-      if (potentialTimeSec != null) {
+      const rawPotential = est ? raceTimeFromVdot(targetKm, est.vdot) : null;
+      if (rawPotential != null) {
+        const potentialTimeSec = clampToBrackets(targetKm, rawPotential, others);
         const potentialConfidencePct = confidenceForTarget(others, lnTarget, est!.rSquared, profile.overallConsistency);
         const potentialTier = tierFromPct(potentialConfidencePct);
-        const potentialRangePct = TIER_META[potentialTier].rangePct;
+        // Capped tighter than the normal tier width — "potential" is
+        // still built from directly-adjacent real PBs even after
+        // excluding this one, which is materially stronger evidence
+        // than the low/very-low tiers (designed for genuinely distant,
+        // thin-evidence targets like a Marathon prediction from a
+        // miler) were calibrated for. Without this cap, excluding a
+        // well-supported PB from its own neighborhood was producing
+        // ranges wide enough to look like guesses rather than a
+        // grounded read of nearby evidence.
+        const potentialRangePct = Math.min(TIER_META[potentialTier].rangePct, 5) * distanceRangeScale(targetKm);
         result.potentialTimeSec = potentialTimeSec;
-        result.potentialLowSec = potentialTimeSec * (1 - potentialRangePct / 100);
-        result.potentialHighSec = potentialTimeSec * (1 + potentialRangePct / 100);
+        // Range endpoints clamped individually too — a wide tier
+        // shouldn't be able to push the slow end past what a real
+        // longer-distance PB already proves, or the fast end past what
+        // a real shorter one proves, even when the center estimate
+        // itself is fine.
+        result.potentialLowSec = clampToBrackets(targetKm, potentialTimeSec * (1 - potentialRangePct / 100), others);
+        result.potentialHighSec = clampToBrackets(targetKm, potentialTimeSec * (1 + potentialRangePct / 100), others);
         result.potentialTier = potentialTier;
       }
     }
@@ -591,8 +650,9 @@ export function predictFromProfile(profile: AthleteProfile, targetLabel: string,
   // to the weight sum here, so they can barely move the local fit.
   const est = localVdotEstimate(profile.weighted, lnTarget, profile.globalCurve?.slope ?? null);
   if (!est) return null;
-  const timeSec = raceTimeFromVdot(targetKm, est.vdot);
-  if (timeSec == null) return null;
+  const rawTimeSec = raceTimeFromVdot(targetKm, est.vdot);
+  if (rawTimeSec == null) return null;
+  const timeSec = clampToBrackets(targetKm, rawTimeSec, profile.weighted);
 
   // Stage 4 — confidence: data volume (40%) + recency (30%) +
   // consistency (20%) + distance from target (10%), in that priority
@@ -601,14 +661,14 @@ export function predictFromProfile(profile: AthleteProfile, targetLabel: string,
   // are answering the same question about the same evidence.
   const confidencePct = confidenceForTarget(profile.weighted, lnTarget, est.rSquared, profile.overallConsistency);
   const tier = tierFromPct(confidencePct);
-  const rangePct = TIER_META[tier].rangePct;
+  const rangePct = TIER_META[tier].rangePct * distanceRangeScale(targetKm);
 
   return {
     label: targetLabel,
     km: targetKm,
     timeSec,
-    lowSec: timeSec * (1 - rangePct / 100),
-    highSec: timeSec * (1 + rangePct / 100),
+    lowSec: clampToBrackets(targetKm, timeSec * (1 - rangePct / 100), profile.weighted),
+    highSec: clampToBrackets(targetKm, timeSec * (1 + rangePct / 100), profile.weighted),
     paceSecPerKm: timeSec / targetKm,
     tier,
     confidencePct: Math.round(confidencePct),
