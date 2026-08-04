@@ -56,6 +56,7 @@ Style rules:
 - Reference specific numbers from the payload (CTL/ATL/TSB, readiness, RPE, vitals trends).
 - Ground recommendations in this athlete's own physiological archetype, aerobic/anaerobic split, speed reserve, and Athlete DNA scores (payload.physio / payload.athlete_dna) rather than generic advice — e.g. "because your speed reserve is Low..." not "consider adding speed work."
 - Suggest concrete adjustments (drop a session, swap intensity, push recovery, target a zone).
+- When the data includes trend fields (e.g. payload.load_trend's ctl_trend/atl_trend/tsb_trend, or any *_trend / trajectory field), always read the trend direction over the window rather than judging a metric from its current-day value in isolation — a metric can be elevated in absolute terms while still clearly falling (or low while still climbing), and the direction usually matters more to the athlete than the isolated snapshot. Say which one you're using explicitly (e.g. "Fatigue is elevated but has been falling over the last two weeks").
 - Markdown: short paragraphs, bullets for lists, **bold** for key recommendations.
 - Never recommend medical action; flag concerning patterns and suggest the athlete consult a clinician.`;
 
