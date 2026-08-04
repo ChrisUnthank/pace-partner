@@ -25,10 +25,28 @@ import {
 
 type ReviewType = "weekly" | "monthly" | "phase" | "yearly" | "custom";
 type Mode = "individual" | "squad";
+// Every place in the app that generates AI content mirrors into ai_reviews
+// now, not just this page's own generator — 'source' is what tells these
+// apart in the unified history below.
+type HistorySource = "review" | "chat" | "daily_note" | "session_note" | "weekly_summary" | "chart_insight";
 
 const TYPE_LABEL: Record<ReviewType, string> = {
   weekly: "Weekly", monthly: "Monthly", phase: "Completed Phase", yearly: "Yearly", custom: "Custom range",
 };
+
+const SOURCE_LABEL: Record<HistorySource, string> = {
+  review: "Review",
+  chat: "Coaching chat",
+  daily_note: "Daily reflection",
+  session_note: "Session reflection",
+  weekly_summary: "Weekly summary",
+  chart_insight: "Chart insight",
+};
+
+function historyItemLabel(r: any): string {
+  if (r.source === "review") return TYPE_LABEL[r.review_type as ReviewType] ?? r.review_type ?? "Review";
+  return SOURCE_LABEL[r.source as HistorySource] ?? r.source;
+}
 
 const searchSchema = z.object({
   // Arriving from an athlete's own page via the "Generate or view AI
@@ -57,7 +75,8 @@ function AiReviewPage() {
   const [busy, setBusy] = useState(false);
   const [bulkResult, setBulkResult] = useState<{ generated: any[]; errors: { athleteId: string; message: string }[] } | null>(null);
   const [squadResult, setSquadResult] = useState<any | null>(null);
-  const [historyFilter, setHistoryFilter] = useState("");
+  const [historyAthlete, setHistoryAthlete] = useState<string>("all");
+  const [historySource, setHistorySource] = useState<HistorySource | "all">("all");
 
   const genBulk = useServerFn(generateBulkAiReviews);
   const genSquad = useServerFn(generateSquadAiReview);
@@ -75,10 +94,12 @@ function AiReviewPage() {
   );
 
   const filteredReviews = useMemo(() => {
-    if (!historyFilter.trim()) return allReviews;
-    const q = historyFilter.trim().toLowerCase();
-    return (allReviews as any[]).filter((r) => (r.athletes?.name ?? "").toLowerCase().includes(q));
-  }, [allReviews, historyFilter]);
+    return (allReviews as any[]).filter((r) => {
+      if (historyAthlete !== "all" && r.athlete_id !== historyAthlete) return false;
+      if (historySource !== "all" && r.source !== historySource) return false;
+      return true;
+    });
+  }, [allReviews, historyAthlete, historySource]);
 
   function toggleAthlete(id: string) {
     setSelected((prev) => {
@@ -280,35 +301,68 @@ function AiReviewPage() {
         )}
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-3">
-            <div>
-              <CardTitle className="text-base">Individual review history</CardTitle>
-              <CardDescription>Every review generated for any athlete on your roster.</CardDescription>
+          <CardHeader className="flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <CardTitle className="text-base">AI history</CardTitle>
+                <CardDescription>
+                  Everything AI-generated for your roster — reviews from this page, coaching-assistant chats, daily
+                  and session reflections, weekly summaries, and chart insights from elsewhere in the app.
+                </CardDescription>
+              </div>
             </div>
-            <Input
-              placeholder="Filter by athlete…"
-              value={historyFilter}
-              onChange={(e) => setHistoryFilter(e.target.value)}
-              className="max-w-[200px]"
-            />
+            <div className="flex items-center gap-2 flex-wrap">
+              <Select value={historyAthlete} onValueChange={setHistoryAthlete}>
+                <SelectTrigger className="h-8 text-xs w-[200px]">
+                  <SelectValue placeholder="All athletes" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All athletes</SelectItem>
+                  {rosterSorted.map((r: any) => (
+                    <SelectItem key={r.athlete_id} value={r.athlete_id}>
+                      {r.athletes?.name ?? "Athlete"}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={historySource} onValueChange={(v) => setHistorySource(v as HistorySource | "all")}>
+                <SelectTrigger className="h-8 text-xs w-[190px]">
+                  <SelectValue placeholder="All types" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All types</SelectItem>
+                  <SelectItem value="review">Reviews</SelectItem>
+                  <SelectItem value="chat">Coaching chats</SelectItem>
+                  <SelectItem value="daily_note">Daily reflections</SelectItem>
+                  <SelectItem value="session_note">Session reflections</SelectItem>
+                  <SelectItem value="weekly_summary">Weekly summaries</SelectItem>
+                  <SelectItem value="chart_insight">Chart insights</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </CardHeader>
           <CardContent className="space-y-3">
             {filteredReviews.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No reviews yet.</p>
+              <p className="text-sm text-muted-foreground">Nothing matches this filter yet.</p>
             ) : (
               filteredReviews.map((r: any) => (
                 <details key={r.id} className="border rounded-md p-3">
-                  <summary className="flex items-center justify-between cursor-pointer text-xs">
-                    <span>
+                  <summary className="flex items-center justify-between cursor-pointer text-xs gap-2">
+                    <span className="min-w-0">
                       <span className="font-medium">{r.athletes?.name ?? "Athlete"}</span>
-                      <span className="text-muted-foreground"> · {TYPE_LABEL[r.review_type as ReviewType] ?? r.review_type} · {r.period_start} → {r.period_end}</span>
+                      <span className="text-muted-foreground">
+                        {" "}
+                        · {historyItemLabel(r)}
+                        {r.title ? ` — ${r.title}` : ""}
+                        {r.period_start ? ` · ${r.period_start}${r.period_end && r.period_end !== r.period_start ? ` → ${r.period_end}` : ""}` : ""}
+                      </span>
                     </span>
                     <Button
                       size="sm"
                       variant="ghost"
                       onClick={async (e) => {
                         e.preventDefault();
-                        if (!confirm("Delete this review?")) return;
+                        if (!confirm("Delete this item from AI history?")) return;
                         await delReview({ data: { reviewId: r.id } });
                         qc.invalidateQueries({ queryKey: ["all-ai-reviews"] });
                       }}
