@@ -55,7 +55,7 @@ const FOCUS_INSTRUCTION: Record<InsightFocus, string> = {
 function promptFor(kind: InsightKind, focus: InsightFocus, athleteName: string, payload: any) {
   const instruction = FOCUS_INSTRUCTION[focus];
   if (kind === "training_load") {
-    return `In under 150 words, explain this athlete's Fitness (CTL), Fatigue (ATL), and Form (TSB) for ${athleteName} in plain coaching language. ${instruction} Don't just restate the numbers; interpret them. Data:\n${JSON.stringify(payload)}`;
+    return `In under 150 words, explain this athlete's Fitness, Fatigue, and Form for ${athleteName} in plain coaching language — never using training-platform abbreviations like CTL/ATL/TSB/TSS, just the plain-language terms already in the data. ${instruction} Don't just restate the numbers; interpret them. Only reference a race if payload.upcoming_race is present — otherwise talk about the training block on its own terms. Data:\n${JSON.stringify(payload)}`;
   }
   return `In under 150 words, explain what this athlete's time-in-zone distribution over the last 28 days says about their training emphasis for ${athleteName} — is it aerobic-heavy, threshold-heavy, balanced. ${instruction} Data:\n${JSON.stringify(payload)}`;
 }
@@ -87,7 +87,16 @@ export const generateChartInsight = createServerFn({ method: "POST" })
     let payload: any;
     if (data.kind === "training_load") {
       const full = await buildAthletePayload({ data: { athleteId: data.athleteId } });
-      payload = { readiness: full.readiness, load_trend: full.load_trend, load_trend_legend: full.load_trend_legend, athlete_dna: full.athlete_dna, physio: full.physio };
+      payload = {
+        readiness: full.readiness,
+        load_trend: full.load_trend,
+        load_trend_legend: full.load_trend_legend,
+        athlete_dna: full.athlete_dna,
+        physio: full.physio,
+        upcoming_race: full.upcoming_race,
+        recent_race: full.recent_race,
+        race_legend: full.race_legend,
+      };
     } else {
       const [zoneDist, full] = await Promise.all([
         buildZoneDistribution(sb, data.athleteId),
