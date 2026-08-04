@@ -18,7 +18,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { UserAvatar } from "@/components/user-avatar";
-import { Users, MapPin, CalendarDays, Pencil, Trash2, Link2Off, Route as RouteIcon, Medal, ChevronLeft } from "lucide-react";
+import { MultiRouteFlyoverMap, type AthleteTrack } from "@/components/multi-route-flyover-map";
+import { Users, MapPin, CalendarDays, Pencil, Trash2, Link2Off, Route as RouteIcon, Medal, ChevronLeft, Video } from "lucide-react";
 import { toast } from "sonner";
 import { secToClock, paceFmt, metersFmt } from "@/lib/format";
 import { useMyRoles } from "@/lib/use-auth";
@@ -26,6 +27,12 @@ import { useMyRoles } from "@/lib/use-auth";
 export const Route = createFileRoute("/_authenticated/app/race-events/$raceEventId")({
   component: RaceEventDetailPage,
 });
+
+// Identity colors for the group flyover map + legend — cycles if there are
+// more linked athletes than colors. Deliberately separate from the HR-zone
+// color palette used elsewhere (ZONE_COLORS): this is about telling
+// athletes apart from each other, not encoding intensity.
+const TRACK_PALETTE = ["#FF004C", "#00B8D9", "#FFAB00", "#36B37E", "#6554C0", "#FF5630", "#00875A", "#8993A4"];
 
 type LinkedPerformance = {
   id: string;
@@ -76,6 +83,72 @@ function RaceEventDetailPage() {
     const distinct = new Set((results ?? []).map((r) => r.distance_m));
     return distinct.size > 1;
   }, [results]);
+
+  const withGps = useMemo(() => (results ?? []).filter((r) => r.session_id), [results]);
+
+  // Gated behind a toggle rather than fetched automatically — this is
+  // several athletes' full GPS traces at once (each already paginated
+  // individually), no reason to pull all of it before the coach actually
+  // asks to see the group flyover.
+  const [showFlyover, setShowFlyover] = useState(false);
+  const { data: tracks, isLoading: tracksLoading } = useQuery({
+    queryKey: ["race-event-tracks", raceEventId, withGps.map((r) => r.session_id).join(",")],
+    enabled: showFlyover && withGps.length >= 2,
+    queryFn: async () => {
+      const built: AthleteTrack[] = [];
+      await Promise.all(
+        withGps.map(async (r, i) => {
+          // Same pagination + elapsed/distance rebasing as the single-
+          // athlete Race Analysis page (app.races.$raceId.analysis.tsx) —
+          // required here for a different reason: every athlete's clock
+          // needs to actually start at 0 for the "synced by elapsed time"
+          // group flyover to line them up correctly. Without rebasing, a
+          // session with e.g. a warm-up recorded before the race work
+          // segment would carry that warm-up's duration as an offset, and
+          // that athlete would appear to start the race late (or early)
+          // relative to everyone else for no real reason.
+          const PAGE_SIZE = 1000;
+          const all: any[] = [];
+          let from = 0;
+          while (true) {
+            const { data, error } = await supabase
+              .from("raw_session_points")
+              .select("elapsed_s, distance_m, lat, lng, hr")
+              .eq("session_id", r.session_id as string)
+              .eq("segment_type", "work")
+              .order("elapsed_s")
+              .range(from, from + PAGE_SIZE - 1);
+            if (error || !data || data.length === 0) break;
+            all.push(...data);
+            if (data.length < PAGE_SIZE) break;
+            from += PAGE_SIZE;
+          }
+          if (all.length === 0) return;
+          const baseElapsed = Number(all[0].elapsed_s ?? 0);
+          const baseDistance = Number(all[0].distance_m ?? 0);
+          built.push({
+            id: r.id,
+            name: r.athletes?.name ?? "Athlete",
+            color: TRACK_PALETTE[i % TRACK_PALETTE.length],
+            points: all.map((p) => ({
+              lat: Number(p.lat),
+              lng: Number(p.lng),
+              elapsed_s: Number(p.elapsed_s ?? 0) - baseElapsed,
+              distance_m: p.distance_m != null ? Number(p.distance_m) - baseDistance : null,
+              hr: p.hr ?? null,
+            })),
+          });
+        }),
+      );
+      return built;
+    },
+  });
+
+  const trackColorByPerfId = useMemo(() => {
+    const map = new Map<string, string>();
+    withGps.forEach((r, i) => map.set(r.id, TRACK_PALETTE[i % TRACK_PALETTE.length]));
+    return map;
+  }, [withGps]);
 
   const [editOpen, setEditOpen] = useState(false);
   const [name, setName] = useState("");
@@ -235,7 +308,16 @@ function RaceEventDetailPage() {
                 {results.map((r, i) => (
                   <div key={r.id} className="flex items-center gap-3 py-3">
                     <div className="w-6 text-center text-sm font-bold text-muted-foreground shrink-0">{i + 1}</div>
-                    <UserAvatar name={r.athletes?.name} imageUrl={r.athletes?.profile_image_url} size="sm" />
+                    <div className="relative shrink-0">
+                      <UserAvatar name={r.athletes?.name} imageUrl={r.athletes?.profile_image_url} size="sm" />
+                      {trackColorByPerfId.has(r.id) && (
+                        <span
+                          className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-card"
+                          style={{ background: trackColorByPerfId.get(r.id) }}
+                          title="This athlete's color in the group flyover"
+                        />
+                      )}
+                    </div>
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-medium truncate flex items-center gap-1.5">
                         {r.athletes?.name ?? "Athlete"}
@@ -285,10 +367,41 @@ function RaceEventDetailPage() {
           </CardContent>
         </Card>
 
-        <p className="text-xs text-muted-foreground">
-          A side-by-side GPS replay (all athletes on the same map, together) is coming in a follow-up — for now, use
-          the route icon next to a result to open that athlete's own GPS analysis.
-        </p>
+        {withGps.length >= 2 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Video className="h-4 w-4 text-[var(--accent-red)]" /> Group flyover
+              </CardTitle>
+              <CardDescription>
+                All {withGps.length} athletes with GPS data for this event, flown together on the same map, synced
+                by elapsed time (everyone's clock starts together, not by real time of day).
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {!showFlyover ? (
+                <Button variant="outline" onClick={() => setShowFlyover(true)}>
+                  <Video className="h-3.5 w-3.5 mr-1.5" /> Load group flyover
+                </Button>
+              ) : tracksLoading ? (
+                <p className="text-sm text-muted-foreground">Loading GPS traces for {withGps.length} athletes…</p>
+              ) : !tracks || tracks.length < 2 ? (
+                <p className="text-sm text-muted-foreground">
+                  Couldn't load enough GPS data to build a group flyover for this event.
+                </p>
+              ) : (
+                <MultiRouteFlyoverMap tracks={tracks} heightPx={480} />
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {withGps.length > 0 && withGps.length < 2 && (
+          <p className="text-xs text-muted-foreground">
+            Only one linked result has GPS data — link at least one more with GPS data to unlock the group flyover.
+            Use the route icon next to a result to open that athlete's own GPS analysis in the meantime.
+          </p>
+        )}
       </div>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
