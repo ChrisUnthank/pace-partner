@@ -39,6 +39,8 @@
 // separate integration effort touching several other features, not a
 // natural extension of this file.
 
+import { secToClock } from "@/lib/format";
+
 export type PbRecord = {
   distanceKm: number;
   timeSec: number;
@@ -277,6 +279,7 @@ export type AthleteProfile = {
   // guessed. See topEndSpeedFromProfile for the comparison this is
   // built from.
   topEndSpeed: TopEndSpeed | null;
+  conversionMetrics: ConversionMetrics;
 };
 
 const SHAPE_BAND_POSITIONS = [-1, -0.5, 0, 0.5, 1];
@@ -411,6 +414,120 @@ function deriveProfileInsights(weighted: WeightedPb[]): ProfileInsights {
 // to "is their 800m fast because they're fast, or because they're
 // aerobically strong" — which a flat VDOT-based Speed Score can't tell
 // apart on its own.
+export type SpeedPoint = {
+  km: number;
+  timeSec: number;
+  vdot: number;
+  // false means this is an aerobic-profile extrapolation, not a real
+  // logged result — every place that uses a SpeedPoint says so
+  // explicitly rather than presenting an estimate as measured fact.
+  measured: boolean;
+  sourceLabel: string;
+};
+
+// Same 5-band scale Development Potential (Athlete DNA) already uses
+// for its category scores — reused here rather than inventing a
+// different scale, so "Good" or "Excellent" means the same thing
+// wherever it shows up in the app.
+function bucketFromScore(score: number): "Low" | "Developing" | "Good" | "Excellent" | "Elite" {
+  if (score < 20) return "Low";
+  if (score < 40) return "Developing";
+  if (score < 65) return "Good";
+  if (score < 85) return "Excellent";
+  return "Elite";
+}
+
+export type ConversionScore = {
+  score: number; // 0-100
+  bucket: "Low" | "Developing" | "Good" | "Excellent" | "Elite";
+  measured: boolean; // whether it's built from real PBs or leans on an estimate somewhere in the chain
+  detail: string;
+};
+
+export type ConversionMetrics = {
+  // Raw ability at 400-600m — the ceiling. Null only when there's
+  // truly nothing on file to even estimate it from (no PBs at all).
+  rawSpeedCeiling: ConversionScore | null;
+  // How much of that raw speed carries into 800m — the 400->800
+  // dVDOT/d(ln km) compared against the athlete's OWN aerobic-range
+  // decay rate (Speed Endurance, 800m-3000m). Null when there's no
+  // aerobic-range reference to compare against at all.
+  speedConversion: ConversionScore | null;
+  // How well 1500m-level fitness carries into 5K-Half — reads
+  // aerobicDurabilityDecay as a score rather than a bare slope number.
+  aerobicConversion: ConversionScore | null;
+};
+
+// The single aerobic-extrapolation calculation — "what would this
+// distance look like if this athlete's aerobic profile alone (no
+// special speed reserve, no deficiency) were extended down/out to it."
+// Shared by topEndSpeedFromProfile's baseline and estimateSpeedPoint's
+// fallback so there's exactly one implementation of this idea, not two
+// that could quietly drift apart.
+function aerobicExtrapolatedPoint(
+  targetKm: number,
+  globalCurve: LinearFit | null,
+  fallbackSingle: WeightedPb | null,
+): { timeSec: number; vdot: number } | null {
+  if (globalCurve) {
+    const vdot = globalCurve.intercept + globalCurve.slope * Math.log(targetKm);
+    const timeSec = raceTimeFromVdot(targetKm, vdot);
+    if (timeSec != null) return { timeSec, vdot };
+  }
+  if (fallbackSingle) {
+    const timeSec = raceTimeFromVdot(targetKm, fallbackSingle.vdot);
+    if (timeSec != null) return { timeSec, vdot: fallbackSingle.vdot };
+  }
+  return null;
+}
+
+// General-purpose "give me a time at this distance" for the conversion
+// metrics below — prefers a real nearby PB (generous ~15%-of-log-
+// distance tolerance, since this is "close enough to treat as this
+// athlete's known ability here," not the tight exact-match check used
+// elsewhere), falls back to the aerobic extrapolation above. Returns
+// null only when there's genuinely nothing on file to work from —
+// never invents a number from zero data, which is the actual answer
+// to "estimate a 400m/800m PB if the athlete doesn't have one": use
+// whatever real evidence exists, extrapolated honestly, clearly
+// labelled as an estimate rather than presented as a real time.
+function estimateSpeedPoint(
+  targetKm: number,
+  speedIndicatorPbs: PbRecord[],
+  vdotWeighted: WeightedPb[],
+  globalCurve: LinearFit | null,
+): SpeedPoint | null {
+  const candidates = [
+    ...speedIndicatorPbs.map((p) => ({ distanceKm: p.distanceKm, timeSec: p.timeSec, vdot: estimateVdot(p.distanceKm, p.timeSec) })),
+    ...vdotWeighted.map((p) => ({ distanceKm: p.distanceKm, timeSec: p.timeSec, vdot: p.vdot as number | null })),
+  ].filter((c): c is { distanceKm: number; timeSec: number; vdot: number } => c.vdot != null);
+
+  let nearest: { distanceKm: number; timeSec: number; vdot: number } | null = null;
+  let nearestGap = Infinity;
+  for (const c of candidates) {
+    const gap = Math.abs(Math.log(c.distanceKm / targetKm));
+    if (gap < nearestGap) {
+      nearestGap = gap;
+      nearest = c;
+    }
+  }
+  if (nearest && nearestGap <= 0.15) {
+    return {
+      km: targetKm,
+      timeSec: nearest.timeSec,
+      vdot: nearest.vdot,
+      measured: true,
+      sourceLabel: `measured (${formatDistanceLabel(nearest.distanceKm)})`,
+    };
+  }
+
+  const extrapolated = aerobicExtrapolatedPoint(targetKm, globalCurve, vdotWeighted[0] ?? null);
+  if (extrapolated) {
+    return { km: targetKm, ...extrapolated, measured: false, sourceLabel: "estimated from aerobic profile" };
+  }
+  return null;
+}
+
 const TOP_END_SPEED_THRESHOLD = 0.04; // 4% either side of the aerobic baseline
 
 function topEndSpeedFromProfile(
@@ -425,15 +542,8 @@ function topEndSpeedFromProfile(
   const best = [...speedIndicatorPbs].sort((a, b) => Math.abs(a.distanceKm - 0.4) - Math.abs(b.distanceKm - 0.4))[0];
 
   let aerobicBaselineTimeSec: number | null = null;
-  if (globalCurve) {
-    const impliedVdot = globalCurve.intercept + globalCurve.slope * Math.log(best.distanceKm);
-    aerobicBaselineTimeSec = raceTimeFromVdot(best.distanceKm, impliedVdot);
-  } else if (vdotWeighted.length > 0) {
-    // No curve (only one 600m+ PB on file) — fall back to that single
-    // point's own VDOT rather than giving up on a baseline entirely.
-    const only = vdotWeighted[0];
-    aerobicBaselineTimeSec = raceTimeFromVdot(best.distanceKm, only.vdot);
-  }
+  const baseline = aerobicExtrapolatedPoint(best.distanceKm, globalCurve, vdotWeighted[0] ?? null);
+  if (baseline) aerobicBaselineTimeSec = baseline.timeSec;
 
   let rating: TopEndSpeedRating = "Good";
   if (aerobicBaselineTimeSec != null) {
@@ -448,6 +558,88 @@ function topEndSpeedFromProfile(
     actualTimeSec: best.timeSec,
     aerobicBaselineTimeSec,
   };
+}
+
+// Raw VDOT ranges roughly 30 (recreational) to 85 (world-class) — a
+// simple linear scale across that range, not a validated population-
+// normed score. Documented as a heuristic on purpose: this is a
+// starting calibration, worth revisiting once tested against real
+// athletes rather than a claim of precision it doesn't have.
+function vdotToScore(vdot: number): number {
+  return Math.max(0, Math.min(100, ((vdot - 30) / (85 - 30)) * 100));
+}
+
+function deriveConversionMetrics(
+  speedIndicatorPbs: PbRecord[],
+  vdotWeighted: WeightedPb[],
+  globalCurve: LinearFit | null,
+  speedEnduranceDecay: number | null,
+  aerobicDurabilityDecay: number | null,
+): ConversionMetrics {
+  const point400 = estimateSpeedPoint(0.4, speedIndicatorPbs, vdotWeighted, globalCurve);
+  const point800 = estimateSpeedPoint(0.8, speedIndicatorPbs, vdotWeighted, globalCurve);
+
+  const rawSpeedCeiling: ConversionScore | null = point400
+    ? {
+        score: vdotToScore(point400.vdot),
+        bucket: bucketFromScore(vdotToScore(point400.vdot)),
+        measured: point400.measured,
+        detail: `400m ${point400.measured ? "PB" : "estimate"}: ${secToClock(point400.timeSec)} (${point400.sourceLabel})`,
+      }
+    : null;
+
+  // Compares the ACTUAL 400->800 drop-off against this athlete's own
+  // aerobic-range decay rate (Speed Endurance, 800m-3000m) — both in
+  // the same dVDOT/d(ln km) units, so this is "does this athlete hold
+  // their speed into 800m better or worse than their own broader
+  // pattern would predict," not a comparison against a generic
+  // population norm. Centered at 60 ("matches their own pattern");
+  // reads a genuinely richer signal than a raw exponent number would.
+  let speedConversion: ConversionScore | null = null;
+  const referenceSlope = speedEnduranceDecay ?? globalCurve?.slope ?? null;
+  if (point400 && point800 && referenceSlope != null) {
+    const impliedSlope = (point800.vdot - point400.vdot) / (Math.log(0.8) - Math.log(0.4));
+    const diff = impliedSlope - referenceSlope; // positive = holds speed into 800m BETTER than their own aerobic pattern implies
+    const score = Math.max(0, Math.min(100, 60 + diff * 15));
+    speedConversion = {
+      score,
+      bucket: bucketFromScore(score),
+      measured: point400.measured && point800.measured,
+      detail:
+        diff > 0.3
+          ? "Holds speed into 800m better than this athlete's own aerobic pattern alone would suggest."
+          : diff < -0.3
+            ? "Speed drops off into 800m faster than this athlete's own aerobic pattern alone would suggest — raw speed may be under-utilised here."
+            : "800m performance is in line with what this athlete's own aerobic pattern implies.",
+    };
+  }
+
+  // Reads aerobicDurabilityDecay (1500m-Half) as a score — slope near 0
+  // (VDOT barely drops across that whole range) is excellent aerobic
+  // carry-through; a steep negative slope means fitness measured at
+  // 1500m doesn't hold up well as distance extends. Centered at 70 for
+  // a flat (0) slope rather than 100 — some decay across that huge a
+  // range is normal even for strong aerobic athletes; near-zero or
+  // positive is the genuinely exceptional case.
+  const aerobicConversion: ConversionScore | null =
+    aerobicDurabilityDecay != null
+      ? (() => {
+          const score = Math.max(0, Math.min(100, 70 + aerobicDurabilityDecay * 25));
+          return {
+            score,
+            bucket: bucketFromScore(score),
+            measured: true,
+            detail:
+              aerobicDurabilityDecay > -0.3
+                ? "1500m-level fitness carries into 5K-Half with very little drop-off."
+                : aerobicDurabilityDecay < -1.0
+                  ? "Meaningful drop-off from 1500m-level fitness out to 5K-Half — aerobic development is the higher-leverage lever here."
+                  : "Typical drop-off from 1500m-level fitness out to 5K-Half.",
+          };
+        })()
+      : null;
+
+  return { rawSpeedCeiling, speedConversion, aerobicConversion };
 }
 
 export function buildAthleteProfile(pbs: PbRecord[], now: Date = new Date()): AthleteProfile | null {
@@ -524,6 +716,13 @@ export function buildAthleteProfile(pbs: PbRecord[], now: Date = new Date()): At
   );
 
   const topEndSpeed = topEndSpeedFromProfile(speedIndicatorPbs, weighted, globalCurve);
+  const conversionMetrics = deriveConversionMetrics(
+    speedIndicatorPbs,
+    weighted,
+    globalCurve,
+    speedEnduranceFit?.slope ?? null,
+    aerobicDurabilityFit?.slope ?? null,
+  );
   const insights = deriveProfileInsights(weighted);
   // This is the actual fix for "an athlete reads as Speed-Oriented off
   // an 800m that's really being carried by aerobic fitness, not raw
@@ -545,6 +744,7 @@ export function buildAthleteProfile(pbs: PbRecord[], now: Date = new Date()): At
     overallConsistency: globalCurve?.rSquared ?? 0,
     insights,
     topEndSpeed,
+    conversionMetrics,
   };
 }
 
