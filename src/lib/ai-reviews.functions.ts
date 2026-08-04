@@ -247,6 +247,7 @@ export const deleteSquadReview = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+/** Scoped to source='review' — this is the dedicated "AI Reviews" widget on an athlete's own page, not the unified AI history. */
 export const listAthleteReviews = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { athleteId: string }) => d)
@@ -255,11 +256,13 @@ export const listAthleteReviews = createServerFn({ method: "POST" })
       .from("ai_reviews")
       .select("*")
       .eq("athlete_id", data.athleteId)
+      .eq("source", "review")
       .order("created_at", { ascending: false })
       .limit(50);
     return rows ?? [];
   });
 
+/** Scoped to source='review' — dashboard widget, deliberately not the unified AI history (that's the Reports → AI Review page). */
 export const listRecentReviewsForCoach = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
@@ -270,12 +273,20 @@ export const listRecentReviewsForCoach = createServerFn({ method: "GET" })
     const { data: rows } = await sb.from("ai_reviews")
       .select("id, athlete_id, review_type, period_start, period_end, created_at, athletes(name, profile_image_url)")
       .in("athlete_id", ids)
+      .eq("source", "review")
       .order("created_at", { ascending: false })
       .limit(3);
     return rows ?? [];
   });
 
-/** Fuller history for the Reports → AI Review page — every individual review across the coach's roster, not just the dashboard widget's latest 3. */
+/**
+ * Unified AI history for the Reports → AI Review page — every AI-generated
+ * item across the coach's roster: structured reviews, coach-chat threads,
+ * daily/session reflections, weekly summaries, and chart insights. Not
+ * just the review-page-generated reviews (source='review') — everywhere
+ * else in the app that uses AI now mirrors into this same table, so this
+ * is the one place to see all of it.
+ */
 export const listAllReviewsForCoach = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
@@ -284,10 +295,10 @@ export const listAllReviewsForCoach = createServerFn({ method: "GET" })
     const ids = (roster ?? []).map((r: any) => r.athlete_id);
     if (ids.length === 0) return [];
     const { data: rows } = await sb.from("ai_reviews")
-      .select("id, athlete_id, review_type, period_start, period_end, created_at, content_md, athletes(name, profile_image_url)")
+      .select("id, athlete_id, source, title, review_type, period_start, period_end, created_at, updated_at, content_md, athletes(name, profile_image_url)")
       .in("athlete_id", ids)
-      .order("created_at", { ascending: false })
-      .limit(50);
+      .order("updated_at", { ascending: false })
+      .limit(100);
     return rows ?? [];
   });
 
