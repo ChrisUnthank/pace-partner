@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
-import { LayoutGrid, IdCard, Gauge, CalendarRange, CalendarDays, LineChart, Trophy, Globe, HeartPulse, PersonStanding } from "lucide-react";
+import { LayoutGrid, IdCard, Gauge, CalendarRange, CalendarDays, LineChart, Trophy, Globe, HeartPulse, PersonStanding, Sparkles } from "lucide-react";
 
 export type AthleteSubnavTab =
   | "overview"
@@ -14,16 +14,22 @@ export type AthleteSubnavTab =
   | "performance-profile"
   | "zones"
   | "races"
+  | "reports"
   | "athlete-page";
 
 // Shared tab strip for every page reached from an athlete's full view —
 // Overview, Calendar, Sessions, Analytics, Biomechanics, Health,
-// Performance Profile, Zones, Races, and the athlete's public Athlete
-// Page. Lets a coach jump directly from any one of these to any other,
-// rather than only being able to navigate back to Overview and out
+// Performance Profile, Zones, Races, AI Review, and the athlete's public
+// Athlete Page. Lets a coach jump directly from any one of these to any
+// other, rather than only being able to navigate back to Overview and out
 // again. Race Tactics deliberately isn't a tab here — it's reached via
 // a prominent link on the Races page instead, since it's conceptually a
 // sub-area of race results, not a peer of it.
+//
+// Any page that accepts an athleteId (via search param or route param)
+// and is reachable from an athlete's Overview page should render this —
+// leaving it off is how a coach loses "the flow" for that athlete and
+// has to navigate all the way back out to the roster to switch pages.
 export function AthleteSubnav({ athleteId, active }: { athleteId: string; active: AthleteSubnavTab }) {
   // The Athlete Page tab needs to know whether this athlete already has a
   // public page (link straight to it) or not (fall back to the
@@ -63,6 +69,7 @@ export function AthleteSubnav({ athleteId, active }: { athleteId: string; active
     },
     { key: "zones", label: "Zones", icon: Gauge, to: "/app/zones", search: { athleteId } },
     { key: "races", label: "Races", icon: Trophy, to: "/app/races", search: { athleteId } },
+    { key: "reports", label: "AI Review", icon: Sparkles, to: "/app/reports/ai-review", search: { athleteId } },
     athletePage?.slug
       ? { key: "athlete-page", label: "Athlete Page", icon: Globe, to: "/app/athlete/$slug", params: { slug: athletePage.slug } }
       : { key: "athlete-page", label: "Athlete Page", icon: Globe, to: "/app/athlete", search: { athleteId } },
