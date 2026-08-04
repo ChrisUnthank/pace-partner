@@ -473,4 +473,4 @@ function RaceEventDetailPage() {
       </Dialog>
     </AppShell>
   );
-}
+} 
