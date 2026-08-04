@@ -29,6 +29,7 @@ import {
   TIER_META,
   type PbRecord,
   type AthleteProfile as EngineProfile,
+  type ConversionScore,
 } from "@/lib/performance-profile-engine";
 
 export const Route = createFileRoute("/_authenticated/app/calculators/pacepredictor")({
@@ -36,7 +37,6 @@ export const Route = createFileRoute("/_authenticated/app/calculators/pacepredic
 });
 
 const PROFILE_ORDER: ManualProfileKey[] = ["speed_specialist", "middle_distance", "balanced", "distance", "road_marathon"];
-const SHAPE_LABELS = ["Speed-Oriented", "Speed-Endurance", "Balanced", "Aerobic", "Endurance"];
 
 // Unifies the two prediction sources (the profile engine, and the
 // recent-race+declared-profile fallback for athletes without enough PB
@@ -265,44 +265,22 @@ function PerformancePredictorPage() {
             </CardHeader>
             {usingEngine && (
               <CardContent className="space-y-4">
-                <div>
-                  <div className="flex items-center justify-between text-sm mb-1.5">
-                    <span className="font-semibold">{profile.shape.label}</span>
-                    <span className="text-xs text-muted-foreground">Profile shape</span>
-                  </div>
-                  <div className="space-y-1">
-                    {SHAPE_LABELS.map((label, i) => (
-                      <div key={label} className="flex items-center gap-2 text-xs">
-                        <span className="w-24 shrink-0 text-muted-foreground">{label}</span>
-                        <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
-                          <div
-                            className="h-full bg-[var(--accent-red)]"
-                            style={{ width: `${(profile.shape.bars[i] ?? 0) * 10}%` }}
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="grid sm:grid-cols-3 gap-3 text-sm">
-                  <div className="rounded border px-3 py-2">
-                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Speed Score</div>
-                    <div className="font-semibold">{profile.speedScore != null ? profile.speedScore.toFixed(1) : "—"}</div>
-                    <div className="text-[11px] text-muted-foreground">VDOT-equivalent, 800m–1500m PBs</div>
-                  </div>
-                  <div className="rounded border px-3 py-2">
-                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Aerobic Score</div>
-                    <div className="font-semibold">{profile.aerobicScore != null ? profile.aerobicScore.toFixed(1) : "—"}</div>
-                    <div className="text-[11px] text-muted-foreground">VDOT-equivalent, 5K–Half PBs</div>
-                  </div>
-                  <div className="rounded border px-3 py-2">
-                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Top End Speed</div>
-                    <div className="font-semibold">{profile.topEndSpeed?.rating ?? "—"}</div>
-                    <div className="text-[11px] text-muted-foreground">
-                      {profile.topEndSpeed ? `From ${profile.topEndSpeed.distanceLabel} — vs. aerobic profile alone` : "No 400-600m PB on file"}
-                    </div>
-                  </div>
+                <div className="space-y-3">
+                  <ConversionMetricBar
+                    label="Raw Speed Ceiling"
+                    sub="400-600m ability — the ceiling"
+                    metric={profile.conversionMetrics.rawSpeedCeiling}
+                  />
+                  <ConversionMetricBar
+                    label="Speed Conversion"
+                    sub="How much of that speed carries into 800m"
+                    metric={profile.conversionMetrics.speedConversion}
+                  />
+                  <ConversionMetricBar
+                    label="Aerobic Conversion"
+                    sub="How well 1500m-level fitness carries into 5K-Half"
+                    metric={profile.conversionMetrics.aerobicConversion}
+                  />
                 </div>
 
                 <div className="space-y-2 text-sm">
@@ -520,6 +498,39 @@ function PerformancePredictorPage() {
         )}
       </div>
     </AppShell>
+  );
+}
+
+const BUCKET_BAR_COLOR: Record<string, string> = {
+  Low: "bg-rose-400",
+  Developing: "bg-amber-400",
+  Good: "bg-sky-400",
+  Excellent: "bg-emerald-400",
+  Elite: "bg-violet-500",
+};
+
+function ConversionMetricBar({ label, sub, metric }: { label: string; sub: string; metric: ConversionScore | null }) {
+  return (
+    <div>
+      <div className="flex items-center justify-between text-sm mb-1">
+        <span className="font-medium">{label}</span>
+        {metric ? (
+          <span className="text-xs text-muted-foreground flex items-center gap-1">
+            {metric.bucket} · {Math.round(metric.score)}
+            {!metric.measured && <span className="text-[10px] italic">(estimated)</span>}
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground">Insufficient data</span>
+        )}
+      </div>
+      <div className="h-2 rounded-full bg-muted overflow-hidden">
+        <div
+          className={`h-full ${metric ? BUCKET_BAR_COLOR[metric.bucket] ?? "bg-muted-foreground" : ""}`}
+          style={{ width: metric ? `${metric.score}%` : "0%" }}
+        />
+      </div>
+      <div className="text-[11px] text-muted-foreground mt-1">{metric ? metric.detail : sub}</div>
+    </div>
   );
 }
 
