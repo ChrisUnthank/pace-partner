@@ -20,6 +20,9 @@ import { secToClock, clockToSec, paceFmt, metersFmt } from "@/lib/format";
 import { bulkRecomputeSessionClassification } from "@/lib/session-files.functions";
 import { RefreshCw, Loader2, Calculator } from "lucide-react";
 import { Link } from "@tanstack/react-router";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 
 // ----------------------------------------------------------------------------
 // Small inline-edit primitives. Hoisted to module scope (not defined inside
@@ -221,15 +224,30 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
   const [recomputePromptOpen, setRecomputePromptOpen] = useState(false);
   const [recomputing, setRecomputing] = useState(false);
   const [recomputeResult, setRecomputeResult] = useState<{ total: number; succeeded: number; errors: { sessionId: string; message: string }[] } | null>(null);
+  // Bounded by default — full-history recompute is slow (each session
+  // re-reads its stored file) and can silently rewrite classification on
+  // old sessions nobody meant to touch. Defaults to the last 30 days,
+  // the window a basis/boundary change realistically needs revisited;
+  // "Recompute entire history" is an explicit opt-in for the rare case a
+  // coach really does want everything redone.
+  const [recomputeSince, setRecomputeSince] = useState(new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 10));
+  const [recomputeUntil, setRecomputeUntil] = useState(new Date().toISOString().slice(0, 10));
+  const [recomputeAllTime, setRecomputeAllTime] = useState(false);
 
   async function runBulkRecompute() {
     setRecomputing(true);
     setRecomputeResult(null);
     try {
-      const result = await bulkRecompute({ data: { athleteId } });
+      const result = await bulkRecompute({
+        data: {
+          athleteId,
+          since: recomputeAllTime ? undefined : recomputeSince,
+          until: recomputeAllTime ? undefined : recomputeUntil,
+        },
+      });
       setRecomputeResult(result);
       if (result.total === 0) {
-        toast.success("No uploaded-file sessions to recompute for this athlete.");
+        toast.success("No uploaded-file sessions to recompute in that range.");
         setRecomputePromptOpen(false);
       } else if (result.errors.length === 0) {
         toast.success(`Recomputed ${result.succeeded} of ${result.total} sessions.`);
@@ -524,17 +542,45 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
             <AlertDialogHeader>
               <AlertDialogTitle>Recompute past sessions?</AlertDialogTitle>
               <AlertDialogDescription asChild>
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <p>
                     Every past session built from an uploaded FIT/GPX file was classified (intent, title, zone time)
                     against whichever basis and boundaries were active at the time. Changing the basis or a boundary
-                    value doesn't retroactively fix those — this re-runs classification for every uploaded-file
-                    session this athlete has, using the current settings.
+                    value doesn't retroactively fix those — this re-runs classification for uploaded-file sessions
+                    in the range below, using the current settings. Manually-entered sessions with no uploaded file
+                    aren't affected — there's nothing to reclassify there.
                   </p>
-                  <p>
-                    This can take a while for a long history and re-reads each session's stored files. Manually-
-                    entered sessions with no uploaded file aren't affected — there's nothing to reclassify there.
-                  </p>
+                  <div className={`grid grid-cols-2 gap-3 ${recomputeAllTime ? "opacity-50 pointer-events-none" : ""}`}>
+                    <div>
+                      <Label className="text-xs">From</Label>
+                      <Input
+                        type="date"
+                        value={recomputeSince}
+                        onChange={(e) => setRecomputeSince(e.target.value)}
+                        disabled={recomputeAllTime}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">To</Label>
+                      <Input
+                        type="date"
+                        value={recomputeUntil}
+                        onChange={(e) => setRecomputeUntil(e.target.value)}
+                        disabled={recomputeAllTime}
+                      />
+                    </div>
+                  </div>
+                  <label className="flex items-start gap-2 text-xs cursor-pointer">
+                    <Checkbox
+                      checked={recomputeAllTime}
+                      onCheckedChange={(v) => setRecomputeAllTime(v === true)}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      Recompute entire history instead — every uploaded-file session this athlete has, regardless of
+                      date. Slower, and will also touch older sessions outside the range above.
+                    </span>
+                  </label>
                   {recomputeResult && recomputeResult.errors.length > 0 && (
                     <div className="border rounded-md p-2 text-xs text-destructive space-y-1 max-h-32 overflow-y-auto">
                       {recomputeResult.errors.map((e, i) => (
@@ -554,7 +600,7 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
                   e.preventDefault();
                   runBulkRecompute();
                 }}
-                disabled={recomputing}
+                disabled={recomputing || (!recomputeAllTime && (!recomputeSince || !recomputeUntil))}
               >
                 {recomputing ? (
                   <>
