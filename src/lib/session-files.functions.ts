@@ -2789,9 +2789,22 @@ export const rebuildSessionClassification = createServerFn({ method: "POST" })
 // and reports exactly which sessions failed so they're not silently lost.
 export const bulkRecomputeSessionClassification = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { athleteId: string }) => d)
+  .inputValidator((d: { athleteId: string; since?: string; until?: string }) => d)
   .handler(async ({ data, context }) => {
     const sb = context.supabase;
+
+    // Bounded by default — since/until being present (from the date
+    // picker on the client) restricts this to sessions dated in that
+    // window. Recomputing an athlete's entire history is slow (each
+    // session re-reads its stored FIT/GPX file) and can silently rewrite
+    // classification on old sessions a coach never meant to touch —
+    // since/until being both omitted is only reachable via the client's
+    // explicit "recompute entire history" opt-in, not the default path.
+    let sessionsQuery = sb.from("sessions").select("id").eq("athlete_id", data.athleteId);
+    if (data.since) sessionsQuery = sessionsQuery.gte("session_date", data.since);
+    if (data.until) sessionsQuery = sessionsQuery.lte("session_date", data.until);
+    const { data: sessionsInRange } = await sessionsQuery;
+    const sessionIdsInRange = new Set((sessionsInRange ?? []).map((s: any) => s.id));
 
     const { data: fileRows } = await sb
       .from("session_files")
@@ -2799,7 +2812,11 @@ export const bulkRecomputeSessionClassification = createServerFn({ method: "POST
       .eq("athlete_id", data.athleteId);
 
     const sessionIds = Array.from(
-      new Set((fileRows ?? []).map((r: any) => r.session_id).filter((id: any) => !!id)),
+      new Set(
+        (fileRows ?? [])
+          .map((r: any) => r.session_id)
+          .filter((id: any) => !!id && sessionIdsInRange.has(id)),
+      ),
     ) as string[];
 
     let succeeded = 0;
