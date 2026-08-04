@@ -17,13 +17,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UserAvatar } from "@/components/user-avatar";
 import { MultiRouteFlyoverMap, type AthleteTrack } from "@/components/multi-route-flyover-map";
-import { Users, MapPin, CalendarDays, Pencil, Trash2, Link2Off, Route as RouteIcon, Medal, ChevronLeft, Video, UserPlus, Link2 } from "lucide-react";
+import { Users, MapPin, CalendarDays, Pencil, Trash2, Link2Off, Route as RouteIcon, Medal, ChevronLeft, Video } from "lucide-react";
 import { toast } from "sonner";
-import { secToClock, paceFmt, metersFmt, clockToSec, todayISO } from "@/lib/format";
-import { useMyRoles, useCoachRoster } from "@/lib/use-auth";
+import { secToClock, paceFmt, metersFmt } from "@/lib/format";
+import { useMyRoles } from "@/lib/use-auth";
 
 export const Route = createFileRoute("/_authenticated/app/race-events/$raceEventId")({
   component: RaceEventDetailPage,
@@ -52,7 +51,6 @@ function RaceEventDetailPage() {
   const { raceEventId } = Route.useParams();
   const { data: roles = [] } = useMyRoles();
   const isCoach = roles.includes("coach");
-  const { data: roster = [] } = useCoachRoster();
   const qc = useQueryClient();
 
   const { data: event, isLoading: eventLoading } = useQuery({
@@ -132,6 +130,7 @@ function RaceEventDetailPage() {
             id: r.id,
             name: r.athletes?.name ?? "Athlete",
             color: TRACK_PALETTE[i % TRACK_PALETTE.length],
+            avatarUrl: r.athletes?.profile_image_url ?? null,
             points: all.map((p) => ({
               lat: Number(p.lat),
               lng: Number(p.lng),
@@ -151,107 +150,6 @@ function RaceEventDetailPage() {
     withGps.forEach((r, i) => map.set(r.id, TRACK_PALETTE[i % TRACK_PALETTE.length]));
     return map;
   }, [withGps]);
-
-  const rosterSorted = useMemo(
-    () => [...roster].sort((a: any, b: any) => (a.athletes?.name ?? "").localeCompare(b.athletes?.name ?? "")),
-    [roster],
-  );
-
-  // ── Add athlete to this event ──────────────────────────────────────────
-  // This is the fix for "the process to add athletes to a race is unclear
-  // — it says via race results but where?" — everything now happens from
-  // this page: pick an athlete, then either link one of their existing
-  // results to this event, or log a brand new one straight into it. No
-  // detour to that athlete's own Races page required either way.
-  const [addOpen, setAddOpen] = useState(false);
-  const [addAthleteId, setAddAthleteId] = useState<string>("");
-  const [addTab, setAddTab] = useState<"link" | "new">("link");
-
-  const { data: athletePerformances, isLoading: athletePerfLoading } = useQuery({
-    queryKey: ["athlete-performances-for-link", addAthleteId],
-    enabled: addOpen && addTab === "link" && !!addAthleteId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("performances")
-        .select("id, performance_date, event_name, distance_m, time_seconds, race_event_id")
-        .eq("athlete_id", addAthleteId)
-        .order("performance_date", { ascending: false })
-        .limit(30);
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
-
-  async function linkExisting(performanceId: string) {
-    const { error } = await supabase.from("performances").update({ race_event_id: raceEventId }).eq("id", performanceId);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    toast.success("Result linked to this event");
-    qc.invalidateQueries({ queryKey: ["race-event-results", raceEventId] });
-    qc.invalidateQueries({ queryKey: ["athlete-performances-for-link", addAthleteId] });
-    qc.invalidateQueries({ queryKey: ["race-events-list"] });
-  }
-
-  const [newDate, setNewDate] = useState("");
-  const [newDistance, setNewDistance] = useState("");
-  const [newTime, setNewTime] = useState("");
-  const [newPlacing, setNewPlacing] = useState("");
-  const [addingNew, setAddingNew] = useState(false);
-
-  function openAdd() {
-    setAddAthleteId("");
-    setAddTab("link");
-    setNewDate(event?.event_date ?? todayISO());
-    setNewDistance(event?.distance_m != null ? String(event.distance_m) : "");
-    setNewTime("");
-    setNewPlacing("");
-    setAddOpen(true);
-  }
-
-  async function addNewResult() {
-    if (!addAthleteId) {
-      toast.error("Pick an athlete first");
-      return;
-    }
-    const sec = clockToSec(newTime);
-    if (sec == null || isNaN(sec)) {
-      toast.error("Time required (mm:ss or h:mm:ss)");
-      return;
-    }
-    const dist = Number(newDistance);
-    if (!dist || isNaN(dist) || dist <= 0) {
-      toast.error("Enter a valid distance in meters");
-      return;
-    }
-    setAddingNew(true);
-    const { error } = await supabase.from("performances").insert({
-      athlete_id: addAthleteId,
-      performance_date: newDate,
-      distance_m: dist,
-      time_seconds: sec,
-      event_name: event?.name ?? null,
-      race_type: event?.race_type ?? null,
-      overall_place: newPlacing ? Number(newPlacing) : null,
-      race_event_id: raceEventId,
-      context: "race",
-    });
-    setAddingNew(false);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    toast.success("Result added and linked");
-    qc.invalidateQueries({ queryKey: ["race-event-results", raceEventId] });
-    qc.invalidateQueries({ queryKey: ["races", addAthleteId] });
-    qc.invalidateQueries({ queryKey: ["race-events-list"] });
-    // Ready for the next athlete straight away — adding several athletes
-    // from the same race in a row is the whole point of this dialog.
-    setAddAthleteId("");
-    setNewTime("");
-    setNewPlacing("");
-  }
 
   const [editOpen, setEditOpen] = useState(false);
   const [name, setName] = useState("");
@@ -360,9 +258,6 @@ function RaceEventDetailPage() {
             </div>
             {isCoach && (
               <div className="flex items-center gap-2">
-                <Button size="sm" onClick={openAdd}>
-                  <UserPlus className="h-3.5 w-3.5 mr-1.5" /> Add athlete
-                </Button>
                 <Button size="sm" variant="outline" onClick={openEdit}>
                   <Pencil className="h-3.5 w-3.5 mr-1.5" /> Edit
                 </Button>
@@ -390,7 +285,10 @@ function RaceEventDetailPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Results</CardTitle>
-            <CardDescription>Every result linked to this event, fastest first.</CardDescription>
+            <CardDescription>
+              Every result you've linked to this event, fastest first. Link a result from that athlete's edit-result
+              dialog on the Races page.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {distancesVary && (
@@ -402,14 +300,10 @@ function RaceEventDetailPage() {
             {resultsLoading ? (
               <p className="text-sm text-muted-foreground">Loading…</p>
             ) : !results || results.length === 0 ? (
-              <div className="py-8 text-center space-y-3">
-                <p className="text-sm text-muted-foreground">No results linked yet.</p>
-                {isCoach && (
-                  <Button size="sm" onClick={openAdd}>
-                    <UserPlus className="h-3.5 w-3.5 mr-1.5" /> Add athlete
-                  </Button>
-                )}
-              </div>
+              <p className="text-sm text-muted-foreground py-6 text-center">
+                No results linked yet. Open a result on the Races page, edit it, and pick this event under "Race
+                event."
+              </p>
             ) : (
               <div className="divide-y">
                 {results.map((r, i) => (
@@ -510,112 +404,6 @@ function RaceEventDetailPage() {
           </p>
         )}
       </div>
-
-      <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Add athlete to {event.name}</DialogTitle>
-            <DialogDescription>Pick an athlete, then either link one of their existing results or log a new one — both attach straight to this event.</DialogDescription>
-          </DialogHeader>
-
-          <div>
-            <Label className="text-xs">Athlete</Label>
-            <Select value={addAthleteId} onValueChange={setAddAthleteId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Choose an athlete…" />
-              </SelectTrigger>
-              <SelectContent>
-                {rosterSorted.map((r: any) => (
-                  <SelectItem key={r.athlete_id} value={r.athlete_id}>
-                    {r.athletes?.name ?? "Athlete"}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {addAthleteId && (
-            <Tabs value={addTab} onValueChange={(v) => setAddTab(v as "link" | "new")}>
-              <TabsList className="grid grid-cols-2">
-                <TabsTrigger value="link">
-                  <Link2 className="h-3.5 w-3.5 mr-1.5" /> Link existing result
-                </TabsTrigger>
-                <TabsTrigger value="new">
-                  <UserPlus className="h-3.5 w-3.5 mr-1.5" /> Log a new result
-                </TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="link" className="space-y-2 mt-3">
-                {athletePerfLoading ? (
-                  <p className="text-sm text-muted-foreground py-4 text-center">Loading their results…</p>
-                ) : !athletePerformances || athletePerformances.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-4 text-center">
-                    No results logged for this athlete yet — use "Log a new result" instead.
-                  </p>
-                ) : (
-                  <div className="max-h-72 overflow-y-auto divide-y border rounded-md brand-scrollbar">
-                    {athletePerformances.map((p: any) => {
-                      const alreadyHere = p.race_event_id === raceEventId;
-                      const linkedElsewhere = p.race_event_id && !alreadyHere;
-                      return (
-                        <button
-                          key={p.id}
-                          type="button"
-                          disabled={alreadyHere}
-                          onClick={() => linkExisting(p.id)}
-                          className="w-full text-left px-3 py-2 hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-between gap-2"
-                        >
-                          <div className="min-w-0">
-                            <div className="text-sm font-medium truncate">
-                              {p.event_name || metersFmt(p.distance_m)} — {secToClock(p.time_seconds)}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              {p.performance_date} · {metersFmt(p.distance_m)}
-                              {alreadyHere && " · Already linked here"}
-                              {linkedElsewhere && " · Linked to a different event"}
-                            </div>
-                          </div>
-                          {!alreadyHere && <Link2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </TabsContent>
-
-              <TabsContent value="new" className="space-y-3 mt-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label className="text-xs">Date</Label>
-                    <Input type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)} />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Distance (m)</Label>
-                    <Input type="number" value={newDistance} onChange={(e) => setNewDistance(e.target.value)} />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Time</Label>
-                    <Input placeholder="16:32" value={newTime} onChange={(e) => setNewTime(e.target.value)} />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Placing (optional)</Label>
-                    <Input type="number" value={newPlacing} onChange={(e) => setNewPlacing(e.target.value)} />
-                  </div>
-                </div>
-                <Button onClick={addNewResult} disabled={addingNew} className="w-full">
-                  {addingNew ? "Adding…" : "Add and link to this event"}
-                </Button>
-              </TabsContent>
-            </Tabs>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddOpen(false)}>
-              Done
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="sm:max-w-md">
