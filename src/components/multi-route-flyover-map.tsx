@@ -3,6 +3,7 @@ import maplibregl from "maplibre-gl";
 import type { StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { Button } from "@/components/ui/button";
+import { UserAvatar } from "@/components/user-avatar";
 import { secToClock, metersFmt, paceFmt } from "@/lib/format";
 import { smoothSeries } from "@/lib/gps-reconstruction";
 import type { FlyoverPoint } from "@/components/route-flyover-map";
@@ -11,11 +12,14 @@ import type { FlyoverPoint } from "@/components/route-flyover-map";
 // One entry per athlete. `color` is assigned by the caller (Race Event
 // page uses a fixed palette keyed by result order) rather than generated
 // here, so the map's colors always match whatever legend/table the caller
-// is already showing next to it.
+// is already showing next to it. `avatarUrl` is optional — used for both
+// the on-map marker and the legend/HUD when present, falling back to a
+// plain colored dot per athlete when it's missing or fails to load.
 export type AthleteTrack = {
   id: string;
   name: string;
   color: string;
+  avatarUrl?: string | null;
   points: FlyoverPoint[];
 };
 
@@ -52,44 +56,104 @@ function supportsWebGL2(): boolean {
   }
 }
 
-function toRad(d: number) {
-  return (d * Math.PI) / 180;
-}
-
 function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t;
 }
 
-function haversineMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
-  const R = 6371000;
-  const dLat = toRad(b.lat - a.lat);
-  const dLng = toRad(b.lng - a.lng);
-  const lat1 = toRad(a.lat);
-  const lat2 = toRad(b.lat);
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(h));
-}
-
-// Web Mercator meters-per-pixel at zoom 0, scaled by latitude — standard
-// slippy-map relation, inverted here to solve for "what zoom makes a
-// bounding box of this diagonal fill roughly `fill` of the viewport".
-function zoomForDiagonalMeters(diagonalM: number, viewportPx: number, lat: number): number {
-  const metersPerPixelAtZ0 = 156543.03392 * Math.cos(toRad(lat));
-  const fill = 0.55;
-  const safeDiagonal = Math.max(diagonalM, 40); // floor — a near-zero spread (bunched at the line) shouldn't zoom in absurdly tight/jittery
-  const targetMetersPerPixel = safeDiagonal / (viewportPx * fill);
-  const z = Math.log2(metersPerPixelAtZ0 / targetMetersPerPixel);
-  return Math.min(18, Math.max(12, z));
+// Replaces an earlier hand-rolled "zoom from bounding-box diagonal"
+// formula that computed zoom as if this were a flat top-down map — it
+// never accounted for the camera's pitch (45-50°), which is exactly why
+// a spread-out field could run off the top/sides of the screen: a pitched
+// camera's visible ground footprint is much smaller and more
+// perspective-distorted than a flat one at the same zoom, especially
+// toward the horizon. MapLibre's own cameraForBounds does this correctly
+// for whatever pitch/bearing you give it, so this now asks it directly
+// instead of approximating.
+function cameraForPack(
+  map: maplibregl.Map,
+  positions: { lat: number; lng: number }[],
+  pitch: number,
+): { center: maplibregl.LngLatLike; zoom: number } | null {
+  if (positions.length === 0) return null;
+  const bounds = new maplibregl.LngLatBounds();
+  for (const p of positions) bounds.extend([p.lng, p.lat]);
+  // A single-point bounds (everyone bunched at the exact same spot, e.g.
+  // right at the gun) has zero width/height — cameraForBounds handles
+  // that by returning maxZoom, which is exactly the right behavior here
+  // (zoom in close rather than dividing by zero).
+  const result = map.cameraForBounds(bounds, { pitch, bearing: 0, padding: 90, maxZoom: 18 });
+  if (!result || !result.center || result.zoom == null) return null;
+  return { center: result.center, zoom: result.zoom };
 }
 
 const PACK_PITCH_TERRAIN = 45;
 const PACK_PITCH_FLAT = 50;
 const FULL_FLIGHT_MS = 30000; // same convention as the single-runner flyover — fixed watch length regardless of the actual race duration
 
+// Builds a circular, colored-ring-bordered marker image from an athlete's
+// profile photo, for the on-map WebGL symbol layer. Requires the image
+// host to serve proper CORS headers (crossOrigin="anonymous" is what
+// triggers the browser to require them) to read pixel data back out of
+// the canvas — a normal <img src="..."> tag doesn't need that (that's why
+// the legend/HUD below use a plain UserAvatar <img>, not this), but
+// getImageData() does. If the image is missing, slow, or the host doesn't
+// send CORS headers, this resolves null and the caller falls back to the
+// plain colored-dot marker already built into the base style — no photo,
+// same behavior as before this feature existed.
+function buildAvatarImage(url: string, color: string, size = 128): Promise<ImageData | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    const timeout = setTimeout(() => resolve(null), 4000);
+    img.onload = () => {
+      clearTimeout(timeout);
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d")!;
+        const r = size / 2;
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(r, r, r - 4, 0, Math.PI * 2);
+        ctx.closePath();
+        ctx.clip();
+        const scale = Math.max(size / img.width, size / img.height);
+        const dw = img.width * scale;
+        const dh = img.height * scale;
+        ctx.drawImage(img, (size - dw) / 2, (size - dh) / 2, dw, dh);
+        ctx.restore();
+        // Colored identity ring, matching the athlete's legend/route color.
+        ctx.beginPath();
+        ctx.arc(r, r, r - 2, 0, Math.PI * 2);
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = color;
+        ctx.stroke();
+        // Thin white separator so the ring reads clearly against busy
+        // photo backgrounds and the satellite imagery behind it.
+        ctx.beginPath();
+        ctx.arc(r, r, r - 4.5, 0, Math.PI * 2);
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = "#ffffff";
+        ctx.stroke();
+        resolve(ctx.getImageData(0, 0, size, size));
+      } catch {
+        resolve(null); // canvas tainted by a cross-origin image without CORS headers
+      }
+    };
+    img.onerror = () => {
+      clearTimeout(timeout);
+      resolve(null);
+    };
+    img.src = url;
+  });
+}
+
 type PreparedTrack = {
   id: string;
   name: string;
   color: string;
+  avatarUrl?: string | null;
   safePoints: FlyoverPoint[]; // raw (unsmoothed) — used for pace/distance math
   smoothedPoints: FlyoverPoint[]; // camera/marker path only
   maxElapsedS: number;
@@ -230,6 +294,7 @@ export function MultiRouteFlyoverMap({ tracks, heightPx }: MultiRouteFlyoverMapP
           id: t.id,
           name: t.name,
           color: t.color,
+          avatarUrl: t.avatarUrl,
           safePoints: safe,
           smoothedPoints: smoothed,
           maxElapsedS: safe[safe.length - 1].elapsed_s ?? 0,
@@ -283,19 +348,7 @@ export function MultiRouteFlyoverMap({ tracks, heightPx }: MultiRouteFlyoverMapP
       const positions = prepared
         .map((t) => positionAtElapsed(t, elapsedS))
         .filter((p): p is NonNullable<typeof p> => p !== null);
-      if (positions.length === 0) return null;
-      let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
-      for (const p of positions) {
-        minLat = Math.min(minLat, p.lat);
-        maxLat = Math.max(maxLat, p.lat);
-        minLng = Math.min(minLng, p.lng);
-        maxLng = Math.max(maxLng, p.lng);
-      }
-      const center: [number, number] = [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
-      const diagonal = haversineMeters({ lat: minLat, lng: minLng }, { lat: maxLat, lng: maxLng });
-      const viewportPx = containerRef.current?.clientWidth || 800;
-      const zoom = zoomForDiagonalMeters(diagonal, viewportPx, center[1]);
-      return { center, zoom };
+      return cameraForPack(map, positions, pitch);
     }
 
     // Simpler than the single-runner version's prefetch — fixed north-up
@@ -317,12 +370,54 @@ export function MultiRouteFlyoverMap({ tracks, heightPx }: MultiRouteFlyoverMapP
       await waitForTilesLoaded(1500);
     }
 
+    // Loads each athlete's profile photo (where present) and swaps it in
+    // as the on-map marker, on top of the plain colored-dot marker layer
+    // that's already part of the base style. Runs alongside the tile
+    // prefetch below rather than before/after it — image loads are a
+    // separate network resource with their own bounded timeout, no reason
+    // to serialize them behind tile loading.
+    async function setupAvatarMarkers() {
+      await Promise.all(
+        prepared.map(async (t) => {
+          if (!t.avatarUrl) return;
+          const imgData = await buildAvatarImage(t.avatarUrl, t.color);
+          if (cancelled || !imgData) return;
+          const iconId = `avatar-${t.id}`;
+          if (!map.hasImage(iconId)) map.addImage(iconId, imgData);
+          if (!map.getLayer(`marker-photo-${t.id}`)) {
+            map.addLayer({
+              id: `marker-photo-${t.id}`,
+              type: "symbol",
+              source: `marker-${t.id}`,
+              layout: {
+                "icon-image": iconId,
+                "icon-size": 0.28,
+                "icon-allow-overlap": true,
+                // Always faces the camera flat, regardless of map pitch/
+                // bearing — a tilted face photo would look wrong, unlike
+                // the plain circle dot it replaces.
+                "icon-pitch-alignment": "viewport",
+                "icon-rotation-alignment": "viewport",
+              },
+            });
+          }
+          // The flat circle-dot layer becomes redundant once the photo is
+          // showing — hide it rather than leave a visible sliver behind
+          // the (slightly smaller) photo. The colored glow layer stays,
+          // it still reads as a nice soft halo behind the photo.
+          if (map.getLayer(`marker-dot-${t.id}`)) {
+            map.setLayoutProperty(`marker-dot-${t.id}`, "visibility", "none");
+          }
+        }),
+      );
+    }
+
     async function onLoad() {
       const initialFrame = packFrame(0);
       if (initialFrame) map.jumpTo({ center: initialFrame.center, zoom: initialFrame.zoom, bearing: 0, pitch: 0 });
       await waitForTilesLoaded(1500);
       if (cancelled) return;
-      await prefetchPackPath();
+      await Promise.all([prefetchPackPath(), setupAvatarMarkers()]);
       if (cancelled) return;
       const startFrame = packFrame(0);
       if (startFrame) map.jumpTo({ center: startFrame.center, zoom: startFrame.zoom, bearing: 0, pitch });
@@ -370,10 +465,12 @@ export function MultiRouteFlyoverMap({ tracks, heightPx }: MultiRouteFlyoverMapP
       const map2 = mapRef.current!;
       let leaderDistance = -Infinity;
       const frameRows: { id: string; distance_m: number | null; pace: number | null; gapM: number | null; done: boolean }[] = [];
+      const positions: { lat: number; lng: number }[] = [];
 
       for (const t of prepared) {
         const pos = positionAtElapsed(t, globalElapsedS);
         if (!pos) continue;
+        positions.push({ lat: pos.lat, lng: pos.lng });
 
         const travSrc = map2.getSource(`route-traveled-${t.id}`) as maplibregl.GeoJSONSource | undefined;
         const coordsSoFar = t.smoothedPoints.slice(0, pos.idx + 1).map((p): [number, number] => [p.lng, p.lat]);
@@ -411,25 +508,9 @@ export function MultiRouteFlyoverMap({ tracks, heightPx }: MultiRouteFlyoverMapP
       setLiveRows(frameRows);
       setLiveElapsedS(globalElapsedS);
 
-      const frame = packFrameForRaf();
+      const frame = cameraForPack(map2, positions, hasTerrain ? PACK_PITCH_TERRAIN : PACK_PITCH_FLAT);
       if (frame) {
         map2.jumpTo({ center: frame.center, zoom: frame.zoom, bearing: 0, pitch: hasTerrain ? PACK_PITCH_TERRAIN : PACK_PITCH_FLAT });
-      }
-
-      function packFrameForRaf() {
-        const positions = prepared.map((t) => positionAtElapsed(t, globalElapsedS)).filter((p): p is NonNullable<typeof p> => p !== null);
-        if (positions.length === 0) return null;
-        let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
-        for (const p of positions) {
-          minLat = Math.min(minLat, p.lat);
-          maxLat = Math.max(maxLat, p.lat);
-          minLng = Math.min(minLng, p.lng);
-          maxLng = Math.max(maxLng, p.lng);
-        }
-        const center: [number, number] = [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
-        const diagonal = haversineMeters({ lat: minLat, lng: minLng }, { lat: maxLat, lng: maxLng });
-        const viewportPx = containerRef.current?.clientWidth || 800;
-        return { center, zoom: zoomForDiagonalMeters(diagonal, viewportPx, center[1]) };
       }
 
       if (progress < 1) {
@@ -493,12 +574,19 @@ export function MultiRouteFlyoverMap({ tracks, heightPx }: MultiRouteFlyoverMapP
           </div>
         )}
 
-        {/* Legend — color swatch per athlete, doubles as identification
+        {/* Legend — profile photo (or a plain colored dot when there isn't
+            one / it fails to load) per athlete, doubles as identification
             since the map markers themselves carry no text label. */}
-        <div className="absolute top-2 right-2 z-10 bg-black/55 backdrop-blur-sm rounded-md px-2.5 py-2 text-xs text-white space-y-1 max-w-[160px]">
+        <div className="absolute top-2 right-2 z-10 bg-black/55 backdrop-blur-sm rounded-md px-2.5 py-2 text-xs text-white space-y-1.5 max-w-[170px]">
           {prepared.map((t) => (
             <div key={t.id} className="flex items-center gap-1.5">
-              <span className="inline-block h-2.5 w-2.5 rounded-full shrink-0" style={{ background: t.color }} />
+              {t.avatarUrl ? (
+                <span className="rounded-full shrink-0" style={{ boxShadow: `0 0 0 2px ${t.color}` }}>
+                  <UserAvatar name={t.name} imageUrl={t.avatarUrl} size="xs" />
+                </span>
+              ) : (
+                <span className="inline-block h-2.5 w-2.5 rounded-full shrink-0" style={{ background: t.color }} />
+              )}
               <span className="truncate">{t.name}</span>
             </div>
           ))}
@@ -518,7 +606,13 @@ export function MultiRouteFlyoverMap({ tracks, heightPx }: MultiRouteFlyoverMapP
             const row = liveRows.find((r) => r.id === t.id);
             return (
               <div key={t.id} className="flex items-center gap-2 text-sm">
-                <span className="inline-block h-2 w-2 rounded-full shrink-0" style={{ background: t.color }} />
+                {t.avatarUrl ? (
+                  <span className="rounded-full shrink-0" style={{ boxShadow: `0 0 0 2px ${t.color}` }}>
+                    <UserAvatar name={t.name} imageUrl={t.avatarUrl} size="xs" />
+                  </span>
+                ) : (
+                  <span className="inline-block h-2 w-2 rounded-full shrink-0" style={{ background: t.color }} />
+                )}
                 <span className="truncate flex-1 min-w-0">{t.name}</span>
                 <span className="tabular-nums text-muted-foreground text-xs">
                   {row?.distance_m != null ? metersFmt(row.distance_m) : "–"}
@@ -536,4 +630,4 @@ export function MultiRouteFlyoverMap({ tracks, heightPx }: MultiRouteFlyoverMapP
       </div>
     </div>
   );
-} 
+}
