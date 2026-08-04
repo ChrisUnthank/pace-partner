@@ -9,9 +9,12 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { CoachAthletePicker } from "@/components/coach-athlete-picker";
-import { ChevronLeft, Timer, Star, ChevronDown, Trophy, Sparkles } from "lucide-react";
+import { ChevronLeft, Timer, Star, ChevronDown, Trophy, Sparkles, Settings2 } from "lucide-react";
 import { clockToSec, secToClock, paceFmt } from "@/lib/format";
+import { toast } from "sonner";
 import { REFERENCE_DISTANCES } from "@/lib/race-predict";
 import {
   predictAtDistance,
@@ -30,6 +33,7 @@ import {
   type PbRecord,
   type AthleteProfile as EngineProfile,
   type ConversionScore,
+  type ManualSpeedOverride,
 } from "@/lib/performance-profile-engine";
 
 export const Route = createFileRoute("/_authenticated/app/calculators/pacepredictor")({
@@ -136,12 +140,40 @@ function PerformancePredictorPage() {
     [pbRows],
   );
 
+  // Manual Speed Profile override — a coach's explicit "that PB doesn't
+  // reflect current ability" correction, always wins over anything
+  // computed. Lives directly on athletes (new migration).
+  const { data: speedProfileRow, refetch: refetchSpeedProfile } = useQuery({
+    queryKey: ["perf-predictor-speed-profile", athleteId],
+    enabled: !!athleteId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("athletes")
+        .select("speed_profile_mode, speed_profile_manual_400m_sec, speed_profile_manual_date, speed_profile_manual_reason")
+        .eq("id", athleteId)
+        .maybeSingle();
+      if (error) throw error;
+      return data as any;
+    },
+  });
+  const manualSpeedOverride: ManualSpeedOverride | null = useMemo(() => {
+    if (!speedProfileRow || speedProfileRow.speed_profile_mode !== "manual" || speedProfileRow.speed_profile_manual_400m_sec == null) return null;
+    return {
+      timeSec: Number(speedProfileRow.speed_profile_manual_400m_sec),
+      dateISO: speedProfileRow.speed_profile_manual_date ?? null,
+      reason: speedProfileRow.speed_profile_manual_reason ?? null,
+    };
+  }, [speedProfileRow]);
+
   // Stages 1-3: build the athlete's profile from the whole PB set. Only
   // meaningful with 2+ distinct-distance PBs (a curve needs two points
   // minimum) — below that, `profile.globalCurve` is null and the page falls
   // back to the recent-race + declared-profile system further down,
   // clearly labeled as a fallback rather than silently swapped in.
-  const profile: EngineProfile | null = useMemo(() => (athleteId ? buildAthleteProfile(pbRecords) : null), [pbRecords, athleteId]);
+  const profile: EngineProfile | null = useMemo(
+    () => (athleteId ? buildAthleteProfile(pbRecords, new Date(), manualSpeedOverride) : null),
+    [pbRecords, athleteId, manualSpeedOverride],
+  );
   const usingEngine = !!profile?.globalCurve;
 
   const DISTANCE_OPTIONS = [
@@ -166,6 +198,7 @@ function PerformancePredictorPage() {
   const [weeklyVolume, setWeeklyVolume] = useState<string>("");
   const [trainingAge, setTrainingAge] = useState<string>("");
   const [showAll, setShowAll] = useState(false);
+  const [speedSettingsOpen, setSpeedSettingsOpen] = useState(false);
 
   const distanceKm = useMemo(() => {
     const opt = DISTANCE_OPTIONS.find((d) => d.value === distanceKey);
@@ -265,15 +298,42 @@ function PerformancePredictorPage() {
             </CardHeader>
             {usingEngine && (
               <CardContent className="space-y-4">
+                {profile.speedEstimate && (
+                  <div className="rounded-lg border px-3 py-2.5 bg-accent/20">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold">Current Speed Estimate (400m-equivalent)</span>
+                      <Badge
+                        variant="outline"
+                        className={
+                          profile.speedEstimate.confidence === "High"
+                            ? "text-emerald-600 border-emerald-300"
+                            : profile.speedEstimate.confidence === "Moderate"
+                              ? "text-amber-600 border-amber-300"
+                              : "text-muted-foreground"
+                        }
+                      >
+                        Confidence: {profile.speedEstimate.confidence}
+                      </Badge>
+                    </div>
+                    <div className="text-lg font-bold tabular-nums mt-1">
+                      {secToClock(profile.speedEstimate.rangeLowSec)}–{secToClock(profile.speedEstimate.rangeHighSec)}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
+                      <div>{profile.speedEstimate.sourceDetail}</div>
+                      {profile.speedEstimate.adjustmentDetail && <div>{profile.speedEstimate.adjustmentDetail}</div>}
+                    </div>
+                  </div>
+                )}
+
                 <div className="space-y-3">
                   <ConversionMetricBar
-                    label="Raw Speed Ceiling"
-                    sub="400-600m ability — the ceiling"
+                    label="Speed Ceiling"
+                    sub="Raw ability — the current speed estimate above"
                     metric={profile.conversionMetrics.rawSpeedCeiling}
                   />
                   <ConversionMetricBar
-                    label="Speed Conversion"
-                    sub="How much of that speed carries into 800m"
+                    label="Speed Availability"
+                    sub="How much of that speed is being converted into 800m performance"
                     metric={profile.conversionMetrics.speedConversion}
                   />
                   <ConversionMetricBar
@@ -312,6 +372,23 @@ function PerformancePredictorPage() {
                     <span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground shrink-0 w-32">Prediction confidence</span>
                     <span>{profile.insights.predictionConfidence}</span>
                   </div>
+                </div>
+
+                <div className="border-t pt-3">
+                  <button
+                    type="button"
+                    onClick={() => setSpeedSettingsOpen((o) => !o)}
+                    className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                  >
+                    <Settings2 className="h-3 w-3" /> Speed Profile Settings
+                  </button>
+                  {speedSettingsOpen && (
+                    <SpeedProfileSettings
+                      athleteId={athleteId}
+                      current={speedProfileRow}
+                      onSaved={() => refetchSpeedProfile()}
+                    />
+                  )}
                 </div>
               </CardContent>
             )}
@@ -508,6 +585,92 @@ const BUCKET_BAR_COLOR: Record<string, string> = {
   Excellent: "bg-emerald-400",
   Elite: "bg-violet-500",
 };
+
+function SpeedProfileSettings({
+  athleteId,
+  current,
+  onSaved,
+}: {
+  athleteId: string;
+  current: any;
+  onSaved: () => void;
+}) {
+  const [mode, setMode] = useState<"auto" | "manual">(current?.speed_profile_mode === "manual" ? "manual" : "auto");
+  const [manualSec, setManualSec] = useState<string>(
+    current?.speed_profile_manual_400m_sec != null ? String(current.speed_profile_manual_400m_sec) : "",
+  );
+  const [manualDate, setManualDate] = useState<string>(current?.speed_profile_manual_date ?? new Date().toISOString().slice(0, 10));
+  const [reason, setReason] = useState<string>(current?.speed_profile_manual_reason ?? "");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (mode === "manual" && !manualSec.trim()) {
+      toast.error("Enter a current 400m capability to save a manual override.");
+      return;
+    }
+    setSaving(true);
+    const { error } = await supabase
+      .from("athletes")
+      .update({
+        speed_profile_mode: mode,
+        speed_profile_manual_400m_sec: mode === "manual" ? Number(manualSec) : null,
+        speed_profile_manual_date: mode === "manual" ? manualDate : null,
+        speed_profile_manual_reason: mode === "manual" ? reason.trim() || null : null,
+      })
+      .eq("id", athleteId);
+    setSaving(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("Speed profile settings saved");
+    onSaved();
+  }
+
+  return (
+    <div className="mt-2 space-y-3 text-sm border-t pt-3">
+      <RadioGroup value={mode} onValueChange={(v) => setMode(v as "auto" | "manual")}>
+        <div className="flex items-center gap-2">
+          <RadioGroupItem value="auto" id="speed-mode-auto" />
+          <Label htmlFor="speed-mode-auto" className="text-xs font-normal">
+            Estimate automatically (recorded PB, age-adjusted for progression)
+          </Label>
+        </div>
+        <div className="flex items-center gap-2">
+          <RadioGroupItem value="manual" id="speed-mode-manual" />
+          <Label htmlFor="speed-mode-manual" className="text-xs font-normal">
+            Manual override
+          </Label>
+        </div>
+      </RadioGroup>
+
+      {mode === "manual" && (
+        <div className="space-y-2 pl-6">
+          <div>
+            <Label className="text-xs">Current 400m capability (seconds)</Label>
+            <Input type="number" step="0.1" value={manualSec} onChange={(e) => setManualSec(e.target.value)} placeholder="e.g. 49.5" />
+          </div>
+          <div>
+            <Label className="text-xs">Date</Label>
+            <Input type="date" value={manualDate} onChange={(e) => setManualDate(e.target.value)} />
+          </div>
+          <div>
+            <Label className="text-xs">Reason (optional)</Label>
+            <Input
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g. Improved since PB, different training phase, previous PB outdated"
+            />
+          </div>
+        </div>
+      )}
+
+      <Button size="sm" onClick={save} disabled={saving}>
+        {saving ? "Saving…" : "Save"}
+      </Button>
+    </div>
+  );
+}
 
 function ConversionMetricBar({ label, sub, metric }: { label: string; sub: string; metric: ConversionScore | null }) {
   return (
