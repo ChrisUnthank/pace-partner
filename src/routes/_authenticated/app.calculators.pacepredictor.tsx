@@ -53,6 +53,9 @@ type UnifiedPrediction = {
   isPb: boolean;
   clampNote?: string | null;
   confidencePct?: number;
+  potentialTimeSec?: number;
+  potentialLowSec?: number;
+  potentialHighSec?: number;
 };
 
 function ConfidenceStars({ tier }: { tier: 1 | 2 | 3 | 4 | 5 }) {
@@ -540,6 +543,21 @@ function PredictionRow({ p }: { p: UnifiedPrediction }) {
           )}
         </div>
         {p.clampNote && <div className="text-[10px] text-amber-600 mt-0.5">{p.clampNote}</div>}
+        {p.isPb && p.potentialTimeSec != null && (
+          <div className="text-[11px] mt-1 flex items-center gap-1">
+            <span className="text-muted-foreground">Potential:</span>
+            <span className="tabular-nums font-medium">
+              {secToClock(p.potentialLowSec!)}–{secToClock(p.potentialHighSec!)}
+            </span>
+            {p.potentialTimeSec < p.timeSec * 0.98 ? (
+              <span className="text-emerald-600">more in the tank</span>
+            ) : p.potentialTimeSec > p.timeSec * 1.02 ? (
+              <span className="text-amber-600">this PB stands out from the rest of the profile</span>
+            ) : (
+              <span className="text-muted-foreground">right in line with the rest of the profile</span>
+            )}
+          </div>
+        )}
       </div>
       <div className="text-right shrink-0">
         <div className="tabular-nums font-semibold">{secToClock(p.timeSec)}</div>
