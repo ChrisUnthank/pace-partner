@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useMyRoles, useCoachRoster } from "@/lib/use-auth";
 import { AppShell } from "@/components/app-shell";
+import { AthleteSubnav } from "@/components/athlete-subnav";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -93,6 +94,14 @@ function AiReviewPage() {
     [roster],
   );
 
+  // Arrived here via a specific athlete's Overview page ("Generate or view
+  // AI reviews for X in Reports"). Showing that athlete's subnav here is
+  // what lets a coach keep moving between that athlete's pages instead of
+  // landing on this roster-wide tool and losing the thread back to them.
+  const arrivedForAthleteName = search.athleteId
+    ? (rosterSorted.find((r: any) => r.athlete_id === search.athleteId) as any)?.athletes?.name
+    : undefined;
+
   const filteredReviews = useMemo(() => {
     return (allReviews as any[]).filter((r) => {
       if (historyAthlete !== "all" && r.athlete_id !== historyAthlete) return false;
@@ -163,6 +172,20 @@ function AiReviewPage() {
   return (
     <AppShell fullWidth>
       <div className="space-y-6 max-w-4xl">
+        {search.athleteId && (
+          <div className="flex flex-wrap items-center gap-3 min-w-0">
+            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground shrink-0">
+              <Link to="/app/athletes" className="hover:text-foreground">
+                Athletes
+              </Link>
+              <span className="text-border">/</span>
+              <Link to="/app/athletes/$athleteId" params={{ athleteId: search.athleteId }} className="hover:text-foreground">
+                {arrivedForAthleteName ?? "Athlete"}
+              </Link>
+            </div>
+            <AthleteSubnav athleteId={search.athleteId} active="reports" />
+          </div>
+        )}
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 shrink-0 rounded-lg grid place-items-center" style={{ background: "var(--accent-red)" }}>
             <Sparkles className="h-5 w-5 text-white" strokeWidth={2} />
