@@ -88,7 +88,20 @@ function cameraForPack(
 
 const PACK_PITCH_TERRAIN = 45;
 const PACK_PITCH_FLAT = 50;
-const FULL_FLIGHT_MS = 30000; // same convention as the single-runner flyover — fixed watch length regardless of the actual race duration
+// Longer than the single-runner flyover's 30s. That version's camera
+// moves along one fixed, densely-prefetched route; this one's camera
+// moves along whatever path the pack's bounding box actually traces,
+// which can cover much more ground per second once athletes spread out —
+// 30s was outrunning tile loads badly for that case. More real time for
+// the same "story" directly lowers camera velocity throughout.
+const FULL_FLIGHT_MS = 48000;
+// Camera repositioning (not marker movement) is what's expensive — every
+// jumpTo() can trigger new tile requests as the viewport shifts. Capping
+// it to ~20fps rather than the full ~60fps animation rate cuts that work
+// by two-thirds while still looking smooth; markers/trails keep updating
+// every frame below since those are just cheap source.setData() calls
+// with no tile-loading impact of their own.
+const CAMERA_UPDATE_INTERVAL_MS = 50;
 
 // Builds a circular, colored-ring-bordered marker image from an athlete's
 // profile photo, for the on-map WebGL symbol layer. Requires the image
@@ -270,6 +283,7 @@ export function MultiRouteFlyoverMap({ tracks, heightPx }: MultiRouteFlyoverMapP
   const rafRef = useRef<number | null>(null);
   const startTimeRef = useRef<number | null>(null);
   const elapsedMsRef = useRef(0);
+  const lastCameraUpdateRef = useRef(0);
 
   const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -354,8 +368,12 @@ export function MultiRouteFlyoverMap({ tracks, heightPx }: MultiRouteFlyoverMapP
     // Simpler than the single-runner version's prefetch — fixed north-up
     // bearing means there's no per-turn heading sweep to account for, just
     // the camera path the pack actually follows as it spreads/bunches.
+    // Denser than the original 24 — that was too sparse a sample of the
+    // pack's actual camera path, missing enough of the ground it swept
+    // across between samples that playback was still hitting un-prefetched
+    // tiles mid-flight.
     async function prefetchPackPath() {
-      const samples = 24;
+      const samples = 60;
       for (let i = 0; i <= samples; i++) {
         if (cancelled) return;
         const t = (i / samples) * maxElapsedS;
@@ -508,9 +526,17 @@ export function MultiRouteFlyoverMap({ tracks, heightPx }: MultiRouteFlyoverMapP
       setLiveRows(frameRows);
       setLiveElapsedS(globalElapsedS);
 
-      const frame = cameraForPack(map2, positions, hasTerrain ? PACK_PITCH_TERRAIN : PACK_PITCH_FLAT);
-      if (frame) {
-        map2.jumpTo({ center: frame.center, zoom: frame.zoom, bearing: 0, pitch: hasTerrain ? PACK_PITCH_TERRAIN : PACK_PITCH_FLAT });
+      // Throttled — see CAMERA_UPDATE_INTERVAL_MS above. Marker/trail
+      // positions above still update every frame (cheap, no tile impact);
+      // only the expensive part (moving the viewport, which can trigger
+      // new tile requests) is capped.
+      const dueForCameraUpdate = timestamp - lastCameraUpdateRef.current >= CAMERA_UPDATE_INTERVAL_MS || progress >= 1;
+      if (dueForCameraUpdate) {
+        lastCameraUpdateRef.current = timestamp;
+        const frame = cameraForPack(map2, positions, hasTerrain ? PACK_PITCH_TERRAIN : PACK_PITCH_FLAT);
+        if (frame) {
+          map2.jumpTo({ center: frame.center, zoom: frame.zoom, bearing: 0, pitch: hasTerrain ? PACK_PITCH_TERRAIN : PACK_PITCH_FLAT });
+        }
       }
 
       if (progress < 1) {
@@ -535,6 +561,7 @@ export function MultiRouteFlyoverMap({ tracks, heightPx }: MultiRouteFlyoverMapP
     }
     if (finished) {
       elapsedMsRef.current = 0;
+      lastCameraUpdateRef.current = 0;
       setFinished(false);
     }
     setPlaying(true);
