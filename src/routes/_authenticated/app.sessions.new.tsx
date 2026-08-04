@@ -20,6 +20,8 @@ import {
   STRUCTURE_LABEL,
   SESSION_DAY_TYPES,
   DAY_TYPE_LABEL,
+  TIME_OF_DAY_VALUES,
+  TIME_OF_DAY_LABEL,
 } from "@/lib/session-categories";
 import { toast } from "sonner";
 import { Plus, Trash2, GripVertical, ArrowUp, ArrowDown, Lock, CalendarDays } from "lucide-react";
@@ -221,6 +223,7 @@ function NewSession() {
 
   const [athleteId, setAthleteId] = useState<string>("");
   const [sessionDate, setSessionDate] = useState(search.date || todayISO());
+  const [timeOfDay, setTimeOfDay] = useState<string>("");
   const [title, setTitle] = useState("");
   const [dayType, setDayType] = useState<string>(search.dayType || "training");
   const [intent, setIntent] = useState<string>("threshold");
@@ -470,6 +473,7 @@ function NewSession() {
         athlete_id: effectiveAthleteId,
         created_by: user!.id,
         session_date: sessionDate,
+        time_of_day: timeOfDay || null,
         title,
         day_type: dayType as any,
         intent: dayType === "training" ? (intent as any) : null,
@@ -653,6 +657,27 @@ function NewSession() {
                 onChange={(e) => setSessionDate(e.target.value)}
                 className="mt-1"
               />
+            </div>
+
+            <div>
+              <Label>Approx. time (optional)</Label>
+              <Select value={timeOfDay || "unset"} onValueChange={(v) => setTimeOfDay(v === "unset" ? "" : v)}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="unset">Not set</SelectItem>
+                  {TIME_OF_DAY_VALUES.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {TIME_OF_DAY_LABEL[t]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">
+                Only matters for sessions with no uploaded file — keeps this session in the right spot in the list
+                relative to others the same day (e.g. a Gym session after an AM run).
+              </p>
             </div>
 
             <div>
