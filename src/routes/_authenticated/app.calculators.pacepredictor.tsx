@@ -212,7 +212,7 @@ function PerformancePredictorPage() {
     const vo2Pace = at(5);
     const repPace = at(1.60934);
     if (!thresholdPace) return null;
-    const rows: { name: string; low: number; high: number }[] = [{ name: "Easy", low: thresholdPace * 1.18, high: thresholdPace * 1.3 }];
+    const rows: { name: string; low: number; high: number }[] = [];
     if (marathonPace) rows.push({ name: "Marathon", low: marathonPace * 0.99, high: marathonPace * 1.02 });
     rows.push({ name: "Threshold / Tempo", low: thresholdPace * 0.98, high: thresholdPace * 1.03 });
     if (vo2Pace) rows.push({ name: "Interval (VO2 max)", low: vo2Pace * 0.97, high: vo2Pace * 1.02 });
