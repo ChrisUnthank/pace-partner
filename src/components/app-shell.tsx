@@ -226,6 +226,12 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
         // had no sidebar path to Races/Race Tactics at all.
         { to: "/app/races", label: "Races", icon: Trophy, show: isCoachOrAthlete },
         { to: "/app/race-tactics", label: "Race Tactics", icon: Flag, show: isCoachOrAthlete },
+        // Coach-created shared events linking several athletes' results to
+        // the same real race — see race_events. Athlete-visible too (not
+        // isCoachView-only) since an athlete linked to a coach-created
+        // event should be able to see how they placed among teammates,
+        // not just their own single result.
+        { to: "/app/race-events", label: "Race Events", icon: Users, show: isCoachOrAthlete },
       ],
     },
     {
