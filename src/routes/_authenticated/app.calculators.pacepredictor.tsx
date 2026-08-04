@@ -36,7 +36,7 @@ export const Route = createFileRoute("/_authenticated/app/calculators/pacepredic
 });
 
 const PROFILE_ORDER: ManualProfileKey[] = ["speed_specialist", "middle_distance", "balanced", "distance", "road_marathon"];
-const SHAPE_LABELS = ["Sprint Bias", "Speed Bias", "Balanced", "Aerobic Bias", "Endurance Bias"];
+const SHAPE_LABELS = ["Speed-Oriented", "Speed-Endurance", "Balanced", "Aerobic", "Endurance"];
 
 // Unifies the two prediction sources (the profile engine, and the
 // recent-race+declared-profile fallback for athletes without enough PB
@@ -296,32 +296,31 @@ function PerformancePredictorPage() {
                     <div className="font-semibold">{profile.aerobicScore != null ? profile.aerobicScore.toFixed(1) : "—"}</div>
                     <div className="text-[11px] text-muted-foreground">VDOT-equivalent, 5K–Half PBs</div>
                   </div>
-                  <div className="rounded border px-3 py-2">
-                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Speed Endurance</div>
-                    <div className="font-semibold">
-                      {profile.speedEnduranceDecay != null ? (profile.speedEnduranceDecay < -0.3 ? "Fades quickly" : profile.speedEnduranceDecay > 0.3 ? "Holds well" : "Typical") : "—"}
-                    </div>
-                    <div className="text-[11px] text-muted-foreground">How pace decays, 800m→3000m</div>
-                  </div>
-                  <div className="rounded border px-3 py-2">
-                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Aerobic Durability</div>
-                    <div className="font-semibold">
-                      {profile.aerobicDurabilityDecay != null ? (profile.aerobicDurabilityDecay < -0.3 ? "Fades quickly" : profile.aerobicDurabilityDecay > 0.3 ? "Holds well" : "Typical") : "—"}
-                    </div>
-                    <div className="text-[11px] text-muted-foreground">How pace decays, 5K→Half</div>
-                  </div>
                 </div>
 
-                <div className="text-xs text-muted-foreground">
-                  Curve fit quality: {Math.round(profile.overallConsistency * 100)}%
-                  {profile.weighted.some((p) => p.consistencyWeight < 1) && (
-                    <span>
-                      {" "}
-                      — {profile.weighted.filter((p) => p.consistencyWeight < 1).length} PB
-                      {profile.weighted.filter((p) => p.consistencyWeight < 1).length === 1 ? "" : "s"} sit further from
-                      the rest of the evidence than expected and are carrying reduced influence, not excluded.
-                    </span>
+                <div className="space-y-2 text-sm">
+                  {profile.insights.strength && (
+                    <div className="flex gap-2">
+                      <span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground shrink-0 w-32">Strength</span>
+                      <span>{profile.insights.strength}</span>
+                    </div>
                   )}
+                  {profile.insights.aerobicProgression && (
+                    <div className="flex gap-2">
+                      <span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground shrink-0 w-32">Aerobic progression</span>
+                      <span>{profile.insights.aerobicProgression}</span>
+                    </div>
+                  )}
+                  {profile.insights.performanceGap && (
+                    <div className="flex gap-2">
+                      <span className="text-[11px] font-bold uppercase tracking-wide text-amber-600 shrink-0 w-32">Performance gap</span>
+                      <span>{profile.insights.performanceGap}</span>
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground shrink-0 w-32">Prediction confidence</span>
+                    <span>{profile.insights.predictionConfidence}</span>
+                  </div>
                 </div>
               </CardContent>
             )}
