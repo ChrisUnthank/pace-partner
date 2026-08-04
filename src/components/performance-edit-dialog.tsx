@@ -14,6 +14,7 @@ import { clockToSec, secToClock } from "@/lib/format";
 import { toast } from "sonner";
 import { ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { RaceEventCombobox } from "@/components/race-event-combobox";
 
 const COMMON_DISTANCES = [
   { m: 800, label: "800m" },
@@ -38,6 +39,7 @@ export type EditablePerformance = {
   notes?: string | null;
   course_name?: string | null;
   excluded_from_pb?: boolean | null;
+  race_event_id?: string | null;
 };
 
 // Combobox for course_name — autocomplete from this athlete's previously
@@ -167,6 +169,7 @@ export function PerformanceEditDialog({
   const [notes, setNotes] = useState("");
   const [courseName, setCourseName] = useState("");
   const [excludedFromPb, setExcludedFromPb] = useState(false);
+  const [raceEventId, setRaceEventId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   // Courses already used by this athlete, for the combobox — refetched
@@ -203,6 +206,7 @@ export function PerformanceEditDialog({
     setNotes(performance.notes ?? "");
     setCourseName(performance.course_name ?? "");
     setExcludedFromPb(!!performance.excluded_from_pb);
+    setRaceEventId(performance.race_event_id ?? null);
   }, [open, performance]);
 
   async function save() {
@@ -234,6 +238,7 @@ export function PerformanceEditDialog({
         notes: notes || null,
         course_name: courseName || null,
         excluded_from_pb: excludedFromPb,
+        race_event_id: raceEventId,
       })
       .eq("id", performance.id);
 
@@ -338,6 +343,22 @@ export function PerformanceEditDialog({
             <p className="text-xs text-muted-foreground mt-1">
               Optional — set this to track a Course Best, separate from distance-based PBs. Useful for cross country,
               where the same "course" rarely measures exactly the same distance race to race.
+            </p>
+          </div>
+
+          <div>
+            <Label className="text-xs">Race event</Label>
+            <RaceEventCombobox
+              value={raceEventId}
+              onChange={setRaceEventId}
+              defaultDate={date}
+              defaultDistanceM={distanceMode === "custom" ? Number(customDistance) : distance}
+              defaultRaceType={raceType}
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              Optional — link this result to a shared race event so it shows up alongside any other athletes you
+              coach who ran the same race. Create a new one, or pick an existing one if you've already linked another
+              athlete's result to it.
             </p>
           </div>
 
