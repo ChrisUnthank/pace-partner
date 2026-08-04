@@ -96,9 +96,9 @@ async function buildSquadSnapshot(sb: any, athleteId: string, since: string, unt
   return {
     name: athlete?.name ?? "Athlete",
     readiness: latest?.readiness_status ?? null,
-    ctl: latest?.ctl != null ? Math.round(latest.ctl) : null,
-    atl: latest?.atl != null ? Math.round(latest.atl) : null,
-    tsb: latest?.tsb != null ? Math.round(latest.tsb) : null,
+    fitness: latest?.ctl != null ? Math.round(latest.ctl) : null,
+    fatigue: latest?.atl != null ? Math.round(latest.atl) : null,
+    form: latest?.tsb != null ? Math.round(latest.tsb) : null,
     sessions_planned: rows.length,
     sessions_completed: completed.length,
     avg_completion_pct: avgCompletion,
