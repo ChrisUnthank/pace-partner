@@ -133,6 +133,11 @@ export type WeightedPb = PbRecord & {
   // prediction time in predictFromProfile, since quality matters
   // globally but the kernel is target-specific).
   weight: number;
+  // Actual VDOT minus what the global curve implies at this distance —
+  // negative means this PB sits below the rest of the profile,
+  // positive means it sits above. Null until the global curve exists
+  // (needs 2+ PBs). Used by the performance-gap insight below.
+  residual: number | null;
 };
 
 // Distance-decay kernel for locally weighted prediction — a target's
@@ -192,11 +197,32 @@ function weightedLinearFit(points: { x: number; y: number; w: number }[]): Linea
 export type ProfileShape = {
   // -1 (strong speed bias) .. +1 (strong endurance bias), 0 = balanced.
   biasScore: number;
-  label: "Sprint Bias" | "Speed Bias" | "Balanced" | "Aerobic Bias" | "Endurance Bias";
+  label: "Speed-Oriented" | "Speed-Endurance" | "Balanced" | "Aerobic" | "Endurance";
   // Five-band relative-strength bars for display, index-matched to
-  // ["Sprint Bias","Speed Bias","Balanced","Aerobic Bias","Endurance Bias"],
+  // ["Speed-Oriented","Speed-Endurance","Balanced","Aerobic","Endurance"],
   // each 0-10.
   bars: number[];
+};
+
+export type ProfileInsights = {
+  // Which distance range this athlete performs relatively best in, and
+  // which real PBs support that — e.g. "Excellent 800m-1500m
+  // performances." Null if there isn't a clearly strongest range (e.g.
+  // only one bucket has any data at all).
+  strength: string | null;
+  // Whether recent performances in the 5K-Half range are trending
+  // better or worse than older ones in that same range — null unless
+  // there are at least 2 dated PBs in range to compare, since a trend
+  // needs at least two points in time to support it.
+  aerobicProgression: string | null;
+  // The single PB that sits furthest from what the rest of the
+  // evidence implies (if any genuinely does, i.e. was downweighted by
+  // Stage 3) — phrased as a gap to investigate, not a verdict, and
+  // named in whichever direction it actually went (below OR above the
+  // rest of the profile).
+  performanceGap: string | null;
+  // A plain-language read of overallConsistency — always present.
+  predictionConfidence: string;
 };
 
 export type AthleteProfile = {
@@ -210,10 +236,11 @@ export type AthleteProfile = {
   speedEnduranceDecay: number | null; // dVDOT/d(ln km), 800m-3000m
   aerobicDurabilityDecay: number | null; // dVDOT/d(ln km), 5K-Half
   overallConsistency: number; // 0-1, the global curve's weighted R^2 (0 if no curve) — descriptive; per-target fit quality is used for prediction confidence instead
+  insights: ProfileInsights;
 };
 
 const SHAPE_BAND_POSITIONS = [-1, -0.5, 0, 0.5, 1];
-const SHAPE_LABELS: ProfileShape["label"][] = ["Sprint Bias", "Speed Bias", "Balanced", "Aerobic Bias", "Endurance Bias"];
+const SHAPE_LABELS: ProfileShape["label"][] = ["Speed-Oriented", "Speed-Endurance", "Balanced", "Aerobic", "Endurance"];
 
 function shapeFromSlope(slope: number): ProfileShape {
   // Compresses the raw slope (VDOT change per unit of ln-km) into a
@@ -237,6 +264,103 @@ function weightedAverage(points: { y: number; w: number }[]): number | null {
   return usable.reduce((s, p) => s + p.w * p.y, 0) / sumW;
 }
 
+function formatDistanceLabel(km: number): string {
+  if (Math.abs(km - 1.60934) < 0.01) return "Mile";
+  if (Math.abs(km - 21.0975) < 0.05) return "Half Marathon";
+  if (Math.abs(km - 42.195) < 0.05) return "Marathon";
+  if (km < 1) return `${Math.round(km * 1000)}m`;
+  if (Math.abs(km - Math.round(km)) < 0.02) return `${Math.round(km)}K`;
+  return `${Math.round(km * 1000)}m`;
+}
+
+function joinLabels(labels: string[]): string {
+  if (labels.length === 1) return labels[0];
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
+  return `${labels.slice(0, -1).join(", ")}, and ${labels[labels.length - 1]}`;
+}
+
+// Deliberately stays at what the data actually supports — a bucket
+// this athlete is relatively strongest in, a recent trend where there
+// are at least two dated points to show one, a specific PB that
+// genuinely got downweighted for disagreeing with the rest of the
+// evidence — rather than inferring a trait ("fades quickly") from a
+// slope that a coach would rightly want more context (training
+// history, testing) before accepting.
+const STRENGTH_BUCKETS = [
+  { label: "Speed", lo: 0.7, hi: 1.7 },
+  { label: "Speed-Endurance", lo: 1.7, hi: 3.5 },
+  { label: "Aerobic", lo: 4.5, hi: 11 },
+  { label: "Endurance", lo: 15, hi: 45 },
+];
+
+function deriveProfileInsights(weighted: WeightedPb[]): ProfileInsights {
+  // Strength
+  const overallAvgVdot = weightedAverage(weighted.map((p) => ({ y: p.vdot, w: p.weight * p.qualityWeight })));
+  const bucketScores = STRENGTH_BUCKETS.map((b) => {
+    const pbsInBucket = weighted.filter((p) => p.distanceKm >= b.lo && p.distanceKm <= b.hi);
+    if (pbsInBucket.length === 0 || overallAvgVdot == null) return null;
+    const avg = weightedAverage(pbsInBucket.map((p) => ({ y: p.vdot, w: p.weight * p.qualityWeight })));
+    if (avg == null) return null;
+    return { bucket: b, pbs: pbsInBucket, relativeScore: avg - overallAvgVdot };
+  }).filter((b): b is NonNullable<typeof b> => b != null);
+
+  let strength: string | null = null;
+  if (bucketScores.length >= 2) {
+    const best = bucketScores.reduce((a, b) => (b.relativeScore > a.relativeScore ? b : a));
+    const labels = best.pbs.map((p) => formatDistanceLabel(p.distanceKm));
+    strength = `Excellent ${joinLabels(labels)} performance${labels.length > 1 ? "s" : ""}.`;
+  }
+
+  // Current aerobic progression — needs at least 2 dated PBs in the
+  // 5K-Half range to compare old vs new; otherwise there's genuinely
+  // no trend to report yet.
+  const aerobicDated = weighted
+    .filter((p) => p.distanceKm >= 4.5 && p.distanceKm <= 22 && p.dateISO)
+    .sort((a, b) => new Date(a.dateISO!).getTime() - new Date(b.dateISO!).getTime());
+  let aerobicProgression: string | null = null;
+  if (aerobicDated.length >= 2) {
+    const mid = Math.ceil(aerobicDated.length / 2);
+    const older = aerobicDated.slice(0, mid);
+    const newer = aerobicDated.slice(mid);
+    const olderAvg = weightedAverage(older.map((p) => ({ y: p.vdot, w: 1 })));
+    const newerAvg = weightedAverage((newer.length ? newer : [aerobicDated[aerobicDated.length - 1]]).map((p) => ({ y: p.vdot, w: 1 })));
+    if (olderAvg != null && newerAvg != null) {
+      const pctChange = (newerAvg - olderAvg) / olderAvg;
+      if (pctChange > 0.02) aerobicProgression = "Strong recent improvement over 5K-10K performances.";
+      else if (pctChange < -0.02) aerobicProgression = "5K-10K performances have trended slower recently — worth checking training load or recovery.";
+      else aerobicProgression = "5K-10K performance has been stable recently.";
+    }
+  }
+
+  // Performance gap — only reports something that was ACTUALLY
+  // downweighted by Stage 3 (genuinely disagrees with the rest of the
+  // evidence), never manufactures a gap when nothing stands out.
+  let performanceGap: string | null = null;
+  const flagged = weighted.filter((p) => p.consistencyWeight < 1 && p.residual != null);
+  if (flagged.length > 0) {
+    const worst = flagged.reduce((a, b) => (Math.abs(b.residual!) > Math.abs(a.residual!) ? b : a));
+    const label = formatDistanceLabel(worst.distanceKm);
+    performanceGap =
+      worst.residual! < 0
+        ? `${label} PB appears below the current performance profile and is likely outdated or underdeveloped.`
+        : `${label} PB appears above the current performance profile — could reflect a specific strength or a standout day.`;
+  }
+
+  // Prediction confidence — data volume matters as much as fit quality:
+  // 2 points always fit a line perfectly, which isn't real evidence of
+  // consistency on its own.
+  const overallConsistency = weightedLinearFit(weighted.map((p) => ({ x: Math.log(p.distanceKm), y: p.vdot, w: p.weight * p.qualityWeight })))?.rSquared ?? 0;
+  let predictionConfidence: string;
+  if (weighted.length < 2) predictionConfidence = "Limited — only one PB on file, not enough to assess consistency yet.";
+  else if (weighted.length < 3) predictionConfidence = "Moderate — only two PBs to compare, so consistency can't be fully assessed yet.";
+  else if (overallConsistency >= 0.75) predictionConfidence = "High, based on strong consistency across recent performances.";
+  else if (overallConsistency >= 0.5) predictionConfidence = "Moderate — performances broadly agree, but with some spread.";
+  else if (overallConsistency >= 0.25) predictionConfidence = "Developing — still building a consistent picture from the performances on file.";
+  else predictionConfidence = "Limited — performances vary enough from each other that the profile isn't fully settled yet.";
+
+  return { strength, aerobicProgression, performanceGap, predictionConfidence };
+}
+
 export function buildAthleteProfile(pbs: PbRecord[], now: Date = new Date()): AthleteProfile | null {
   const clean = pbs.filter((p) => Number.isFinite(p.distanceKm) && p.distanceKm > 0 && Number.isFinite(p.timeSec) && p.timeSec > 0);
   const withVdot = clean
@@ -256,7 +380,7 @@ export function buildAthleteProfile(pbs: PbRecord[], now: Date = new Date()): At
     const rec = recencyWeight(p.dateISO, now);
     const rel = reliabilityWeight(p.isRace);
     const quality = maxVdot > 0 ? (p.vdot / maxVdot) ** 2 : 1;
-    return { ...p, recencyWeight: rec, reliabilityWeight: rel, consistencyWeight: 1, qualityWeight: quality, weight: rec * rel };
+    return { ...p, recencyWeight: rec, reliabilityWeight: rel, consistencyWeight: 1, qualityWeight: quality, weight: rec * rel, residual: null };
   });
 
   // Stage 2 (first pass) + Stage 3 (residual-based reweight, then
@@ -282,6 +406,14 @@ export function buildAthleteProfile(pbs: PbRecord[], now: Date = new Date()): At
     globalCurve = weightedLinearFit(fitPoints(weighted)); // final, reweighted global curve
   }
 
+  // Final residuals — recomputed against whichever curve actually ended
+  // up being used (post-reweight, if a reweight happened), so the
+  // performance-gap insight below reads the same number the fit itself
+  // settled on rather than a stale first-pass figure.
+  if (globalCurve) {
+    weighted = weighted.map((p) => ({ ...p, residual: p.vdot - (globalCurve!.intercept + globalCurve!.slope * Math.log(p.distanceKm)) }));
+  }
+
   const shape = globalCurve ? shapeFromSlope(globalCurve.slope) : { biasScore: 0, label: "Balanced" as const, bars: [2, 4, 10, 4, 2] };
 
   const speedScore = weightedAverage(weighted.filter((p) => p.distanceKm >= 0.7 && p.distanceKm <= 1.7).map((p) => ({ y: p.vdot, w: p.weight })));
@@ -303,6 +435,7 @@ export function buildAthleteProfile(pbs: PbRecord[], now: Date = new Date()): At
     speedEnduranceDecay: speedEnduranceFit?.slope ?? null,
     aerobicDurabilityDecay: aerobicDurabilityFit?.slope ?? null,
     overallConsistency: globalCurve?.rSquared ?? 0,
+    insights: deriveProfileInsights(weighted),
   };
 }
 
