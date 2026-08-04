@@ -285,7 +285,7 @@ function PerformancePredictorPage() {
                   </div>
                 </div>
 
-                <div className="grid sm:grid-cols-2 gap-3 text-sm">
+                <div className="grid sm:grid-cols-3 gap-3 text-sm">
                   <div className="rounded border px-3 py-2">
                     <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Speed Score</div>
                     <div className="font-semibold">{profile.speedScore != null ? profile.speedScore.toFixed(1) : "—"}</div>
@@ -295,6 +295,13 @@ function PerformancePredictorPage() {
                     <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Aerobic Score</div>
                     <div className="font-semibold">{profile.aerobicScore != null ? profile.aerobicScore.toFixed(1) : "—"}</div>
                     <div className="text-[11px] text-muted-foreground">VDOT-equivalent, 5K–Half PBs</div>
+                  </div>
+                  <div className="rounded border px-3 py-2">
+                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Top End Speed</div>
+                    <div className="font-semibold">{profile.topEndSpeed?.rating ?? "—"}</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {profile.topEndSpeed ? `From ${profile.topEndSpeed.distanceLabel} — vs. aerobic profile alone` : "No 400-600m PB on file"}
+                    </div>
                   </div>
                 </div>
 
@@ -315,6 +322,12 @@ function PerformancePredictorPage() {
                     <div className="flex gap-2">
                       <span className="text-[11px] font-bold uppercase tracking-wide text-amber-600 shrink-0 w-32">Performance gap</span>
                       <span>{profile.insights.performanceGap}</span>
+                    </div>
+                  )}
+                  {profile.insights.speedShapeMismatch && (
+                    <div className="flex gap-2">
+                      <span className="text-[11px] font-bold uppercase tracking-wide text-amber-600 shrink-0 w-32">Speed check</span>
+                      <span>{profile.insights.speedShapeMismatch}</span>
                     </div>
                   )}
                   <div className="flex gap-2">
