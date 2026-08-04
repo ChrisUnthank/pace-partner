@@ -204,6 +204,35 @@ export type ProfileShape = {
   bars: number[];
 };
 
+// VDOT (Daniels & Gilbert) is an AEROBIC model — it's built on the
+// relationship between race duration and %VO2max, which simply doesn't
+// describe a sub-400m effort at all (that's alactic/phosphagen-system
+// dominated, a completely different energy system). Running a 60m or
+// 100m PB through this model isn't just "a distance far from the rest
+// of the evidence," it's a category error — comparing two things the
+// underlying formula was never built to relate. Below this, a PB is
+// excluded from the engine entirely (not deleted from the athlete's
+// record, just not fed into this particular model).
+const EXCLUDE_BELOW_KM = 0.4;
+// 400m-600m sits in between: still not well-described by VDOT, but a
+// genuinely useful, classic indicator of raw top-end speed on its own
+// terms. Kept OUT of the VDOT profile/curve/shape/gap-detection, and
+// instead compared against what the athlete's aerobic-side profile
+// alone would imply at that distance — see topEndSpeedFromProfile.
+const TOP_END_SPEED_MAX_KM = 0.6;
+
+export type TopEndSpeedRating = "Strong" | "Good" | "Needs developing";
+
+export type TopEndSpeed = {
+  rating: TopEndSpeedRating;
+  // The actual PB(s) this was assessed from, and the aerobic-profile
+  // baseline it was compared against — shown so the rating is never a
+  // bare label with no visible reasoning behind it.
+  distanceLabel: string;
+  actualTimeSec: number;
+  aerobicBaselineTimeSec: number | null;
+};
+
 export type ProfileInsights = {
   // Which distance range this athlete performs relatively best in, and
   // which real PBs support that — e.g. "Excellent 800m-1500m
@@ -223,6 +252,13 @@ export type ProfileInsights = {
   performanceGap: string | null;
   // A plain-language read of overallConsistency — always present.
   predictionConfidence: string;
+  // Only set when Top End Speed genuinely contradicts the Profile
+  // Shape label — e.g. shape reads Speed-Oriented purely from an
+  // 800m-vs-1500m/3000m comparison, but a real 400m PB shows that
+  // speed isn't backed by raw top-end pace. Flags the discrepancy
+  // rather than silently letting the (potentially misleading) shape
+  // label stand unqualified.
+  speedShapeMismatch: string | null;
 };
 
 export type AthleteProfile = {
@@ -237,6 +273,10 @@ export type AthleteProfile = {
   aerobicDurabilityDecay: number | null; // dVDOT/d(ln km), 5K-Half
   overallConsistency: number; // 0-1, the global curve's weighted R^2 (0 if no curve) — descriptive; per-target fit quality is used for prediction confidence instead
   insights: ProfileInsights;
+  // Null when there's no 400m-600m PB on file to assess it from — never
+  // guessed. See topEndSpeedFromProfile for the comparison this is
+  // built from.
+  topEndSpeed: TopEndSpeed | null;
 };
 
 const SHAPE_BAND_POSITIONS = [-1, -0.5, 0, 0.5, 1];
@@ -358,12 +398,69 @@ function deriveProfileInsights(weighted: WeightedPb[]): ProfileInsights {
   else if (overallConsistency >= 0.25) predictionConfidence = "Developing — still building a consistent picture from the performances on file.";
   else predictionConfidence = "Limited — performances vary enough from each other that the profile isn't fully settled yet.";
 
-  return { strength, aerobicProgression, performanceGap, predictionConfidence };
+  return { strength, aerobicProgression, performanceGap, predictionConfidence, speedShapeMismatch: null };
+}
+
+// Compares a real 400-600m PB against what the athlete's AEROBIC
+// profile alone (the VDOT curve built from 600m+ results) would imply
+// at that same distance if extrapolated down — not a real prediction
+// (VDOT doesn't properly describe this range either, per the comment
+// on EXCLUDE_BELOW_KM), just a deliberately rough baseline for "is this
+// athlete's speed here better, the same, or worse than their aerobic
+// fitness alone would suggest." That comparison is the actual answer
+// to "is their 800m fast because they're fast, or because they're
+// aerobically strong" — which a flat VDOT-based Speed Score can't tell
+// apart on its own.
+const TOP_END_SPEED_THRESHOLD = 0.04; // 4% either side of the aerobic baseline
+
+function topEndSpeedFromProfile(
+  speedIndicatorPbs: PbRecord[],
+  vdotWeighted: WeightedPb[],
+  globalCurve: LinearFit | null,
+): TopEndSpeed | null {
+  if (speedIndicatorPbs.length === 0) return null;
+  // Prefers a real 400m PB specifically (the classic reference
+  // distance) if one exists; otherwise whichever 400-600m result is on
+  // file.
+  const best = [...speedIndicatorPbs].sort((a, b) => Math.abs(a.distanceKm - 0.4) - Math.abs(b.distanceKm - 0.4))[0];
+
+  let aerobicBaselineTimeSec: number | null = null;
+  if (globalCurve) {
+    const impliedVdot = globalCurve.intercept + globalCurve.slope * Math.log(best.distanceKm);
+    aerobicBaselineTimeSec = raceTimeFromVdot(best.distanceKm, impliedVdot);
+  } else if (vdotWeighted.length > 0) {
+    // No curve (only one 600m+ PB on file) — fall back to that single
+    // point's own VDOT rather than giving up on a baseline entirely.
+    const only = vdotWeighted[0];
+    aerobicBaselineTimeSec = raceTimeFromVdot(best.distanceKm, only.vdot);
+  }
+
+  let rating: TopEndSpeedRating = "Good";
+  if (aerobicBaselineTimeSec != null) {
+    const diff = (aerobicBaselineTimeSec - best.timeSec) / aerobicBaselineTimeSec; // positive = actual is faster than baseline
+    if (diff > TOP_END_SPEED_THRESHOLD) rating = "Strong";
+    else if (diff < -TOP_END_SPEED_THRESHOLD) rating = "Needs developing";
+  }
+
+  return {
+    rating,
+    distanceLabel: formatDistanceLabel(best.distanceKm),
+    actualTimeSec: best.timeSec,
+    aerobicBaselineTimeSec,
+  };
 }
 
 export function buildAthleteProfile(pbs: PbRecord[], now: Date = new Date()): AthleteProfile | null {
   const clean = pbs.filter((p) => Number.isFinite(p.distanceKm) && p.distanceKm > 0 && Number.isFinite(p.timeSec) && p.timeSec > 0);
-  const withVdot = clean
+
+  // Distance-band partition — see EXCLUDE_BELOW_KM / TOP_END_SPEED_MAX_KM
+  // above for why. Sub-400m never enters this function's model at all;
+  // 400-600m is set aside for topEndSpeedFromProfile below rather than
+  // treated as a normal VDOT data point.
+  const speedIndicatorPbs = clean.filter((p) => p.distanceKm >= EXCLUDE_BELOW_KM && p.distanceKm < TOP_END_SPEED_MAX_KM);
+  const vdotEligible = clean.filter((p) => p.distanceKm >= TOP_END_SPEED_MAX_KM);
+
+  const withVdot = vdotEligible
     .map((p) => ({ ...p, vdot: estimateVdot(p.distanceKm, p.timeSec) }))
     .filter((p): p is PbRecord & { vdot: number } => p.vdot != null);
   if (withVdot.length === 0) return null;
@@ -426,6 +523,17 @@ export function buildAthleteProfile(pbs: PbRecord[], now: Date = new Date()): At
     weighted.filter((p) => p.distanceKm >= 4.5 && p.distanceKm <= 22).map((p) => ({ x: Math.log(p.distanceKm), y: p.vdot, w: p.weight })),
   );
 
+  const topEndSpeed = topEndSpeedFromProfile(speedIndicatorPbs, weighted, globalCurve);
+  const insights = deriveProfileInsights(weighted);
+  // This is the actual fix for "an athlete reads as Speed-Oriented off
+  // an 800m that's really being carried by aerobic fitness, not raw
+  // speed" — a real 400m result contradicting the shape label is
+  // surfaced explicitly rather than left for a coach to notice (or not)
+  // on their own.
+  if (topEndSpeed?.rating === "Needs developing" && (shape.label === "Speed-Oriented" || shape.label === "Speed-Endurance")) {
+    insights.speedShapeMismatch = `Profile shape reads as ${shape.label} from distance comparisons alone, but the ${topEndSpeed.distanceLabel} PB suggests limited raw top-end speed — this athlete's shorter-distance strength may be more aerobic-driven than pure speed. Worth confirming with sprint-specific testing before treating "${shape.label}" as settled.`;
+  }
+
   return {
     weighted,
     globalCurve,
@@ -435,7 +543,8 @@ export function buildAthleteProfile(pbs: PbRecord[], now: Date = new Date()): At
     speedEnduranceDecay: speedEnduranceFit?.slope ?? null,
     aerobicDurabilityDecay: aerobicDurabilityFit?.slope ?? null,
     overallConsistency: globalCurve?.rSquared ?? 0,
-    insights: deriveProfileInsights(weighted),
+    insights,
+    topEndSpeed,
   };
 }
 
@@ -573,9 +682,28 @@ function distanceRangeScale(targetKm: number): number {
   return Math.max(0.4, Math.min(1.3, Math.sqrt(targetKm / 15)));
 }
 
+// The athlete's single best recent, reliable VDOT — a genuinely
+// different question from "is this result consistent with the rest of
+// the profile" (which is what the local fit / potential answers). This
+// is "what does this athlete's BEST current fitness, wherever it was
+// demonstrated, look like applied here" — the answer to "what's the
+// upside," not "what's the average." At an athlete's own strongest
+// event this will land at (or essentially at) their actual PB there —
+// correctly, since there's no faster fitness on file to draw on — but
+// at any OTHER distance it can show real, data-grounded room above
+// what local consistency alone implies. Recency-filtered so an old,
+// no-longer-representative peak doesn't get used as today's ceiling.
+function bestRecentVdot(weighted: WeightedPb[]): number | null {
+  const candidates = weighted.filter((p) => p.recencyWeight >= 0.4);
+  const pool = candidates.length > 0 ? candidates : weighted;
+  if (pool.length === 0) return null;
+  return Math.max(...pool.map((p) => p.vdot));
+}
+
 export function predictFromProfile(profile: AthleteProfile, targetLabel: string, targetKm: number): ProfilePrediction | null {
   if (!Number.isFinite(targetKm) || targetKm <= 0) return null;
   const lnTarget = Math.log(targetKm);
+  const peakVdot = bestRecentVdot(profile.weighted);
 
   // A real result at (or essentially at) this distance beats any
   // projection. Still given a small range (not zero-width) — even a
@@ -627,12 +755,23 @@ export function predictFromProfile(profile: AthleteProfile, targetLabel: string,
         // grounded read of nearby evidence.
         const potentialRangePct = Math.min(TIER_META[potentialTier].rangePct, 5) * distanceRangeScale(targetKm);
         result.potentialTimeSec = potentialTimeSec;
+        // The fast/low end blends two different questions: what does
+        // LOCAL consistency alone suggest (potentialTimeSec's own
+        // range), and what does this athlete's single BEST demonstrated
+        // fitness elsewhere imply if applied here (peakVdot) — takes
+        // whichever is more optimistic. At the athlete's own strongest
+        // event these two already agree (nothing to be more optimistic
+        // than), so it correctly shows no manufactured upside there;
+        // at a secondary event it's what actually answers "how much
+        // more is in the tank," not just "is this result consistent."
+        const consistencyLow = potentialTimeSec * (1 - potentialRangePct / 100);
+        const peakLow = peakVdot != null ? raceTimeFromVdot(targetKm, peakVdot) : null;
+        const optimisticLow = peakLow != null ? Math.min(consistencyLow, peakLow) : consistencyLow;
+        result.potentialLowSec = clampToBrackets(targetKm, optimisticLow, others);
         // Range endpoints clamped individually too — a wide tier
         // shouldn't be able to push the slow end past what a real
-        // longer-distance PB already proves, or the fast end past what
-        // a real shorter one proves, even when the center estimate
-        // itself is fine.
-        result.potentialLowSec = clampToBrackets(targetKm, potentialTimeSec * (1 - potentialRangePct / 100), others);
+        // longer-distance PB already proves, even when the center
+        // estimate itself is fine.
         result.potentialHighSec = clampToBrackets(targetKm, potentialTimeSec * (1 + potentialRangePct / 100), others);
         result.potentialTier = potentialTier;
       }
@@ -663,11 +802,18 @@ export function predictFromProfile(profile: AthleteProfile, targetLabel: string,
   const tier = tierFromPct(confidencePct);
   const rangePct = TIER_META[tier].rangePct * distanceRangeScale(targetKm);
 
+  // Same peak-fitness blend as the PB branch above — the fast end
+  // reflects the more optimistic of "local consistency" and "this
+  // athlete's best demonstrated fitness elsewhere, applied here."
+  const consistencyLow = timeSec * (1 - rangePct / 100);
+  const peakLow = peakVdot != null ? raceTimeFromVdot(targetKm, peakVdot) : null;
+  const optimisticLow = peakLow != null ? Math.min(consistencyLow, peakLow) : consistencyLow;
+
   return {
     label: targetLabel,
     km: targetKm,
     timeSec,
-    lowSec: clampToBrackets(targetKm, timeSec * (1 - rangePct / 100), profile.weighted),
+    lowSec: clampToBrackets(targetKm, optimisticLow, profile.weighted),
     highSec: clampToBrackets(targetKm, timeSec * (1 + rangePct / 100), profile.weighted),
     paceSecPerKm: timeSec / targetKm,
     tier,
