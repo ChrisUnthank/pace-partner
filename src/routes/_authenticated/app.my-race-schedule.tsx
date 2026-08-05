@@ -10,6 +10,7 @@ import { CalendarPlus, MapPin, Users } from "lucide-react";
 import { toast } from "sonner";
 import { useAuthUser, useMyRoles, useMyRawRoles, useMyAthlete, useMyLinkedAthletes } from "@/lib/use-auth";
 import { mapLink } from "@/lib/training-schedule-helpers";
+import { buildRaceSessionTitle, buildRaceSessionNotes } from "@/lib/race-session-details";
 
 export const Route = createFileRoute("/_authenticated/app/my-race-schedule")({
   component: () => (
@@ -126,13 +127,39 @@ function MyRaceSchedulePage() {
     },
   });
 
+  // Every selection this athlete has, independent of group/calendar
+  // visibility — fetched first specifically so the entries query below
+  // can guarantee "an entry I'm assigned to always shows up here", even
+  // in an edge case where group/calendar membership has since drifted
+  // from what it was when the assignment was made.
+  const { data: myAllSelections } = useQuery({
+    queryKey: ["my-race-selections-all", athleteId],
+    enabled: !!athleteId,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("athlete_race_selections")
+        .select("id, race_schedule_entry_id, selected_event, session_id")
+        .eq("athlete_id", athleteId);
+      if (error) throw error;
+      return (data ?? []) as Selection[];
+    },
+  });
+  const mySelectedEntryIds = useMemo(() => (myAllSelections ?? []).map((s) => s.race_schedule_entry_id), [myAllSelections]);
+
   const { data: entries, isLoading: entriesLoading } = useQuery({
-    queryKey: ["my-race-schedule-entries", (groupIds ?? []).join(","), (calendarIds ?? []).join(",")],
+    queryKey: [
+      "my-race-schedule-entries",
+      (groupIds ?? []).join(","),
+      (calendarIds ?? []).join(","),
+      mySelectedEntryIds.join(","),
+    ],
     enabled: !!groupIds && groupIds.length > 0,
     queryFn: async () => {
-      // Same union-of-two-ownership-paths reasoning as the coach page —
-      // an entry owned directly by one of my groups, or owned by a
-      // calendar applied to one of my groups.
+      // Union of three ownership/visibility paths — an entry owned
+      // directly by one of my groups, one owned by a calendar applied to
+      // one of my groups, or (the fallback that actually matters here) one
+      // I already have a selection for regardless of the other two —
+      // see the "readable via own selection" RLS policy this depends on.
       const legacyQ = (supabase as any)
         .from("race_schedule_entries")
         .select("*, training_locations(name, address, lat, lng)")
@@ -143,38 +170,34 @@ function MyRaceSchedulePage() {
         calIds.length > 0
           ? (supabase as any).from("race_schedule_entries").select("*, training_locations(name, address, lat, lng)").in("calendar_id", calIds)
           : Promise.resolve({ data: [], error: null }),
+        mySelectedEntryIds.length > 0
+          ? (supabase as any).from("race_schedule_entries").select("*, training_locations(name, address, lat, lng)").in("id", mySelectedEntryIds)
+          : Promise.resolve({ data: [], error: null }),
       ]);
       for (const r of results) if (r.error) throw r.error;
-      const merged = [...(results[0].data ?? []), ...(results[1].data ?? [])] as RaceScheduleEntry[];
+      const byId = new Map<string, RaceScheduleEntry>();
+      for (const r of results) for (const row of r.data ?? []) byId.set(row.id, row as RaceScheduleEntry);
+      const merged = Array.from(byId.values());
       merged.sort((a, b) => a.event_date.localeCompare(b.event_date));
       return merged;
     },
   });
 
   const entryIds = useMemo(() => (entries ?? []).map((e) => e.id), [entries]);
-  const { data: mySelections } = useQuery({
-    queryKey: ["my-race-selections", athleteId, entryIds.join(",")],
-    enabled: !!athleteId && entryIds.length > 0,
-    queryFn: async () => {
-      const { data, error } = await (supabase as any)
-        .from("athlete_race_selections")
-        .select("id, race_schedule_entry_id, selected_event, session_id")
-        .eq("athlete_id", athleteId)
-        .in("race_schedule_entry_id", entryIds);
-      if (error) throw error;
-      return (data ?? []) as Selection[];
-    },
-  });
+  // myAllSelections (fetched above) is already a superset of what a
+  // second query scoped to entryIds would return — entries always
+  // includes every race myAllSelections references (that's the third
+  // union leg above), so there's no separate narrower query needed here.
   const selectionByEntry = useMemo(() => {
     const map = new Map<string, Selection>();
-    for (const s of mySelections ?? []) map.set(s.race_schedule_entry_id, s);
+    for (const s of myAllSelections ?? []) map.set(s.race_schedule_entry_id, s);
     return map;
-  }, [mySelections]);
+  }, [myAllSelections]);
 
   // Entry-registration status per selection, from Event Entries (Locker)
   // — same link used on the coach page, read here so the athlete sees
   // their own "have I entered" state without leaving this page.
-  const selectionIds = useMemo(() => (mySelections ?? []).map((s) => s.id), [mySelections]);
+  const selectionIds = useMemo(() => (myAllSelections ?? []).map((s) => s.id), [myAllSelections]);
   const { data: myEntryRows } = useQuery({
     queryKey: ["my-race-schedule-entry-rows", selectionIds.join(",")],
     enabled: selectionIds.length > 0,
@@ -248,19 +271,26 @@ function MyRaceSchedulePage() {
       const sessionLocationPatch = entry.location_id
         ? { location_id: entry.location_id, location: null }
         : { location_id: null, location: entry.location };
+      const title = buildRaceSessionTitle(entry.name, selectedEvent);
       if (existing?.session_id) {
+        // Notes deliberately NOT touched here — see race-session-details.ts.
+        // Title/date/distance/location do get kept in sync, since those
+        // are structured fields nobody's expected to hand-edit on a
+        // planned race the way they might add a free-text note.
         await supabase
           .from("sessions")
-          .update({ title: selectedEvent, session_date: entry.event_date, total_distance_m: distance ?? undefined, ...sessionLocationPatch } as any)
+          .update({ title, session_date: entry.event_date, total_distance_m: distance ?? undefined, ...sessionLocationPatch } as any)
           .eq("id", existing.session_id);
       } else {
+        const notes = buildRaceSessionNotes(entry, entryLocationLabel(entry));
         const { data: sessionRow, error: sessErr } = await supabase
           .from("sessions")
           .insert({
             athlete_id: athleteId,
             session_date: entry.event_date,
             day_type: "race",
-            title: selectedEvent,
+            title,
+            notes: notes || null,
             is_planned: true,
             source: "manual",
             total_distance_m: distance ?? null,
