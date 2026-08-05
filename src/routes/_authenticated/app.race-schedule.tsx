@@ -24,7 +24,9 @@ import { UserAvatar } from "@/components/user-avatar";
 import { CalendarDays, MapPin, Plus, Upload, Trash2, Pencil, ChevronDown, ChevronUp, Loader2, Flag } from "lucide-react";
 import { toast } from "sonner";
 import { todayISO } from "@/lib/format";
+import { mapLink } from "@/lib/training-schedule-helpers";
 import { useAuthUser, useMyRoles } from "@/lib/use-auth";
+import { LocationPicker } from "@/components/location-picker";
 import { extractTextFromFile } from "@/lib/document-text-extract";
 import { parseRaceScheduleText, type ParsedRaceScheduleEntry } from "@/lib/race-schedule.functions";
 
@@ -52,12 +54,32 @@ function parseDistanceFromLabel(label: string): number | null {
   return null;
 }
 
+// Prefers the linked saved location's name (and its real coordinates for
+// the map link) over the plain-text fallback — a linked location is what
+// makes "view on map" actually work, since free text alone has no
+// coordinates to link to.
+function entryLocationLabel(entry: { location: string | null; training_locations: { name: string } | null }): string | null {
+  return entry.training_locations?.name ?? entry.location;
+}
+function entryMapLink(entry: {
+  location: string | null;
+  training_locations: { name: string; lat: number | null; lng: number | null } | null;
+}): string | null {
+  return mapLink({
+    lat: entry.training_locations?.lat,
+    lng: entry.training_locations?.lng,
+    text: entry.training_locations?.name ?? entry.location,
+  });
+}
+
 type RaceScheduleEntry = {
   id: string;
   training_group_id: string;
   name: string;
   event_date: string;
   location: string | null;
+  location_id: string | null;
+  training_locations: { name: string; address: string | null; lat: number | null; lng: number | null } | null;
   race_type: string | null;
   events_offered: string[];
   source: string;
@@ -72,6 +94,8 @@ type Selection = {
   session_id: string | null;
   athletes: { name: string | null; profile_image_url: string | null } | null;
 };
+
+type PreviewRow = ParsedRaceScheduleEntry & { location_id: string | null };
 
 function RaceSchedulePage() {
   const { user } = useAuthUser();
@@ -115,7 +139,7 @@ function RaceSchedulePage() {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("race_schedule_entries")
-        .select("*")
+        .select("*, training_locations(name, address, lat, lng)")
         .eq("training_group_id", activeGroupId)
         .order("event_date", { ascending: true });
       if (error) throw error;
@@ -156,6 +180,7 @@ function RaceSchedulePage() {
   const [name, setName] = useState("");
   const [date, setDate] = useState(todayISO());
   const [location, setLocation] = useState("");
+  const [locationId, setLocationId] = useState<string | null>(null);
   const [raceType, setRaceType] = useState("track");
   const [eventsText, setEventsText] = useState("");
   const [savingManual, setSavingManual] = useState(false);
@@ -164,6 +189,7 @@ function RaceSchedulePage() {
     setName("");
     setDate(todayISO());
     setLocation("");
+    setLocationId(null);
     setRaceType("track");
     setEventsText("");
     setAddOpen(true);
@@ -179,7 +205,8 @@ function RaceSchedulePage() {
       training_group_id: activeGroupId,
       name: name.trim(),
       event_date: date,
-      location: location.trim() || null,
+      location: locationId ? null : location.trim() || null,
+      location_id: locationId,
       race_type: raceType || null,
       events_offered: eventsText.split(",").map((s) => s.trim()).filter(Boolean),
       source: "manual",
@@ -211,7 +238,7 @@ function RaceSchedulePage() {
   const [importTab, setImportTab] = useState<"upload" | "paste">("upload");
   const [pasteText, setPasteText] = useState("");
   const [extracting, setExtracting] = useState(false);
-  const [preview, setPreview] = useState<ParsedRaceScheduleEntry[] | null>(null);
+  const [preview, setPreview] = useState<PreviewRow[] | null>(null);
   const parseText = useServerFn(parseRaceScheduleText);
 
   async function runExtraction(text: string) {
@@ -225,7 +252,11 @@ function RaceSchedulePage() {
       if (result.length === 0) {
         toast.error("Couldn't find any races in that document");
       } else {
-        setPreview(result);
+        // AI extraction only ever produces free-text locations (it has no
+        // way to know about your saved training_locations) — location_id
+        // starts null on every row, and the picker below lets you link
+        // one during review, same as adding a race manually.
+        setPreview(result.map((r) => ({ ...r, location_id: null })));
       }
     } catch (err: any) {
       toast.error(err?.message ?? "Extraction failed");
@@ -249,7 +280,7 @@ function RaceSchedulePage() {
     }
   }
 
-  function updatePreviewRow(i: number, patch: Partial<ParsedRaceScheduleEntry>) {
+  function updatePreviewRow(i: number, patch: Partial<PreviewRow>) {
     setPreview((rows) => (rows ? rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)) : rows));
   }
   function removePreviewRow(i: number) {
@@ -270,7 +301,8 @@ function RaceSchedulePage() {
         training_group_id: activeGroupId,
         name: r.name,
         event_date: r.event_date,
-        location: r.location,
+        location: r.location_id ? null : r.location,
+        location_id: r.location_id,
         race_type: r.race_type,
         events_offered: r.events_offered,
         source: "parsed",
@@ -325,13 +357,18 @@ function RaceSchedulePage() {
 
     // Sync the planned session on the athlete's calendar — only once an
     // event is actually known, since there's nothing meaningful to title
-    // a session with before that.
+    // a session with before that. Location carries over too — a linked
+    // saved location (with real coordinates) if the race has one, else
+    // whatever plain text location it has, else nothing.
     if (selectedEvent) {
       const distance = parseDistanceFromLabel(selectedEvent);
+      const sessionLocationPatch = entry.location_id
+        ? { location_id: entry.location_id, location: null }
+        : { location_id: null, location: entry.location };
       if (existing?.session_id) {
         await supabase
           .from("sessions")
-          .update({ title: selectedEvent, session_date: entry.event_date, total_distance_m: distance ?? undefined })
+          .update({ title: selectedEvent, session_date: entry.event_date, total_distance_m: distance ?? undefined, ...sessionLocationPatch } as any)
           .eq("id", existing.session_id);
       } else {
         const { data: sessionRow, error: sessErr } = await supabase
@@ -345,6 +382,7 @@ function RaceSchedulePage() {
             source: "manual",
             total_distance_m: distance ?? null,
             created_by: user!.id,
+            ...sessionLocationPatch,
           } as any)
           .select("id")
           .single();
@@ -450,10 +488,17 @@ function RaceSchedulePage() {
               <Card key={entry.id}>
                 <CardContent className="py-3">
                   <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      className="flex-1 min-w-0 flex items-center gap-3 text-left"
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      className="flex-1 min-w-0 flex items-center gap-3 text-left cursor-pointer"
                       onClick={() => setExpandedEntryId(expanded ? null : entry.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setExpandedEntryId(expanded ? null : entry.id);
+                        }
+                      }}
                     >
                       <div className="w-14 shrink-0 text-center">
                         <div className="text-[10px] uppercase text-muted-foreground font-bold">
@@ -464,10 +509,16 @@ function RaceSchedulePage() {
                       <div className="min-w-0 flex-1">
                         <div className="text-sm font-medium truncate">{entry.name}</div>
                         <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
-                          {entry.location && (
-                            <span className="flex items-center gap-1">
-                              <MapPin className="h-3 w-3" /> {entry.location}
-                            </span>
+                          {entryLocationLabel(entry) && (
+                            <a
+                              href={entryMapLink(entry) ?? undefined}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="flex items-center gap-1 hover:text-foreground hover:underline"
+                            >
+                              <MapPin className="h-3 w-3" /> {entryLocationLabel(entry)}
+                            </a>
                           )}
                           {entry.race_type && <Badge variant="outline" className="text-[10px] h-4 px-1.5">{entry.race_type}</Badge>}
                           {entry.source === "parsed" && <Badge variant="outline" className="text-[10px] h-4 px-1.5">imported</Badge>}
@@ -482,7 +533,7 @@ function RaceSchedulePage() {
                         )}
                       </div>
                       {expanded ? <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />}
-                    </button>
+                    </div>
                     <Button size="sm" variant="ghost" className="h-8 px-2 text-muted-foreground shrink-0" onClick={() => deleteEntry(entry.id)}>
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
@@ -562,7 +613,14 @@ function RaceSchedulePage() {
             </div>
             <div>
               <Label className="text-xs">Location (optional)</Label>
-              <Input value={location} onChange={(e) => setLocation(e.target.value)} />
+              <LocationPicker
+                locationId={locationId}
+                locationText={location}
+                onChange={(patch) => {
+                  setLocationId(patch.locationId);
+                  setLocation(patch.locationText);
+                }}
+              />
             </div>
             <div>
               <Label className="text-xs">Surface</Label>
@@ -673,12 +731,14 @@ function RaceSchedulePage() {
                       onChange={(e) => updatePreviewRow(i, { event_date: e.target.value || null })}
                       className={`h-8 text-xs ${!row.event_date ? "border-destructive" : ""}`}
                     />
-                    <Input
-                      value={row.location ?? ""}
-                      onChange={(e) => updatePreviewRow(i, { location: e.target.value || null })}
-                      placeholder="Location"
-                      className="h-8 text-xs"
-                    />
+                    <div className="col-span-2">
+                      <LocationPicker
+                        locationId={row.location_id}
+                        locationText={row.location ?? ""}
+                        onChange={(patch) => updatePreviewRow(i, { location_id: patch.locationId, location: patch.locationText || null })}
+                        compact
+                      />
+                    </div>
                     <Input
                       value={row.events_offered.join(", ")}
                       onChange={(e) => updatePreviewRow(i, { events_offered: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
