@@ -169,12 +169,6 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
         // them. (Daily Log moved to Health & Vitals; My Schedule moved
         // to the new Locker area.)
         { to: "/app/training-schedule", label: "Training Schedule", icon: Clock, show: true },
-        // Per-training-group race calendar — build/import a season's
-        // fixture list, then assign athletes to specific races/events
-        // from it. Coach-only (mirrors the page's own gate); an athlete's
-        // own assigned races show up on their session calendar directly
-        // rather than needing a separate nav entry here.
-        { to: "/app/race-schedule", label: "Race Schedule", icon: CalendarPlus, show: isCoachView },
         // Placeholder page for now (coming soon) — placed here rather than
         // its own bucket since a route library is fundamentally a training-
         // planning tool, same audience as Sessions/Calendar/Schedule.
@@ -239,6 +233,17 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
         // event should be able to see how they placed among teammates,
         // not just their own single result.
         { to: "/app/race-events", label: "Race Events", icon: Users, show: isCoachOrAthlete },
+        // Per-training-group race calendar — build/import a season's
+        // fixture list, then assign athletes to specific races/events
+        // from it. Moved here from Training since it's fundamentally
+        // about races, same audience as Races/Race Events, not a
+        // training-planning tool like Training Schedule.
+        { to: "/app/race-schedule", label: "Race Schedule", icon: CalendarPlus, show: isCoachView },
+        // An athlete's own picks from whatever race schedule(s) they've
+        // been assigned into — separate from the coach-facing builder
+        // above, same split as Races (coach-wide) vs an athlete's own
+        // view of their results elsewhere in this bucket.
+        { to: "/app/my-race-schedule", label: "My Race Schedule", icon: CalendarPlus, show: isAthleteView || isParent },
       ],
     },
     {
