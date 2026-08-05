@@ -7,24 +7,21 @@ import { Slider } from "@/components/ui/slider";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { UserAvatar } from "@/components/user-avatar";
 import { toast } from "sonner";
-import { Upload, ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
+import { Upload, ZoomIn, ZoomOut, RotateCcw, Pencil } from "lucide-react";
 
 const MAX_BYTES = 5 * 1024 * 1024;
 const TARGET = 400; // output square size, baked into the uploaded JPEG
 const VIEW = 280; // cropper viewport size in CSS px — the circle you drag/zoom within
 const MAX_ZOOM = 3;
 
-function loadImage(file: File): Promise<HTMLImageElement> {
+function loadImageFromFile(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
-    // Deliberately NOT revoking the object URL here. The dialog below
-    // re-renders this same image via a fresh <img src={cropImg.src}> tag,
-    // which needs the URL to still resolve — an already-decoded Image
-    // element keeps working after its URL is revoked, but a brand new
-    // <img> tag pointed at the same (now-invalid) URL string won't load
-    // anything at all. See the cleanup effect in the component below for
-    // where this actually gets revoked once the crop session is over.
+    // Deliberately NOT revoking the object URL here — the dialog re-uses
+    // this same URL for its own <img> tag, which needs it to still
+    // resolve. See the cleanup effect in the component for where this
+    // actually gets released once the crop session is over.
     img.onload = () => resolve(img);
     img.onerror = () => {
       URL.revokeObjectURL(url);
@@ -34,17 +31,36 @@ function loadImage(file: File): Promise<HTMLImageElement> {
   });
 }
 
-function clampOffset(o: { x: number; y: number }, dispW: number, dispH: number) {
-  const maxX = Math.max(0, (dispW - VIEW) / 2);
-  const maxY = Math.max(0, (dispH - VIEW) / 2);
+// For "Edit photo" on an already-saved image — loads from the existing
+// signed URL instead of a freshly-picked file. crossOrigin is required to
+// read pixel data back out for the bake step below; if the storage host
+// doesn't send CORS headers this will fail (a tainted-canvas SecurityError
+// on bake, or occasionally an onerror here), which is surfaced as a clear
+// toast rather than a silent broken cropper.
+function loadImageFromUrl(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Could not load your current photo for editing"));
+    img.src = url;
+  });
+}
+
+function clampOffset(o: { x: number; y: number }, effW: number, effH: number) {
+  const maxX = Math.max(0, (effW - VIEW) / 2);
+  const maxY = Math.max(0, (effH - VIEW) / 2);
   return { x: Math.min(maxX, Math.max(-maxX, o.x)), y: Math.min(maxY, Math.max(-maxY, o.y)) };
 }
 
 /**
  * Bakes the current pan/zoom crop into a square JPEG at TARGET resolution.
  * `baseScale` is whatever scale made the image cover the VIEW×VIEW circle
- * at zoom=1 — see the `cover` calculation in the component below, this
- * just needs the same value back to reproduce exactly what was on screen.
+ * at zoom=1 (see the `cover` calculation in the component below) — this
+ * needs that same value back to reproduce exactly what was on screen.
+ * `offset` is in real screen pixels, independent of zoom (dragging always
+ * moves the image 1:1 with the pointer regardless of zoom level — see the
+ * transform composition in the component for why that holds).
  */
 async function bakeCroppedJpeg(img: HTMLImageElement, baseScale: number, zoom: number, offset: { x: number; y: number }): Promise<Blob> {
   const scale = baseScale * zoom;
@@ -69,6 +85,7 @@ export function ProfileImageUploader({ userId, name }: { userId: string; name: s
   const [preview, setPreview] = useState<string | null>(null);
   const [previewBlob, setPreviewBlob] = useState<Blob | null>(null);
   const [busy, setBusy] = useState(false);
+  const [editingCurrent, setEditingCurrent] = useState(false); // true when the cropper was opened via "Edit photo" on an already-saved image, rather than a fresh upload
 
   // Cropper state — kept around (not cleared) after applying so "Adjust
   // crop" from the confirm step can reopen it with the same image and
@@ -78,27 +95,56 @@ export function ProfileImageUploader({ userId, name }: { userId: string; name: s
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const draggingRef = useRef<{ x: number; y: number; offX: number; offY: number } | null>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
 
   const baseScale = cropImg ? Math.max(VIEW / cropImg.width, VIEW / cropImg.height) : 1;
-  const dispW = cropImg ? cropImg.width * baseScale * zoom : 0;
-  const dispH = cropImg ? cropImg.height * baseScale * zoom : 0;
+  // Fixed base size at zoom=1 — zoom is applied purely as a CSS
+  // transform: scale() below, never by recomputing width/height. A single
+  // scalar scale() cannot distort proportions the way a bug in a
+  // width/height recalculation could, so this is the more robust way to
+  // guarantee the image never renders stretched.
+  const baseDispW = cropImg ? cropImg.width * baseScale : 0;
+  const baseDispH = cropImg ? cropImg.height * baseScale : 0;
 
-  // Revokes the previous image's object URL whenever cropImg changes to a
-  // new value (a fresh pick) or the component unmounts — the one place
-  // this needs to happen, now that loadImage() above deliberately doesn't
-  // do it eagerly.
   useEffect(() => {
     return () => {
       if (cropImg) URL.revokeObjectURL(cropImg.src);
     };
   }, [cropImg]);
 
-  // Same reasoning for the baked-crop preview blob's own object URL.
   useEffect(() => {
     return () => {
       if (preview) URL.revokeObjectURL(preview);
     };
   }, [preview]);
+
+  // Wheel-to-zoom, attached as a genuine native listener rather than
+  // React's onWheel — React can attach wheel/touch listeners as passive
+  // for scroll-performance reasons, and a passive listener silently can't
+  // preventDefault() the page/dialog from scrolling instead of the image
+  // actually zooming. A manually-attached listener with passive:false
+  // guarantees this works instead of depending on React's internal
+  // event-handling behavior.
+  //
+  // zoomRef mirrors the zoom state so the listener (attached once per
+  // cropper session, not re-attached on every zoom tick) always reads the
+  // current value without needing to be re-created as a dependency.
+  const zoomRef = useRef(1);
+  useEffect(() => {
+    zoomRef.current = zoom;
+  }, [zoom]);
+
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el || !cropperOpen || !cropImg) return;
+    function onWheel(e: WheelEvent) {
+      e.preventDefault();
+      setZoomAndClamp(zoomRef.current - e.deltaY * 0.0015);
+    }
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cropperOpen, cropImg]);
 
   const { data: profile } = useQuery({
     queryKey: ["profile-image", userId],
@@ -109,6 +155,14 @@ export function ProfileImageUploader({ userId, name }: { userId: string; name: s
   });
   const currentUrl = profile?.profile_image_url ?? null;
 
+  function openCropperWith(img: HTMLImageElement, fromCurrent: boolean) {
+    setCropImg(img);
+    setZoom(1);
+    setOffset({ x: 0, y: 0 });
+    setEditingCurrent(fromCurrent);
+    setCropperOpen(true);
+  }
+
   async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     e.target.value = "";
@@ -116,41 +170,55 @@ export function ProfileImageUploader({ userId, name }: { userId: string; name: s
     if (f.size > MAX_BYTES) { toast.error("Image must be 5MB or less"); return; }
     if (!/^image\/(jpeg|png|webp)$/.test(f.type)) { toast.error("Use JPG, PNG, or WebP"); return; }
     try {
-      const img = await loadImage(f);
-      setCropImg(img);
-      setZoom(1);
-      setOffset({ x: 0, y: 0 });
-      setCropperOpen(true);
+      const img = await loadImageFromFile(f);
+      openCropperWith(img, false);
     } catch (err: any) {
       toast.error(err.message ?? "Could not read image");
     }
   }
 
-  function setZoomClamped(nz: number) {
+  async function onEditCurrent() {
+    if (!currentUrl) return;
+    setBusy(true);
+    try {
+      const img = await loadImageFromUrl(currentUrl);
+      openCropperWith(img, true);
+    } catch (err: any) {
+      toast.error(err.message ?? "Couldn't load your current photo for editing — try re-uploading it instead");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function setZoomAndClamp(nz: number) {
     if (!cropImg) return;
     const z = Math.min(MAX_ZOOM, Math.max(1, nz));
     setZoom(z);
-    const newDispW = cropImg.width * baseScale * z;
-    const newDispH = cropImg.height * baseScale * z;
-    setOffset((o) => clampOffset(o, newDispW, newDispH));
+    setOffset((o) => clampOffset(o, baseDispW * z, baseDispH * z));
   }
 
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
-    e.currentTarget.setPointerCapture(e.pointerId);
+    // setPointerCapture can throw in some environments/edge cases — if it
+    // does, the rest of this handler (which actually starts the drag)
+    // must still run, otherwise a capture failure silently prevents
+    // dragging from ever starting at all.
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      /* non-fatal — dragging still works without capture, it's just less robust if the pointer leaves the element */
+    }
     draggingRef.current = { x: e.clientX, y: e.clientY, offX: offset.x, offY: offset.y };
   }
   function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
-    if (!draggingRef.current) return;
+    if (!draggingRef.current || !cropImg) return;
     const dx = e.clientX - draggingRef.current.x;
     const dy = e.clientY - draggingRef.current.y;
-    setOffset(clampOffset({ x: draggingRef.current.offX + dx, y: draggingRef.current.offY + dy }, dispW, dispH));
+    const effW = baseDispW * zoom;
+    const effH = baseDispH * zoom;
+    setOffset(clampOffset({ x: draggingRef.current.offX + dx, y: draggingRef.current.offY + dy }, effW, effH));
   }
-  function onPointerUp() {
+  function endDrag() {
     draggingRef.current = null;
-  }
-  function onWheel(e: React.WheelEvent<HTMLDivElement>) {
-    e.preventDefault();
-    setZoomClamped(zoom - e.deltaY * 0.0015);
   }
 
   async function applyCrop() {
@@ -161,7 +229,14 @@ export function ProfileImageUploader({ userId, name }: { userId: string; name: s
       setPreview(URL.createObjectURL(blob));
       setCropperOpen(false);
     } catch (err: any) {
-      toast.error(err.message ?? "Could not crop image");
+      // Most likely cause here specifically: cropImg was loaded via
+      // loadImageFromUrl (Edit photo) and the storage host isn't sending
+      // CORS headers, tainting the canvas and blocking pixel readout.
+      toast.error(
+        editingCurrent
+          ? "Couldn't process this crop — your photo host may not allow re-editing directly. Try downloading and re-uploading it instead."
+          : (err.message ?? "Could not crop image"),
+      );
     }
   }
 
@@ -243,7 +318,7 @@ export function ProfileImageUploader({ userId, name }: { userId: string; name: s
           {preview ? (
             <>
               <p className="text-xs text-muted-foreground">Looks good?</p>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <Button size="sm" onClick={confirm} disabled={busy}>{busy ? "Uploading…" : "Use this photo"}</Button>
                 {cropImg && (
                   <Button size="sm" variant="outline" onClick={() => setCropperOpen(true)} disabled={busy}>
@@ -269,9 +344,16 @@ export function ProfileImageUploader({ userId, name }: { userId: string; name: s
                 onChange={onPick}
                 className="hidden"
               />
-              <Button size="sm" variant="outline" onClick={() => inputRef.current?.click()} disabled={busy}>
-                <Upload className="h-4 w-4 mr-1.5" /> {currentUrl ? "Replace photo" : "Upload photo"}
-              </Button>
+              <div className="flex gap-2 flex-wrap">
+                <Button size="sm" variant="outline" onClick={() => inputRef.current?.click()} disabled={busy}>
+                  <Upload className="h-4 w-4 mr-1.5" /> {currentUrl ? "Replace photo" : "Upload photo"}
+                </Button>
+                {currentUrl && (
+                  <Button size="sm" variant="outline" onClick={onEditCurrent} disabled={busy}>
+                    <Pencil className="h-4 w-4 mr-1.5" /> Edit photo
+                  </Button>
+                )}
+              </div>
               {currentUrl && (
                 <button onClick={remove} disabled={busy} className="text-xs text-muted-foreground hover:text-destructive text-left">
                   Remove photo
@@ -285,20 +367,21 @@ export function ProfileImageUploader({ userId, name }: { userId: string; name: s
       <Dialog open={cropperOpen} onOpenChange={(open) => !open && setCropperOpen(false)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Adjust your photo</DialogTitle>
+            <DialogTitle>{editingCurrent ? "Edit your photo" : "Adjust your photo"}</DialogTitle>
             <DialogDescription>Drag to reposition, scroll or use the slider to zoom. This is exactly how it'll look everywhere.</DialogDescription>
           </DialogHeader>
 
           {cropImg && (
             <div className="flex flex-col items-center gap-4">
               <div
+                ref={viewportRef}
                 className="relative rounded-full overflow-hidden border-2 border-[var(--accent-red)] cursor-grab active:cursor-grabbing touch-none select-none"
                 style={{ width: VIEW, height: VIEW, background: "#000" }}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
-                onPointerUp={onPointerUp}
-                onPointerLeave={onPointerUp}
-                onWheel={onWheel}
+                onPointerUp={endDrag}
+                onPointerLeave={endDrag}
+                onPointerCancel={endDrag}
               >
                 <img
                   src={cropImg.src}
@@ -306,10 +389,21 @@ export function ProfileImageUploader({ userId, name }: { userId: string; name: s
                   draggable={false}
                   className="absolute pointer-events-none"
                   style={{
-                    width: dispW,
-                    height: dispH,
-                    left: VIEW / 2 - dispW / 2 + offset.x,
-                    top: VIEW / 2 - dispH / 2 + offset.y,
+                    top: "50%",
+                    left: "50%",
+                    width: baseDispW,
+                    height: baseDispH,
+                    // Composition matters: scale() (innermost) zooms the
+                    // image around its own center; the pixel translate
+                    // (middle) then pans that already-scaled image by a
+                    // fixed screen-pixel amount, unaffected by zoom — so
+                    // dragging always feels 1:1 with the pointer no matter
+                    // how zoomed in you are; the outer -50%/-50% centers
+                    // the whole thing in the viewport. A single scale()
+                    // factor is applied identically to both axes, so this
+                    // can't stretch the image out of proportion the way a
+                    // width/height miscalculation could.
+                    transform: `translate(-50%, -50%) translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
                   }}
                 />
               </div>
@@ -321,7 +415,7 @@ export function ProfileImageUploader({ userId, name }: { userId: string; name: s
                   max={MAX_ZOOM}
                   step={0.01}
                   value={[zoom]}
-                  onValueChange={(v) => setZoomClamped(v[0])}
+                  onValueChange={(v) => setZoomAndClamp(v[0])}
                   className="flex-1"
                 />
                 <ZoomIn className="h-4 w-4 text-muted-foreground shrink-0" />
