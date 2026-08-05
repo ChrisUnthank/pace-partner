@@ -26,6 +26,7 @@ import { toast } from "sonner";
 import { todayISO } from "@/lib/format";
 import { mapLink } from "@/lib/training-schedule-helpers";
 import { computeEntryWindow, toDatetimeLocalValue, type RaceEntryRule } from "@/lib/entry-rules";
+import { buildRaceSessionTitle, buildRaceSessionNotes } from "@/lib/race-session-details";
 import { useAuthUser, useMyRoles } from "@/lib/use-auth";
 import { LocationPicker } from "@/components/location-picker";
 import { extractTextFromFile } from "@/lib/document-text-extract";
@@ -661,19 +662,26 @@ function RaceSchedulePage() {
       const sessionLocationPatch = entry.location_id
         ? { location_id: entry.location_id, location: null }
         : { location_id: null, location: entry.location };
+      const title = buildRaceSessionTitle(entry.name, selectedEvent);
       if (existing?.session_id) {
+        // Notes deliberately NOT touched on an existing session — see
+        // race-session-details.ts. Only the structured fields (title,
+        // date, distance, location) stay in sync on re-pick; free-text
+        // notes might already have something the athlete or coach wrote.
         await supabase
           .from("sessions")
-          .update({ title: selectedEvent, session_date: entry.event_date, total_distance_m: distance ?? undefined, ...sessionLocationPatch } as any)
+          .update({ title, session_date: entry.event_date, total_distance_m: distance ?? undefined, ...sessionLocationPatch } as any)
           .eq("id", existing.session_id);
       } else {
+        const notes = buildRaceSessionNotes(entry, entryLocationLabel(entry));
         const { data: sessionRow, error: sessErr } = await supabase
           .from("sessions")
           .insert({
             athlete_id: athleteId,
             session_date: entry.event_date,
             day_type: "race",
-            title: selectedEvent,
+            title,
+            notes: notes || null,
             is_planned: true,
             source: "manual",
             total_distance_m: distance ?? null,
