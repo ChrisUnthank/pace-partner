@@ -21,11 +21,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { UserAvatar } from "@/components/user-avatar";
-import { CalendarDays, MapPin, Plus, Upload, Trash2, Pencil, ChevronDown, ChevronUp, Loader2, Flag, Settings2 } from "lucide-react";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { CalendarDays, MapPin, Plus, Upload, Trash2, Pencil, ChevronDown, ChevronUp, Loader2, Flag, Settings2, Download } from "lucide-react";
 import { toast } from "sonner";
 import { todayISO } from "@/lib/format";
 import { mapLink } from "@/lib/training-schedule-helpers";
 import { computeEntryWindow, toDatetimeLocalValue, type RaceEntryRule } from "@/lib/entry-rules";
+import { buildScheduleRows, buildScheduleText, buildScheduleIcs, downloadTextFile, openMailtoWithSchedule } from "@/lib/race-schedule-export";
 import { buildRaceSessionTitle, buildRaceSessionNotes } from "@/lib/race-session-details";
 import { useAuthUser, useMyRoles } from "@/lib/use-auth";
 import { LocationPicker } from "@/components/location-picker";
@@ -309,6 +311,36 @@ function RaceSchedulePage() {
     for (const e of entryStatuses ?? []) map.set(e.athlete_race_selection_id, e.entry_status);
     return map;
   }, [entryStatuses]);
+
+  // ── Export an athlete's schedule ────────────────────────────────────
+  // Coach-side has no single "current athlete" the way My Race Schedule
+  // does — this page is organized by race, not by athlete — so exporting
+  // needs its own athlete picker, scoped to whoever's in the currently
+  // selected group.
+  const [exportAthleteId, setExportAthleteId] = useState<string>("");
+  const exportScheduleRows = useMemo(() => {
+    if (!entries || !exportAthleteId) return [];
+    const mySelections = (selections ?? []).filter((s) => s.athlete_id === exportAthleteId);
+    return buildScheduleRows(entries as any, mySelections as any, (entryId) => {
+      const sel = mySelections.find((s) => s.race_schedule_entry_id === entryId);
+      return sel ? entryStatusBySelection.has(sel.id) : false;
+    });
+  }, [entries, exportAthleteId, selections, entryStatusBySelection]);
+
+  function exportAthleteSchedule(format: "txt" | "ics" | "email") {
+    const athleteName = membersSorted.find((m) => m.athlete_id === exportAthleteId)?.athletes?.name ?? "Athlete";
+    if (exportScheduleRows.length === 0) {
+      toast.error(`No flagged races for ${athleteName} yet`);
+      return;
+    }
+    if (format === "ics") {
+      downloadTextFile(`${athleteName}-race-schedule.ics`, buildScheduleIcs(athleteName, exportScheduleRows), "text/calendar");
+    } else if (format === "txt") {
+      downloadTextFile(`${athleteName}-race-schedule.txt`, buildScheduleText(`${athleteName}'s`, exportScheduleRows));
+    } else {
+      openMailtoWithSchedule(`${athleteName}'s`, buildScheduleText(`${athleteName}'s`, exportScheduleRows));
+    }
+  }
 
   function invalidateAll() {
     qc.invalidateQueries({ queryKey: ["race-schedule-entries", activeGroupId] });
@@ -765,6 +797,36 @@ function RaceSchedulePage() {
           </Button>
         </div>
       </div>
+
+      {membersSorted.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap text-xs">
+          <span className="text-muted-foreground shrink-0">Export schedule for:</span>
+          <Select value={exportAthleteId} onValueChange={setExportAthleteId}>
+            <SelectTrigger className="h-7 w-[160px] text-xs">
+              <SelectValue placeholder="Choose athlete" />
+            </SelectTrigger>
+            <SelectContent>
+              {membersSorted.map((m) => (
+                <SelectItem key={m.athlete_id} value={m.athlete_id}>
+                  {m.athletes?.name ?? "Athlete"}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" variant="outline" className="h-7 text-xs" disabled={!exportAthleteId}>
+                <Download className="h-3 w-3 mr-1" /> Export
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem onClick={() => exportAthleteSchedule("txt")}>Download as text</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => exportAthleteSchedule("ics")}>Download as calendar (.ics)</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => exportAthleteSchedule("email")}>Email schedule</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      )}
 
       {activeGroupId && (myCalendars ?? []).length > 0 && (
         <div className="flex items-center gap-2 flex-wrap text-xs">
