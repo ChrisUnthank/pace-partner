@@ -86,7 +86,7 @@ import { computeStrideLengthM, formatStride } from "@/lib/session-metrics";
 import { resolveStepTarget, resolvedTargetShortLabel } from "@/lib/target-resolution";
 import { WorkTargetEditor } from "@/components/work-target-editor";
 
-export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/")({
+export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/analysis")({
   component: SessionDetail,
 });
 
