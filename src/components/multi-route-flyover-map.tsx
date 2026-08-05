@@ -80,8 +80,14 @@ function cameraForPack(
   // A single-point bounds (everyone bunched at the exact same spot, e.g.
   // right at the gun) has zero width/height — cameraForBounds handles
   // that by returning maxZoom, which is exactly the right behavior here
-  // (zoom in close rather than dividing by zero).
-  const result = map.cameraForBounds(bounds, { pitch, bearing: 0, padding: 90, maxZoom: 18 });
+  // (zoom in close rather than dividing by zero). maxZoom capped well
+  // below the flyover's usual max (18) specifically because tile *count*
+  // roughly quadruples per zoom level — 18 was letting the camera get
+  // close enough, especially in a tight bunched moment, that satellite +
+  // terrain + hillshade tiles together outpaced what could load in time.
+  // More padding for the same reason: a further-out baseline framing
+  // needs fewer distinct tiles to stay covered as the camera moves.
+  const result = map.cameraForBounds(bounds, { pitch, bearing: 0, padding: 130, maxZoom: 16 });
   if (!result || !result.center || result.zoom == null) return null;
   return { center: result.center, zoom: result.zoom };
 }
@@ -93,8 +99,10 @@ const PACK_PITCH_FLAT = 50;
 // moves along whatever path the pack's bounding box actually traces,
 // which can cover much more ground per second once athletes spread out —
 // 30s was outrunning tile loads badly for that case. More real time for
-// the same "story" directly lowers camera velocity throughout.
-const FULL_FLIGHT_MS = 48000;
+// the same "story" directly lowers camera velocity throughout. This is
+// the baseline at 1x — SPEED_OPTIONS below scales it further, since a
+// single fixed duration wasn't slow enough for every race/device.
+const BASE_FLIGHT_MS = 48000;
 // Camera repositioning (not marker movement) is what's expensive — every
 // jumpTo() can trigger new tile requests as the viewport shifts. Capping
 // it to ~20fps rather than the full ~60fps animation rate cuts that work
@@ -102,6 +110,14 @@ const FULL_FLIGHT_MS = 48000;
 // every frame below since those are just cheap source.setData() calls
 // with no tile-loading impact of their own.
 const CAMERA_UPDATE_INTERVAL_MS = 50;
+// Playback speed — a multiplier on real time, not on the race itself
+// (0.5x means the same virtual race takes twice as long to fly through,
+// giving tiles proportionally more time to load). 0.5x is the default
+// rather than 1x given tile-loading was still struggling even after the
+// zoom/padding tightening above — slower is the safer starting point.
+const SPEED_OPTIONS = [0.25, 0.5, 1, 1.5] as const;
+type Speed = (typeof SPEED_OPTIONS)[number];
+const DEFAULT_SPEED: Speed = 0.5;
 
 // Builds a circular, colored-ring-bordered marker image from an athlete's
 // profile photo, for the on-map WebGL symbol layer. Requires the image
@@ -290,9 +306,31 @@ export function MultiRouteFlyoverMap({ tracks, heightPx }: MultiRouteFlyoverMapP
   const [finished, setFinished] = useState(false);
   const [tileError, setTileError] = useState<string | null>(null);
   const [liveElapsedS, setLiveElapsedS] = useState(0);
+  const [speed, setSpeed] = useState<Speed>(DEFAULT_SPEED);
   const [liveRows, setLiveRows] = useState<
     { id: string; distance_m: number | null; pace: number | null; gapM: number | null; done: boolean }[]
   >([]);
+
+  const flightDurationMs = BASE_FLIGHT_MS / speed;
+
+  // Changing speed mid-flight (or while paused) needs to preserve the
+  // CURRENT position, not just start using the new duration going
+  // forward — elapsedMsRef is real wall-clock ms elapsed, and progress =
+  // elapsedMs/duration, so swapping the duration alone would make the
+  // exact same elapsedMs suddenly mean a different progress fraction,
+  // visibly jumping the replay position. Rescaling elapsedMsRef here (and
+  // startTimeRef, if actively playing) keeps the on-screen position
+  // exactly where it was the instant speed changes.
+  function changeSpeed(next: Speed) {
+    const oldDuration = BASE_FLIGHT_MS / speed;
+    const newDuration = BASE_FLIGHT_MS / next;
+    const currentProgress = Math.min(1, elapsedMsRef.current / oldDuration);
+    elapsedMsRef.current = currentProgress * newDuration;
+    if (startTimeRef.current !== null) {
+      startTimeRef.current = performance.now() - elapsedMsRef.current;
+    }
+    setSpeed(next);
+  }
 
   const hasTerrain = useMemo(() => supportsWebGL2(), []);
 
@@ -477,7 +515,7 @@ export function MultiRouteFlyoverMap({ tracks, heightPx }: MultiRouteFlyoverMapP
       if (startTimeRef.current === null) startTimeRef.current = timestamp - elapsedMsRef.current;
       const elapsedMs = timestamp - startTimeRef.current!;
       elapsedMsRef.current = elapsedMs;
-      const progress = Math.min(1, elapsedMs / FULL_FLIGHT_MS);
+      const progress = Math.min(1, elapsedMs / flightDurationMs);
       const globalElapsedS = progress * maxElapsedS;
 
       const map2 = mapRef.current!;
@@ -552,7 +590,7 @@ export function MultiRouteFlyoverMap({ tracks, heightPx }: MultiRouteFlyoverMapP
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playing, ready, prepared, maxElapsedS, hasTerrain]);
+  }, [playing, ready, prepared, maxElapsedS, hasTerrain, speed]);
 
   function handlePlayPause() {
     if (playing) {
@@ -577,13 +615,30 @@ export function MultiRouteFlyoverMap({ tracks, heightPx }: MultiRouteFlyoverMapP
 
   return (
     <div className="flex flex-col gap-2" style={heightPx ? undefined : { flex: 1, minHeight: 400 }}>
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <span className="text-xs text-muted-foreground">
           Synced by elapsed time — every athlete starts their clock together, not by real start-of-day time.
         </span>
-        <Button size="sm" variant="outline" onClick={handlePlayPause} disabled={!ready}>
-          {playing ? "Pause" : finished ? "▶ Replay" : "▶ Fly race"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center rounded-md border overflow-hidden">
+            {SPEED_OPTIONS.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => changeSpeed(s)}
+                className={`px-2 py-1 text-xs font-medium tabular-nums ${
+                  speed === s ? "bg-[var(--accent-red)] text-white" : "bg-transparent text-muted-foreground hover:bg-accent"
+                }`}
+                title={s < 1 ? "Slower — gives tiles more time to load" : s > 1 ? "Faster" : "Normal speed"}
+              >
+                {s}×
+              </button>
+            ))}
+          </div>
+          <Button size="sm" variant="outline" onClick={handlePlayPause} disabled={!ready}>
+            {playing ? "Pause" : finished ? "▶ Replay" : "▶ Fly race"}
+          </Button>
+        </div>
       </div>
 
       <div className="relative rounded overflow-hidden border" style={heightPx ? { height: heightPx } : { flex: 1, minHeight: 360 }}>
