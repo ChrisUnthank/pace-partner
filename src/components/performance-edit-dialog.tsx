@@ -40,6 +40,7 @@ export type EditablePerformance = {
   course_name?: string | null;
   excluded_from_pb?: boolean | null;
   race_event_id?: string | null;
+  race_event_access?: boolean | null;
 };
 
 // Combobox for course_name — autocomplete from this athlete's previously
@@ -170,6 +171,7 @@ export function PerformanceEditDialog({
   const [courseName, setCourseName] = useState("");
   const [excludedFromPb, setExcludedFromPb] = useState(false);
   const [raceEventId, setRaceEventId] = useState<string | null>(null);
+  const [raceEventAccess, setRaceEventAccess] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // Courses already used by this athlete, for the combobox — refetched
@@ -207,6 +209,7 @@ export function PerformanceEditDialog({
     setCourseName(performance.course_name ?? "");
     setExcludedFromPb(!!performance.excluded_from_pb);
     setRaceEventId(performance.race_event_id ?? null);
+    setRaceEventAccess(!!performance.race_event_access);
   }, [open, performance]);
 
   async function save() {
@@ -239,6 +242,7 @@ export function PerformanceEditDialog({
         course_name: courseName || null,
         excluded_from_pb: excludedFromPb,
         race_event_id: raceEventId,
+        race_event_access: raceEventId ? raceEventAccess : false,
       })
       .eq("id", performance.id);
 
@@ -361,6 +365,19 @@ export function PerformanceEditDialog({
               athlete's result to it.
             </p>
           </div>
+
+          {raceEventId && (
+            <div className="flex items-center justify-between rounded-md border border-border p-3">
+              <div>
+                <Label className="text-xs">Give this athlete access to the event</Label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Lets them see this event (every linked athlete's result, and the group flyover) under Race Events
+                  in their own account — not just their own result in isolation. Off by default.
+                </p>
+              </div>
+              <Switch checked={raceEventAccess} onCheckedChange={setRaceEventAccess} className="shrink-0 ml-3" />
+            </div>
+          )}
 
           <div>
             <Label className="text-xs">Placing</Label>
