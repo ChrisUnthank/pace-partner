@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { CalendarPlus, MapPin, Users } from "lucide-react";
 import { toast } from "sonner";
 import { useAuthUser, useMyRoles, useMyRawRoles, useMyAthlete, useMyLinkedAthletes } from "@/lib/use-auth";
+import { mapLink } from "@/lib/training-schedule-helpers";
 
 export const Route = createFileRoute("/_authenticated/app/my-race-schedule")({
   component: () => (
@@ -33,12 +34,31 @@ function parseDistanceFromLabel(label: string): number | null {
   return null;
 }
 
+// Same helpers as the coach-side Race Schedule page — prefer the linked
+// saved location (real coordinates, so "view on map" actually works)
+// over the plain-text fallback.
+function entryLocationLabel(entry: { location: string | null; training_locations: { name: string } | null }): string | null {
+  return entry.training_locations?.name ?? entry.location;
+}
+function entryMapLink(entry: {
+  location: string | null;
+  training_locations: { name: string; lat: number | null; lng: number | null } | null;
+}): string | null {
+  return mapLink({
+    lat: entry.training_locations?.lat,
+    lng: entry.training_locations?.lng,
+    text: entry.training_locations?.name ?? entry.location,
+  });
+}
+
 type RaceScheduleEntry = {
   id: string;
   training_group_id: string;
   name: string;
   event_date: string;
   location: string | null;
+  location_id: string | null;
+  training_locations: { name: string; address: string | null; lat: number | null; lng: number | null } | null;
   race_type: string | null;
   events_offered: string[];
 };
@@ -83,7 +103,7 @@ function MyRaceSchedulePage() {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("race_schedule_entries")
-        .select("*")
+        .select("*, training_locations(name, address, lat, lng)")
         .in("training_group_id", groupIds)
         .order("event_date", { ascending: true });
       if (error) throw error;
@@ -146,10 +166,13 @@ function MyRaceSchedulePage() {
 
     if (selectedEvent) {
       const distance = parseDistanceFromLabel(selectedEvent);
+      const sessionLocationPatch = entry.location_id
+        ? { location_id: entry.location_id, location: null }
+        : { location_id: null, location: entry.location };
       if (existing?.session_id) {
         await supabase
           .from("sessions")
-          .update({ title: selectedEvent, session_date: entry.event_date, total_distance_m: distance ?? undefined })
+          .update({ title: selectedEvent, session_date: entry.event_date, total_distance_m: distance ?? undefined, ...sessionLocationPatch } as any)
           .eq("id", existing.session_id);
       } else {
         const { data: sessionRow, error: sessErr } = await supabase
@@ -163,6 +186,7 @@ function MyRaceSchedulePage() {
             source: "manual",
             total_distance_m: distance ?? null,
             created_by: user!.id,
+            ...sessionLocationPatch,
           } as any)
           .select("id")
           .single();
@@ -225,10 +249,15 @@ function MyRaceSchedulePage() {
             <div className="min-w-0 flex-1">
               <div className="text-sm font-medium truncate">{entry.name}</div>
               <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
-                {entry.location && (
-                  <span className="flex items-center gap-1">
-                    <MapPin className="h-3 w-3" /> {entry.location}
-                  </span>
+                {entryLocationLabel(entry) && (
+                  <a
+                    href={entryMapLink(entry) ?? undefined}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-1 hover:text-foreground hover:underline"
+                  >
+                    <MapPin className="h-3 w-3" /> {entryLocationLabel(entry)}
+                  </a>
                 )}
                 {entry.race_type && <Badge variant="outline" className="text-[10px] h-4 px-1.5">{entry.race_type}</Badge>}
               </div>
