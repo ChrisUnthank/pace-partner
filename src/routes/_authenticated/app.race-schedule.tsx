@@ -183,6 +183,7 @@ function RaceSchedulePage() {
       race_type: raceType || null,
       events_offered: eventsText.split(",").map((s) => s.trim()).filter(Boolean),
       source: "manual",
+      created_by: user!.id,
     });
     setSavingManual(false);
     if (error) {
@@ -272,6 +273,7 @@ function RaceSchedulePage() {
         race_type: r.race_type,
         events_offered: r.events_offered,
         source: "parsed",
+        created_by: user!.id,
       })),
     );
     setImporting(false);
