@@ -6,11 +6,14 @@ import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { CalendarPlus, MapPin, Users } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { CalendarPlus, MapPin, Users, Download } from "lucide-react";
 import { toast } from "sonner";
 import { useAuthUser, useMyRoles, useMyRawRoles, useMyAthlete, useMyLinkedAthletes } from "@/lib/use-auth";
 import { mapLink } from "@/lib/training-schedule-helpers";
 import { buildRaceSessionTitle, buildRaceSessionNotes } from "@/lib/race-session-details";
+import { buildScheduleRows, buildScheduleText, buildScheduleIcs, downloadTextFile, openMailtoWithSchedule } from "@/lib/race-schedule-export";
 
 export const Route = createFileRoute("/_authenticated/app/my-race-schedule")({
   component: () => (
@@ -106,6 +109,9 @@ function MyRaceSchedulePage() {
   // races by default, a parent sees their first linked child's (or
   // whichever they've switched to).
   const athleteId = isAthleteRole ? myAthlete?.id : isParent ? (viewingChildId ?? linkedAthletes?.[0]?.athletes?.id) : undefined;
+  const athleteName = isAthleteRole
+    ? (myAthlete as any)?.name ?? "My"
+    : (linkedAthletes ?? []).find((l: any) => l.athletes?.id === athleteId)?.athletes?.name ?? "My";
 
   const { data: groupIds } = useQuery({
     queryKey: ["my-race-schedule-groups", athleteId],
@@ -215,6 +221,33 @@ function MyRaceSchedulePage() {
     for (const e of myEntryRows ?? []) map.set(e.athlete_race_selection_id, e);
     return map;
   }, [myEntryRows]);
+
+  // Export — only ever the races actually flagged (selected), never the
+  // full browsable calendar shown above. hasEnteredEntry looks up through
+  // selectionByEntry rather than taking a selection id directly, since
+  // that's what buildScheduleRows works with.
+  const scheduleRows = useMemo(() => {
+    if (!entries) return [];
+    return buildScheduleRows(entries as any, (myAllSelections ?? []) as any, (entryId) => {
+      const sel = selectionByEntry.get(entryId);
+      return sel ? entryRowBySelection.has(sel.id) : false;
+    });
+  }, [entries, myAllSelections, selectionByEntry, entryRowBySelection]);
+
+  function exportSchedule(format: "txt" | "ics" | "email") {
+    if (scheduleRows.length === 0) {
+      toast.error("No flagged races to export yet — pick an event on at least one race first.");
+      return;
+    }
+    const label = athleteName === "My" ? "My" : `${athleteName}'s`;
+    if (format === "ics") {
+      downloadTextFile(`${athleteName}-race-schedule.ics`, buildScheduleIcs(athleteName, scheduleRows), "text/calendar");
+    } else if (format === "txt") {
+      downloadTextFile(`${athleteName}-race-schedule.txt`, buildScheduleText(label, scheduleRows));
+    } else {
+      openMailtoWithSchedule(label, buildScheduleText(label, scheduleRows));
+    }
+  }
 
   async function markEntered(entry: RaceScheduleEntry, sel: Selection) {
     const { error } = await supabase.from("event_entries").insert({
@@ -441,20 +474,36 @@ function MyRaceSchedulePage() {
           <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Performances</div>
           <h1 className="text-2xl font-bold leading-tight">My Race Schedule</h1>
         </div>
-        {isParent && linkedAthletes && linkedAthletes.length > 1 && (
-          <Select value={athleteId ?? ""} onValueChange={setViewingChildId}>
-            <SelectTrigger className="ml-auto w-[160px]">
-              <SelectValue placeholder="Choose child" />
-            </SelectTrigger>
-            <SelectContent>
-              {linkedAthletes.map((l: any) => (
-                <SelectItem key={l.athletes.id} value={l.athletes.id}>
-                  {l.athletes.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+        <div className="ml-auto flex items-center gap-2">
+          {isParent && linkedAthletes && linkedAthletes.length > 1 && (
+            <Select value={athleteId ?? ""} onValueChange={setViewingChildId}>
+              <SelectTrigger className="w-[160px]">
+                <SelectValue placeholder="Choose child" />
+              </SelectTrigger>
+              <SelectContent>
+                {linkedAthletes.map((l: any) => (
+                  <SelectItem key={l.athletes.id} value={l.athletes.id}>
+                    {l.athletes.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {athleteId && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="outline">
+                  <Download className="h-3.5 w-3.5 mr-1.5" /> Export
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => exportSchedule("txt")}>Download as text</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => exportSchedule("ics")}>Download as calendar (.ics)</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => exportSchedule("email")}>Email schedule</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
       </div>
       <p className="text-sm text-muted-foreground -mt-3">
         Every race your training group has on the calendar — pick which ones you're doing, and which event, to add them to your session
