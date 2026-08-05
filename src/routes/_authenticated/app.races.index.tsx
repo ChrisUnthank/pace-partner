@@ -20,6 +20,8 @@ import { AthleteSubnav } from "@/components/athlete-subnav";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { computePbStatus, pbStatusFor, PB_BADGE_LABEL, PB_BADGE_CLASS } from "@/lib/performance-pb";
 import { PerformanceEditDialog, type EditablePerformance } from "@/components/performance-edit-dialog";
+import { RaceEventCombobox } from "@/components/race-event-combobox";
+import { Switch } from "@/components/ui/switch";
 import { Pencil } from "lucide-react";
 import { parseBulkPerformances, performanceKey, distanceWithinTolerance, type BulkImportRow } from "@/lib/bulk-performance-import";
 import { cn } from "@/lib/utils";
@@ -294,6 +296,8 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
   const [raceType, setRaceType] = useState<string>("road");
   const [placing, setPlacing] = useState("");
   const [notes, setNotes] = useState("");
+  const [raceEventId, setRaceEventId] = useState<string | null>(null);
+  const [raceEventAccess, setRaceEventAccess] = useState(false);
 
   // Bulk import — moved here from the old Profile page's PBs card, merged
   // into the same "Add race" card rather than kept as a separate one.
@@ -327,6 +331,8 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
       race_type: raceType || null,
       overall_place: placing ? Number(placing) : null,
       notes: notes || null,
+      race_event_id: raceEventId,
+      race_event_access: raceEventId ? raceEventAccess : false,
       // is_pb omitted — a DB trigger recomputes it right after insert by
       // comparing against this athlete's actual history.
       context: "race",
@@ -342,6 +348,9 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
     setEvent("");
     setPlacing("");
     setNotes("");
+    // Race event (and its access toggle) deliberately NOT reset — adding
+    // several athletes' results for the same race is the exact case this
+    // exists for, so picking it once covers the whole race.
 
     qc.invalidateQueries({ queryKey: ["races", athleteId] });
     qc.invalidateQueries({ queryKey: ["my-pbs", athleteId] });
@@ -702,6 +711,34 @@ function RaceList({ athleteId, primaryEvent }: { athleteId: string; primaryEvent
               <Label className="text-xs">Event name</Label>
               <Input value={event} onChange={(e) => setEvent(e.target.value)} placeholder="London Champs 5000m" />
             </div>
+
+            <div>
+              <Label className="text-xs">Race event</Label>
+              <RaceEventCombobox
+                value={raceEventId}
+                onChange={setRaceEventId}
+                defaultDate={date}
+                defaultDistanceM={distanceMode === "custom" ? Number(customDistance) : distance}
+                defaultRaceType={raceType}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Optional — link to see this result alongside any other athletes you coach who ran the same race.
+                Stays selected after you add a result, so adding several athletes from the same race only needs it
+                picked once.
+              </p>
+            </div>
+
+            {raceEventId && (
+              <div className="flex items-center justify-between rounded-md border border-border p-3">
+                <div>
+                  <Label className="text-xs">Give this athlete access to the event</Label>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Lets them see this event and the group flyover in their own account. Off by default.
+                  </p>
+                </div>
+                <Switch checked={raceEventAccess} onCheckedChange={setRaceEventAccess} className="shrink-0 ml-3" />
+              </div>
+            )}
 
             <div>
               <Label className="text-xs">Placing</Label>
