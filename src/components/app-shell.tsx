@@ -30,6 +30,7 @@ import {
   IdCard,
   FileText,
   Flag,
+  CalendarPlus,
   Globe,
   Map as MapIcon,
   PersonStanding,
@@ -168,6 +169,12 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
         // them. (Daily Log moved to Health & Vitals; My Schedule moved
         // to the new Locker area.)
         { to: "/app/training-schedule", label: "Training Schedule", icon: Clock, show: true },
+        // Per-training-group race calendar — build/import a season's
+        // fixture list, then assign athletes to specific races/events
+        // from it. Coach-only (mirrors the page's own gate); an athlete's
+        // own assigned races show up on their session calendar directly
+        // rather than needing a separate nav entry here.
+        { to: "/app/race-schedule", label: "Race Schedule", icon: CalendarPlus, show: isCoachView },
         // Placeholder page for now (coming soon) — placed here rather than
         // its own bucket since a route library is fundamentally a training-
         // planning tool, same audience as Sessions/Calendar/Schedule.
