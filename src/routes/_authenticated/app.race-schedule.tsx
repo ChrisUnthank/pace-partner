@@ -21,10 +21,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { UserAvatar } from "@/components/user-avatar";
-import { CalendarDays, MapPin, Plus, Upload, Trash2, Pencil, ChevronDown, ChevronUp, Loader2, Flag } from "lucide-react";
+import { CalendarDays, MapPin, Plus, Upload, Trash2, Pencil, ChevronDown, ChevronUp, Loader2, Flag, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 import { todayISO } from "@/lib/format";
 import { mapLink } from "@/lib/training-schedule-helpers";
+import { computeEntryWindow, toDatetimeLocalValue, type RaceEntryRule } from "@/lib/entry-rules";
 import { useAuthUser, useMyRoles } from "@/lib/use-auth";
 import { LocationPicker } from "@/components/location-picker";
 import { extractTextFromFile } from "@/lib/document-text-extract";
@@ -54,6 +55,14 @@ function parseDistanceFromLabel(label: string): number | null {
   return null;
 }
 
+// Entry-window timestamps display as "Wed 12 Feb, 12:00pm" — short enough
+// for an inline row, still unambiguous about both the day and the time
+// (which is the whole point of these being timestamps, not bare dates).
+function formatEntryTimestamp(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+}
+
 // Prefers the linked saved location's name (and its real coordinates for
 // the map link) over the plain-text fallback — a linked location is what
 // makes "view on map" actually work, since free text alone has no
@@ -72,9 +81,12 @@ function entryMapLink(entry: {
   });
 }
 
+type RaceCalendar = { id: string; name: string; season: string | null };
+
 type RaceScheduleEntry = {
   id: string;
-  training_group_id: string;
+  training_group_id: string | null;
+  calendar_id: string | null;
   name: string;
   event_date: string;
   location: string | null;
@@ -83,6 +95,10 @@ type RaceScheduleEntry = {
   race_type: string | null;
   events_offered: string[];
   source: string;
+  entry_opens: string | null;
+  entry_closes: string | null;
+  entry_url: string | null;
+  entry_rule_id: string | null;
 };
 
 type Selection = {
@@ -93,6 +109,15 @@ type Selection = {
   status: string;
   session_id: string | null;
   athletes: { name: string | null; profile_image_url: string | null } | null;
+};
+
+type EntryStatus = { athlete_race_selection_id: string; entry_status: string | null };
+
+const ENTRY_STATUS_LABEL: Record<string, string> = {
+  registered: "Registered",
+  confirmed: "Confirmed",
+  waitlisted: "Waitlisted",
+  cancelled: "Cancelled",
 };
 
 type PreviewRow = ParsedRaceScheduleEntry & { location_id: string | null };
@@ -133,17 +158,108 @@ function RaceSchedulePage() {
     [members],
   );
 
-  const { data: entries, isLoading: entriesLoading } = useQuery({
-    queryKey: ["race-schedule-entries", activeGroupId],
-    enabled: !!activeGroupId,
+  // ── Calendars ────────────────────────────────────────────────────────
+  // A calendar is owned once and applied to N groups via race_calendar_groups
+  // — see the migration comment for why entries live on the calendar
+  // rather than being copied per group.
+  const { data: myCalendars } = useQuery({
+    queryKey: ["race-calendars", user?.id],
+    enabled: isCoach && !!user,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).from("race_calendars").select("id, name, season").order("name");
+      if (error) throw error;
+      return (data ?? []) as RaceCalendar[];
+    },
+  });
+
+  // Recurring entry-deadline rules (e.g. "AV XCR Individual", "AVSL Zone
+  // Priority") — shared pool, same as training_locations, so a rule one
+  // coach sets up is available to any coach on the roster rather than
+  // needing to be recreated per person.
+  const { data: entryRules } = useQuery({
+    queryKey: ["race-entry-rules"],
+    enabled: isCoach,
     queryFn: async () => {
       const { data, error } = await (supabase as any)
+        .from("race_entry_rules")
+        .select("id, name, closes_weekday, closes_time, opens_weekday, opens_time, opens_min_days_before")
+        .order("name");
+      if (error) throw error;
+      return (data ?? []) as RaceEntryRule[];
+    },
+  });
+
+  const { data: appliedCalendarIds } = useQuery({
+    queryKey: ["race-calendar-groups", activeGroupId],
+    enabled: !!activeGroupId,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).from("race_calendar_groups").select("calendar_id").eq("training_group_id", activeGroupId);
+      if (error) throw error;
+      return (data ?? []).map((r: any) => r.calendar_id as string);
+    },
+  });
+  const appliedCalendars = useMemo(
+    () => (myCalendars ?? []).filter((c) => (appliedCalendarIds ?? []).includes(c.id)),
+    [myCalendars, appliedCalendarIds],
+  );
+
+  async function applyCalendarToGroup(calendarId: string) {
+    if (!activeGroupId) return;
+    const { error } = await (supabase as any)
+      .from("race_calendar_groups")
+      .insert({ calendar_id: calendarId, training_group_id: activeGroupId, applied_by: user?.id ?? null });
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("Calendar applied to this group");
+    qc.invalidateQueries({ queryKey: ["race-calendar-groups", activeGroupId] });
+    invalidateAll();
+  }
+  async function removeCalendarFromGroup(calendarId: string) {
+    if (!activeGroupId) return;
+    if (!confirm("Remove this calendar from the group? Athletes' existing picks from it stay untouched — this only stops it showing up here going forward.")) return;
+    const { error } = await (supabase as any)
+      .from("race_calendar_groups")
+      .delete()
+      .eq("calendar_id", calendarId)
+      .eq("training_group_id", activeGroupId);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    qc.invalidateQueries({ queryKey: ["race-calendar-groups", activeGroupId] });
+    invalidateAll();
+  }
+
+  const { data: entries, isLoading: entriesLoading } = useQuery({
+    queryKey: ["race-schedule-entries", activeGroupId, (appliedCalendarIds ?? []).join(",")],
+    enabled: !!activeGroupId,
+    queryFn: async () => {
+      // Union of two ownership paths — a legacy entry owned directly by
+      // this group, or an entry owned by a calendar applied to this
+      // group. Two queries + client-side merge rather than a single
+      // OR-across-tables query, which the Supabase client can't express
+      // cleanly for a "calendar_id IN (subquery)" condition alongside a
+      // plain column match.
+      const legacyQ = (supabase as any)
         .from("race_schedule_entries")
         .select("*, training_locations(name, address, lat, lng)")
-        .eq("training_group_id", activeGroupId)
-        .order("event_date", { ascending: true });
-      if (error) throw error;
-      return (data ?? []) as RaceScheduleEntry[];
+        .eq("training_group_id", activeGroupId);
+      const calIds = appliedCalendarIds ?? [];
+      const results = await Promise.all([
+        legacyQ,
+        calIds.length > 0
+          ? (supabase as any)
+              .from("race_schedule_entries")
+              .select("*, training_locations(name, address, lat, lng)")
+              .in("calendar_id", calIds)
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+      for (const r of results) if (r.error) throw r.error;
+      const merged = [...(results[0].data ?? []), ...(results[1].data ?? [])] as RaceScheduleEntry[];
+      merged.sort((a, b) => a.event_date.localeCompare(b.event_date));
+      return merged;
     },
   });
 
@@ -170,9 +286,34 @@ function RaceSchedulePage() {
     return map;
   }, [selections]);
 
+  // Entry-registration status, surfaced from Event Entries (Locker) — the
+  // coach-visibility half of "how does the coach know an athlete has
+  // entered". Keyed by selection id since that's the shared link between
+  // a schedule pick and an athlete's own entry record.
+  const selectionIds = useMemo(() => (selections ?? []).map((s) => s.id), [selections]);
+  const { data: entryStatuses } = useQuery({
+    queryKey: ["race-schedule-entry-statuses", selectionIds.join(",")],
+    enabled: selectionIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("event_entries")
+        .select("athlete_race_selection_id, entry_status")
+        .in("athlete_race_selection_id", selectionIds);
+      if (error) throw error;
+      return (data ?? []) as EntryStatus[];
+    },
+  });
+  const entryStatusBySelection = useMemo(() => {
+    const map = new Map<string, string | null>();
+    for (const e of entryStatuses ?? []) map.set(e.athlete_race_selection_id, e.entry_status);
+    return map;
+  }, [entryStatuses]);
+
   function invalidateAll() {
     qc.invalidateQueries({ queryKey: ["race-schedule-entries", activeGroupId] });
     qc.invalidateQueries({ queryKey: ["race-schedule-selections"] });
+    qc.invalidateQueries({ queryKey: ["race-schedule-entry-statuses"] });
+    qc.invalidateQueries({ queryKey: ["race-calendars"] });
   }
 
   // ── Manual add ────────────────────────────────────────────────────────
@@ -183,7 +324,107 @@ function RaceSchedulePage() {
   const [locationId, setLocationId] = useState<string | null>(null);
   const [raceType, setRaceType] = useState("track");
   const [eventsText, setEventsText] = useState("");
+  const [entryRuleId, setEntryRuleId] = useState<string>("none");
+  const [entryOpens, setEntryOpens] = useState(""); // datetime-local value
+  const [entryCloses, setEntryCloses] = useState(""); // datetime-local value
+  const [entryUrl, setEntryUrl] = useState("");
   const [savingManual, setSavingManual] = useState(false);
+
+  // ── Entry rules manager ──────────────────────────────────────────────
+  const [rulesManagerOpen, setRulesManagerOpen] = useState(false);
+  const [ruleName, setRuleName] = useState("");
+  const [ruleClosesWeekday, setRuleClosesWeekday] = useState("3");
+  const [ruleClosesTime, setRuleClosesTime] = useState("12:00");
+  const [ruleHasOpens, setRuleHasOpens] = useState(false);
+  const [ruleOpensWeekday, setRuleOpensWeekday] = useState("3");
+  const [ruleOpensTime, setRuleOpensTime] = useState("17:00");
+  const [ruleOpensMinDaysBefore, setRuleOpensMinDaysBefore] = useState("10");
+  const [savingRule, setSavingRule] = useState(false);
+
+  const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+  function resetRuleForm() {
+    setRuleName("");
+    setRuleClosesWeekday("3");
+    setRuleClosesTime("12:00");
+    setRuleHasOpens(false);
+    setRuleOpensWeekday("3");
+    setRuleOpensTime("17:00");
+    setRuleOpensMinDaysBefore("10");
+  }
+
+  // Quick-fill starting points matching the three patterns actually
+  // described — still just fills the form, doesn't save until reviewed.
+  function fillRulePreset(preset: "xcr_individual" | "xcr_relay" | "avsl") {
+    if (preset === "xcr_individual") {
+      setRuleName("AV XCR Individual");
+      setRuleClosesWeekday("3");
+      setRuleClosesTime("12:00");
+      setRuleHasOpens(false);
+    } else if (preset === "xcr_relay") {
+      setRuleName("AV XCR Relay (club enters)");
+      setRuleClosesWeekday("1");
+      setRuleClosesTime("12:00");
+      setRuleHasOpens(false);
+    } else {
+      setRuleName("AVSL Zone Priority");
+      setRuleClosesWeekday("3");
+      setRuleClosesTime("12:00");
+      setRuleHasOpens(true);
+      setRuleOpensWeekday("3");
+      setRuleOpensTime("17:00");
+      setRuleOpensMinDaysBefore("10");
+    }
+  }
+
+  async function saveRule() {
+    if (!ruleName.trim()) {
+      toast.error("Name this rule first");
+      return;
+    }
+    setSavingRule(true);
+    const { error } = await (supabase as any).from("race_entry_rules").insert({
+      name: ruleName.trim(),
+      closes_weekday: Number(ruleClosesWeekday),
+      closes_time: ruleClosesTime,
+      opens_weekday: ruleHasOpens ? Number(ruleOpensWeekday) : null,
+      opens_time: ruleHasOpens ? ruleOpensTime : null,
+      opens_min_days_before: ruleHasOpens ? Number(ruleOpensMinDaysBefore) : null,
+      created_by: user!.id,
+    });
+    setSavingRule(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("Entry rule saved");
+    resetRuleForm();
+    qc.invalidateQueries({ queryKey: ["race-entry-rules"] });
+  }
+
+  async function deleteRule(id: string) {
+    if (!confirm("Delete this entry rule? Races already using it keep their computed dates — this only removes the rule itself.")) return;
+    const { error } = await (supabase as any).from("race_entry_rules").delete().eq("id", id);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    qc.invalidateQueries({ queryKey: ["race-entry-rules"] });
+  }
+
+  // Recomputes the entry window from whichever rule is selected and the
+  // current date field — called on both "pick a rule" and "change the
+  // date" so the window stays in sync with whichever changed most
+  // recently. Purely a starting point: both fields stay directly
+  // editable afterward for a one-off exception (public holiday shifting
+  // a deadline, etc.) without fighting the rule.
+  function recomputeEntryWindow(ruleId: string, raceDate: string) {
+    const rule = (entryRules ?? []).find((r) => r.id === ruleId);
+    if (!rule || !raceDate) return;
+    const { opens, closes } = computeEntryWindow(raceDate, rule);
+    setEntryOpens(toDatetimeLocalValue(opens));
+    setEntryCloses(toDatetimeLocalValue(closes));
+  }
 
   function openAdd() {
     setName("");
@@ -192,6 +433,10 @@ function RaceSchedulePage() {
     setLocationId(null);
     setRaceType("track");
     setEventsText("");
+    setEntryRuleId("none");
+    setEntryOpens("");
+    setEntryCloses("");
+    setEntryUrl("");
     setAddOpen(true);
   }
 
@@ -209,6 +454,10 @@ function RaceSchedulePage() {
       location_id: locationId,
       race_type: raceType || null,
       events_offered: eventsText.split(",").map((s) => s.trim()).filter(Boolean),
+      entry_rule_id: entryRuleId === "none" ? null : entryRuleId,
+      entry_opens: entryOpens ? new Date(entryOpens).toISOString() : null,
+      entry_closes: entryCloses ? new Date(entryCloses).toISOString() : null,
+      entry_url: entryUrl.trim() || null,
       source: "manual",
       created_by: user!.id,
     });
@@ -241,9 +490,20 @@ function RaceSchedulePage() {
   const [preview, setPreview] = useState<PreviewRow[] | null>(null);
   const parseText = useServerFn(parseRaceScheduleText);
 
+  // Which calendar imported entries land in — an existing one (reused, so
+  // re-importing an updated document adds alongside what's already
+  // there), or a brand new one, named up front. Defaults to "new" with a
+  // blank name; the coach names it before extraction can run.
+  const [targetCalendarId, setTargetCalendarId] = useState<string>("new");
+  const [newCalendarName, setNewCalendarName] = useState("");
+
   async function runExtraction(text: string) {
     if (!text.trim()) {
       toast.error("Nothing to extract from");
+      return;
+    }
+    if (targetCalendarId === "new" && !newCalendarName.trim()) {
+      toast.error("Name this calendar first (e.g. \"2026 XCR Calendar\")");
       return;
     }
     setExtracting(true);
@@ -269,6 +529,10 @@ function RaceSchedulePage() {
     const f = e.target.files?.[0];
     e.target.value = "";
     if (!f) return;
+    if (targetCalendarId === "new" && !newCalendarName.trim()) {
+      toast.error("Name this calendar first (e.g. \"2026 XCR Calendar\")");
+      return;
+    }
     setExtracting(true);
     try {
       const text = await extractTextFromFile(f);
@@ -296,9 +560,37 @@ function RaceSchedulePage() {
       return;
     }
     setImporting(true);
+
+    // Resolve the target calendar — create it if needed, and make sure
+    // it's applied to the current group (auto-applying to whichever
+    // group you were importing for is the sensible default; applying to
+    // additional groups afterward happens from the Calendars section).
+    let calendarId = targetCalendarId;
+    if (calendarId === "new") {
+      const { data: newCal, error: calErr } = await (supabase as any)
+        .from("race_calendars")
+        .insert({ name: newCalendarName.trim(), created_by: user!.id })
+        .select("id")
+        .single();
+      if (calErr || !newCal) {
+        setImporting(false);
+        toast.error(calErr?.message ?? "Couldn't create the calendar");
+        return;
+      }
+      calendarId = newCal.id;
+    }
+    if (!(appliedCalendarIds ?? []).includes(calendarId)) {
+      // Ignore a unique-violation if it's already applied (race with
+      // another tab, or picked an existing-but-already-applied calendar)
+      // — not worth surfacing as an error.
+      await (supabase as any)
+        .from("race_calendar_groups")
+        .insert({ calendar_id: calendarId, training_group_id: activeGroupId, applied_by: user!.id });
+    }
+
     const { error } = await (supabase as any).from("race_schedule_entries").insert(
       preview.map((r) => ({
-        training_group_id: activeGroupId,
+        calendar_id: calendarId,
         name: r.name,
         event_date: r.event_date,
         location: r.location_id ? null : r.location,
@@ -314,10 +606,12 @@ function RaceSchedulePage() {
       toast.error(error.message);
       return;
     }
-    toast.success(`Imported ${preview.length} race${preview.length === 1 ? "" : "s"}`);
+    toast.success(`Imported ${preview.length} race${preview.length === 1 ? "" : "s"} into ${targetCalendarId === "new" ? newCalendarName.trim() : myCalendars?.find((c) => c.id === calendarId)?.name ?? "the calendar"}`);
     setImportOpen(false);
     setPreview(null);
     setPasteText("");
+    setTargetCalendarId("new");
+    setNewCalendarName("");
     invalidateAll();
   }
 
@@ -325,6 +619,8 @@ function RaceSchedulePage() {
     setImportOpen(false);
     setPreview(null);
     setPasteText("");
+    setTargetCalendarId("new");
+    setNewCalendarName("");
   }
 
   // ── Assign / event selection ────────────────────────────────────────────
@@ -462,6 +758,45 @@ function RaceSchedulePage() {
         </div>
       </div>
 
+      {activeGroupId && (myCalendars ?? []).length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap text-xs">
+          <span className="text-muted-foreground shrink-0">Calendars here:</span>
+          {appliedCalendars.length === 0 ? (
+            <span className="text-muted-foreground">None yet</span>
+          ) : (
+            appliedCalendars.map((c) => (
+              <Badge key={c.id} variant="outline" className="gap-1.5 pr-1">
+                {c.name}
+                <button
+                  type="button"
+                  onClick={() => removeCalendarFromGroup(c.id)}
+                  className="text-muted-foreground hover:text-destructive"
+                  title="Remove from this group"
+                >
+                  ×
+                </button>
+              </Badge>
+            ))
+          )}
+          {(myCalendars ?? []).filter((c) => !appliedCalendarIds?.includes(c.id)).length > 0 && (
+            <Select value="" onValueChange={applyCalendarToGroup}>
+              <SelectTrigger className="h-6 w-[150px] text-xs">
+                <SelectValue placeholder="+ Apply a calendar" />
+              </SelectTrigger>
+              <SelectContent>
+                {(myCalendars ?? [])
+                  .filter((c) => !appliedCalendarIds?.includes(c.id))
+                  .map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+      )}
+
       {!groups || groups.length === 0 ? (
         <Card>
           <CardContent className="py-8 text-center text-sm text-muted-foreground">
@@ -549,16 +884,42 @@ function RaceSchedulePage() {
                           ))}
                         </div>
                       )}
+                      {(entry.entry_opens || entry.entry_closes || entry.entry_url) && (
+                        <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
+                          {(entry.entry_opens || entry.entry_closes) && (
+                            <span>
+                              Entries {entry.entry_opens ? `open ${formatEntryTimestamp(entry.entry_opens)}` : ""}
+                              {entry.entry_opens && entry.entry_closes ? " · " : ""}
+                              {entry.entry_closes ? `close ${formatEntryTimestamp(entry.entry_closes)}` : ""}
+                            </span>
+                          )}
+                          {entry.entry_url && (
+                            <a href={entry.entry_url} target="_blank" rel="noreferrer" className="text-[var(--accent-red)] hover:underline font-medium">
+                              Enter now →
+                            </a>
+                          )}
+                        </div>
+                      )}
                       {membersSorted.length === 0 ? (
                         <p className="text-xs text-muted-foreground">No athletes in this training group yet.</p>
                       ) : (
                         <div className="divide-y">
                           {membersSorted.map((m) => {
                             const sel = entrySelections.find((s) => s.athlete_id === m.athlete_id);
+                            const entryStatus = sel ? entryStatusBySelection.get(sel.id) : undefined;
                             return (
                               <div key={m.athlete_id} className="flex items-center gap-2 py-2">
                                 <UserAvatar name={m.athletes?.name} imageUrl={m.athletes?.profile_image_url} size="xs" />
                                 <span className="text-sm flex-1 min-w-0 truncate">{m.athletes?.name ?? "Athlete"}</span>
+                                {sel && (
+                                  <Badge
+                                    variant={entryStatus ? "default" : "outline"}
+                                    className="text-[10px] h-4 px-1.5 shrink-0"
+                                    title="Whether this athlete has registered — self-reported from their Event Entries"
+                                  >
+                                    {entryStatus ? ENTRY_STATUS_LABEL[entryStatus] ?? entryStatus : "Not entered"}
+                                  </Badge>
+                                )}
                                 <Select
                                   value={sel?.selected_event ?? (sel ? "unset" : "none")}
                                   onValueChange={(v) => {
@@ -609,7 +970,14 @@ function RaceSchedulePage() {
             </div>
             <div>
               <Label className="text-xs">Date</Label>
-              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+              <Input
+                type="date"
+                value={date}
+                onChange={(e) => {
+                  setDate(e.target.value);
+                  if (entryRuleId !== "none") recomputeEntryWindow(entryRuleId, e.target.value);
+                }}
+              />
             </div>
             <div>
               <Label className="text-xs">Location (optional)</Label>
@@ -639,6 +1007,50 @@ function RaceSchedulePage() {
               <Label className="text-xs">Events offered (comma-separated)</Label>
               <Input value={eventsText} onChange={(e) => setEventsText(e.target.value)} placeholder="800m, 1500m, 3000m" />
             </div>
+            <div>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">Entry rule (optional)</Label>
+                <button type="button" onClick={() => setRulesManagerOpen(true)} className="text-[10px] text-muted-foreground hover:text-foreground underline">
+                  Manage rules
+                </button>
+              </div>
+              <Select
+                value={entryRuleId}
+                onValueChange={(v) => {
+                  setEntryRuleId(v);
+                  if (v !== "none") recomputeEntryWindow(v, date);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="None — set dates manually" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None — set dates manually</SelectItem>
+                  {(entryRules ?? []).map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">
+                Fills in the dates below from the rule — still fully editable after, for a one-off exception.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Entries open (optional)</Label>
+                <Input type="datetime-local" value={entryOpens} onChange={(e) => setEntryOpens(e.target.value)} />
+              </div>
+              <div>
+                <Label className="text-xs">Entries close (optional)</Label>
+                <Input type="datetime-local" value={entryCloses} onChange={(e) => setEntryCloses(e.target.value)} />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs">Link to enter (optional)</Label>
+              <Input value={entryUrl} onChange={(e) => setEntryUrl(e.target.value)} placeholder="https://…" />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(false)}>
@@ -646,6 +1058,128 @@ function RaceSchedulePage() {
             </Button>
             <Button onClick={saveManual} disabled={savingManual}>
               {savingManual ? "Adding…" : "Add race"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Entry rules manager ── */}
+      <Dialog open={rulesManagerOpen} onOpenChange={setRulesManagerOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Entry deadline rules</DialogTitle>
+            <DialogDescription>
+              A recurring pattern like "closes the Wednesday before, 12 noon" — pick one when adding a race instead of
+              working out the dates by hand each time.
+            </DialogDescription>
+          </DialogHeader>
+
+          {(entryRules ?? []).length > 0 && (
+            <div className="space-y-1.5 border rounded-md p-2">
+              {(entryRules ?? []).map((r) => (
+                <div key={r.id} className="flex items-center justify-between text-xs py-1">
+                  <div>
+                    <span className="font-medium">{r.name}</span>
+                    <span className="text-muted-foreground">
+                      {" "}
+                      — closes {WEEKDAY_NAMES[r.closes_weekday]} {r.closes_time.slice(0, 5)}
+                      {r.opens_weekday != null && `, opens ${WEEKDAY_NAMES[r.opens_weekday]} ${r.opens_time?.slice(0, 5)} (~${r.opens_min_days_before}d before)`}
+                    </span>
+                  </div>
+                  <button type="button" onClick={() => deleteRule(r.id)} className="text-muted-foreground hover:text-destructive shrink-0 ml-2">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs">Quick fill</Label>
+              <div className="flex gap-1.5 flex-wrap mt-1">
+                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => fillRulePreset("xcr_individual")}>
+                  AV XCR Individual
+                </Button>
+                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => fillRulePreset("xcr_relay")}>
+                  AV XCR Relay
+                </Button>
+                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => fillRulePreset("avsl")}>
+                  AVSL Zone Priority
+                </Button>
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs">Name</Label>
+              <Input value={ruleName} onChange={(e) => setRuleName(e.target.value)} placeholder="e.g. AV XCR Individual" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Closes on</Label>
+                <Select value={ruleClosesWeekday} onValueChange={setRuleClosesWeekday}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {WEEKDAY_NAMES.map((w, i) => (
+                      <SelectItem key={i} value={String(i)}>
+                        {w}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">At</Label>
+                <Input type="time" value={ruleClosesTime} onChange={(e) => setRuleClosesTime(e.target.value)} />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground -mt-1">
+              Always resolves to the closest {WEEKDAY_NAMES[Number(ruleClosesWeekday)]} strictly before race day.
+            </p>
+
+            <label className="flex items-center gap-2 text-xs cursor-pointer">
+              <input type="checkbox" checked={ruleHasOpens} onChange={(e) => setRuleHasOpens(e.target.checked)} />
+              This series also has an entries-open date
+            </label>
+
+            {ruleHasOpens && (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs">Opens on</Label>
+                    <Select value={ruleOpensWeekday} onValueChange={setRuleOpensWeekday}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {WEEKDAY_NAMES.map((w, i) => (
+                          <SelectItem key={i} value={String(i)}>
+                            {w}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs">At</Label>
+                    <Input type="time" value={ruleOpensTime} onChange={(e) => setRuleOpensTime(e.target.value)} />
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs">At least this many days before race day</Label>
+                  <Input type="number" min={0} value={ruleOpensMinDaysBefore} onChange={(e) => setRuleOpensMinDaysBefore(e.target.value)} />
+                </div>
+              </>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRulesManagerOpen(false)}>
+              Done
+            </Button>
+            <Button onClick={saveRule} disabled={savingRule}>
+              {savingRule ? "Saving…" : "Save rule"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -662,7 +1196,38 @@ function RaceSchedulePage() {
           </DialogHeader>
 
           {!preview ? (
-            <Tabs value={importTab} onValueChange={(v) => setImportTab(v as "upload" | "paste")}>
+            <>
+              <div>
+                <Label className="text-xs">Import into</Label>
+                <Select value={targetCalendarId} onValueChange={setTargetCalendarId}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="new">New calendar…</SelectItem>
+                    {(myCalendars ?? []).map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                        {c.season ? ` (${c.season})` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {targetCalendarId === "new" ? (
+                  <Input
+                    value={newCalendarName}
+                    onChange={(e) => setNewCalendarName(e.target.value)}
+                    placeholder="e.g. 2026 XCR Calendar"
+                    className="mt-1.5"
+                  />
+                ) : (
+                  <p className="text-xs text-muted-foreground mt-1.5">
+                    Adds alongside whatever's already in this calendar — good for a re-published or updated version of
+                    the same document.
+                  </p>
+                )}
+              </div>
+              <Tabs value={importTab} onValueChange={(v) => setImportTab(v as "upload" | "paste")}>
               <TabsList className="grid grid-cols-2">
                 <TabsTrigger value="upload">Upload file</TabsTrigger>
                 <TabsTrigger value="paste">Paste text</TabsTrigger>
@@ -710,6 +1275,7 @@ function RaceSchedulePage() {
                 </Button>
               </TabsContent>
             </Tabs>
+            </>
           ) : (
             <div className="space-y-3">
               <p className="text-xs text-muted-foreground">
