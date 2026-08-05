@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
@@ -207,6 +207,7 @@ function RaceSchedulePage() {
 
   // ── Import (upload / paste) ─────────────────────────────────────────────
   const [importOpen, setImportOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [importTab, setImportTab] = useState<"upload" | "paste">("upload");
   const [pasteText, setPasteText] = useState("");
   const [extracting, setExtracting] = useState(false);
@@ -610,12 +611,24 @@ function RaceSchedulePage() {
               </TabsList>
               <TabsContent value="upload" className="mt-3">
                 <input
+                  ref={fileInputRef}
                   type="file"
                   accept=".pdf,.doc,.docx,.xls,.xlsx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                   onChange={onFilePicked}
                   disabled={extracting}
-                  className="text-sm"
+                  className="hidden"
                 />
+                <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={extracting}>
+                  {extracting ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Reading…
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="h-3.5 w-3.5 mr-1.5" /> Choose file
+                    </>
+                  )}
+                </Button>
                 <p className="text-xs text-muted-foreground mt-2">
                   Scanned PDFs (photos of a page, no real text underneath) won't extract — paste the text instead if that's what you've
                   got.
