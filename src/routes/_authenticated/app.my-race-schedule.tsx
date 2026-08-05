@@ -34,6 +34,14 @@ function parseDistanceFromLabel(label: string): number | null {
   return null;
 }
 
+// Same formatting as the coach-side Race Schedule page — entry_opens/
+// entry_closes are timestamps now (time of day matters: "closes Wed 12
+// noon" vs "closes Wed 5pm" are different deadlines), not bare dates.
+function formatEntryTimestamp(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+}
+
 // Same helpers as the coach-side Race Schedule page — prefer the linked
 // saved location (real coordinates, so "view on map" actually works)
 // over the plain-text fallback.
@@ -53,7 +61,8 @@ function entryMapLink(entry: {
 
 type RaceScheduleEntry = {
   id: string;
-  training_group_id: string;
+  training_group_id: string | null;
+  calendar_id: string | null;
   name: string;
   event_date: string;
   location: string | null;
@@ -61,6 +70,9 @@ type RaceScheduleEntry = {
   training_locations: { name: string; address: string | null; lat: number | null; lng: number | null } | null;
   race_type: string | null;
   events_offered: string[];
+  entry_opens: string | null;
+  entry_closes: string | null;
+  entry_url: string | null;
 };
 
 type Selection = {
@@ -68,6 +80,13 @@ type Selection = {
   race_schedule_entry_id: string;
   selected_event: string | null;
   session_id: string | null;
+};
+
+const ENTRY_STATUS_LABEL: Record<string, string> = {
+  registered: "Registered",
+  confirmed: "Confirmed",
+  waitlisted: "Waitlisted",
+  cancelled: "Cancelled",
 };
 
 function MyRaceSchedulePage() {
@@ -97,17 +116,38 @@ function MyRaceSchedulePage() {
     },
   });
 
-  const { data: entries, isLoading: entriesLoading } = useQuery({
-    queryKey: ["my-race-schedule-entries", (groupIds ?? []).join(",")],
+  const { data: calendarIds } = useQuery({
+    queryKey: ["my-race-schedule-calendars", (groupIds ?? []).join(",")],
     enabled: !!groupIds && groupIds.length > 0,
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await (supabase as any).from("race_calendar_groups").select("calendar_id").in("training_group_id", groupIds);
+      if (error) throw error;
+      return Array.from(new Set((data ?? []).map((r: any) => r.calendar_id as string)));
+    },
+  });
+
+  const { data: entries, isLoading: entriesLoading } = useQuery({
+    queryKey: ["my-race-schedule-entries", (groupIds ?? []).join(","), (calendarIds ?? []).join(",")],
+    enabled: !!groupIds && groupIds.length > 0,
+    queryFn: async () => {
+      // Same union-of-two-ownership-paths reasoning as the coach page —
+      // an entry owned directly by one of my groups, or owned by a
+      // calendar applied to one of my groups.
+      const legacyQ = (supabase as any)
         .from("race_schedule_entries")
         .select("*, training_locations(name, address, lat, lng)")
-        .in("training_group_id", groupIds)
-        .order("event_date", { ascending: true });
-      if (error) throw error;
-      return (data ?? []) as RaceScheduleEntry[];
+        .in("training_group_id", groupIds);
+      const calIds = calendarIds ?? [];
+      const results = await Promise.all([
+        legacyQ,
+        calIds.length > 0
+          ? (supabase as any).from("race_schedule_entries").select("*, training_locations(name, address, lat, lng)").in("calendar_id", calIds)
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+      for (const r of results) if (r.error) throw r.error;
+      const merged = [...(results[0].data ?? []), ...(results[1].data ?? [])] as RaceScheduleEntry[];
+      merged.sort((a, b) => a.event_date.localeCompare(b.event_date));
+      return merged;
     },
   });
 
@@ -130,6 +170,45 @@ function MyRaceSchedulePage() {
     for (const s of mySelections ?? []) map.set(s.race_schedule_entry_id, s);
     return map;
   }, [mySelections]);
+
+  // Entry-registration status per selection, from Event Entries (Locker)
+  // — same link used on the coach page, read here so the athlete sees
+  // their own "have I entered" state without leaving this page.
+  const selectionIds = useMemo(() => (mySelections ?? []).map((s) => s.id), [mySelections]);
+  const { data: myEntryRows } = useQuery({
+    queryKey: ["my-race-schedule-entry-rows", selectionIds.join(",")],
+    enabled: selectionIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("event_entries")
+        .select("id, athlete_race_selection_id, entry_status")
+        .in("athlete_race_selection_id", selectionIds);
+      if (error) throw error;
+      return (data ?? []) as { id: string; athlete_race_selection_id: string; entry_status: string | null }[];
+    },
+  });
+  const entryRowBySelection = useMemo(() => {
+    const map = new Map<string, { id: string; entry_status: string | null }>();
+    for (const e of myEntryRows ?? []) map.set(e.athlete_race_selection_id, e);
+    return map;
+  }, [myEntryRows]);
+
+  async function markEntered(entry: RaceScheduleEntry, sel: Selection) {
+    const { error } = await supabase.from("event_entries").insert({
+      athlete_id: athleteId!,
+      event_name: sel.selected_event ? `${entry.name} — ${sel.selected_event}` : entry.name,
+      event_date: entry.event_date,
+      location: entryLocationLabel(entry),
+      entry_status: "registered",
+      athlete_race_selection_id: sel.id,
+    } as any);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("Marked as entered — your coach can see this too");
+    qc.invalidateQueries({ queryKey: ["my-race-schedule-entry-rows"] });
+  }
 
   function invalidateAll() {
     qc.invalidateQueries({ queryKey: ["my-race-schedule-entries"] });
@@ -286,6 +365,37 @@ function MyRaceSchedulePage() {
               </SelectContent>
             </Select>
           </div>
+          {sel && (
+            <div className="mt-2 pt-2 border-t flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
+              {(entry.entry_opens || entry.entry_closes) && (
+                <span>
+                  Entries {entry.entry_opens ? `open ${formatEntryTimestamp(entry.entry_opens)}` : ""}
+                  {entry.entry_opens && entry.entry_closes ? " · " : ""}
+                  {entry.entry_closes ? `close ${formatEntryTimestamp(entry.entry_closes)}` : ""}
+                </span>
+              )}
+              {entry.entry_url && (
+                <a href={entry.entry_url} target="_blank" rel="noreferrer" className="text-[var(--accent-red)] hover:underline font-medium">
+                  Enter now →
+                </a>
+              )}
+              <span className="ml-auto flex items-center gap-2">
+                {entryRowBySelection.has(sel.id) ? (
+                  <Badge variant="default" className="text-[10px] h-4 px-1.5">
+                    {ENTRY_STATUS_LABEL[entryRowBySelection.get(sel.id)?.entry_status ?? ""] ?? "Entered"}
+                  </Badge>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => markEntered(entry, sel)}
+                    className="text-[var(--accent-red)] hover:underline font-medium"
+                  >
+                    I've entered this
+                  </button>
+                )}
+              </span>
+            </div>
+          )}
         </CardContent>
       </Card>
     );
