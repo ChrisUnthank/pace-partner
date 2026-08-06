@@ -21,7 +21,7 @@ export const Route = createFileRoute("/_authenticated/app/race-tactics/")({
 });
 
 const STATUS_STYLES: Record<string, string> = {
-  draft: "bg-slate-100 text-slate-700 border-slate-200",
+  draft: "bg-muted text-muted-foreground border-border",
   coach_review: "bg-amber-100 text-amber-700 border-amber-200",
   approved: "bg-sky-100 text-sky-700 border-sky-200",
   race_ready: "bg-violet-100 text-violet-700 border-violet-200",
