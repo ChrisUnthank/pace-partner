@@ -22,6 +22,7 @@ import "leaflet/dist/leaflet.css";
 import { RouteFlyoverMap, type FlyoverPoint } from "@/components/route-flyover-map";
 import { SaveRouteDialog } from "@/components/save-route-dialog";
 import { FEEL_LEVELS } from "@/components/feel-faces";
+import { RepSplitAnalysisDialog } from "@/components/rep-split-analysis-dialog";
 
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/app-shell";
@@ -2694,6 +2695,13 @@ function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any
   );
   const [metric, setMetric] = useState<"pace" | "time">("pace");
 
+  // Rep Split Analysis popup — clicking a rep's bar in "By reps" mode opens
+  // a 100m-by-100m breakdown of that specific rep. Only meaningful in reps
+  // mode (a distance-bucketed "By km"/"By lap" bar isn't a whole rep), and
+  // the dialog itself states plainly if the rep has no raw point trace to
+  // sub-split (e.g. a manually-logged rep with no file upload).
+  const [splitDialogRepIndex, setSplitDialogRepIndex] = useState<number | null>(null);
+
   if (!hasReps && !hasKmSplits && !hasLapSplits) return null;
 
   const distanceRows = mode === "lap" ? lapRows : kmRows;
@@ -2923,7 +2931,16 @@ function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any
               {avgY != null && (
                 <ReferenceLine y={avgY} stroke="hsl(var(--muted-foreground))" strokeDasharray="4 3" label={{ value: "avg", fontSize: 10, position: "insideTopLeft" }} />
               )}
-              <Bar dataKey={metricKey} radius={[3, 3, 0, 0]}>
+              <Bar
+                dataKey={metricKey}
+                radius={[3, 3, 0, 0]}
+                style={{ cursor: mode === "reps" ? "pointer" : "default" }}
+                onClick={(data: any) => {
+                  if (mode === "reps" && typeof data?.repIndex === "number") {
+                    setSplitDialogRepIndex(data.repIndex);
+                  }
+                }}
+              >
                 {chartData.map((d, i) => (
                   <Cell key={i} fill={d.isBest ? "#f59e0b" : "var(--accent-red)"} fillOpacity={d.isPartial ? 0.5 : 1} />
                 ))}
@@ -2933,6 +2950,9 @@ function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any
         </div>
         {mode === "reps" && chartData.some((d) => d.isBest) && (
           <p className="text-[11px] text-muted-foreground mt-1">Gold bar = best-scoring rep (same scoring already used in the table below).</p>
+        )}
+        {mode === "reps" && (
+          <p className="text-[11px] text-muted-foreground mt-1">Click a rep's bar to see its 100m split breakdown.</p>
         )}
         {hasPartial && (
           <p className="text-[11px] text-muted-foreground mt-1">
@@ -2944,6 +2964,20 @@ function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any
           <p className="text-[11px] text-muted-foreground mt-1">Shaded band = one rep — hover a bar for pace/time plus cumulative time.</p>
         )}
       </CardContent>
+      <RepSplitAnalysisDialog
+        open={splitDialogRepIndex != null}
+        onOpenChange={(o) => {
+          if (!o) setSplitDialogRepIndex(null);
+        }}
+        points={points}
+        repRows={repRows}
+        selectedRepIndex={splitDialogRepIndex}
+        repLabel={
+          splitDialogRepIndex != null
+            ? repRows[splitDialogRepIndex]?.repLabel || `Rep ${splitDialogRepIndex + 1}`
+            : ""
+        }
+      />
     </Card>
   );
 }
