@@ -31,7 +31,7 @@ export const ATHLETE_STATUS_OPTIONS = [
 export const ATHLETE_STATUS_STYLES: Record<string, string> = {
   active: "bg-emerald-100 text-emerald-700 border-emerald-200",
   injured: "bg-rose-100 text-rose-700 border-rose-200",
-  off_season: "bg-slate-100 text-slate-700 border-slate-200",
+  off_season: "bg-muted text-muted-foreground border-border",
   on_hiatus: "bg-amber-100 text-amber-700 border-amber-200",
   retired: "bg-muted text-muted-foreground border-border",
 };
