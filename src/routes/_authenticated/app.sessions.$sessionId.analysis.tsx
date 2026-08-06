@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight, User } from "lucide-react";
 import {
   ComposedChart,
   Line,
@@ -156,7 +157,24 @@ function SessionAnalysis() {
 
   const [xMode, setXMode] = useState<"time" | "distance">("distance");
   const [speedMode, setSpeedMode] = useState<"pace" | "speed">("pace");
-  const [scope, setScope] = useState<ScopeKey>("full");
+  // Multi-select scope — was a single ScopeKey (radio-style, only one
+  // segment visible at a time). Now an array so segments like Work and
+  // Recovery can be toggled on together (e.g. to see recovery HR behavior
+  // right alongside the work efforts it follows), while "Full session"
+  // stays a mutually-exclusive reset back to everything.
+  const [scopes, setScopes] = useState<ScopeKey[]>(["full"]);
+
+  function toggleScope(k: ScopeKey) {
+    setScopes((prev) => {
+      if (k === "full") return ["full"];
+      const withoutFull = prev.filter((s) => s !== "full");
+      if (withoutFull.includes(k)) {
+        const next = withoutFull.filter((s) => s !== k);
+        return next.length > 0 ? next : ["full"];
+      }
+      return [...withoutFull, k];
+    });
+  }
 
   const { data: session, isLoading: sessionLoading } = useQuery({
     queryKey: ["session", sessionId],
@@ -171,6 +189,48 @@ function SessionAnalysis() {
       return data;
     },
     retry: false,
+  });
+
+  // Previous/next session for this athlete, ordered by date then id as a
+  // tiebreak for same-day sessions — powers the < > navigation in the
+  // header so a coach (or athlete) can step through session history
+  // without leaving Analysis and returning to the calendar/list between
+  // each one. Same query shape as the Session Detail page's existing
+  // adjacent-session nav, just linking to /analysis instead of the detail
+  // route so the view stays put while the session underneath it changes.
+  const { data: adjacentSessions } = useQuery({
+    queryKey: ["session-adjacent", sessionId, session?.athlete_id, session?.session_date],
+    enabled: !!session?.athlete_id && !!session?.session_date,
+    queryFn: async () => {
+      const athleteId = (session as any).athlete_id;
+      const date = session!.session_date;
+
+      const [{ data: prevRows, error: prevErr }, { data: nextRows, error: nextErr }] = await Promise.all([
+        supabase
+          .from("sessions")
+          .select("id, session_date, title")
+          .eq("athlete_id", athleteId)
+          .or(`session_date.lt.${date},and(session_date.eq.${date},id.lt.${sessionId})`)
+          .order("session_date", { ascending: false })
+          .order("id", { ascending: false })
+          .limit(1),
+        supabase
+          .from("sessions")
+          .select("id, session_date, title")
+          .eq("athlete_id", athleteId)
+          .or(`session_date.gt.${date},and(session_date.eq.${date},id.gt.${sessionId})`)
+          .order("session_date", { ascending: true })
+          .order("id", { ascending: true })
+          .limit(1),
+      ]);
+      if (prevErr) throw prevErr;
+      if (nextErr) throw nextErr;
+
+      return {
+        prev: prevRows?.[0] ?? null,
+        next: nextRows?.[0] ?? null,
+      };
+    },
   });
 
   // Zone boundaries for the chronological zone timeline strips below — a
@@ -448,22 +508,24 @@ function SessionAnalysis() {
   const availableScopes = SCOPE_OPTIONS;
 
   useEffect(() => {
-    const scopeHasData = scope === "full" ? samples.length > 0 : samples.some((s) => s.stepKind === scope);
-
-    if (!scopeHasData) {
-      setScope("full");
-    }
-  }, [samples, scope]);
+    setScopes((prev) => {
+      if (prev.includes("full")) return prev;
+      const stillValid = prev.filter((k) => samples.some((s) => s.stepKind === k));
+      if (stillValid.length === 0) return ["full"];
+      if (stillValid.length !== prev.length) return stillValid;
+      return prev;
+    });
+  }, [samples]);
 
   const visibleSamples = useMemo(() => {
-    if (scope === "full") return samples;
-    return samples.filter((s) => s.stepKind === scope);
-  }, [samples, scope]);
+    if (scopes.includes("full")) return samples;
+    return samples.filter((s) => scopes.includes(s.stepKind as ScopeKey));
+  }, [samples, scopes]);
 
   const visibleBands = useMemo(() => {
-    if (scope === "full") return bands;
-    return bands.filter((b) => b.kind === scope);
-  }, [bands, scope]);
+    if (scopes.includes("full")) return bands;
+    return bands.filter((b) => scopes.includes(b.kind as ScopeKey));
+  }, [bands, scopes]);
 
   const xCanUseDistance =
     Array.isArray(visibleSamples) && visibleSamples.length > 0 && visibleSamples.every((s) => s.d != null);
@@ -603,21 +665,78 @@ function SessionAnalysis() {
     <AppShell>
       <div className="space-y-6 max-w-6xl">
         <div>
-          <Link
-            to="/app/sessions/$sessionId"
-            params={{ sessionId }}
-            className="text-sm text-muted-foreground underline"
-          >
-            ← Back to details
-          </Link>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <Link
+              to="/app/sessions/$sessionId"
+              params={{ sessionId }}
+              className="text-sm text-muted-foreground underline"
+            >
+              ← Back to details
+            </Link>
+
+            <div className="flex items-center gap-1">
+              <Button
+                asChild={!!adjacentSessions?.prev}
+                size="sm"
+                variant="outline"
+                disabled={!adjacentSessions?.prev}
+                title={adjacentSessions?.prev ? adjacentSessions.prev.title ?? "Previous session" : "No earlier session"}
+              >
+                {adjacentSessions?.prev ? (
+                  <Link to="/app/sessions/$sessionId/analysis" params={{ sessionId: adjacentSessions.prev.id }}>
+                    <ChevronLeft className="h-4 w-4" />
+                    Previous
+                  </Link>
+                ) : (
+                  <span>
+                    <ChevronLeft className="h-4 w-4" />
+                    Previous
+                  </span>
+                )}
+              </Button>
+              <Button
+                asChild={!!adjacentSessions?.next}
+                size="sm"
+                variant="outline"
+                disabled={!adjacentSessions?.next}
+                title={adjacentSessions?.next ? adjacentSessions.next.title ?? "Next session" : "No later session"}
+              >
+                {adjacentSessions?.next ? (
+                  <Link to="/app/sessions/$sessionId/analysis" params={{ sessionId: adjacentSessions.next.id }}>
+                    Next
+                    <ChevronRight className="h-4 w-4" />
+                  </Link>
+                ) : (
+                  <span>
+                    Next
+                    <ChevronRight className="h-4 w-4" />
+                  </span>
+                )}
+              </Button>
+            </div>
+          </div>
+
           {isCoach && session.athlete_id && (
             <div className="mt-3">
               <AthleteSubnav athleteId={session.athlete_id} active="sessions" />
             </div>
           )}
+
+          {isCoach && session.athletes?.name && (
+            <div
+              className="mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1.5"
+              style={{ borderColor: "var(--accent-red)", background: "color-mix(in srgb, var(--accent-red) 10%, transparent)" }}
+            >
+              <User className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--accent-red)" }} strokeWidth={2.5} />
+              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Viewing</span>
+              <span className="text-sm font-semibold">{session.athletes.name}</span>
+            </div>
+          )}
+
           <h1 className="text-2xl font-bold mt-2">{session.title}</h1>
           <p className="text-sm text-muted-foreground">
-            {session.session_date} · {session.athletes?.name} · {sessionClassificationLabel(session as any)}
+            {session.session_date}
+            {!isCoach && session.athletes?.name && <> · {session.athletes.name}</>} · {sessionClassificationLabel(session as any)}
             {session.completed_at && <span className="ml-2 text-emerald-600">Completed</span>}
           </p>
         </div>
@@ -820,11 +939,11 @@ function SessionAnalysis() {
                   <Button
                     key={k}
                     size="sm"
-                    variant={scope === k ? "default" : "outline"}
+                    variant={scopes.includes(k) ? "default" : "outline"}
                     disabled={!hasData}
-                    onClick={() => hasData && setScope(k)}
+                    onClick={() => hasData && toggleScope(k)}
                     className={!hasData ? "opacity-50 cursor-default" : "cursor-pointer"}
-                    title={!hasData ? "No data for this segment" : ""}
+                    title={!hasData ? "No data for this segment" : k === "full" ? "" : "Click to add/remove — combine with other segments, e.g. Work + Recovery"}
                   >
                     {SCOPE_LABELS[k]}
                   </Button>
@@ -2283,7 +2402,21 @@ function buildSamples(
         t: currentT,
         d: currentD,
         hr: p.hr != null ? Number(p.hr) : undefined,
-        pace: rawPace != null && rawPace <= 600 ? rawPace : undefined,
+        // Was capped at <= 600 sec/km (10:00/km), which silently nulled out
+        // every point slower than that — including completely legitimate
+        // walk/jog recovery pace between reps (VO2/interval recovery
+        // periods routinely run 10-20+ min/km). That's exactly why "Pace
+        // zone over time" showed as sparse/gappy while "HR zone over time"
+        // stayed solid: HR has no such cap, so recovery periods stayed
+        // populated there but dropped out of pace-based zone classification
+        // here. Session-level Pace zone totals above (from
+        // session_zone_time, computed server-side) were never affected —
+        // only this client-side per-point rebuild was. Raised to 1800
+        // sec/km (30:00/km), generous enough to cover real walk/shuffle
+        // recovery pace while still nulling genuine GPS-noise spikes (a
+        // momentary near-zero-speed blip can compute to many thousands of
+        // sec/km, nowhere near a real human pace at any effort level).
+        pace: rawPace != null && rawPace <= 1800 ? rawPace : undefined,
         cadence: pointCadence,
         elev: p.elevation_m != null ? Number(p.elevation_m) : undefined,
         vo: pointVoCm,
@@ -2674,8 +2807,25 @@ function UnifiedSessionTable({
   speedMode: "pace" | "speed";
   terrain?: string | null;
 }) {
-  const [segmentFilter, setSegmentFilter] = useState<ScopeKey>("full");
+  // Multi-select segment filter — matches the same toggle-combination
+  // behavior as the Session graph's scope selector above (e.g. Work +
+  // Recovery together), kept as an independent piece of state since this
+  // table can be scrolled to and filtered on its own without touching the
+  // graph above it.
+  const [segmentFilters, setSegmentFilters] = useState<ScopeKey[]>(["full"]);
   const [detailMode, setDetailMode] = useState<"basic" | "advanced">("basic");
+
+  function toggleSegmentFilter(k: ScopeKey) {
+    setSegmentFilters((prev) => {
+      if (k === "full") return ["full"];
+      const withoutFull = prev.filter((s) => s !== "full");
+      if (withoutFull.includes(k)) {
+        const next = withoutFull.filter((s) => s !== k);
+        return next.length > 0 ? next : ["full"];
+      }
+      return [...withoutFull, k];
+    });
+  }
 
   const rows = useMemo(() => {
     const baseRows = buildSplits(points, results, steps);
@@ -2695,9 +2845,9 @@ function UnifiedSessionTable({
   }, [points, results, steps]);
 
   const filteredRows = useMemo(() => {
-    if (segmentFilter === "full") return rows;
-    return rows.filter((r) => r.type === segmentFilter);
-  }, [rows, segmentFilter]);
+    if (segmentFilters.includes("full")) return rows;
+    return rows.filter((r) => segmentFilters.includes(r.type as ScopeKey));
+  }, [rows, segmentFilters]);
 
   const totalTime = filteredRows.reduce((a, r) => a + (r.durationS ?? 0), 0);
   const totalDist = filteredRows.reduce((a, r) => a + (r.distanceM ?? 0), 0);
@@ -2751,10 +2901,10 @@ function UnifiedSessionTable({
                 <Button
                   key={k}
                   size="sm"
-                  variant={segmentFilter === k ? "default" : "outline"}
+                  variant={segmentFilters.includes(k) ? "default" : "outline"}
                   disabled={!hasData}
-                  onClick={() => hasData && setSegmentFilter(k)}
-                  title={!hasData ? "No data for this segment" : ""}
+                  onClick={() => hasData && toggleSegmentFilter(k)}
+                  title={!hasData ? "No data for this segment" : k === "full" ? "" : "Click to add/remove — combine with other segments, e.g. Work + Recovery"}
                 >
                   {SCOPE_LABELS[k]}
                 </Button>
