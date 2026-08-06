@@ -971,8 +971,9 @@ function AthleteAnalytics({
       )}
 
       {/* Row 2 — icon + eyebrow heading (always "Analytics", never the
-          athlete's name) + readiness badge on the left, range picker on
-          the right. */}
+          athlete's name) + readiness badge. Range picker no longer lives
+          here — see below, moved down to sit directly above the chart it
+          actually controls. */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-3">
@@ -993,6 +994,20 @@ function AthleteAnalytics({
             confidence={latest?.confidence as any}
           />
         </div>
+      </div>
+
+      {/* Year-at-a-glance weekly training strip — Coros-style. Clicking a
+          week zooms every chart below to that week via the existing
+          custom-range mechanism (same one the range picker uses). Always
+          shows the last 12 months regardless of the range picker, which
+          is why it now sits above (not below) the picker that controls it. */}
+      <YearlyLoadStrip athleteId={athleteId} onWeekClick={(from, to) => onCustomRange(from, to)} />
+
+      {/* Range picker — moved down to sit directly above the Fitness/
+          Fatigue/Form chart it actually drives, rather than up in the
+          page header above the (always-12-months, range-independent)
+          yearly strip. Now reads as belonging to the chart beneath it. */}
+      <div className="flex flex-wrap items-center justify-end gap-3">
         <RangePicker
           value={range}
           onChange={onRangeChange}
@@ -1001,11 +1016,6 @@ function AthleteAnalytics({
           onCustomRange={onCustomRange}
         />
       </div>
-
-      {/* Year-at-a-glance weekly training strip — Coros-style. Clicking a
-          week zooms every chart below to that week via the existing
-          custom-range mechanism (same one the range picker uses). */}
-      <YearlyLoadStrip athleteId={athleteId} onWeekClick={(from, to) => onCustomRange(from, to)} />
 
       {/* Fitness / Fatigue / Form chart — with an optional forward-looking
           projection layered on top of the same card via a toggle, rather
@@ -1392,10 +1402,16 @@ function AthleteAnalytics({
         </div>
       </div>
 
+      {/* Was fed the page-level range picker's `since` (4W/MTD/3M/6M/YTD/All),
+          so it silently ignored the Week/Month/Year "Training trends grouped
+          by" toggle right above it. Switched to periodStartForGranularity so
+          it — and everything else below the toggle — actually respects it,
+          same "current period to date" pattern as VolumeShareCard further
+          down the page. */}
       <TrainingVolumeBySportCard
         athleteId={athleteId}
-        since={since}
-        periodLabel={(customFrom || customTo) ? "in the selected range" : RANGES[range].label.toLowerCase()}
+        since={periodStartForGranularity(granularity)}
+        periodLabel={volumePeriodLabel(granularity)}
       />
 
       <div className="grid md:grid-cols-2 gap-6">
