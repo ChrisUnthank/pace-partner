@@ -103,7 +103,7 @@ const EFFORT_STYLES: Record<string, string> = {
   vo2: "bg-red-100 text-red-700 border-red-200",
   strides: "bg-teal-100 text-teal-700 border-teal-200",
   race: "bg-purple-100 text-purple-700 border-purple-200",
-  cross_train: "bg-slate-100 text-slate-700 border-slate-200",
+  cross_train: "bg-muted text-muted-foreground border-border",
   rest: "bg-muted text-muted-foreground border-border",
 };
 
