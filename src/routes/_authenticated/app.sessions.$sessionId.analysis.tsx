@@ -2640,10 +2640,21 @@ function LapTimesTooltip({ active, payload, label, metric }: any) {
       <div className="text-muted-foreground">
         Distance: {d.distanceM > 0 ? metersFmt(roundDistanceForDisplay(d.distanceM)) : "—"}
       </div>
-      <div className="text-muted-foreground">Cumulative: {secToClock(d.cumulativeS)}</div>
-      <div className="text-muted-foreground">
-        Cumulative distance: {d.cumulativeDistanceM > 0 ? metersFmt(roundDistanceForDisplay(d.cumulativeDistanceM)) : "—"}
-      </div>
+      {/* Only meaningful when a rep is broken into multiple lap/km bars —
+          resets to 0 at the start of every rep (see the reset-on-repIndex-
+          change loop below) rather than running across the whole session,
+          so these read as "how far into this rep am I" rather than a
+          session-wide total. In By reps mode each bar already IS one whole
+          rep, so this would just repeat the Time/Distance lines above —
+          hidden there instead of showing a redundant duplicate. */}
+      {!d.hideRepCumulative && (
+        <>
+          <div className="text-muted-foreground">This rep — elapsed: {secToClock(d.cumulativeS)}</div>
+          <div className="text-muted-foreground">
+            This rep — distance: {d.cumulativeDistanceM > 0 ? metersFmt(roundDistanceForDisplay(d.cumulativeDistanceM)) : "—"}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -2728,20 +2739,34 @@ function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any
           };
         });
 
-  // Running total of each bar's own "time" value (not wall-clock session
-  // time) — this chart already excludes warmup/recovery/cooldown entirely
-  // (see description below), so a true wall-clock cumulative would
-  // silently reintroduce gaps this chart otherwise hides. Shown in the
-  // tooltip alongside whichever metric (Pace/Time) is currently selected.
-  // Cumulative distance is the same running-total treatment applied to
-  // each bar's own distanceM.
+  // Running total of each bar's own "time"/distance, reset back to 0 at
+  // the start of every rep — so within a rep re-split into several bars
+  // (a 1600m rep at 400m laps = 4 bars) this reads as "how far/how long
+  // into THIS rep am I", not a session-wide total that keeps climbing
+  // across every rep in the workout. Detected via repIndex changing
+  // between consecutive bars; for a continuous effort with no rep
+  // structure at all (repIndex constant 0 throughout, see distanceRows
+  // mapping above), this naturally never resets — correct, since the
+  // whole continuous run genuinely is one single "rep" in that case. Not
+  // wall-clock session time either way — this chart already excludes
+  // warmup/recovery/cooldown entirely (see description below).
   let runningS = 0;
   let runningM = 0;
+  let runningRepIndex: number | null = null;
   for (const d of chartData) {
+    if (d.repIndex !== runningRepIndex) {
+      runningRepIndex = d.repIndex;
+      runningS = 0;
+      runningM = 0;
+    }
     runningS += Number(d.time) || 0;
     runningM += Number(d.distanceM) || 0;
     (d as any).cumulativeS = runningS;
     (d as any).cumulativeDistanceM = runningM;
+    // By reps mode is one bar per whole rep, so "so far this rep" would
+    // just repeat the Time/Distance line already shown — tooltip hides
+    // the duplicate rather than showing the same number twice.
+    (d as any).hideRepCumulative = mode === "reps";
   }
 
   // One background band per rep, so a rep re-split into several lap/km
