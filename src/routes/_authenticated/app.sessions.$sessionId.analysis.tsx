@@ -2618,6 +2618,30 @@ function SessionInsightCard({ rows }: { rows: SplitRow[] }) {
 // place. See buildEvenDistanceSplits for how dead time (standing drills,
 // walking recoveries not captured as their own step) gets excluded from
 // each split's duration so it doesn't inflate that split's time.
+// Custom tooltip content for the Lap times chart — the built-in
+// `formatter` prop only knows about the one dataKey actually bound to the
+// Bar (whichever of Pace/Time is toggled on), so it can't also surface
+// cumulative time, which isn't plotted as its own series. This reads
+// straight off the hovered bar's full data object instead.
+function LapTimesTooltip({ active, payload, label, metric }: any) {
+  if (!active || !payload || !payload.length) return null;
+  const d = payload[0].payload;
+  return (
+    <div className="rounded-md border bg-popover px-2.5 py-1.5 text-xs shadow-md">
+      <div className="font-medium mb-1">{label}</div>
+      <div>
+        {metric === "pace" ? "Pace" : "Time"}: {metric === "pace" ? `${paceFmt(d.pace)}/km` : secToClock(d.time)}
+      </div>
+      {d.isPartial && metric === "time" && (
+        <div className="text-muted-foreground">
+          Bar height: {secToClock(d.timeDisplay)} equiv. — projected to a full split at this pace
+        </div>
+      )}
+      <div className="text-muted-foreground">Cumulative: {secToClock(d.cumulativeS)}</div>
+    </div>
+  );
+}
+
 function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any[]; terrain?: string | null }) {
   const repRows = useMemo(() => rows.filter((r) => r.type === "work" || r.type === "strides"), [rows]);
   const hasReps = repRows.length > 1;
@@ -2657,6 +2681,7 @@ function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any
 
   const distanceRows = mode === "lap" ? lapRows : kmRows;
   const distanceLabelCap = mode === "lap" ? "Lap" : "Km";
+  const splitDistanceM = mode === "lap" ? 400 : 1000;
 
   const chartData =
     mode === "reps"
@@ -2664,18 +2689,75 @@ function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any
           label: r.repLabel || `Rep ${i + 1}`,
           pace: r.avgPace ?? 0,
           time: r.durationS ?? 0,
+          timeDisplay: r.durationS ?? 0,
           isBest: !!r.isBest,
           isPartial: false,
+          repIndex: i,
         }))
-      : distanceRows.map((r: any) => ({
-          label: `${distanceLabelCap} ${r.index}`,
-          pace: r.avgPace ?? 0,
-          time: r.durationS,
-          isBest: false,
-          isPartial: !!r.isPartial,
-        }));
+      : distanceRows.map((r: any) => {
+          const actualTime = r.durationS ?? 0;
+          // A partial split's raw duration is naturally shorter just
+          // because it covers less distance, not because it was run any
+          // faster — a half-lap partial run at the exact same pace as the
+          // full laps around it would otherwise plot as a much shorter bar
+          // in Time mode, visually reading as "faster" when it wasn't.
+          // Projected out to what a full split at that same average pace
+          // would have taken instead, so its bar height sits at the
+          // correct place relative to the fastest/slowest full splits on
+          // the chart — pace-derived, not distance-scaled, so it's still
+          // grounded in what was actually run, just shown at a comparable
+          // scale. Pace mode needs no such treatment: pace (sec/km) is
+          // already a rate, already comparable regardless of split length.
+          const projectedTime = r.isPartial && r.avgPace != null ? (r.avgPace * splitDistanceM) / 1000 : actualTime;
+          return {
+            label: `${distanceLabelCap} ${r.index}`,
+            pace: r.avgPace ?? 0,
+            time: actualTime,
+            timeDisplay: projectedTime,
+            isBest: false,
+            isPartial: !!r.isPartial,
+            repIndex: r.repIndex ?? 0,
+          };
+        });
 
-  const values = chartData.map((d) => Number(d[metric])).filter((v) => v > 0);
+  // Running total of each bar's own "time" value (not wall-clock session
+  // time) — this chart already excludes warmup/recovery/cooldown entirely
+  // (see description below), so a true wall-clock cumulative would
+  // silently reintroduce gaps this chart otherwise hides. Shown in the
+  // tooltip alongside whichever metric (Pace/Time) is currently selected.
+  let runningS = 0;
+  for (const d of chartData) {
+    runningS += Number(d.time) || 0;
+    (d as any).cumulativeS = runningS;
+  }
+
+  // One background band per rep, so a rep re-split into several lap/km
+  // bars (e.g. a 1600m rep at 400m splits = 4 bars) visually reads as one
+  // group instead of a flat, undifferentiated row of columns. Only
+  // meaningful in By km/By lap mode with real rep structure — "By reps" is
+  // already one bar per rep, and a continuous effort with no rep table at
+  // all has nothing to group by.
+  const repBands: { repIndex: number; firstLabel: string; lastLabel: string }[] = [];
+  if (mode !== "reps" && hasReps) {
+    let current: { repIndex: number; firstLabel: string; lastLabel: string } | null = null;
+    for (const d of chartData) {
+      if (!current || current.repIndex !== d.repIndex) {
+        if (current) repBands.push(current);
+        current = { repIndex: d.repIndex, firstLabel: d.label, lastLabel: d.label };
+      } else {
+        current.lastLabel = d.label;
+      }
+    }
+    if (current) repBands.push(current);
+  }
+
+  // Values feeding the average line and the Bar itself both read the same
+  // key: "pace" is already comparable across partial/full splits, "time"
+  // uses timeDisplay (the pace-projected value) rather than raw duration
+  // so a partial split's naturally-shorter real time doesn't drag the
+  // average down or plot at a misleadingly short bar height.
+  const metricKey = metric === "pace" ? "pace" : "timeDisplay";
+  const values = chartData.map((d) => Number((d as any)[metricKey])).filter((v) => v > 0);
   const avgY = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
   const hasPartial = mode !== "reps" && chartData.some((d) => d.isPartial);
 
@@ -2761,6 +2843,19 @@ function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={chartData} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+              {repBands.map((g, i) => (
+                <ReferenceArea
+                  key={`repband-${g.repIndex}`}
+                  x1={g.firstLabel}
+                  x2={g.lastLabel}
+                  yAxisId={0}
+                  ifOverflow="visible"
+                  strokeOpacity={0}
+                  fill={i % 2 === 0 ? "var(--accent-red)" : "transparent"}
+                  fillOpacity={i % 2 === 0 ? 0.07 : 0}
+                  label={{ value: `Rep ${g.repIndex + 1}`, position: "insideTop", fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                />
+              ))}
               <XAxis dataKey="label" tick={{ fontSize: 11 }} />
               <YAxis
                 reversed={metric === "pace"}
@@ -2769,13 +2864,11 @@ function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any
                 width={58}
                 domain={["dataMin", "dataMax"]}
               />
-              <Tooltip
-                formatter={(v: number) => [metric === "pace" ? `${paceFmt(v)}/km` : secToClock(v), metric === "pace" ? "Pace" : "Time"]}
-              />
+              <Tooltip content={<LapTimesTooltip metric={metric} />} />
               {avgY != null && (
                 <ReferenceLine y={avgY} stroke="hsl(var(--muted-foreground))" strokeDasharray="4 3" label={{ value: "avg", fontSize: 10, position: "insideTopLeft" }} />
               )}
-              <Bar dataKey={metric} radius={[3, 3, 0, 0]}>
+              <Bar dataKey={metricKey} radius={[3, 3, 0, 0]}>
                 {chartData.map((d, i) => (
                   <Cell key={i} fill={d.isBest ? "#f59e0b" : "var(--accent-red)"} fillOpacity={d.isPartial ? 0.5 : 1} />
                 ))}
@@ -2787,7 +2880,13 @@ function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any
           <p className="text-[11px] text-muted-foreground mt-1">Gold bar = best-scoring rep (same scoring already used in the table below).</p>
         )}
         {hasPartial && (
-          <p className="text-[11px] text-muted-foreground mt-1">Lighter bar = partial split (shorter than a full {mode === "lap" ? "400m" : "1km"}).</p>
+          <p className="text-[11px] text-muted-foreground mt-1">
+            Lighter bar = partial split (shorter than a full {mode === "lap" ? "400m" : "1km"}).
+            {metric === "time" && " Its bar height reflects what a full split at that pace would have taken, not its own shorter real duration, so it's directly comparable to the full splits around it."}
+          </p>
+        )}
+        {repBands.length > 0 && (
+          <p className="text-[11px] text-muted-foreground mt-1">Shaded band = one rep — hover a bar for pace/time plus cumulative time.</p>
         )}
       </CardContent>
     </Card>
@@ -3412,15 +3511,16 @@ function buildRepAlignedDistanceSplits(
   repRows: SplitRow[],
   splitDistanceM: number,
   align: "start" | "end",
-): { index: number; durationS: number; distanceM: number; avgPace: number | null; isPartial: boolean }[] {
+): { index: number; repIndex: number; durationS: number; distanceM: number; avgPace: number | null; isPartial: boolean }[] {
   if (!splitDistanceM || splitDistanceM <= 0) return [];
 
   const repSlices = sliceRawPointsByRep(points, repRows);
-  const out: { index: number; durationS: number; distanceM: number; avgPace: number | null; isPartial: boolean }[] = [];
+  const out: { index: number; repIndex: number; durationS: number; distanceM: number; avgPace: number | null; isPartial: boolean }[] =
+    [];
   let globalIndex = 1;
 
-  for (const repPoints of repSlices) {
-    if (!repPoints.length) continue;
+  repSlices.forEach((repPoints, repIdx) => {
+    if (!repPoints.length) return;
 
     const startDistance = Number(repPoints[0]?.distance_m ?? 0);
     const endDistance = Number(repPoints[repPoints.length - 1]?.distance_m ?? 0);
@@ -3432,16 +3532,23 @@ function buildRepAlignedDistanceSplits(
         const deadS = computeDeadSecondsInSlice(repPoints);
         const movingDurationS = Math.max(0, m.durationS - deadS);
         const avgPace = movingDurationS > 0 && m.distanceM > 0 ? (movingDurationS / m.distanceM) * 1000 : m.avgPace;
-        out.push({ index: globalIndex++, durationS: movingDurationS, distanceM: m.distanceM, avgPace, isPartial: false });
+        out.push({
+          index: globalIndex++,
+          repIndex: repIdx,
+          durationS: movingDurationS,
+          distanceM: m.distanceM,
+          avgPace,
+          isPartial: false,
+        });
       }
-      continue;
+      return;
     }
 
     const buckets = splitRepPointsIntoBuckets(repPoints, splitDistanceM, align);
     for (const b of buckets) {
-      out.push({ index: globalIndex++, ...b });
+      out.push({ index: globalIndex++, repIndex: repIdx, ...b });
     }
-  }
+  });
 
   return out;
 }
