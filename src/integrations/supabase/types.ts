@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      account_activity_log: {
+        Row: {
+          action: string
+          actor_id: string | null
+          created_at: string
+          description: string
+          id: string
+          metadata: Json | null
+          user_id: string
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          created_at?: string
+          description: string
+          id?: string
+          metadata?: Json | null
+          user_id: string
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          created_at?: string
+          description?: string
+          id?: string
+          metadata?: Json | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       address_book_contacts: {
         Row: {
           address: string | null
@@ -211,7 +241,12 @@ export type Database = {
           meta: Json | null
           period_end: string
           period_start: string
-          review_type: string
+          review_type: string | null
+          session_id: string | null
+          source: string
+          thread_id: string | null
+          title: string | null
+          updated_at: string
         }
         Insert: {
           athlete_id: string
@@ -222,7 +257,12 @@ export type Database = {
           meta?: Json | null
           period_end: string
           period_start: string
-          review_type: string
+          review_type?: string | null
+          session_id?: string | null
+          source?: string
+          thread_id?: string | null
+          title?: string | null
+          updated_at?: string
         }
         Update: {
           athlete_id?: string
@@ -233,7 +273,12 @@ export type Database = {
           meta?: Json | null
           period_end?: string
           period_start?: string
-          review_type?: string
+          review_type?: string | null
+          session_id?: string | null
+          source?: string
+          thread_id?: string | null
+          title?: string | null
+          updated_at?: string
         }
         Relationships: [
           {
@@ -241,6 +286,20 @@ export type Database = {
             columns: ["athlete_id"]
             isOneToOne: false
             referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_reviews_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_reviews_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "ai_chat_threads"
             referencedColumns: ["id"]
           },
         ]
@@ -1198,6 +1257,64 @@ export type Database = {
           },
         ]
       }
+      athlete_race_selections: {
+        Row: {
+          assigned_by: string | null
+          athlete_id: string
+          created_at: string
+          id: string
+          race_schedule_entry_id: string
+          selected_event: string | null
+          session_id: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          assigned_by?: string | null
+          athlete_id: string
+          created_at?: string
+          id?: string
+          race_schedule_entry_id: string
+          selected_event?: string | null
+          session_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          assigned_by?: string | null
+          athlete_id?: string
+          created_at?: string
+          id?: string
+          race_schedule_entry_id?: string
+          selected_event?: string | null
+          session_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "athlete_race_selections_athlete_id_fkey"
+            columns: ["athlete_id"]
+            isOneToOne: false
+            referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "athlete_race_selections_race_schedule_entry_id_fkey"
+            columns: ["race_schedule_entry_id"]
+            isOneToOne: false
+            referencedRelation: "race_schedule_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "athlete_race_selections_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       athlete_seasons: {
         Row: {
           athlete_id: string
@@ -1340,6 +1457,53 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "athlete_training_response_overrides_athlete_id_fkey"
+            columns: ["athlete_id"]
+            isOneToOne: false
+            referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      athlete_zone_calculator_saves: {
+        Row: {
+          athlete_id: string
+          basis: string
+          created_at: string
+          created_by: string | null
+          id: string
+          inputs: Json | null
+          label: string
+          method: string
+          threshold_hr_bpm: number | null
+          threshold_pace_sec_per_km: number | null
+        }
+        Insert: {
+          athlete_id: string
+          basis: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          inputs?: Json | null
+          label: string
+          method: string
+          threshold_hr_bpm?: number | null
+          threshold_pace_sec_per_km?: number | null
+        }
+        Update: {
+          athlete_id?: string
+          basis?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          inputs?: Json | null
+          label?: string
+          method?: string
+          threshold_hr_bpm?: number | null
+          threshold_pace_sec_per_km?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "athlete_zone_calculator_saves_athlete_id_fkey"
             columns: ["athlete_id"]
             isOneToOne: false
             referencedRelation: "athletes"
@@ -1494,6 +1658,10 @@ export type Database = {
           seed_ctl: number | null
           seed_set_at: string | null
           sex: string | null
+          speed_profile_manual_400m_sec: number | null
+          speed_profile_manual_date: string | null
+          speed_profile_manual_reason: string | null
+          speed_profile_mode: string
           timezone: string
           training_age_years: number | null
           typical_training_frequency: number | null
@@ -1526,6 +1694,10 @@ export type Database = {
           seed_ctl?: number | null
           seed_set_at?: string | null
           sex?: string | null
+          speed_profile_manual_400m_sec?: number | null
+          speed_profile_manual_date?: string | null
+          speed_profile_manual_reason?: string | null
+          speed_profile_mode?: string
           timezone?: string
           training_age_years?: number | null
           typical_training_frequency?: number | null
@@ -1558,6 +1730,10 @@ export type Database = {
           seed_ctl?: number | null
           seed_set_at?: string | null
           sex?: string | null
+          speed_profile_manual_400m_sec?: number | null
+          speed_profile_manual_date?: string | null
+          speed_profile_manual_reason?: string | null
+          speed_profile_mode?: string
           timezone?: string
           training_age_years?: number | null
           typical_training_frequency?: number | null
@@ -2155,6 +2331,7 @@ export type Database = {
       event_entries: {
         Row: {
           athlete_id: string
+          athlete_race_selection_id: string | null
           attachment_url: string | null
           bib_number: string | null
           checkin_notes: string | null
@@ -2170,6 +2347,7 @@ export type Database = {
         }
         Insert: {
           athlete_id: string
+          athlete_race_selection_id?: string | null
           attachment_url?: string | null
           bib_number?: string | null
           checkin_notes?: string | null
@@ -2185,6 +2363,7 @@ export type Database = {
         }
         Update: {
           athlete_id?: string
+          athlete_race_selection_id?: string | null
           attachment_url?: string | null
           bib_number?: string | null
           checkin_notes?: string | null
@@ -2204,6 +2383,13 @@ export type Database = {
             columns: ["athlete_id"]
             isOneToOne: false
             referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_entries_athlete_race_selection_id_fkey"
+            columns: ["athlete_race_selection_id"]
+            isOneToOne: false
+            referencedRelation: "athlete_race_selections"
             referencedColumns: ["id"]
           },
         ]
@@ -2764,6 +2950,7 @@ export type Database = {
           event_date: string | null
           id: string
           link_url: string | null
+          location_id: string | null
           meta: Json
           pinned: boolean
           post_type: Database["public"]["Enums"]["noticeboard_post_type"]
@@ -2778,6 +2965,7 @@ export type Database = {
           event_date?: string | null
           id?: string
           link_url?: string | null
+          location_id?: string | null
           meta?: Json
           pinned?: boolean
           post_type?: Database["public"]["Enums"]["noticeboard_post_type"]
@@ -2792,13 +2980,22 @@ export type Database = {
           event_date?: string | null
           id?: string
           link_url?: string | null
+          location_id?: string | null
           meta?: Json
           pinned?: boolean
           post_type?: Database["public"]["Enums"]["noticeboard_post_type"]
           title?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "noticeboard_posts_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "training_locations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       noticeboard_reactions: {
         Row: {
@@ -3012,6 +3209,8 @@ export type Database = {
           notes: string | null
           overall_place: number | null
           performance_date: string
+          race_event_access: boolean
+          race_event_id: string | null
           race_type: string | null
           round: string | null
           session_id: string | null
@@ -3041,6 +3240,8 @@ export type Database = {
           notes?: string | null
           overall_place?: number | null
           performance_date: string
+          race_event_access?: boolean
+          race_event_id?: string | null
           race_type?: string | null
           round?: string | null
           session_id?: string | null
@@ -3070,6 +3271,8 @@ export type Database = {
           notes?: string | null
           overall_place?: number | null
           performance_date?: string
+          race_event_access?: boolean
+          race_event_id?: string | null
           race_type?: string | null
           round?: string | null
           session_id?: string | null
@@ -3089,6 +3292,13 @@ export type Database = {
             columns: ["fit_file_id"]
             isOneToOne: false
             referencedRelation: "session_files"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "performances_race_event_id_fkey"
+            columns: ["race_event_id"]
+            isOneToOne: false
+            referencedRelation: "race_events"
             referencedColumns: ["id"]
           },
         ]
@@ -3380,6 +3590,239 @@ export type Database = {
         }
         Relationships: []
       }
+      race_calendar_groups: {
+        Row: {
+          applied_at: string
+          applied_by: string | null
+          calendar_id: string
+          training_group_id: string
+        }
+        Insert: {
+          applied_at?: string
+          applied_by?: string | null
+          calendar_id: string
+          training_group_id: string
+        }
+        Update: {
+          applied_at?: string
+          applied_by?: string | null
+          calendar_id?: string
+          training_group_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "race_calendar_groups_calendar_id_fkey"
+            columns: ["calendar_id"]
+            isOneToOne: false
+            referencedRelation: "race_calendars"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "race_calendar_groups_training_group_id_fkey"
+            columns: ["training_group_id"]
+            isOneToOne: false
+            referencedRelation: "training_groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      race_calendars: {
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          name: string
+          season: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          id?: string
+          name: string
+          season?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          name?: string
+          season?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      race_entry_rules: {
+        Row: {
+          closes_time: string
+          closes_weekday: number
+          created_at: string
+          created_by: string | null
+          id: string
+          name: string
+          notes: string | null
+          opens_min_days_before: number | null
+          opens_time: string | null
+          opens_weekday: number | null
+          updated_at: string
+        }
+        Insert: {
+          closes_time: string
+          closes_weekday: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name: string
+          notes?: string | null
+          opens_min_days_before?: number | null
+          opens_time?: string | null
+          opens_weekday?: number | null
+          updated_at?: string
+        }
+        Update: {
+          closes_time?: string
+          closes_weekday?: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name?: string
+          notes?: string | null
+          opens_min_days_before?: number | null
+          opens_time?: string | null
+          opens_weekday?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      race_events: {
+        Row: {
+          created_at: string
+          created_by: string
+          distance_m: number | null
+          event_date: string | null
+          id: string
+          location: string | null
+          name: string
+          race_type: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string
+          distance_m?: number | null
+          event_date?: string | null
+          id?: string
+          location?: string | null
+          name: string
+          race_type?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          distance_m?: number | null
+          event_date?: string | null
+          id?: string
+          location?: string | null
+          name?: string
+          race_type?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      race_schedule_entries: {
+        Row: {
+          calendar_id: string | null
+          created_at: string
+          created_by: string
+          entry_closes: string | null
+          entry_opens: string | null
+          entry_rule_id: string | null
+          entry_url: string | null
+          event_date: string
+          events_offered: string[]
+          id: string
+          location: string | null
+          location_id: string | null
+          name: string
+          race_type: string | null
+          raw_text: string | null
+          source: string
+          training_group_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          calendar_id?: string | null
+          created_at?: string
+          created_by?: string
+          entry_closes?: string | null
+          entry_opens?: string | null
+          entry_rule_id?: string | null
+          entry_url?: string | null
+          event_date: string
+          events_offered?: string[]
+          id?: string
+          location?: string | null
+          location_id?: string | null
+          name: string
+          race_type?: string | null
+          raw_text?: string | null
+          source?: string
+          training_group_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          calendar_id?: string | null
+          created_at?: string
+          created_by?: string
+          entry_closes?: string | null
+          entry_opens?: string | null
+          entry_rule_id?: string | null
+          entry_url?: string | null
+          event_date?: string
+          events_offered?: string[]
+          id?: string
+          location?: string | null
+          location_id?: string | null
+          name?: string
+          race_type?: string | null
+          raw_text?: string | null
+          source?: string
+          training_group_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "race_schedule_entries_calendar_id_fkey"
+            columns: ["calendar_id"]
+            isOneToOne: false
+            referencedRelation: "race_calendars"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "race_schedule_entries_entry_rule_id_fkey"
+            columns: ["entry_rule_id"]
+            isOneToOne: false
+            referencedRelation: "race_entry_rules"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "race_schedule_entries_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "training_locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "race_schedule_entries_training_group_id_fkey"
+            columns: ["training_group_id"]
+            isOneToOne: false
+            referencedRelation: "training_groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       race_tactics_ai_suggestions: {
         Row: {
           alternative_reasoning: string
@@ -3527,6 +3970,7 @@ export type Database = {
           event_tactics: Json | null
           goal_time_seconds: number
           id: string
+          linked_session_id: string | null
           published_at: string | null
           race_date: string | null
           race_distance_m: number
@@ -3549,6 +3993,7 @@ export type Database = {
           event_tactics?: Json | null
           goal_time_seconds: number
           id?: string
+          linked_session_id?: string | null
           published_at?: string | null
           race_date?: string | null
           race_distance_m: number
@@ -3571,6 +4016,7 @@ export type Database = {
           event_tactics?: Json | null
           goal_time_seconds?: number
           id?: string
+          linked_session_id?: string | null
           published_at?: string | null
           race_date?: string | null
           race_distance_m?: number
@@ -3588,6 +4034,13 @@ export type Database = {
             columns: ["athlete_id"]
             isOneToOne: false
             referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "race_tactics_plans_linked_session_id_fkey"
+            columns: ["linked_session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
             referencedColumns: ["id"]
           },
         ]
@@ -3825,6 +4278,44 @@ export type Database = {
           },
         ]
       }
+      report_runs: {
+        Row: {
+          athlete_id: string
+          created_at: string
+          id: string
+          period_end: string
+          period_start: string
+          report_type: string
+          run_by: string
+        }
+        Insert: {
+          athlete_id: string
+          created_at?: string
+          id?: string
+          period_end: string
+          period_start: string
+          report_type: string
+          run_by: string
+        }
+        Update: {
+          athlete_id?: string
+          created_at?: string
+          id?: string
+          period_end?: string
+          period_start?: string
+          report_type?: string
+          run_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "report_runs_athlete_id_fkey"
+            columns: ["athlete_id"]
+            isOneToOne: false
+            referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       session_adjustment_rules: {
         Row: {
           adjusted_summary: string
@@ -3948,6 +4439,51 @@ export type Database = {
           },
           {
             foreignKeyName: "session_attendance_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      session_comments: {
+        Row: {
+          athlete_id: string
+          author_id: string
+          body: string
+          created_at: string
+          id: string
+          session_id: string
+          updated_at: string
+        }
+        Insert: {
+          athlete_id: string
+          author_id: string
+          body: string
+          created_at?: string
+          id?: string
+          session_id: string
+          updated_at?: string
+        }
+        Update: {
+          athlete_id?: string
+          author_id?: string
+          body?: string
+          created_at?: string
+          id?: string
+          session_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "session_comments_athlete_id_fkey"
+            columns: ["athlete_id"]
+            isOneToOne: false
+            referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "session_comments_session_id_fkey"
             columns: ["session_id"]
             isOneToOne: false
             referencedRelation: "sessions"
@@ -4429,11 +4965,13 @@ export type Database = {
           source: Database["public"]["Enums"]["session_source"]
           structure: Database["public"]["Enums"]["session_structure"] | null
           terrain: string | null
+          time_of_day: string | null
           title: string
           total_distance_m: number | null
           total_moving_time_seconds: number | null
           total_time_seconds: number | null
           updated_at: string
+          venue: string | null
           weather: string | null
           wind_kph: number | null
           work_avg_cadence: number | null
@@ -4486,11 +5024,13 @@ export type Database = {
           source?: Database["public"]["Enums"]["session_source"]
           structure?: Database["public"]["Enums"]["session_structure"] | null
           terrain?: string | null
+          time_of_day?: string | null
           title: string
           total_distance_m?: number | null
           total_moving_time_seconds?: number | null
           total_time_seconds?: number | null
           updated_at?: string
+          venue?: string | null
           weather?: string | null
           wind_kph?: number | null
           work_avg_cadence?: number | null
@@ -4543,11 +5083,13 @@ export type Database = {
           source?: Database["public"]["Enums"]["session_source"]
           structure?: Database["public"]["Enums"]["session_structure"] | null
           terrain?: string | null
+          time_of_day?: string | null
           title?: string
           total_distance_m?: number | null
           total_moving_time_seconds?: number | null
           total_time_seconds?: number | null
           updated_at?: string
+          venue?: string | null
           weather?: string | null
           wind_kph?: number | null
           work_avg_cadence?: number | null
@@ -5062,6 +5604,76 @@ export type Database = {
         }
         Relationships: []
       }
+      training_routes: {
+        Row: {
+          athlete_id: string | null
+          created_at: string
+          created_by: string
+          distance_m: number | null
+          elevation_gain_m: number | null
+          id: string
+          location_id: string | null
+          location_name: string | null
+          name: string
+          path: Json
+          source_session_id: string | null
+          start_lat: number | null
+          start_lng: number | null
+        }
+        Insert: {
+          athlete_id?: string | null
+          created_at?: string
+          created_by: string
+          distance_m?: number | null
+          elevation_gain_m?: number | null
+          id?: string
+          location_id?: string | null
+          location_name?: string | null
+          name: string
+          path: Json
+          source_session_id?: string | null
+          start_lat?: number | null
+          start_lng?: number | null
+        }
+        Update: {
+          athlete_id?: string | null
+          created_at?: string
+          created_by?: string
+          distance_m?: number | null
+          elevation_gain_m?: number | null
+          id?: string
+          location_id?: string | null
+          location_name?: string | null
+          name?: string
+          path?: Json
+          source_session_id?: string | null
+          start_lat?: number | null
+          start_lng?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "training_routes_athlete_id_fkey"
+            columns: ["athlete_id"]
+            isOneToOne: false
+            referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_routes_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "training_locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_routes_source_session_id_fkey"
+            columns: ["source_session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -5134,8 +5746,16 @@ export type Database = {
         Args: { _athlete_id: string; _user_id: string }
         Returns: boolean
       }
+      can_access_race_calendar: {
+        Args: { _calendar_id: string; _user_id: string }
+        Returns: boolean
+      }
       claim_athlete_invite: { Args: { _token: string }; Returns: Json }
       claim_parent_invite: { Args: { _token: string }; Returns: Json }
+      compute_continuous_fatigue: {
+        Args: { _session_id: string }
+        Returns: undefined
+      }
       compute_session_completion: {
         Args: { _session_id: string }
         Returns: undefined
@@ -5166,6 +5786,7 @@ export type Database = {
           avg_vo_cm: number
           biomechanical_fatigue_score: number
           biomechanical_score: number
+          dominant_zone: string
           gct_balance_pct: number
           hr_drift_bpm: number
           mechanical_stability_score: number
@@ -5232,6 +5853,10 @@ export type Database = {
           status: string
         }[]
       }
+      has_race_event_access: {
+        Args: { _race_event_id: string; _user_id: string }
+        Returns: boolean
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -5262,6 +5887,11 @@ export type Database = {
         }
         Returns: undefined
       }
+      owns_race_calendar: {
+        Args: { _calendar_id: string; _user_id: string }
+        Returns: boolean
+      }
+      purge_account_activity_log: { Args: never; Returns: undefined }
       recompute_athlete_dna: {
         Args: { _athlete_id: string }
         Returns: undefined
