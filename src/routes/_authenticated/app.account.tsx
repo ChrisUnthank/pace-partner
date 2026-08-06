@@ -17,9 +17,10 @@ import { setStoredUnits } from "@/lib/units";
 import { TIMEZONE_OPTIONS, guessLocalTimezone } from "@/lib/timezones";
 import { ContactDetailsCard } from "@/components/contact-details-card";
 import { Link } from "@tanstack/react-router";
-import { UserCircle2 } from "lucide-react";
+import { UserCircle2, Moon, SunMedium } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { logAccountActivity } from "@/lib/account-activity-log";
+import { useTheme } from "@/lib/theme";
 
 export const Route = createFileRoute("/_authenticated/app/account")({
   component: Account,
@@ -124,6 +125,11 @@ function Account() {
 
 function PreferencesCard({ userId }: { userId: string }) {
   const qc = useQueryClient();
+  // Appearance is a pure client-side UI preference (this device only, via
+  // localStorage) — same pattern as the existing Coach/Athlete view-mode
+  // toggle in view-mode.tsx, not synced to the profiles row like
+  // units/timezone below. Applies instantly, no Save button needed.
+  const { theme, setTheme } = useTheme();
 
   const { data: profile } = useQuery({
     queryKey: ["my-profile", userId],
@@ -179,6 +185,35 @@ function PreferencesCard({ userId }: { userId: string }) {
       </CardHeader>
 
       <CardContent className="grid sm:grid-cols-2 gap-3">
+        <div>
+          <Label>Appearance</Label>
+          <div className="mt-1 inline-flex rounded-md border p-0.5">
+            <button
+              type="button"
+              onClick={() => setTheme("dark")}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-sm font-medium transition-colors",
+                theme === "dark" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <Moon className="h-3.5 w-3.5" />
+              Dark
+            </button>
+            <button
+              type="button"
+              onClick={() => setTheme("light")}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-sm font-medium transition-colors",
+                theme === "light" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <SunMedium className="h-3.5 w-3.5" />
+              Light
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">This device only — applies right away.</p>
+        </div>
+
         <div>
           <Label>Units</Label>
           <Select value={units} onValueChange={setUnits}>
