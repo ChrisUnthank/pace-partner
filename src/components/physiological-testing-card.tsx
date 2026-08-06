@@ -75,7 +75,7 @@ const CONFIDENCE_STYLES: Record<string, string> = {
 const TYPE_STYLES: Record<string, string> = {
   measured: "bg-sky-100 text-sky-700 border-sky-200",
   device_derived: "bg-violet-100 text-violet-700 border-violet-200",
-  estimated: "bg-slate-100 text-slate-700 border-slate-200",
+  estimated: "bg-muted text-muted-foreground border-border",
   coach_entered: "bg-orange-100 text-orange-700 border-orange-200",
 };
 
@@ -132,9 +132,9 @@ function computeTrend(row: TestRow): { direction: TrendDirection; previousLabel:
 }
 
 function TrendIcon({ direction }: { direction: TrendDirection }) {
-  if (direction === "up") return <ArrowUpRight className="h-3.5 w-3.5 text-slate-500" />;
-  if (direction === "down") return <ArrowDownRight className="h-3.5 w-3.5 text-slate-500" />;
-  return <Minus className="h-3.5 w-3.5 text-slate-500" />;
+  if (direction === "up") return <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />;
+  if (direction === "down") return <ArrowDownRight className="h-3.5 w-3.5 text-muted-foreground" />;
+  return <Minus className="h-3.5 w-3.5 text-muted-foreground" />;
 }
 
 // Same labels the Zones page's own Method dropdown uses
