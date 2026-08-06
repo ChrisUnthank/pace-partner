@@ -9,101 +9,96 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as AuthRouteImport } from './routes/auth'
-import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as ClaimTokenRouteImport } from './routes/claim.$token'
-import { Route as CSlugRouteImport } from './routes/c.$slug'
+import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
+import { Route as AuthRouteImport } from './routes/auth'
 import { Route as ASlugRouteImport } from './routes/a.$slug'
+import { Route as CSlugRouteImport } from './routes/c.$slug'
+import { Route as ClaimTokenRouteImport } from './routes/claim.$token'
 import { Route as AuthenticatedAppIndexRouteImport } from './routes/_authenticated/app.index'
-import { Route as AuthenticatedAppZonesRouteImport } from './routes/_authenticated/app.zones'
-import { Route as AuthenticatedAppVitalsRouteImport } from './routes/_authenticated/app.vitals'
-import { Route as AuthenticatedAppTrainingScheduleRouteImport } from './routes/_authenticated/app.training-schedule'
-import { Route as AuthenticatedAppTodayRouteImport } from './routes/_authenticated/app.today'
-import { Route as AuthenticatedAppTemplatesRouteImport } from './routes/_authenticated/app.templates'
-import { Route as AuthenticatedAppSessionsRouteImport } from './routes/_authenticated/app.sessions'
-import { Route as AuthenticatedAppRecoveryRouteImport } from './routes/_authenticated/app.recovery'
-import { Route as AuthenticatedAppRacesRouteImport } from './routes/_authenticated/app.races'
-import { Route as AuthenticatedAppPlansRouteImport } from './routes/_authenticated/app.plans'
-import { Route as AuthenticatedAppNoticeboardRouteImport } from './routes/_authenticated/app.noticeboard'
-import { Route as AuthenticatedAppMyScheduleRouteImport } from './routes/_authenticated/app.my-schedule'
-import { Route as AuthenticatedAppMessagesRouteImport } from './routes/_authenticated/app.messages'
-import { Route as AuthenticatedAppMapsRouteImport } from './routes/_authenticated/app.maps'
-import { Route as AuthenticatedAppLactateRouteImport } from './routes/_authenticated/app.lactate'
-import { Route as AuthenticatedAppInjuriesRouteImport } from './routes/_authenticated/app.injuries'
-import { Route as AuthenticatedAppHealthRouteImport } from './routes/_authenticated/app.health'
-import { Route as AuthenticatedAppGroupChatRouteImport } from './routes/_authenticated/app.group-chat'
-import { Route as AuthenticatedAppGearRouteImport } from './routes/_authenticated/app.gear'
-import { Route as AuthenticatedAppEventEntriesRouteImport } from './routes/_authenticated/app.event-entries'
-import { Route as AuthenticatedAppDietFuelRouteImport } from './routes/_authenticated/app.diet-fuel'
-import { Route as AuthenticatedAppDailyLogRouteImport } from './routes/_authenticated/app.daily-log'
-import { Route as AuthenticatedAppCredentialsRouteImport } from './routes/_authenticated/app.credentials'
-import { Route as AuthenticatedAppCompareRouteImport } from './routes/_authenticated/app.compare'
-import { Route as AuthenticatedAppCoachingHubRouteImport } from './routes/_authenticated/app.coaching-hub'
-import { Route as AuthenticatedAppCoachDiaryRouteImport } from './routes/_authenticated/app.coach-diary'
-import { Route as AuthenticatedAppCheckoutRouteImport } from './routes/_authenticated/app.checkout'
-import { Route as AuthenticatedAppCalculatorsRouteImport } from './routes/_authenticated/app.calculators'
-import { Route as AuthenticatedAppBiomechanicsRouteImport } from './routes/_authenticated/app.biomechanics'
-import { Route as AuthenticatedAppBicarbRouteImport } from './routes/_authenticated/app.bicarb'
-import { Route as AuthenticatedAppAthletesRouteImport } from './routes/_authenticated/app.athletes'
-import { Route as AuthenticatedAppAthleteInfoRouteImport } from './routes/_authenticated/app.athlete-info'
-import { Route as AuthenticatedAppAnalyticsRouteImport } from './routes/_authenticated/app.analytics'
-import { Route as AuthenticatedAppAddressBookRouteImport } from './routes/_authenticated/app.address-book'
 import { Route as AuthenticatedAppAccountRouteImport } from './routes/_authenticated/app.account'
-import { Route as AuthenticatedAppSessionsIndexRouteImport } from './routes/_authenticated/app.sessions.index'
-import { Route as AuthenticatedAppReportsIndexRouteImport } from './routes/_authenticated/app.reports.index'
-import { Route as AuthenticatedAppRacesIndexRouteImport } from './routes/_authenticated/app.races.index'
-import { Route as AuthenticatedAppRaceTacticsIndexRouteImport } from './routes/_authenticated/app.race-tactics.index'
-import { Route as AuthenticatedAppCoachIndexRouteImport } from './routes/_authenticated/app.coach.index'
-import { Route as AuthenticatedAppCalculatorsIndexRouteImport } from './routes/_authenticated/app.calculators.index'
-import { Route as AuthenticatedAppAthletesIndexRouteImport } from './routes/_authenticated/app.athletes.index'
+import { Route as AuthenticatedAppAddressBookRouteImport } from './routes/_authenticated/app.address-book'
+import { Route as AuthenticatedAppAnalyticsRouteImport } from './routes/_authenticated/app.analytics'
+import { Route as AuthenticatedAppAthleteInfoRouteImport } from './routes/_authenticated/app.athlete-info'
+import { Route as AuthenticatedAppAthletesRouteImport } from './routes/_authenticated/app.athletes'
+import { Route as AuthenticatedAppBicarbRouteImport } from './routes/_authenticated/app.bicarb'
+import { Route as AuthenticatedAppBiomechanicsRouteImport } from './routes/_authenticated/app.biomechanics'
+import { Route as AuthenticatedAppCalculatorsRouteImport } from './routes/_authenticated/app.calculators'
+import { Route as AuthenticatedAppCheckoutRouteImport } from './routes/_authenticated/app.checkout'
+import { Route as AuthenticatedAppCoachDiaryRouteImport } from './routes/_authenticated/app.coach-diary'
+import { Route as AuthenticatedAppCoachingHubRouteImport } from './routes/_authenticated/app.coaching-hub'
+import { Route as AuthenticatedAppCompareRouteImport } from './routes/_authenticated/app.compare'
+import { Route as AuthenticatedAppCredentialsRouteImport } from './routes/_authenticated/app.credentials'
+import { Route as AuthenticatedAppDailyLogRouteImport } from './routes/_authenticated/app.daily-log'
+import { Route as AuthenticatedAppDietFuelRouteImport } from './routes/_authenticated/app.diet-fuel'
+import { Route as AuthenticatedAppEventEntriesRouteImport } from './routes/_authenticated/app.event-entries'
+import { Route as AuthenticatedAppGearRouteImport } from './routes/_authenticated/app.gear'
+import { Route as AuthenticatedAppGroupChatRouteImport } from './routes/_authenticated/app.group-chat'
+import { Route as AuthenticatedAppHealthRouteImport } from './routes/_authenticated/app.health'
+import { Route as AuthenticatedAppInjuriesRouteImport } from './routes/_authenticated/app.injuries'
+import { Route as AuthenticatedAppLactateRouteImport } from './routes/_authenticated/app.lactate'
+import { Route as AuthenticatedAppMapsRouteImport } from './routes/_authenticated/app.maps'
+import { Route as AuthenticatedAppMessagesRouteImport } from './routes/_authenticated/app.messages'
+import { Route as AuthenticatedAppMyRaceScheduleRouteImport } from './routes/_authenticated/app.my-race-schedule'
+import { Route as AuthenticatedAppMyScheduleRouteImport } from './routes/_authenticated/app.my-schedule'
+import { Route as AuthenticatedAppNoticeboardRouteImport } from './routes/_authenticated/app.noticeboard'
+import { Route as AuthenticatedAppPlansRouteImport } from './routes/_authenticated/app.plans'
+import { Route as AuthenticatedAppRaceScheduleRouteImport } from './routes/_authenticated/app.race-schedule'
+import { Route as AuthenticatedAppRacesRouteImport } from './routes/_authenticated/app.races'
+import { Route as AuthenticatedAppRecoveryRouteImport } from './routes/_authenticated/app.recovery'
+import { Route as AuthenticatedAppSessionsRouteImport } from './routes/_authenticated/app.sessions'
+import { Route as AuthenticatedAppTemplatesRouteImport } from './routes/_authenticated/app.templates'
+import { Route as AuthenticatedAppTodayRouteImport } from './routes/_authenticated/app.today'
+import { Route as AuthenticatedAppTrainingScheduleRouteImport } from './routes/_authenticated/app.training-schedule'
+import { Route as AuthenticatedAppVitalsRouteImport } from './routes/_authenticated/app.vitals'
+import { Route as AuthenticatedAppZonesRouteImport } from './routes/_authenticated/app.zones'
 import { Route as AuthenticatedAppAthleteIndexRouteImport } from './routes/_authenticated/app.athlete.index'
-import { Route as ApiPublicHooksRunDailyRemindersRouteImport } from './routes/api/public/hooks/run-daily-reminders'
-import { Route as ApiPublicHooksDispatchPushRouteImport } from './routes/api/public/hooks/dispatch-push'
-import { Route as AuthenticatedAppSessionsNewRouteImport } from './routes/_authenticated/app.sessions.new'
-import { Route as AuthenticatedAppSessionsCalendarRouteImport } from './routes/_authenticated/app.sessions.calendar'
-import { Route as AuthenticatedAppSessionsSessionIdRouteImport } from './routes/_authenticated/app.sessions.$sessionId'
-import { Route as AuthenticatedAppReportsAiReviewRouteImport } from './routes/_authenticated/app.reports.ai-review'
-import { Route as AuthenticatedAppRacesRaceIdRouteImport } from './routes/_authenticated/app.races.$raceId'
-import { Route as AuthenticatedAppRaceTacticsNewRouteImport } from './routes/_authenticated/app.race-tactics.new'
-import { Route as AuthenticatedAppRaceTacticsPlanIdRouteImport } from './routes/_authenticated/app.race-tactics.$planId'
-import { Route as AuthenticatedAppCoachSlugRouteImport } from './routes/_authenticated/app.coach.$slug'
-import { Route as AuthenticatedAppCalculatorsStartingfitnessRouteImport } from './routes/_authenticated/app.calculators.startingfitness'
-import { Route as AuthenticatedAppCalculatorsPacepredictorRouteImport } from './routes/_authenticated/app.calculators.pacepredictor'
-import { Route as AuthenticatedAppAthletesAthleteIdRouteImport } from './routes/_authenticated/app.athletes.$athleteId'
 import { Route as AuthenticatedAppAthleteSlugRouteImport } from './routes/_authenticated/app.athlete.$slug'
-import { Route as AuthenticatedAppSessionsSessionIdIndexRouteImport } from './routes/_authenticated/app.sessions.$sessionId.index'
-import { Route as AuthenticatedAppRacesRaceIdIndexRouteImport } from './routes/_authenticated/app.races.$raceId.index'
-import { Route as AuthenticatedAppSessionsSessionIdAnalysisRouteImport } from './routes/_authenticated/app.sessions.$sessionId.analysis'
-import { Route as AuthenticatedAppReportsCoachWeeklyRouteImport } from './routes/_authenticated/app.reports.coach.weekly'
-import { Route as AuthenticatedAppReportsAthleteWeeklyRouteImport } from './routes/_authenticated/app.reports.athlete.weekly'
-import { Route as AuthenticatedAppRacesRaceIdAnalysisRouteImport } from './routes/_authenticated/app.races.$raceId.analysis'
-import { Route as AuthenticatedAppRaceTacticsPlanIdRaceDayRouteImport } from './routes/_authenticated/app.race-tactics.$planId_.race-day'
-import { Route as AuthenticatedAppAthletesAthleteIdRaceHistoryRouteImport } from './routes/_authenticated/app.athletes.$athleteId_.race-history'
+import { Route as AuthenticatedAppAthletesIndexRouteImport } from './routes/_authenticated/app.athletes.index'
+import { Route as AuthenticatedAppAthletesAthleteIdRouteImport } from './routes/_authenticated/app.athletes.$athleteId'
+import { Route as AuthenticatedAppCalculatorsIndexRouteImport } from './routes/_authenticated/app.calculators.index'
+import { Route as AuthenticatedAppCalculatorsPacepredictorRouteImport } from './routes/_authenticated/app.calculators.pacepredictor'
+import { Route as AuthenticatedAppCalculatorsStartingfitnessRouteImport } from './routes/_authenticated/app.calculators.startingfitness'
+import { Route as AuthenticatedAppCalculatorsZonecalculatorRouteImport } from './routes/_authenticated/app.calculators.zonecalculator'
+import { Route as AuthenticatedAppCoachIndexRouteImport } from './routes/_authenticated/app.coach.index'
+import { Route as AuthenticatedAppCoachSlugRouteImport } from './routes/_authenticated/app.coach.$slug'
+import { Route as AuthenticatedAppRaceEventsIndexRouteImport } from './routes/_authenticated/app.race-events.index'
+import { Route as AuthenticatedAppRaceEventsRaceEventIdRouteImport } from './routes/_authenticated/app.race-events.$raceEventId'
+import { Route as AuthenticatedAppRaceTacticsIndexRouteImport } from './routes/_authenticated/app.race-tactics.index'
+import { Route as AuthenticatedAppRaceTacticsPlanIdRouteImport } from './routes/_authenticated/app.race-tactics.$planId'
+import { Route as AuthenticatedAppRaceTacticsNewRouteImport } from './routes/_authenticated/app.race-tactics.new'
+import { Route as AuthenticatedAppRacesIndexRouteImport } from './routes/_authenticated/app.races.index'
+import { Route as AuthenticatedAppRacesRaceIdRouteImport } from './routes/_authenticated/app.races.$raceId'
+import { Route as AuthenticatedAppReportsIndexRouteImport } from './routes/_authenticated/app.reports.index'
+import { Route as AuthenticatedAppReportsAiReviewRouteImport } from './routes/_authenticated/app.reports.ai-review'
+import { Route as AuthenticatedAppSessionsIndexRouteImport } from './routes/_authenticated/app.sessions.index'
+import { Route as AuthenticatedAppSessionsSessionIdRouteImport } from './routes/_authenticated/app.sessions.$sessionId'
+import { Route as AuthenticatedAppSessionsCalendarRouteImport } from './routes/_authenticated/app.sessions.calendar'
+import { Route as AuthenticatedAppSessionsNewRouteImport } from './routes/_authenticated/app.sessions.new'
+import { Route as ApiPublicHooksDispatchPushRouteImport } from './routes/api/public/hooks/dispatch-push'
+import { Route as ApiPublicHooksRunDailyRemindersRouteImport } from './routes/api/public/hooks/run-daily-reminders'
 import { Route as AuthenticatedAppAthletesAthleteIdPerformanceProfileRouteImport } from './routes/_authenticated/app.athletes.$athleteId_.performance-profile'
+import { Route as AuthenticatedAppAthletesAthleteIdRaceHistoryRouteImport } from './routes/_authenticated/app.athletes.$athleteId_.race-history'
+import { Route as AuthenticatedAppRaceTacticsPlanIdRaceDayRouteImport } from './routes/_authenticated/app.race-tactics.$planId_.race-day'
+import { Route as AuthenticatedAppRacesRaceIdIndexRouteImport } from './routes/_authenticated/app.races.$raceId.index'
+import { Route as AuthenticatedAppRacesRaceIdAnalysisRouteImport } from './routes/_authenticated/app.races.$raceId.analysis'
+import { Route as AuthenticatedAppReportsAthleteWeeklyRouteImport } from './routes/_authenticated/app.reports.athlete.weekly'
+import { Route as AuthenticatedAppReportsCoachWeeklyRouteImport } from './routes/_authenticated/app.reports.coach.weekly'
+import { Route as AuthenticatedAppSessionsSessionIdIndexRouteImport } from './routes/_authenticated/app.sessions.$sessionId.index'
+import { Route as AuthenticatedAppSessionsSessionIdAnalysisRouteImport } from './routes/_authenticated/app.sessions.$sessionId.analysis'
 
-const AuthRoute = AuthRouteImport.update({
-  id: '/auth',
-  path: '/auth',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ClaimTokenRoute = ClaimTokenRouteImport.update({
-  id: '/claim/$token',
-  path: '/claim/$token',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CSlugRoute = CSlugRouteImport.update({
-  id: '/c/$slug',
-  path: '/c/$slug',
+const AuthRoute = AuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ASlugRoute = ASlugRouteImport.update({
@@ -111,184 +106,30 @@ const ASlugRoute = ASlugRouteImport.update({
   path: '/a/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CSlugRoute = CSlugRouteImport.update({
+  id: '/c/$slug',
+  path: '/c/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClaimTokenRoute = ClaimTokenRouteImport.update({
+  id: '/claim/$token',
+  path: '/claim/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedAppIndexRoute = AuthenticatedAppIndexRouteImport.update({
   id: '/app/',
   path: '/app/',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedAppZonesRoute = AuthenticatedAppZonesRouteImport.update({
-  id: '/app/zones',
-  path: '/app/zones',
+const AuthenticatedAppAccountRoute = AuthenticatedAppAccountRouteImport.update({
+  id: '/app/account',
+  path: '/app/account',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedAppVitalsRoute = AuthenticatedAppVitalsRouteImport.update({
-  id: '/app/vitals',
-  path: '/app/vitals',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
-const AuthenticatedAppTrainingScheduleRoute =
-  AuthenticatedAppTrainingScheduleRouteImport.update({
-    id: '/app/training-schedule',
-    path: '/app/training-schedule',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAppTodayRoute = AuthenticatedAppTodayRouteImport.update({
-  id: '/app/today',
-  path: '/app/today',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
-const AuthenticatedAppTemplatesRoute =
-  AuthenticatedAppTemplatesRouteImport.update({
-    id: '/app/templates',
-    path: '/app/templates',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAppSessionsRoute =
-  AuthenticatedAppSessionsRouteImport.update({
-    id: '/app/sessions',
-    path: '/app/sessions',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAppRecoveryRoute =
-  AuthenticatedAppRecoveryRouteImport.update({
-    id: '/app/recovery',
-    path: '/app/recovery',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAppRacesRoute = AuthenticatedAppRacesRouteImport.update({
-  id: '/app/races',
-  path: '/app/races',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
-const AuthenticatedAppPlansRoute = AuthenticatedAppPlansRouteImport.update({
-  id: '/app/plans',
-  path: '/app/plans',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
-const AuthenticatedAppNoticeboardRoute =
-  AuthenticatedAppNoticeboardRouteImport.update({
-    id: '/app/noticeboard',
-    path: '/app/noticeboard',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAppMyScheduleRoute =
-  AuthenticatedAppMyScheduleRouteImport.update({
-    id: '/app/my-schedule',
-    path: '/app/my-schedule',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAppMessagesRoute =
-  AuthenticatedAppMessagesRouteImport.update({
-    id: '/app/messages',
-    path: '/app/messages',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAppMapsRoute = AuthenticatedAppMapsRouteImport.update({
-  id: '/app/maps',
-  path: '/app/maps',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
-const AuthenticatedAppLactateRoute = AuthenticatedAppLactateRouteImport.update({
-  id: '/app/lactate',
-  path: '/app/lactate',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
-const AuthenticatedAppInjuriesRoute =
-  AuthenticatedAppInjuriesRouteImport.update({
-    id: '/app/injuries',
-    path: '/app/injuries',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAppHealthRoute = AuthenticatedAppHealthRouteImport.update({
-  id: '/app/health',
-  path: '/app/health',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
-const AuthenticatedAppGroupChatRoute =
-  AuthenticatedAppGroupChatRouteImport.update({
-    id: '/app/group-chat',
-    path: '/app/group-chat',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAppGearRoute = AuthenticatedAppGearRouteImport.update({
-  id: '/app/gear',
-  path: '/app/gear',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
-const AuthenticatedAppEventEntriesRoute =
-  AuthenticatedAppEventEntriesRouteImport.update({
-    id: '/app/event-entries',
-    path: '/app/event-entries',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAppDietFuelRoute =
-  AuthenticatedAppDietFuelRouteImport.update({
-    id: '/app/diet-fuel',
-    path: '/app/diet-fuel',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAppDailyLogRoute =
-  AuthenticatedAppDailyLogRouteImport.update({
-    id: '/app/daily-log',
-    path: '/app/daily-log',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAppCredentialsRoute =
-  AuthenticatedAppCredentialsRouteImport.update({
-    id: '/app/credentials',
-    path: '/app/credentials',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAppCompareRoute = AuthenticatedAppCompareRouteImport.update({
-  id: '/app/compare',
-  path: '/app/compare',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
-const AuthenticatedAppCoachingHubRoute =
-  AuthenticatedAppCoachingHubRouteImport.update({
-    id: '/app/coaching-hub',
-    path: '/app/coaching-hub',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAppCoachDiaryRoute =
-  AuthenticatedAppCoachDiaryRouteImport.update({
-    id: '/app/coach-diary',
-    path: '/app/coach-diary',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAppCheckoutRoute =
-  AuthenticatedAppCheckoutRouteImport.update({
-    id: '/app/checkout',
-    path: '/app/checkout',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAppCalculatorsRoute =
-  AuthenticatedAppCalculatorsRouteImport.update({
-    id: '/app/calculators',
-    path: '/app/calculators',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAppBiomechanicsRoute =
-  AuthenticatedAppBiomechanicsRouteImport.update({
-    id: '/app/biomechanics',
-    path: '/app/biomechanics',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAppBicarbRoute = AuthenticatedAppBicarbRouteImport.update({
-  id: '/app/bicarb',
-  path: '/app/bicarb',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
-const AuthenticatedAppAthletesRoute =
-  AuthenticatedAppAthletesRouteImport.update({
-    id: '/app/athletes',
-    path: '/app/athletes',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAppAthleteInfoRoute =
-  AuthenticatedAppAthleteInfoRouteImport.update({
-    id: '/app/athlete-info',
-    path: '/app/athlete-info',
+const AuthenticatedAppAddressBookRoute =
+  AuthenticatedAppAddressBookRouteImport.update({
+    id: '/app/address-book',
+    path: '/app/address-book',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedAppAnalyticsRoute =
@@ -297,52 +138,204 @@ const AuthenticatedAppAnalyticsRoute =
     path: '/app/analytics',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedAppAddressBookRoute =
-  AuthenticatedAppAddressBookRouteImport.update({
-    id: '/app/address-book',
-    path: '/app/address-book',
+const AuthenticatedAppAthleteInfoRoute =
+  AuthenticatedAppAthleteInfoRouteImport.update({
+    id: '/app/athlete-info',
+    path: '/app/athlete-info',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedAppAccountRoute = AuthenticatedAppAccountRouteImport.update({
-  id: '/app/account',
-  path: '/app/account',
+const AuthenticatedAppAthletesRoute =
+  AuthenticatedAppAthletesRouteImport.update({
+    id: '/app/athletes',
+    path: '/app/athletes',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppBicarbRoute = AuthenticatedAppBicarbRouteImport.update({
+  id: '/app/bicarb',
+  path: '/app/bicarb',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedAppSessionsIndexRoute =
-  AuthenticatedAppSessionsIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => AuthenticatedAppSessionsRoute,
-  } as any)
-const AuthenticatedAppReportsIndexRoute =
-  AuthenticatedAppReportsIndexRouteImport.update({
-    id: '/app/reports/',
-    path: '/app/reports/',
+const AuthenticatedAppBiomechanicsRoute =
+  AuthenticatedAppBiomechanicsRouteImport.update({
+    id: '/app/biomechanics',
+    path: '/app/biomechanics',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedAppRacesIndexRoute =
-  AuthenticatedAppRacesIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => AuthenticatedAppRacesRoute,
-  } as any)
-const AuthenticatedAppRaceTacticsIndexRoute =
-  AuthenticatedAppRaceTacticsIndexRouteImport.update({
-    id: '/app/race-tactics/',
-    path: '/app/race-tactics/',
+const AuthenticatedAppCalculatorsRoute =
+  AuthenticatedAppCalculatorsRouteImport.update({
+    id: '/app/calculators',
+    path: '/app/calculators',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedAppCoachIndexRoute =
-  AuthenticatedAppCoachIndexRouteImport.update({
-    id: '/app/coach/',
-    path: '/app/coach/',
+const AuthenticatedAppCheckoutRoute =
+  AuthenticatedAppCheckoutRouteImport.update({
+    id: '/app/checkout',
+    path: '/app/checkout',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedAppCalculatorsIndexRoute =
-  AuthenticatedAppCalculatorsIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => AuthenticatedAppCalculatorsRoute,
+const AuthenticatedAppCoachDiaryRoute =
+  AuthenticatedAppCoachDiaryRouteImport.update({
+    id: '/app/coach-diary',
+    path: '/app/coach-diary',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppCoachingHubRoute =
+  AuthenticatedAppCoachingHubRouteImport.update({
+    id: '/app/coaching-hub',
+    path: '/app/coaching-hub',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppCompareRoute = AuthenticatedAppCompareRouteImport.update({
+  id: '/app/compare',
+  path: '/app/compare',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedAppCredentialsRoute =
+  AuthenticatedAppCredentialsRouteImport.update({
+    id: '/app/credentials',
+    path: '/app/credentials',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppDailyLogRoute =
+  AuthenticatedAppDailyLogRouteImport.update({
+    id: '/app/daily-log',
+    path: '/app/daily-log',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppDietFuelRoute =
+  AuthenticatedAppDietFuelRouteImport.update({
+    id: '/app/diet-fuel',
+    path: '/app/diet-fuel',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppEventEntriesRoute =
+  AuthenticatedAppEventEntriesRouteImport.update({
+    id: '/app/event-entries',
+    path: '/app/event-entries',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppGearRoute = AuthenticatedAppGearRouteImport.update({
+  id: '/app/gear',
+  path: '/app/gear',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedAppGroupChatRoute =
+  AuthenticatedAppGroupChatRouteImport.update({
+    id: '/app/group-chat',
+    path: '/app/group-chat',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppHealthRoute = AuthenticatedAppHealthRouteImport.update({
+  id: '/app/health',
+  path: '/app/health',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedAppInjuriesRoute =
+  AuthenticatedAppInjuriesRouteImport.update({
+    id: '/app/injuries',
+    path: '/app/injuries',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppLactateRoute = AuthenticatedAppLactateRouteImport.update({
+  id: '/app/lactate',
+  path: '/app/lactate',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedAppMapsRoute = AuthenticatedAppMapsRouteImport.update({
+  id: '/app/maps',
+  path: '/app/maps',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedAppMessagesRoute =
+  AuthenticatedAppMessagesRouteImport.update({
+    id: '/app/messages',
+    path: '/app/messages',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppMyRaceScheduleRoute =
+  AuthenticatedAppMyRaceScheduleRouteImport.update({
+    id: '/app/my-race-schedule',
+    path: '/app/my-race-schedule',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppMyScheduleRoute =
+  AuthenticatedAppMyScheduleRouteImport.update({
+    id: '/app/my-schedule',
+    path: '/app/my-schedule',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppNoticeboardRoute =
+  AuthenticatedAppNoticeboardRouteImport.update({
+    id: '/app/noticeboard',
+    path: '/app/noticeboard',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppPlansRoute = AuthenticatedAppPlansRouteImport.update({
+  id: '/app/plans',
+  path: '/app/plans',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedAppRaceScheduleRoute =
+  AuthenticatedAppRaceScheduleRouteImport.update({
+    id: '/app/race-schedule',
+    path: '/app/race-schedule',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppRacesRoute = AuthenticatedAppRacesRouteImport.update({
+  id: '/app/races',
+  path: '/app/races',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedAppRecoveryRoute =
+  AuthenticatedAppRecoveryRouteImport.update({
+    id: '/app/recovery',
+    path: '/app/recovery',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppSessionsRoute =
+  AuthenticatedAppSessionsRouteImport.update({
+    id: '/app/sessions',
+    path: '/app/sessions',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppTemplatesRoute =
+  AuthenticatedAppTemplatesRouteImport.update({
+    id: '/app/templates',
+    path: '/app/templates',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppTodayRoute = AuthenticatedAppTodayRouteImport.update({
+  id: '/app/today',
+  path: '/app/today',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedAppTrainingScheduleRoute =
+  AuthenticatedAppTrainingScheduleRouteImport.update({
+    id: '/app/training-schedule',
+    path: '/app/training-schedule',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppVitalsRoute = AuthenticatedAppVitalsRouteImport.update({
+  id: '/app/vitals',
+  path: '/app/vitals',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedAppZonesRoute = AuthenticatedAppZonesRouteImport.update({
+  id: '/app/zones',
+  path: '/app/zones',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedAppAthleteIndexRoute =
+  AuthenticatedAppAthleteIndexRouteImport.update({
+    id: '/app/athlete/',
+    path: '/app/athlete/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppAthleteSlugRoute =
+  AuthenticatedAppAthleteSlugRouteImport.update({
+    id: '/app/athlete/$slug',
+    path: '/app/athlete/$slug',
+    getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedAppAthletesIndexRoute =
   AuthenticatedAppAthletesIndexRouteImport.update({
@@ -350,76 +343,16 @@ const AuthenticatedAppAthletesIndexRoute =
     path: '/',
     getParentRoute: () => AuthenticatedAppAthletesRoute,
   } as any)
-const AuthenticatedAppAthleteIndexRoute =
-  AuthenticatedAppAthleteIndexRouteImport.update({
-    id: '/app/athlete/',
-    path: '/app/athlete/',
-    getParentRoute: () => AuthenticatedRouteRoute,
+const AuthenticatedAppAthletesAthleteIdRoute =
+  AuthenticatedAppAthletesAthleteIdRouteImport.update({
+    id: '/$athleteId',
+    path: '/$athleteId',
+    getParentRoute: () => AuthenticatedAppAthletesRoute,
   } as any)
-const ApiPublicHooksRunDailyRemindersRoute =
-  ApiPublicHooksRunDailyRemindersRouteImport.update({
-    id: '/api/public/hooks/run-daily-reminders',
-    path: '/api/public/hooks/run-daily-reminders',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiPublicHooksDispatchPushRoute =
-  ApiPublicHooksDispatchPushRouteImport.update({
-    id: '/api/public/hooks/dispatch-push',
-    path: '/api/public/hooks/dispatch-push',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const AuthenticatedAppSessionsNewRoute =
-  AuthenticatedAppSessionsNewRouteImport.update({
-    id: '/new',
-    path: '/new',
-    getParentRoute: () => AuthenticatedAppSessionsRoute,
-  } as any)
-const AuthenticatedAppSessionsCalendarRoute =
-  AuthenticatedAppSessionsCalendarRouteImport.update({
-    id: '/calendar',
-    path: '/calendar',
-    getParentRoute: () => AuthenticatedAppSessionsRoute,
-  } as any)
-const AuthenticatedAppSessionsSessionIdRoute =
-  AuthenticatedAppSessionsSessionIdRouteImport.update({
-    id: '/$sessionId',
-    path: '/$sessionId',
-    getParentRoute: () => AuthenticatedAppSessionsRoute,
-  } as any)
-const AuthenticatedAppReportsAiReviewRoute =
-  AuthenticatedAppReportsAiReviewRouteImport.update({
-    id: '/app/reports/ai-review',
-    path: '/app/reports/ai-review',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAppRacesRaceIdRoute =
-  AuthenticatedAppRacesRaceIdRouteImport.update({
-    id: '/$raceId',
-    path: '/$raceId',
-    getParentRoute: () => AuthenticatedAppRacesRoute,
-  } as any)
-const AuthenticatedAppRaceTacticsNewRoute =
-  AuthenticatedAppRaceTacticsNewRouteImport.update({
-    id: '/app/race-tactics/new',
-    path: '/app/race-tactics/new',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAppRaceTacticsPlanIdRoute =
-  AuthenticatedAppRaceTacticsPlanIdRouteImport.update({
-    id: '/app/race-tactics/$planId',
-    path: '/app/race-tactics/$planId',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAppCoachSlugRoute =
-  AuthenticatedAppCoachSlugRouteImport.update({
-    id: '/app/coach/$slug',
-    path: '/app/coach/$slug',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAppCalculatorsStartingfitnessRoute =
-  AuthenticatedAppCalculatorsStartingfitnessRouteImport.update({
-    id: '/startingfitness',
-    path: '/startingfitness',
+const AuthenticatedAppCalculatorsIndexRoute =
+  AuthenticatedAppCalculatorsIndexRouteImport.update({
+    id: '/',
+    path: '/',
     getParentRoute: () => AuthenticatedAppCalculatorsRoute,
   } as any)
 const AuthenticatedAppCalculatorsPacepredictorRoute =
@@ -428,16 +361,160 @@ const AuthenticatedAppCalculatorsPacepredictorRoute =
     path: '/pacepredictor',
     getParentRoute: () => AuthenticatedAppCalculatorsRoute,
   } as any)
-const AuthenticatedAppAthletesAthleteIdRoute =
-  AuthenticatedAppAthletesAthleteIdRouteImport.update({
-    id: '/$athleteId',
-    path: '/$athleteId',
+const AuthenticatedAppCalculatorsStartingfitnessRoute =
+  AuthenticatedAppCalculatorsStartingfitnessRouteImport.update({
+    id: '/startingfitness',
+    path: '/startingfitness',
+    getParentRoute: () => AuthenticatedAppCalculatorsRoute,
+  } as any)
+const AuthenticatedAppCalculatorsZonecalculatorRoute =
+  AuthenticatedAppCalculatorsZonecalculatorRouteImport.update({
+    id: '/zonecalculator',
+    path: '/zonecalculator',
+    getParentRoute: () => AuthenticatedAppCalculatorsRoute,
+  } as any)
+const AuthenticatedAppCoachIndexRoute =
+  AuthenticatedAppCoachIndexRouteImport.update({
+    id: '/app/coach/',
+    path: '/app/coach/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppCoachSlugRoute =
+  AuthenticatedAppCoachSlugRouteImport.update({
+    id: '/app/coach/$slug',
+    path: '/app/coach/$slug',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppRaceEventsIndexRoute =
+  AuthenticatedAppRaceEventsIndexRouteImport.update({
+    id: '/app/race-events/',
+    path: '/app/race-events/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppRaceEventsRaceEventIdRoute =
+  AuthenticatedAppRaceEventsRaceEventIdRouteImport.update({
+    id: '/app/race-events/$raceEventId',
+    path: '/app/race-events/$raceEventId',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppRaceTacticsIndexRoute =
+  AuthenticatedAppRaceTacticsIndexRouteImport.update({
+    id: '/app/race-tactics/',
+    path: '/app/race-tactics/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppRaceTacticsPlanIdRoute =
+  AuthenticatedAppRaceTacticsPlanIdRouteImport.update({
+    id: '/app/race-tactics/$planId',
+    path: '/app/race-tactics/$planId',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppRaceTacticsNewRoute =
+  AuthenticatedAppRaceTacticsNewRouteImport.update({
+    id: '/app/race-tactics/new',
+    path: '/app/race-tactics/new',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppRacesIndexRoute =
+  AuthenticatedAppRacesIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedAppRacesRoute,
+  } as any)
+const AuthenticatedAppRacesRaceIdRoute =
+  AuthenticatedAppRacesRaceIdRouteImport.update({
+    id: '/$raceId',
+    path: '/$raceId',
+    getParentRoute: () => AuthenticatedAppRacesRoute,
+  } as any)
+const AuthenticatedAppReportsIndexRoute =
+  AuthenticatedAppReportsIndexRouteImport.update({
+    id: '/app/reports/',
+    path: '/app/reports/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppReportsAiReviewRoute =
+  AuthenticatedAppReportsAiReviewRouteImport.update({
+    id: '/app/reports/ai-review',
+    path: '/app/reports/ai-review',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppSessionsIndexRoute =
+  AuthenticatedAppSessionsIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedAppSessionsRoute,
+  } as any)
+const AuthenticatedAppSessionsSessionIdRoute =
+  AuthenticatedAppSessionsSessionIdRouteImport.update({
+    id: '/$sessionId',
+    path: '/$sessionId',
+    getParentRoute: () => AuthenticatedAppSessionsRoute,
+  } as any)
+const AuthenticatedAppSessionsCalendarRoute =
+  AuthenticatedAppSessionsCalendarRouteImport.update({
+    id: '/calendar',
+    path: '/calendar',
+    getParentRoute: () => AuthenticatedAppSessionsRoute,
+  } as any)
+const AuthenticatedAppSessionsNewRoute =
+  AuthenticatedAppSessionsNewRouteImport.update({
+    id: '/new',
+    path: '/new',
+    getParentRoute: () => AuthenticatedAppSessionsRoute,
+  } as any)
+const ApiPublicHooksDispatchPushRoute =
+  ApiPublicHooksDispatchPushRouteImport.update({
+    id: '/api/public/hooks/dispatch-push',
+    path: '/api/public/hooks/dispatch-push',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiPublicHooksRunDailyRemindersRoute =
+  ApiPublicHooksRunDailyRemindersRouteImport.update({
+    id: '/api/public/hooks/run-daily-reminders',
+    path: '/api/public/hooks/run-daily-reminders',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const AuthenticatedAppAthletesAthleteIdPerformanceProfileRoute =
+  AuthenticatedAppAthletesAthleteIdPerformanceProfileRouteImport.update({
+    id: '/$athleteId_/performance-profile',
+    path: '/$athleteId/performance-profile',
     getParentRoute: () => AuthenticatedAppAthletesRoute,
   } as any)
-const AuthenticatedAppAthleteSlugRoute =
-  AuthenticatedAppAthleteSlugRouteImport.update({
-    id: '/app/athlete/$slug',
-    path: '/app/athlete/$slug',
+const AuthenticatedAppAthletesAthleteIdRaceHistoryRoute =
+  AuthenticatedAppAthletesAthleteIdRaceHistoryRouteImport.update({
+    id: '/$athleteId_/race-history',
+    path: '/$athleteId/race-history',
+    getParentRoute: () => AuthenticatedAppAthletesRoute,
+  } as any)
+const AuthenticatedAppRaceTacticsPlanIdRaceDayRoute =
+  AuthenticatedAppRaceTacticsPlanIdRaceDayRouteImport.update({
+    id: '/app/race-tactics/$planId_/race-day',
+    path: '/app/race-tactics/$planId/race-day',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppRacesRaceIdIndexRoute =
+  AuthenticatedAppRacesRaceIdIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedAppRacesRaceIdRoute,
+  } as any)
+const AuthenticatedAppRacesRaceIdAnalysisRoute =
+  AuthenticatedAppRacesRaceIdAnalysisRouteImport.update({
+    id: '/analysis',
+    path: '/analysis',
+    getParentRoute: () => AuthenticatedAppRacesRaceIdRoute,
+  } as any)
+const AuthenticatedAppReportsAthleteWeeklyRoute =
+  AuthenticatedAppReportsAthleteWeeklyRouteImport.update({
+    id: '/app/reports/athlete/weekly',
+    path: '/app/reports/athlete/weekly',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppReportsCoachWeeklyRoute =
+  AuthenticatedAppReportsCoachWeeklyRouteImport.update({
+    id: '/app/reports/coach/weekly',
+    path: '/app/reports/coach/weekly',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedAppSessionsSessionIdIndexRoute =
@@ -446,53 +523,11 @@ const AuthenticatedAppSessionsSessionIdIndexRoute =
     path: '/',
     getParentRoute: () => AuthenticatedAppSessionsSessionIdRoute,
   } as any)
-const AuthenticatedAppRacesRaceIdIndexRoute =
-  AuthenticatedAppRacesRaceIdIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => AuthenticatedAppRacesRaceIdRoute,
-  } as any)
 const AuthenticatedAppSessionsSessionIdAnalysisRoute =
   AuthenticatedAppSessionsSessionIdAnalysisRouteImport.update({
     id: '/analysis',
     path: '/analysis',
     getParentRoute: () => AuthenticatedAppSessionsSessionIdRoute,
-  } as any)
-const AuthenticatedAppReportsCoachWeeklyRoute =
-  AuthenticatedAppReportsCoachWeeklyRouteImport.update({
-    id: '/app/reports/coach/weekly',
-    path: '/app/reports/coach/weekly',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAppReportsAthleteWeeklyRoute =
-  AuthenticatedAppReportsAthleteWeeklyRouteImport.update({
-    id: '/app/reports/athlete/weekly',
-    path: '/app/reports/athlete/weekly',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAppRacesRaceIdAnalysisRoute =
-  AuthenticatedAppRacesRaceIdAnalysisRouteImport.update({
-    id: '/analysis',
-    path: '/analysis',
-    getParentRoute: () => AuthenticatedAppRacesRaceIdRoute,
-  } as any)
-const AuthenticatedAppRaceTacticsPlanIdRaceDayRoute =
-  AuthenticatedAppRaceTacticsPlanIdRaceDayRouteImport.update({
-    id: '/app/race-tactics/$planId_/race-day',
-    path: '/app/race-tactics/$planId/race-day',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAppAthletesAthleteIdRaceHistoryRoute =
-  AuthenticatedAppAthletesAthleteIdRaceHistoryRouteImport.update({
-    id: '/$athleteId_/race-history',
-    path: '/$athleteId/race-history',
-    getParentRoute: () => AuthenticatedAppAthletesRoute,
-  } as any)
-const AuthenticatedAppAthletesAthleteIdPerformanceProfileRoute =
-  AuthenticatedAppAthletesAthleteIdPerformanceProfileRouteImport.update({
-    id: '/$athleteId_/performance-profile',
-    path: '/$athleteId/performance-profile',
-    getParentRoute: () => AuthenticatedAppAthletesRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -524,9 +559,11 @@ export interface FileRoutesByFullPath {
   '/app/lactate': typeof AuthenticatedAppLactateRoute
   '/app/maps': typeof AuthenticatedAppMapsRoute
   '/app/messages': typeof AuthenticatedAppMessagesRoute
+  '/app/my-race-schedule': typeof AuthenticatedAppMyRaceScheduleRoute
   '/app/my-schedule': typeof AuthenticatedAppMyScheduleRoute
   '/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
   '/app/plans': typeof AuthenticatedAppPlansRoute
+  '/app/race-schedule': typeof AuthenticatedAppRaceScheduleRoute
   '/app/races': typeof AuthenticatedAppRacesRouteWithChildren
   '/app/recovery': typeof AuthenticatedAppRecoveryRoute
   '/app/sessions': typeof AuthenticatedAppSessionsRouteWithChildren
@@ -540,7 +577,9 @@ export interface FileRoutesByFullPath {
   '/app/athletes/$athleteId': typeof AuthenticatedAppAthletesAthleteIdRoute
   '/app/calculators/pacepredictor': typeof AuthenticatedAppCalculatorsPacepredictorRoute
   '/app/calculators/startingfitness': typeof AuthenticatedAppCalculatorsStartingfitnessRoute
+  '/app/calculators/zonecalculator': typeof AuthenticatedAppCalculatorsZonecalculatorRoute
   '/app/coach/$slug': typeof AuthenticatedAppCoachSlugRoute
+  '/app/race-events/$raceEventId': typeof AuthenticatedAppRaceEventsRaceEventIdRoute
   '/app/race-tactics/$planId': typeof AuthenticatedAppRaceTacticsPlanIdRoute
   '/app/race-tactics/new': typeof AuthenticatedAppRaceTacticsNewRoute
   '/app/races/$raceId': typeof AuthenticatedAppRacesRaceIdRouteWithChildren
@@ -554,6 +593,7 @@ export interface FileRoutesByFullPath {
   '/app/athletes/': typeof AuthenticatedAppAthletesIndexRoute
   '/app/calculators/': typeof AuthenticatedAppCalculatorsIndexRoute
   '/app/coach/': typeof AuthenticatedAppCoachIndexRoute
+  '/app/race-events/': typeof AuthenticatedAppRaceEventsIndexRoute
   '/app/race-tactics/': typeof AuthenticatedAppRaceTacticsIndexRoute
   '/app/races/': typeof AuthenticatedAppRacesIndexRoute
   '/app/reports/': typeof AuthenticatedAppReportsIndexRoute
@@ -595,9 +635,11 @@ export interface FileRoutesByTo {
   '/app/lactate': typeof AuthenticatedAppLactateRoute
   '/app/maps': typeof AuthenticatedAppMapsRoute
   '/app/messages': typeof AuthenticatedAppMessagesRoute
+  '/app/my-race-schedule': typeof AuthenticatedAppMyRaceScheduleRoute
   '/app/my-schedule': typeof AuthenticatedAppMyScheduleRoute
   '/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
   '/app/plans': typeof AuthenticatedAppPlansRoute
+  '/app/race-schedule': typeof AuthenticatedAppRaceScheduleRoute
   '/app/recovery': typeof AuthenticatedAppRecoveryRoute
   '/app/templates': typeof AuthenticatedAppTemplatesRoute
   '/app/today': typeof AuthenticatedAppTodayRoute
@@ -609,7 +651,9 @@ export interface FileRoutesByTo {
   '/app/athletes/$athleteId': typeof AuthenticatedAppAthletesAthleteIdRoute
   '/app/calculators/pacepredictor': typeof AuthenticatedAppCalculatorsPacepredictorRoute
   '/app/calculators/startingfitness': typeof AuthenticatedAppCalculatorsStartingfitnessRoute
+  '/app/calculators/zonecalculator': typeof AuthenticatedAppCalculatorsZonecalculatorRoute
   '/app/coach/$slug': typeof AuthenticatedAppCoachSlugRoute
+  '/app/race-events/$raceEventId': typeof AuthenticatedAppRaceEventsRaceEventIdRoute
   '/app/race-tactics/$planId': typeof AuthenticatedAppRaceTacticsPlanIdRoute
   '/app/race-tactics/new': typeof AuthenticatedAppRaceTacticsNewRoute
   '/app/reports/ai-review': typeof AuthenticatedAppReportsAiReviewRoute
@@ -621,6 +665,7 @@ export interface FileRoutesByTo {
   '/app/athletes': typeof AuthenticatedAppAthletesIndexRoute
   '/app/calculators': typeof AuthenticatedAppCalculatorsIndexRoute
   '/app/coach': typeof AuthenticatedAppCoachIndexRoute
+  '/app/race-events': typeof AuthenticatedAppRaceEventsIndexRoute
   '/app/race-tactics': typeof AuthenticatedAppRaceTacticsIndexRoute
   '/app/races': typeof AuthenticatedAppRacesIndexRoute
   '/app/reports': typeof AuthenticatedAppReportsIndexRoute
@@ -666,9 +711,11 @@ export interface FileRoutesById {
   '/_authenticated/app/lactate': typeof AuthenticatedAppLactateRoute
   '/_authenticated/app/maps': typeof AuthenticatedAppMapsRoute
   '/_authenticated/app/messages': typeof AuthenticatedAppMessagesRoute
+  '/_authenticated/app/my-race-schedule': typeof AuthenticatedAppMyRaceScheduleRoute
   '/_authenticated/app/my-schedule': typeof AuthenticatedAppMyScheduleRoute
   '/_authenticated/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
   '/_authenticated/app/plans': typeof AuthenticatedAppPlansRoute
+  '/_authenticated/app/race-schedule': typeof AuthenticatedAppRaceScheduleRoute
   '/_authenticated/app/races': typeof AuthenticatedAppRacesRouteWithChildren
   '/_authenticated/app/recovery': typeof AuthenticatedAppRecoveryRoute
   '/_authenticated/app/sessions': typeof AuthenticatedAppSessionsRouteWithChildren
@@ -682,7 +729,9 @@ export interface FileRoutesById {
   '/_authenticated/app/athletes/$athleteId': typeof AuthenticatedAppAthletesAthleteIdRoute
   '/_authenticated/app/calculators/pacepredictor': typeof AuthenticatedAppCalculatorsPacepredictorRoute
   '/_authenticated/app/calculators/startingfitness': typeof AuthenticatedAppCalculatorsStartingfitnessRoute
+  '/_authenticated/app/calculators/zonecalculator': typeof AuthenticatedAppCalculatorsZonecalculatorRoute
   '/_authenticated/app/coach/$slug': typeof AuthenticatedAppCoachSlugRoute
+  '/_authenticated/app/race-events/$raceEventId': typeof AuthenticatedAppRaceEventsRaceEventIdRoute
   '/_authenticated/app/race-tactics/$planId': typeof AuthenticatedAppRaceTacticsPlanIdRoute
   '/_authenticated/app/race-tactics/new': typeof AuthenticatedAppRaceTacticsNewRoute
   '/_authenticated/app/races/$raceId': typeof AuthenticatedAppRacesRaceIdRouteWithChildren
@@ -696,6 +745,7 @@ export interface FileRoutesById {
   '/_authenticated/app/athletes/': typeof AuthenticatedAppAthletesIndexRoute
   '/_authenticated/app/calculators/': typeof AuthenticatedAppCalculatorsIndexRoute
   '/_authenticated/app/coach/': typeof AuthenticatedAppCoachIndexRoute
+  '/_authenticated/app/race-events/': typeof AuthenticatedAppRaceEventsIndexRoute
   '/_authenticated/app/race-tactics/': typeof AuthenticatedAppRaceTacticsIndexRoute
   '/_authenticated/app/races/': typeof AuthenticatedAppRacesIndexRoute
   '/_authenticated/app/reports/': typeof AuthenticatedAppReportsIndexRoute
@@ -741,9 +791,11 @@ export interface FileRouteTypes {
     | '/app/lactate'
     | '/app/maps'
     | '/app/messages'
+    | '/app/my-race-schedule'
     | '/app/my-schedule'
     | '/app/noticeboard'
     | '/app/plans'
+    | '/app/race-schedule'
     | '/app/races'
     | '/app/recovery'
     | '/app/sessions'
@@ -757,7 +809,9 @@ export interface FileRouteTypes {
     | '/app/athletes/$athleteId'
     | '/app/calculators/pacepredictor'
     | '/app/calculators/startingfitness'
+    | '/app/calculators/zonecalculator'
     | '/app/coach/$slug'
+    | '/app/race-events/$raceEventId'
     | '/app/race-tactics/$planId'
     | '/app/race-tactics/new'
     | '/app/races/$raceId'
@@ -771,6 +825,7 @@ export interface FileRouteTypes {
     | '/app/athletes/'
     | '/app/calculators/'
     | '/app/coach/'
+    | '/app/race-events/'
     | '/app/race-tactics/'
     | '/app/races/'
     | '/app/reports/'
@@ -812,9 +867,11 @@ export interface FileRouteTypes {
     | '/app/lactate'
     | '/app/maps'
     | '/app/messages'
+    | '/app/my-race-schedule'
     | '/app/my-schedule'
     | '/app/noticeboard'
     | '/app/plans'
+    | '/app/race-schedule'
     | '/app/recovery'
     | '/app/templates'
     | '/app/today'
@@ -826,7 +883,9 @@ export interface FileRouteTypes {
     | '/app/athletes/$athleteId'
     | '/app/calculators/pacepredictor'
     | '/app/calculators/startingfitness'
+    | '/app/calculators/zonecalculator'
     | '/app/coach/$slug'
+    | '/app/race-events/$raceEventId'
     | '/app/race-tactics/$planId'
     | '/app/race-tactics/new'
     | '/app/reports/ai-review'
@@ -838,6 +897,7 @@ export interface FileRouteTypes {
     | '/app/athletes'
     | '/app/calculators'
     | '/app/coach'
+    | '/app/race-events'
     | '/app/race-tactics'
     | '/app/races'
     | '/app/reports'
@@ -882,9 +942,11 @@ export interface FileRouteTypes {
     | '/_authenticated/app/lactate'
     | '/_authenticated/app/maps'
     | '/_authenticated/app/messages'
+    | '/_authenticated/app/my-race-schedule'
     | '/_authenticated/app/my-schedule'
     | '/_authenticated/app/noticeboard'
     | '/_authenticated/app/plans'
+    | '/_authenticated/app/race-schedule'
     | '/_authenticated/app/races'
     | '/_authenticated/app/recovery'
     | '/_authenticated/app/sessions'
@@ -898,7 +960,9 @@ export interface FileRouteTypes {
     | '/_authenticated/app/athletes/$athleteId'
     | '/_authenticated/app/calculators/pacepredictor'
     | '/_authenticated/app/calculators/startingfitness'
+    | '/_authenticated/app/calculators/zonecalculator'
     | '/_authenticated/app/coach/$slug'
+    | '/_authenticated/app/race-events/$raceEventId'
     | '/_authenticated/app/race-tactics/$planId'
     | '/_authenticated/app/race-tactics/new'
     | '/_authenticated/app/races/$raceId'
@@ -912,6 +976,7 @@ export interface FileRouteTypes {
     | '/_authenticated/app/athletes/'
     | '/_authenticated/app/calculators/'
     | '/_authenticated/app/coach/'
+    | '/_authenticated/app/race-events/'
     | '/_authenticated/app/race-tactics/'
     | '/_authenticated/app/races/'
     | '/_authenticated/app/reports/'
@@ -940,11 +1005,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/auth': {
-      id: '/auth'
-      path: '/auth'
-      fullPath: '/auth'
-      preLoaderRoute: typeof AuthRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated': {
@@ -954,25 +1019,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/claim/$token': {
-      id: '/claim/$token'
-      path: '/claim/$token'
-      fullPath: '/claim/$token'
-      preLoaderRoute: typeof ClaimTokenRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/c/$slug': {
-      id: '/c/$slug'
-      path: '/c/$slug'
-      fullPath: '/c/$slug'
-      preLoaderRoute: typeof CSlugRouteImport
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/a/$slug': {
@@ -982,242 +1033,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ASlugRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/c/$slug': {
+      id: '/c/$slug'
+      path: '/c/$slug'
+      fullPath: '/c/$slug'
+      preLoaderRoute: typeof CSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/claim/$token': {
+      id: '/claim/$token'
+      path: '/claim/$token'
+      fullPath: '/claim/$token'
+      preLoaderRoute: typeof ClaimTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/app/': {
       id: '/_authenticated/app/'
       path: '/app'
       fullPath: '/app/'
       preLoaderRoute: typeof AuthenticatedAppIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/zones': {
-      id: '/_authenticated/app/zones'
-      path: '/app/zones'
-      fullPath: '/app/zones'
-      preLoaderRoute: typeof AuthenticatedAppZonesRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/vitals': {
-      id: '/_authenticated/app/vitals'
-      path: '/app/vitals'
-      fullPath: '/app/vitals'
-      preLoaderRoute: typeof AuthenticatedAppVitalsRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/training-schedule': {
-      id: '/_authenticated/app/training-schedule'
-      path: '/app/training-schedule'
-      fullPath: '/app/training-schedule'
-      preLoaderRoute: typeof AuthenticatedAppTrainingScheduleRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/today': {
-      id: '/_authenticated/app/today'
-      path: '/app/today'
-      fullPath: '/app/today'
-      preLoaderRoute: typeof AuthenticatedAppTodayRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/templates': {
-      id: '/_authenticated/app/templates'
-      path: '/app/templates'
-      fullPath: '/app/templates'
-      preLoaderRoute: typeof AuthenticatedAppTemplatesRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/sessions': {
-      id: '/_authenticated/app/sessions'
-      path: '/app/sessions'
-      fullPath: '/app/sessions'
-      preLoaderRoute: typeof AuthenticatedAppSessionsRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/recovery': {
-      id: '/_authenticated/app/recovery'
-      path: '/app/recovery'
-      fullPath: '/app/recovery'
-      preLoaderRoute: typeof AuthenticatedAppRecoveryRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/races': {
-      id: '/_authenticated/app/races'
-      path: '/app/races'
-      fullPath: '/app/races'
-      preLoaderRoute: typeof AuthenticatedAppRacesRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/plans': {
-      id: '/_authenticated/app/plans'
-      path: '/app/plans'
-      fullPath: '/app/plans'
-      preLoaderRoute: typeof AuthenticatedAppPlansRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/noticeboard': {
-      id: '/_authenticated/app/noticeboard'
-      path: '/app/noticeboard'
-      fullPath: '/app/noticeboard'
-      preLoaderRoute: typeof AuthenticatedAppNoticeboardRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/my-schedule': {
-      id: '/_authenticated/app/my-schedule'
-      path: '/app/my-schedule'
-      fullPath: '/app/my-schedule'
-      preLoaderRoute: typeof AuthenticatedAppMyScheduleRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/messages': {
-      id: '/_authenticated/app/messages'
-      path: '/app/messages'
-      fullPath: '/app/messages'
-      preLoaderRoute: typeof AuthenticatedAppMessagesRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/maps': {
-      id: '/_authenticated/app/maps'
-      path: '/app/maps'
-      fullPath: '/app/maps'
-      preLoaderRoute: typeof AuthenticatedAppMapsRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/lactate': {
-      id: '/_authenticated/app/lactate'
-      path: '/app/lactate'
-      fullPath: '/app/lactate'
-      preLoaderRoute: typeof AuthenticatedAppLactateRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/injuries': {
-      id: '/_authenticated/app/injuries'
-      path: '/app/injuries'
-      fullPath: '/app/injuries'
-      preLoaderRoute: typeof AuthenticatedAppInjuriesRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/health': {
-      id: '/_authenticated/app/health'
-      path: '/app/health'
-      fullPath: '/app/health'
-      preLoaderRoute: typeof AuthenticatedAppHealthRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/group-chat': {
-      id: '/_authenticated/app/group-chat'
-      path: '/app/group-chat'
-      fullPath: '/app/group-chat'
-      preLoaderRoute: typeof AuthenticatedAppGroupChatRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/gear': {
-      id: '/_authenticated/app/gear'
-      path: '/app/gear'
-      fullPath: '/app/gear'
-      preLoaderRoute: typeof AuthenticatedAppGearRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/event-entries': {
-      id: '/_authenticated/app/event-entries'
-      path: '/app/event-entries'
-      fullPath: '/app/event-entries'
-      preLoaderRoute: typeof AuthenticatedAppEventEntriesRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/diet-fuel': {
-      id: '/_authenticated/app/diet-fuel'
-      path: '/app/diet-fuel'
-      fullPath: '/app/diet-fuel'
-      preLoaderRoute: typeof AuthenticatedAppDietFuelRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/daily-log': {
-      id: '/_authenticated/app/daily-log'
-      path: '/app/daily-log'
-      fullPath: '/app/daily-log'
-      preLoaderRoute: typeof AuthenticatedAppDailyLogRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/credentials': {
-      id: '/_authenticated/app/credentials'
-      path: '/app/credentials'
-      fullPath: '/app/credentials'
-      preLoaderRoute: typeof AuthenticatedAppCredentialsRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/compare': {
-      id: '/_authenticated/app/compare'
-      path: '/app/compare'
-      fullPath: '/app/compare'
-      preLoaderRoute: typeof AuthenticatedAppCompareRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/coaching-hub': {
-      id: '/_authenticated/app/coaching-hub'
-      path: '/app/coaching-hub'
-      fullPath: '/app/coaching-hub'
-      preLoaderRoute: typeof AuthenticatedAppCoachingHubRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/coach-diary': {
-      id: '/_authenticated/app/coach-diary'
-      path: '/app/coach-diary'
-      fullPath: '/app/coach-diary'
-      preLoaderRoute: typeof AuthenticatedAppCoachDiaryRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/checkout': {
-      id: '/_authenticated/app/checkout'
-      path: '/app/checkout'
-      fullPath: '/app/checkout'
-      preLoaderRoute: typeof AuthenticatedAppCheckoutRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/calculators': {
-      id: '/_authenticated/app/calculators'
-      path: '/app/calculators'
-      fullPath: '/app/calculators'
-      preLoaderRoute: typeof AuthenticatedAppCalculatorsRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/biomechanics': {
-      id: '/_authenticated/app/biomechanics'
-      path: '/app/biomechanics'
-      fullPath: '/app/biomechanics'
-      preLoaderRoute: typeof AuthenticatedAppBiomechanicsRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/bicarb': {
-      id: '/_authenticated/app/bicarb'
-      path: '/app/bicarb'
-      fullPath: '/app/bicarb'
-      preLoaderRoute: typeof AuthenticatedAppBicarbRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/athletes': {
-      id: '/_authenticated/app/athletes'
-      path: '/app/athletes'
-      fullPath: '/app/athletes'
-      preLoaderRoute: typeof AuthenticatedAppAthletesRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/athlete-info': {
-      id: '/_authenticated/app/athlete-info'
-      path: '/app/athlete-info'
-      fullPath: '/app/athlete-info'
-      preLoaderRoute: typeof AuthenticatedAppAthleteInfoRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/analytics': {
-      id: '/_authenticated/app/analytics'
-      path: '/app/analytics'
-      fullPath: '/app/analytics'
-      preLoaderRoute: typeof AuthenticatedAppAnalyticsRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/address-book': {
-      id: '/_authenticated/app/address-book'
-      path: '/app/address-book'
-      fullPath: '/app/address-book'
-      preLoaderRoute: typeof AuthenticatedAppAddressBookRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/app/account': {
@@ -1227,54 +1061,250 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppAccountRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/app/sessions/': {
-      id: '/_authenticated/app/sessions/'
-      path: '/'
-      fullPath: '/app/sessions/'
-      preLoaderRoute: typeof AuthenticatedAppSessionsIndexRouteImport
-      parentRoute: typeof AuthenticatedAppSessionsRoute
-    }
-    '/_authenticated/app/reports/': {
-      id: '/_authenticated/app/reports/'
-      path: '/app/reports'
-      fullPath: '/app/reports/'
-      preLoaderRoute: typeof AuthenticatedAppReportsIndexRouteImport
+    '/_authenticated/app/address-book': {
+      id: '/_authenticated/app/address-book'
+      path: '/app/address-book'
+      fullPath: '/app/address-book'
+      preLoaderRoute: typeof AuthenticatedAppAddressBookRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/app/races/': {
-      id: '/_authenticated/app/races/'
-      path: '/'
-      fullPath: '/app/races/'
-      preLoaderRoute: typeof AuthenticatedAppRacesIndexRouteImport
-      parentRoute: typeof AuthenticatedAppRacesRoute
-    }
-    '/_authenticated/app/race-tactics/': {
-      id: '/_authenticated/app/race-tactics/'
-      path: '/app/race-tactics'
-      fullPath: '/app/race-tactics/'
-      preLoaderRoute: typeof AuthenticatedAppRaceTacticsIndexRouteImport
+    '/_authenticated/app/analytics': {
+      id: '/_authenticated/app/analytics'
+      path: '/app/analytics'
+      fullPath: '/app/analytics'
+      preLoaderRoute: typeof AuthenticatedAppAnalyticsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/app/coach/': {
-      id: '/_authenticated/app/coach/'
-      path: '/app/coach'
-      fullPath: '/app/coach/'
-      preLoaderRoute: typeof AuthenticatedAppCoachIndexRouteImport
+    '/_authenticated/app/athlete-info': {
+      id: '/_authenticated/app/athlete-info'
+      path: '/app/athlete-info'
+      fullPath: '/app/athlete-info'
+      preLoaderRoute: typeof AuthenticatedAppAthleteInfoRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/app/calculators/': {
-      id: '/_authenticated/app/calculators/'
-      path: '/'
-      fullPath: '/app/calculators/'
-      preLoaderRoute: typeof AuthenticatedAppCalculatorsIndexRouteImport
-      parentRoute: typeof AuthenticatedAppCalculatorsRoute
+    '/_authenticated/app/athletes': {
+      id: '/_authenticated/app/athletes'
+      path: '/app/athletes'
+      fullPath: '/app/athletes'
+      preLoaderRoute: typeof AuthenticatedAppAthletesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/app/athletes/': {
-      id: '/_authenticated/app/athletes/'
-      path: '/'
-      fullPath: '/app/athletes/'
-      preLoaderRoute: typeof AuthenticatedAppAthletesIndexRouteImport
-      parentRoute: typeof AuthenticatedAppAthletesRoute
+    '/_authenticated/app/bicarb': {
+      id: '/_authenticated/app/bicarb'
+      path: '/app/bicarb'
+      fullPath: '/app/bicarb'
+      preLoaderRoute: typeof AuthenticatedAppBicarbRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/biomechanics': {
+      id: '/_authenticated/app/biomechanics'
+      path: '/app/biomechanics'
+      fullPath: '/app/biomechanics'
+      preLoaderRoute: typeof AuthenticatedAppBiomechanicsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/calculators': {
+      id: '/_authenticated/app/calculators'
+      path: '/app/calculators'
+      fullPath: '/app/calculators'
+      preLoaderRoute: typeof AuthenticatedAppCalculatorsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/checkout': {
+      id: '/_authenticated/app/checkout'
+      path: '/app/checkout'
+      fullPath: '/app/checkout'
+      preLoaderRoute: typeof AuthenticatedAppCheckoutRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/coach-diary': {
+      id: '/_authenticated/app/coach-diary'
+      path: '/app/coach-diary'
+      fullPath: '/app/coach-diary'
+      preLoaderRoute: typeof AuthenticatedAppCoachDiaryRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/coaching-hub': {
+      id: '/_authenticated/app/coaching-hub'
+      path: '/app/coaching-hub'
+      fullPath: '/app/coaching-hub'
+      preLoaderRoute: typeof AuthenticatedAppCoachingHubRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/compare': {
+      id: '/_authenticated/app/compare'
+      path: '/app/compare'
+      fullPath: '/app/compare'
+      preLoaderRoute: typeof AuthenticatedAppCompareRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/credentials': {
+      id: '/_authenticated/app/credentials'
+      path: '/app/credentials'
+      fullPath: '/app/credentials'
+      preLoaderRoute: typeof AuthenticatedAppCredentialsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/daily-log': {
+      id: '/_authenticated/app/daily-log'
+      path: '/app/daily-log'
+      fullPath: '/app/daily-log'
+      preLoaderRoute: typeof AuthenticatedAppDailyLogRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/diet-fuel': {
+      id: '/_authenticated/app/diet-fuel'
+      path: '/app/diet-fuel'
+      fullPath: '/app/diet-fuel'
+      preLoaderRoute: typeof AuthenticatedAppDietFuelRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/event-entries': {
+      id: '/_authenticated/app/event-entries'
+      path: '/app/event-entries'
+      fullPath: '/app/event-entries'
+      preLoaderRoute: typeof AuthenticatedAppEventEntriesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/gear': {
+      id: '/_authenticated/app/gear'
+      path: '/app/gear'
+      fullPath: '/app/gear'
+      preLoaderRoute: typeof AuthenticatedAppGearRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/group-chat': {
+      id: '/_authenticated/app/group-chat'
+      path: '/app/group-chat'
+      fullPath: '/app/group-chat'
+      preLoaderRoute: typeof AuthenticatedAppGroupChatRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/health': {
+      id: '/_authenticated/app/health'
+      path: '/app/health'
+      fullPath: '/app/health'
+      preLoaderRoute: typeof AuthenticatedAppHealthRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/injuries': {
+      id: '/_authenticated/app/injuries'
+      path: '/app/injuries'
+      fullPath: '/app/injuries'
+      preLoaderRoute: typeof AuthenticatedAppInjuriesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/lactate': {
+      id: '/_authenticated/app/lactate'
+      path: '/app/lactate'
+      fullPath: '/app/lactate'
+      preLoaderRoute: typeof AuthenticatedAppLactateRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/maps': {
+      id: '/_authenticated/app/maps'
+      path: '/app/maps'
+      fullPath: '/app/maps'
+      preLoaderRoute: typeof AuthenticatedAppMapsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/messages': {
+      id: '/_authenticated/app/messages'
+      path: '/app/messages'
+      fullPath: '/app/messages'
+      preLoaderRoute: typeof AuthenticatedAppMessagesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/my-race-schedule': {
+      id: '/_authenticated/app/my-race-schedule'
+      path: '/app/my-race-schedule'
+      fullPath: '/app/my-race-schedule'
+      preLoaderRoute: typeof AuthenticatedAppMyRaceScheduleRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/my-schedule': {
+      id: '/_authenticated/app/my-schedule'
+      path: '/app/my-schedule'
+      fullPath: '/app/my-schedule'
+      preLoaderRoute: typeof AuthenticatedAppMyScheduleRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/noticeboard': {
+      id: '/_authenticated/app/noticeboard'
+      path: '/app/noticeboard'
+      fullPath: '/app/noticeboard'
+      preLoaderRoute: typeof AuthenticatedAppNoticeboardRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/plans': {
+      id: '/_authenticated/app/plans'
+      path: '/app/plans'
+      fullPath: '/app/plans'
+      preLoaderRoute: typeof AuthenticatedAppPlansRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/race-schedule': {
+      id: '/_authenticated/app/race-schedule'
+      path: '/app/race-schedule'
+      fullPath: '/app/race-schedule'
+      preLoaderRoute: typeof AuthenticatedAppRaceScheduleRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/races': {
+      id: '/_authenticated/app/races'
+      path: '/app/races'
+      fullPath: '/app/races'
+      preLoaderRoute: typeof AuthenticatedAppRacesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/recovery': {
+      id: '/_authenticated/app/recovery'
+      path: '/app/recovery'
+      fullPath: '/app/recovery'
+      preLoaderRoute: typeof AuthenticatedAppRecoveryRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/sessions': {
+      id: '/_authenticated/app/sessions'
+      path: '/app/sessions'
+      fullPath: '/app/sessions'
+      preLoaderRoute: typeof AuthenticatedAppSessionsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/templates': {
+      id: '/_authenticated/app/templates'
+      path: '/app/templates'
+      fullPath: '/app/templates'
+      preLoaderRoute: typeof AuthenticatedAppTemplatesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/today': {
+      id: '/_authenticated/app/today'
+      path: '/app/today'
+      fullPath: '/app/today'
+      preLoaderRoute: typeof AuthenticatedAppTodayRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/training-schedule': {
+      id: '/_authenticated/app/training-schedule'
+      path: '/app/training-schedule'
+      fullPath: '/app/training-schedule'
+      preLoaderRoute: typeof AuthenticatedAppTrainingScheduleRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/vitals': {
+      id: '/_authenticated/app/vitals'
+      path: '/app/vitals'
+      fullPath: '/app/vitals'
+      preLoaderRoute: typeof AuthenticatedAppVitalsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/zones': {
+      id: '/_authenticated/app/zones'
+      path: '/app/zones'
+      fullPath: '/app/zones'
+      preLoaderRoute: typeof AuthenticatedAppZonesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/app/athlete/': {
       id: '/_authenticated/app/athlete/'
@@ -1283,81 +1313,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppAthleteIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/api/public/hooks/run-daily-reminders': {
-      id: '/api/public/hooks/run-daily-reminders'
-      path: '/api/public/hooks/run-daily-reminders'
-      fullPath: '/api/public/hooks/run-daily-reminders'
-      preLoaderRoute: typeof ApiPublicHooksRunDailyRemindersRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public/hooks/dispatch-push': {
-      id: '/api/public/hooks/dispatch-push'
-      path: '/api/public/hooks/dispatch-push'
-      fullPath: '/api/public/hooks/dispatch-push'
-      preLoaderRoute: typeof ApiPublicHooksDispatchPushRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_authenticated/app/sessions/new': {
-      id: '/_authenticated/app/sessions/new'
-      path: '/new'
-      fullPath: '/app/sessions/new'
-      preLoaderRoute: typeof AuthenticatedAppSessionsNewRouteImport
-      parentRoute: typeof AuthenticatedAppSessionsRoute
-    }
-    '/_authenticated/app/sessions/calendar': {
-      id: '/_authenticated/app/sessions/calendar'
-      path: '/calendar'
-      fullPath: '/app/sessions/calendar'
-      preLoaderRoute: typeof AuthenticatedAppSessionsCalendarRouteImport
-      parentRoute: typeof AuthenticatedAppSessionsRoute
-    }
-    '/_authenticated/app/sessions/$sessionId': {
-      id: '/_authenticated/app/sessions/$sessionId'
-      path: '/$sessionId'
-      fullPath: '/app/sessions/$sessionId'
-      preLoaderRoute: typeof AuthenticatedAppSessionsSessionIdRouteImport
-      parentRoute: typeof AuthenticatedAppSessionsRoute
-    }
-    '/_authenticated/app/reports/ai-review': {
-      id: '/_authenticated/app/reports/ai-review'
-      path: '/app/reports/ai-review'
-      fullPath: '/app/reports/ai-review'
-      preLoaderRoute: typeof AuthenticatedAppReportsAiReviewRouteImport
+    '/_authenticated/app/athlete/$slug': {
+      id: '/_authenticated/app/athlete/$slug'
+      path: '/app/athlete/$slug'
+      fullPath: '/app/athlete/$slug'
+      preLoaderRoute: typeof AuthenticatedAppAthleteSlugRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/app/races/$raceId': {
-      id: '/_authenticated/app/races/$raceId'
-      path: '/$raceId'
-      fullPath: '/app/races/$raceId'
-      preLoaderRoute: typeof AuthenticatedAppRacesRaceIdRouteImport
-      parentRoute: typeof AuthenticatedAppRacesRoute
+    '/_authenticated/app/athletes/': {
+      id: '/_authenticated/app/athletes/'
+      path: '/'
+      fullPath: '/app/athletes/'
+      preLoaderRoute: typeof AuthenticatedAppAthletesIndexRouteImport
+      parentRoute: typeof AuthenticatedAppAthletesRoute
     }
-    '/_authenticated/app/race-tactics/new': {
-      id: '/_authenticated/app/race-tactics/new'
-      path: '/app/race-tactics/new'
-      fullPath: '/app/race-tactics/new'
-      preLoaderRoute: typeof AuthenticatedAppRaceTacticsNewRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
+    '/_authenticated/app/athletes/$athleteId': {
+      id: '/_authenticated/app/athletes/$athleteId'
+      path: '/$athleteId'
+      fullPath: '/app/athletes/$athleteId'
+      preLoaderRoute: typeof AuthenticatedAppAthletesAthleteIdRouteImport
+      parentRoute: typeof AuthenticatedAppAthletesRoute
     }
-    '/_authenticated/app/race-tactics/$planId': {
-      id: '/_authenticated/app/race-tactics/$planId'
-      path: '/app/race-tactics/$planId'
-      fullPath: '/app/race-tactics/$planId'
-      preLoaderRoute: typeof AuthenticatedAppRaceTacticsPlanIdRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/coach/$slug': {
-      id: '/_authenticated/app/coach/$slug'
-      path: '/app/coach/$slug'
-      fullPath: '/app/coach/$slug'
-      preLoaderRoute: typeof AuthenticatedAppCoachSlugRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/calculators/startingfitness': {
-      id: '/_authenticated/app/calculators/startingfitness'
-      path: '/startingfitness'
-      fullPath: '/app/calculators/startingfitness'
-      preLoaderRoute: typeof AuthenticatedAppCalculatorsStartingfitnessRouteImport
+    '/_authenticated/app/calculators/': {
+      id: '/_authenticated/app/calculators/'
+      path: '/'
+      fullPath: '/app/calculators/'
+      preLoaderRoute: typeof AuthenticatedAppCalculatorsIndexRouteImport
       parentRoute: typeof AuthenticatedAppCalculatorsRoute
     }
     '/_authenticated/app/calculators/pacepredictor': {
@@ -1367,18 +1348,186 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppCalculatorsPacepredictorRouteImport
       parentRoute: typeof AuthenticatedAppCalculatorsRoute
     }
-    '/_authenticated/app/athletes/$athleteId': {
-      id: '/_authenticated/app/athletes/$athleteId'
-      path: '/$athleteId'
-      fullPath: '/app/athletes/$athleteId'
-      preLoaderRoute: typeof AuthenticatedAppAthletesAthleteIdRouteImport
+    '/_authenticated/app/calculators/startingfitness': {
+      id: '/_authenticated/app/calculators/startingfitness'
+      path: '/startingfitness'
+      fullPath: '/app/calculators/startingfitness'
+      preLoaderRoute: typeof AuthenticatedAppCalculatorsStartingfitnessRouteImport
+      parentRoute: typeof AuthenticatedAppCalculatorsRoute
+    }
+    '/_authenticated/app/calculators/zonecalculator': {
+      id: '/_authenticated/app/calculators/zonecalculator'
+      path: '/zonecalculator'
+      fullPath: '/app/calculators/zonecalculator'
+      preLoaderRoute: typeof AuthenticatedAppCalculatorsZonecalculatorRouteImport
+      parentRoute: typeof AuthenticatedAppCalculatorsRoute
+    }
+    '/_authenticated/app/coach/': {
+      id: '/_authenticated/app/coach/'
+      path: '/app/coach'
+      fullPath: '/app/coach/'
+      preLoaderRoute: typeof AuthenticatedAppCoachIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/coach/$slug': {
+      id: '/_authenticated/app/coach/$slug'
+      path: '/app/coach/$slug'
+      fullPath: '/app/coach/$slug'
+      preLoaderRoute: typeof AuthenticatedAppCoachSlugRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/race-events/': {
+      id: '/_authenticated/app/race-events/'
+      path: '/app/race-events'
+      fullPath: '/app/race-events/'
+      preLoaderRoute: typeof AuthenticatedAppRaceEventsIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/race-events/$raceEventId': {
+      id: '/_authenticated/app/race-events/$raceEventId'
+      path: '/app/race-events/$raceEventId'
+      fullPath: '/app/race-events/$raceEventId'
+      preLoaderRoute: typeof AuthenticatedAppRaceEventsRaceEventIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/race-tactics/': {
+      id: '/_authenticated/app/race-tactics/'
+      path: '/app/race-tactics'
+      fullPath: '/app/race-tactics/'
+      preLoaderRoute: typeof AuthenticatedAppRaceTacticsIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/race-tactics/$planId': {
+      id: '/_authenticated/app/race-tactics/$planId'
+      path: '/app/race-tactics/$planId'
+      fullPath: '/app/race-tactics/$planId'
+      preLoaderRoute: typeof AuthenticatedAppRaceTacticsPlanIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/race-tactics/new': {
+      id: '/_authenticated/app/race-tactics/new'
+      path: '/app/race-tactics/new'
+      fullPath: '/app/race-tactics/new'
+      preLoaderRoute: typeof AuthenticatedAppRaceTacticsNewRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/races/': {
+      id: '/_authenticated/app/races/'
+      path: '/'
+      fullPath: '/app/races/'
+      preLoaderRoute: typeof AuthenticatedAppRacesIndexRouteImport
+      parentRoute: typeof AuthenticatedAppRacesRoute
+    }
+    '/_authenticated/app/races/$raceId': {
+      id: '/_authenticated/app/races/$raceId'
+      path: '/$raceId'
+      fullPath: '/app/races/$raceId'
+      preLoaderRoute: typeof AuthenticatedAppRacesRaceIdRouteImport
+      parentRoute: typeof AuthenticatedAppRacesRoute
+    }
+    '/_authenticated/app/reports/': {
+      id: '/_authenticated/app/reports/'
+      path: '/app/reports'
+      fullPath: '/app/reports/'
+      preLoaderRoute: typeof AuthenticatedAppReportsIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/reports/ai-review': {
+      id: '/_authenticated/app/reports/ai-review'
+      path: '/app/reports/ai-review'
+      fullPath: '/app/reports/ai-review'
+      preLoaderRoute: typeof AuthenticatedAppReportsAiReviewRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/sessions/': {
+      id: '/_authenticated/app/sessions/'
+      path: '/'
+      fullPath: '/app/sessions/'
+      preLoaderRoute: typeof AuthenticatedAppSessionsIndexRouteImport
+      parentRoute: typeof AuthenticatedAppSessionsRoute
+    }
+    '/_authenticated/app/sessions/$sessionId': {
+      id: '/_authenticated/app/sessions/$sessionId'
+      path: '/$sessionId'
+      fullPath: '/app/sessions/$sessionId'
+      preLoaderRoute: typeof AuthenticatedAppSessionsSessionIdRouteImport
+      parentRoute: typeof AuthenticatedAppSessionsRoute
+    }
+    '/_authenticated/app/sessions/calendar': {
+      id: '/_authenticated/app/sessions/calendar'
+      path: '/calendar'
+      fullPath: '/app/sessions/calendar'
+      preLoaderRoute: typeof AuthenticatedAppSessionsCalendarRouteImport
+      parentRoute: typeof AuthenticatedAppSessionsRoute
+    }
+    '/_authenticated/app/sessions/new': {
+      id: '/_authenticated/app/sessions/new'
+      path: '/new'
+      fullPath: '/app/sessions/new'
+      preLoaderRoute: typeof AuthenticatedAppSessionsNewRouteImport
+      parentRoute: typeof AuthenticatedAppSessionsRoute
+    }
+    '/api/public/hooks/dispatch-push': {
+      id: '/api/public/hooks/dispatch-push'
+      path: '/api/public/hooks/dispatch-push'
+      fullPath: '/api/public/hooks/dispatch-push'
+      preLoaderRoute: typeof ApiPublicHooksDispatchPushRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/hooks/run-daily-reminders': {
+      id: '/api/public/hooks/run-daily-reminders'
+      path: '/api/public/hooks/run-daily-reminders'
+      fullPath: '/api/public/hooks/run-daily-reminders'
+      preLoaderRoute: typeof ApiPublicHooksRunDailyRemindersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/app/athletes/$athleteId_/performance-profile': {
+      id: '/_authenticated/app/athletes/$athleteId_/performance-profile'
+      path: '/$athleteId/performance-profile'
+      fullPath: '/app/athletes/$athleteId/performance-profile'
+      preLoaderRoute: typeof AuthenticatedAppAthletesAthleteIdPerformanceProfileRouteImport
       parentRoute: typeof AuthenticatedAppAthletesRoute
     }
-    '/_authenticated/app/athlete/$slug': {
-      id: '/_authenticated/app/athlete/$slug'
-      path: '/app/athlete/$slug'
-      fullPath: '/app/athlete/$slug'
-      preLoaderRoute: typeof AuthenticatedAppAthleteSlugRouteImport
+    '/_authenticated/app/athletes/$athleteId_/race-history': {
+      id: '/_authenticated/app/athletes/$athleteId_/race-history'
+      path: '/$athleteId/race-history'
+      fullPath: '/app/athletes/$athleteId/race-history'
+      preLoaderRoute: typeof AuthenticatedAppAthletesAthleteIdRaceHistoryRouteImport
+      parentRoute: typeof AuthenticatedAppAthletesRoute
+    }
+    '/_authenticated/app/race-tactics/$planId_/race-day': {
+      id: '/_authenticated/app/race-tactics/$planId_/race-day'
+      path: '/app/race-tactics/$planId/race-day'
+      fullPath: '/app/race-tactics/$planId/race-day'
+      preLoaderRoute: typeof AuthenticatedAppRaceTacticsPlanIdRaceDayRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/races/$raceId/': {
+      id: '/_authenticated/app/races/$raceId/'
+      path: '/'
+      fullPath: '/app/races/$raceId/'
+      preLoaderRoute: typeof AuthenticatedAppRacesRaceIdIndexRouteImport
+      parentRoute: typeof AuthenticatedAppRacesRaceIdRoute
+    }
+    '/_authenticated/app/races/$raceId/analysis': {
+      id: '/_authenticated/app/races/$raceId/analysis'
+      path: '/analysis'
+      fullPath: '/app/races/$raceId/analysis'
+      preLoaderRoute: typeof AuthenticatedAppRacesRaceIdAnalysisRouteImport
+      parentRoute: typeof AuthenticatedAppRacesRaceIdRoute
+    }
+    '/_authenticated/app/reports/athlete/weekly': {
+      id: '/_authenticated/app/reports/athlete/weekly'
+      path: '/app/reports/athlete/weekly'
+      fullPath: '/app/reports/athlete/weekly'
+      preLoaderRoute: typeof AuthenticatedAppReportsAthleteWeeklyRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/reports/coach/weekly': {
+      id: '/_authenticated/app/reports/coach/weekly'
+      path: '/app/reports/coach/weekly'
+      fullPath: '/app/reports/coach/weekly'
+      preLoaderRoute: typeof AuthenticatedAppReportsCoachWeeklyRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/app/sessions/$sessionId/': {
@@ -1388,61 +1537,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppSessionsSessionIdIndexRouteImport
       parentRoute: typeof AuthenticatedAppSessionsSessionIdRoute
     }
-    '/_authenticated/app/races/$raceId/': {
-      id: '/_authenticated/app/races/$raceId/'
-      path: '/'
-      fullPath: '/app/races/$raceId/'
-      preLoaderRoute: typeof AuthenticatedAppRacesRaceIdIndexRouteImport
-      parentRoute: typeof AuthenticatedAppRacesRaceIdRoute
-    }
     '/_authenticated/app/sessions/$sessionId/analysis': {
       id: '/_authenticated/app/sessions/$sessionId/analysis'
       path: '/analysis'
       fullPath: '/app/sessions/$sessionId/analysis'
       preLoaderRoute: typeof AuthenticatedAppSessionsSessionIdAnalysisRouteImport
       parentRoute: typeof AuthenticatedAppSessionsSessionIdRoute
-    }
-    '/_authenticated/app/reports/coach/weekly': {
-      id: '/_authenticated/app/reports/coach/weekly'
-      path: '/app/reports/coach/weekly'
-      fullPath: '/app/reports/coach/weekly'
-      preLoaderRoute: typeof AuthenticatedAppReportsCoachWeeklyRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/reports/athlete/weekly': {
-      id: '/_authenticated/app/reports/athlete/weekly'
-      path: '/app/reports/athlete/weekly'
-      fullPath: '/app/reports/athlete/weekly'
-      preLoaderRoute: typeof AuthenticatedAppReportsAthleteWeeklyRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/races/$raceId/analysis': {
-      id: '/_authenticated/app/races/$raceId/analysis'
-      path: '/analysis'
-      fullPath: '/app/races/$raceId/analysis'
-      preLoaderRoute: typeof AuthenticatedAppRacesRaceIdAnalysisRouteImport
-      parentRoute: typeof AuthenticatedAppRacesRaceIdRoute
-    }
-    '/_authenticated/app/race-tactics/$planId_/race-day': {
-      id: '/_authenticated/app/race-tactics/$planId_/race-day'
-      path: '/app/race-tactics/$planId/race-day'
-      fullPath: '/app/race-tactics/$planId/race-day'
-      preLoaderRoute: typeof AuthenticatedAppRaceTacticsPlanIdRaceDayRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/athletes/$athleteId_/race-history': {
-      id: '/_authenticated/app/athletes/$athleteId_/race-history'
-      path: '/$athleteId/race-history'
-      fullPath: '/app/athletes/$athleteId/race-history'
-      preLoaderRoute: typeof AuthenticatedAppAthletesAthleteIdRaceHistoryRouteImport
-      parentRoute: typeof AuthenticatedAppAthletesRoute
-    }
-    '/_authenticated/app/athletes/$athleteId_/performance-profile': {
-      id: '/_authenticated/app/athletes/$athleteId_/performance-profile'
-      path: '/$athleteId/performance-profile'
-      fullPath: '/app/athletes/$athleteId/performance-profile'
-      preLoaderRoute: typeof AuthenticatedAppAthletesAthleteIdPerformanceProfileRouteImport
-      parentRoute: typeof AuthenticatedAppAthletesRoute
     }
   }
 }
@@ -1473,6 +1573,7 @@ const AuthenticatedAppAthletesRouteWithChildren =
 interface AuthenticatedAppCalculatorsRouteChildren {
   AuthenticatedAppCalculatorsPacepredictorRoute: typeof AuthenticatedAppCalculatorsPacepredictorRoute
   AuthenticatedAppCalculatorsStartingfitnessRoute: typeof AuthenticatedAppCalculatorsStartingfitnessRoute
+  AuthenticatedAppCalculatorsZonecalculatorRoute: typeof AuthenticatedAppCalculatorsZonecalculatorRoute
   AuthenticatedAppCalculatorsIndexRoute: typeof AuthenticatedAppCalculatorsIndexRoute
 }
 
@@ -1482,6 +1583,8 @@ const AuthenticatedAppCalculatorsRouteChildren: AuthenticatedAppCalculatorsRoute
       AuthenticatedAppCalculatorsPacepredictorRoute,
     AuthenticatedAppCalculatorsStartingfitnessRoute:
       AuthenticatedAppCalculatorsStartingfitnessRoute,
+    AuthenticatedAppCalculatorsZonecalculatorRoute:
+      AuthenticatedAppCalculatorsZonecalculatorRoute,
     AuthenticatedAppCalculatorsIndexRoute:
       AuthenticatedAppCalculatorsIndexRoute,
   }
@@ -1589,9 +1692,11 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAppLactateRoute: typeof AuthenticatedAppLactateRoute
   AuthenticatedAppMapsRoute: typeof AuthenticatedAppMapsRoute
   AuthenticatedAppMessagesRoute: typeof AuthenticatedAppMessagesRoute
+  AuthenticatedAppMyRaceScheduleRoute: typeof AuthenticatedAppMyRaceScheduleRoute
   AuthenticatedAppMyScheduleRoute: typeof AuthenticatedAppMyScheduleRoute
   AuthenticatedAppNoticeboardRoute: typeof AuthenticatedAppNoticeboardRoute
   AuthenticatedAppPlansRoute: typeof AuthenticatedAppPlansRoute
+  AuthenticatedAppRaceScheduleRoute: typeof AuthenticatedAppRaceScheduleRoute
   AuthenticatedAppRacesRoute: typeof AuthenticatedAppRacesRouteWithChildren
   AuthenticatedAppRecoveryRoute: typeof AuthenticatedAppRecoveryRoute
   AuthenticatedAppSessionsRoute: typeof AuthenticatedAppSessionsRouteWithChildren
@@ -1603,11 +1708,13 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAppIndexRoute: typeof AuthenticatedAppIndexRoute
   AuthenticatedAppAthleteSlugRoute: typeof AuthenticatedAppAthleteSlugRoute
   AuthenticatedAppCoachSlugRoute: typeof AuthenticatedAppCoachSlugRoute
+  AuthenticatedAppRaceEventsRaceEventIdRoute: typeof AuthenticatedAppRaceEventsRaceEventIdRoute
   AuthenticatedAppRaceTacticsPlanIdRoute: typeof AuthenticatedAppRaceTacticsPlanIdRoute
   AuthenticatedAppRaceTacticsNewRoute: typeof AuthenticatedAppRaceTacticsNewRoute
   AuthenticatedAppReportsAiReviewRoute: typeof AuthenticatedAppReportsAiReviewRoute
   AuthenticatedAppAthleteIndexRoute: typeof AuthenticatedAppAthleteIndexRoute
   AuthenticatedAppCoachIndexRoute: typeof AuthenticatedAppCoachIndexRoute
+  AuthenticatedAppRaceEventsIndexRoute: typeof AuthenticatedAppRaceEventsIndexRoute
   AuthenticatedAppRaceTacticsIndexRoute: typeof AuthenticatedAppRaceTacticsIndexRoute
   AuthenticatedAppReportsIndexRoute: typeof AuthenticatedAppReportsIndexRoute
   AuthenticatedAppRaceTacticsPlanIdRaceDayRoute: typeof AuthenticatedAppRaceTacticsPlanIdRaceDayRoute
@@ -1640,9 +1747,11 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAppLactateRoute: AuthenticatedAppLactateRoute,
   AuthenticatedAppMapsRoute: AuthenticatedAppMapsRoute,
   AuthenticatedAppMessagesRoute: AuthenticatedAppMessagesRoute,
+  AuthenticatedAppMyRaceScheduleRoute: AuthenticatedAppMyRaceScheduleRoute,
   AuthenticatedAppMyScheduleRoute: AuthenticatedAppMyScheduleRoute,
   AuthenticatedAppNoticeboardRoute: AuthenticatedAppNoticeboardRoute,
   AuthenticatedAppPlansRoute: AuthenticatedAppPlansRoute,
+  AuthenticatedAppRaceScheduleRoute: AuthenticatedAppRaceScheduleRoute,
   AuthenticatedAppRacesRoute: AuthenticatedAppRacesRouteWithChildren,
   AuthenticatedAppRecoveryRoute: AuthenticatedAppRecoveryRoute,
   AuthenticatedAppSessionsRoute: AuthenticatedAppSessionsRouteWithChildren,
@@ -1654,12 +1763,15 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAppIndexRoute: AuthenticatedAppIndexRoute,
   AuthenticatedAppAthleteSlugRoute: AuthenticatedAppAthleteSlugRoute,
   AuthenticatedAppCoachSlugRoute: AuthenticatedAppCoachSlugRoute,
+  AuthenticatedAppRaceEventsRaceEventIdRoute:
+    AuthenticatedAppRaceEventsRaceEventIdRoute,
   AuthenticatedAppRaceTacticsPlanIdRoute:
     AuthenticatedAppRaceTacticsPlanIdRoute,
   AuthenticatedAppRaceTacticsNewRoute: AuthenticatedAppRaceTacticsNewRoute,
   AuthenticatedAppReportsAiReviewRoute: AuthenticatedAppReportsAiReviewRoute,
   AuthenticatedAppAthleteIndexRoute: AuthenticatedAppAthleteIndexRoute,
   AuthenticatedAppCoachIndexRoute: AuthenticatedAppCoachIndexRoute,
+  AuthenticatedAppRaceEventsIndexRoute: AuthenticatedAppRaceEventsIndexRoute,
   AuthenticatedAppRaceTacticsIndexRoute: AuthenticatedAppRaceTacticsIndexRoute,
   AuthenticatedAppReportsIndexRoute: AuthenticatedAppReportsIndexRoute,
   AuthenticatedAppRaceTacticsPlanIdRaceDayRoute:

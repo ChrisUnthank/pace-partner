@@ -45,7 +45,7 @@ import {
   STRATEGY_OPTIONS,
 } from "@/lib/race-tactics-calc";
 
-export const Route = createFileRoute("/_authenticated/app/race-tactics/$planId")({
+export const Route = createFileRoute("/_authenticated/app/race-tactics/$planId_/race-day")({
   component: RaceTacticsDetail,
 });
 
