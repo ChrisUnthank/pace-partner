@@ -109,6 +109,34 @@ const SCOPE_LABELS: Record<ScopeKey, string> = {
 
 type MetricKey = (typeof METRICS)[number]["key"];
 
+// Formats a metric's average value for the small stat card next to the
+// Session graph — same unit conventions as the chart's own tooltip
+// formatter just above (kept as a standalone function since the tooltip
+// formatter is inline JSX and averages are computed separately in
+// useMemo, not per-tooltip-hover).
+function formatMetricAverage(key: MetricKey, value: number, speedMode: "pace" | "speed"): string {
+  switch (key) {
+    case "hr":
+      return `${Math.round(value)} bpm`;
+    case "pace":
+      return speedMode === "speed" ? `${value.toFixed(1)} km/h` : `${paceFmt(value)}/km`;
+    case "cadence":
+      return `${Math.round(value)} spm`;
+    case "elev":
+      return `${Math.round(value)} m`;
+    case "vo":
+      return `${value.toFixed(1)} cm`;
+    case "gct":
+      return `${Math.round(value)} ms`;
+    case "stride":
+      return `${value.toFixed(2)} m`;
+    case "verticalRatio":
+      return `${value.toFixed(1)}%`;
+    default:
+      return `${value}`;
+  }
+}
+
 function SessionAnalysis() {
   const { sessionId } = Route.useParams();
 
@@ -465,6 +493,25 @@ function SessionAnalysis() {
     }));
   }, [visibleSamples, xKey, speedMode]);
 
+  // Per-metric average across whatever's currently plotted — same
+  // seriesData the chart itself renders, so this always matches the
+  // active scope (Full/Warmup/Work/etc) and speedMode (Pace/km-h)
+  // without any separate filtering logic to keep in sync.
+  const graphAverages = useMemo(() => {
+    const result: Partial<Record<MetricKey, number>> = {};
+    for (const m of METRICS) {
+      const vals: number[] = [];
+      for (const d of seriesData as any[]) {
+        const v = d[m.key];
+        if (v != null && !Number.isNaN(Number(v))) vals.push(Number(v));
+      }
+      if (vals.length > 0) {
+        result[m.key] = vals.reduce((a, b) => a + b, 0) / vals.length;
+      }
+    }
+    return result;
+  }, [seriesData]);
+
   const hasRaw = safeRawPoints.length > 0;
   const hasRepData = safeResults.length > 0;
 
@@ -812,222 +859,251 @@ function SessionAnalysis() {
 
           <CardContent>
             {modeType === "trace" && hasGraphData ? (
-              <div className="h-[360px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={seriesData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                    <XAxis
-                      dataKey="x"
-                      type="number"
-                      domain={["dataMin", "dataMax"]}
-                      tickFormatter={(v) => (xKey === "t" ? secToClock(Number(v)) : metersFmt(Number(v)))}
-                    />
-                    <YAxis
-                      yAxisId="hr"
-                      orientation="left"
-                      hide={!enabled.hr || !hasMetric.hr}
-                      tick={{ fontSize: 11 }}
-                      width={36}
-                    />
-                    <YAxis
-                      yAxisId="pace"
-                      orientation="right"
-                      hide={!enabled.pace || !hasMetric.pace}
-                      reversed={speedMode === "pace"}
-                      tick={{ fontSize: 11 }}
-                      width={48}
-                      tickFormatter={(v) =>
-                        speedMode === "speed"
-                          ? `${Number(v).toFixed(1)}`
-                          : secToClock(Number(v))
-                      }
-                    />
-                    <YAxis
-                      yAxisId="cadence"
-                      orientation="left"
-                      hide={!enabled.cadence || !hasMetric.cadence}
-                      tick={{ fontSize: 11 }}
-                      width={32}
-                    />
-                    <YAxis
-                      yAxisId="elev"
-                      orientation="right"
-                      hide={!enabled.elev || !hasMetric.elev}
-                      tick={{ fontSize: 11 }}
-                      width={32}
-                    />
-                    <YAxis
-                      yAxisId="vo"
-                      orientation="left"
-                      hide={!enabled.vo || !hasMetric.vo}
-                      tick={{ fontSize: 11 }}
-                      width={32}
-                      tickFormatter={(v) => `${Number(v).toFixed(1)}`}
-                    />
-                    <YAxis
-                      yAxisId="gct"
-                      orientation="right"
-                      hide={!enabled.gct || !hasMetric.gct}
-                      tick={{ fontSize: 11 }}
-                      width={36}
-                    />
-                    <YAxis
-                      yAxisId="stride"
-                      orientation="left"
-                      hide={!enabled.stride || !hasMetric.stride}
-                      tick={{ fontSize: 11 }}
-                      width={32}
-                      tickFormatter={(v) => `${Number(v).toFixed(1)}`}
-                    />
-                    <YAxis
-                      yAxisId="verticalRatio"
-                      orientation="right"
-                      hide={!enabled.verticalRatio || !hasMetric.verticalRatio}
-                      tick={{ fontSize: 11 }}
-                      width={32}
-                      tickFormatter={(v) => `${Number(v).toFixed(1)}`}
-                    />
-
-                    <Tooltip
-                      labelFormatter={(v) => (xKey === "t" ? secToClock(Number(v)) : metersFmt(Number(v)))}
-                      formatter={(v: any, n: any) => {
-                        if (v == null || Number.isNaN(Number(v))) return ["—", n];
-                        if (n === "pace")
-                          return speedMode === "speed"
-                            ? [`${Number(v).toFixed(1)} km/h`, "Speed"]
-                            : [`${paceFmt(Number(v))}/km`, "Pace"];
-                        if (n === "hr") return [`${Math.round(Number(v))} bpm`, "HR"];
-                        if (n === "cadence") return [`${Math.round(Number(v))} spm`, "Cadence"];
-                        if (n === "elev") return [`${Math.round(Number(v))} m`, "Elevation"];
-                        if (n === "vo") return [`${Number(v).toFixed(1)} cm`, "Vert Osc"];
-                        if (n === "gct") return [`${Math.round(Number(v))} ms`, "Gnd Contact"];
-                        if (n === "stride") return [`${Number(v).toFixed(2)} m`, "Stride Length"];
-                        if (n === "verticalRatio") return [`${Number(v).toFixed(1)}%`, "Vert Ratio"];
-                        return [v, n];
-                      }}
-                    />
-
-                    <Legend />
-
-                    {mode === "trace" &&
-                      visibleBands.map((b, i) => (
-                        <ReferenceArea
-                          key={i}
-                          x1={b[xKey === "t" ? "t1" : "d1"]}
-                          x2={b[xKey === "t" ? "t2" : "d2"]}
-                          yAxisId="hr"
-                          fill={STEP_COLORS[b.kind] ?? "transparent"}
-                          stroke={STEP_STROKE[b.kind]}
-                          strokeOpacity={0.35}
-                          strokeDasharray="2 2"
-                        />
-                      ))}
-
-                    {enabled.hr && hasMetric.hr && (
-                      <Line
+              <div className="flex flex-col lg:flex-row gap-4">
+                <div className="h-[360px] flex-1 min-w-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={seriesData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                      <XAxis
+                        dataKey="x"
+                        type="number"
+                        domain={["dataMin", "dataMax"]}
+                        tickFormatter={(v) => (xKey === "t" ? secToClock(Number(v)) : metersFmt(Number(v)))}
+                      />
+                      <YAxis
                         yAxisId="hr"
-                        dataKey="hr"
-                        stroke="#ef4444"
-                        dot={false}
-                        type="monotone"
-                        connectNulls={false}
-                        strokeWidth={2}
-                        isAnimationActive={false}
+                        orientation="left"
+                        hide={!enabled.hr || !hasMetric.hr}
+                        tick={{ fontSize: 11 }}
+                        width={36}
                       />
-                    )}
-
-                    {enabled.pace && hasMetric.pace && (
-                      <Line
+                      <YAxis
                         yAxisId="pace"
-                        dataKey="pace"
-                        stroke="#3b82f6"
-                        dot={false}
-                        type="monotone"
-                        connectNulls={false}
-                        strokeWidth={2}
-                        isAnimationActive={false}
+                        orientation="right"
+                        hide={!enabled.pace || !hasMetric.pace}
+                        reversed={speedMode === "pace"}
+                        tick={{ fontSize: 11 }}
+                        width={48}
+                        tickFormatter={(v) =>
+                          speedMode === "speed"
+                            ? `${Number(v).toFixed(1)}`
+                            : secToClock(Number(v))
+                        }
                       />
-                    )}
-
-                    {enabled.cadence && hasMetric.cadence && (
-                      <Line
+                      <YAxis
                         yAxisId="cadence"
-                        dataKey="cadence"
-                        stroke="#8b5cf6"
-                        dot={false}
-                        type="monotone"
-                        connectNulls={false}
-                        strokeWidth={1.5}
-                        isAnimationActive={false}
+                        orientation="left"
+                        hide={!enabled.cadence || !hasMetric.cadence}
+                        tick={{ fontSize: 11 }}
+                        width={32}
                       />
-                    )}
-
-                    {enabled.elev && hasMetric.elev && (
-                      <Line
+                      <YAxis
                         yAxisId="elev"
-                        dataKey="elev"
-                        stroke="#10b981"
-                        dot={false}
-                        type="monotone"
-                        connectNulls={false}
-                        strokeWidth={1.5}
-                        isAnimationActive={false}
+                        orientation="right"
+                        hide={!enabled.elev || !hasMetric.elev}
+                        tick={{ fontSize: 11 }}
+                        width={32}
                       />
-                    )}
-
-                    {enabled.vo && hasMetric.vo && (
-                      <Line
+                      <YAxis
                         yAxisId="vo"
-                        dataKey="vo"
-                        stroke="#f97316"
-                        dot={false}
-                        type="monotone"
-                        connectNulls={false}
-                        strokeWidth={1.5}
-                        isAnimationActive={false}
+                        orientation="left"
+                        hide={!enabled.vo || !hasMetric.vo}
+                        tick={{ fontSize: 11 }}
+                        width={32}
+                        tickFormatter={(v) => `${Number(v).toFixed(1)}`}
                       />
-                    )}
-
-                    {enabled.gct && hasMetric.gct && (
-                      <Line
+                      <YAxis
                         yAxisId="gct"
-                        dataKey="gct"
-                        stroke="#ec4899"
-                        dot={false}
-                        type="monotone"
-                        connectNulls={false}
-                        strokeWidth={1.5}
-                        isAnimationActive={false}
+                        orientation="right"
+                        hide={!enabled.gct || !hasMetric.gct}
+                        tick={{ fontSize: 11 }}
+                        width={36}
                       />
-                    )}
-
-                    {enabled.stride && hasMetric.stride && (
-                      <Line
+                      <YAxis
                         yAxisId="stride"
-                        dataKey="stride"
-                        stroke="#14b8a6"
-                        dot={false}
-                        type="monotone"
-                        connectNulls={false}
-                        strokeWidth={1.5}
-                        isAnimationActive={false}
+                        orientation="left"
+                        hide={!enabled.stride || !hasMetric.stride}
+                        tick={{ fontSize: 11 }}
+                        width={32}
+                        tickFormatter={(v) => `${Number(v).toFixed(1)}`}
                       />
-                    )}
-
-                    {enabled.verticalRatio && hasMetric.verticalRatio && (
-                      <Line
+                      <YAxis
                         yAxisId="verticalRatio"
-                        dataKey="verticalRatio"
-                        stroke="#eab308"
-                        dot={false}
-                        type="monotone"
-                        connectNulls={false}
-                        strokeWidth={1.5}
-                        isAnimationActive={false}
+                        orientation="right"
+                        hide={!enabled.verticalRatio || !hasMetric.verticalRatio}
+                        tick={{ fontSize: 11 }}
+                        width={32}
+                        tickFormatter={(v) => `${Number(v).toFixed(1)}`}
                       />
+
+                      <Tooltip
+                        labelFormatter={(v) => (xKey === "t" ? secToClock(Number(v)) : metersFmt(Number(v)))}
+                        formatter={(v: any, n: any) => {
+                          if (v == null || Number.isNaN(Number(v))) return ["—", n];
+                          if (n === "pace")
+                            return speedMode === "speed"
+                              ? [`${Number(v).toFixed(1)} km/h`, "Speed"]
+                              : [`${paceFmt(Number(v))}/km`, "Pace"];
+                          if (n === "hr") return [`${Math.round(Number(v))} bpm`, "HR"];
+                          if (n === "cadence") return [`${Math.round(Number(v))} spm`, "Cadence"];
+                          if (n === "elev") return [`${Math.round(Number(v))} m`, "Elevation"];
+                          if (n === "vo") return [`${Number(v).toFixed(1)} cm`, "Vert Osc"];
+                          if (n === "gct") return [`${Math.round(Number(v))} ms`, "Gnd Contact"];
+                          if (n === "stride") return [`${Number(v).toFixed(2)} m`, "Stride Length"];
+                          if (n === "verticalRatio") return [`${Number(v).toFixed(1)}%`, "Vert Ratio"];
+                          return [v, n];
+                        }}
+                      />
+
+                      <Legend />
+
+                      {mode === "trace" &&
+                        visibleBands.map((b, i) => (
+                          <ReferenceArea
+                            key={i}
+                            x1={b[xKey === "t" ? "t1" : "d1"]}
+                            x2={b[xKey === "t" ? "t2" : "d2"]}
+                            yAxisId="hr"
+                            fill={STEP_COLORS[b.kind] ?? "transparent"}
+                            stroke={STEP_STROKE[b.kind]}
+                            strokeOpacity={0.35}
+                            strokeDasharray="2 2"
+                          />
+                        ))}
+
+                      {enabled.hr && hasMetric.hr && (
+                        <Line
+                          yAxisId="hr"
+                          dataKey="hr"
+                          stroke="#ef4444"
+                          dot={false}
+                          type="monotone"
+                          connectNulls={false}
+                          strokeWidth={2}
+                          isAnimationActive={false}
+                        />
+                      )}
+
+                      {enabled.pace && hasMetric.pace && (
+                        <Line
+                          yAxisId="pace"
+                          dataKey="pace"
+                          stroke="#3b82f6"
+                          dot={false}
+                          type="monotone"
+                          connectNulls={false}
+                          strokeWidth={2}
+                          isAnimationActive={false}
+                        />
+                      )}
+
+                      {enabled.cadence && hasMetric.cadence && (
+                        <Line
+                          yAxisId="cadence"
+                          dataKey="cadence"
+                          stroke="#8b5cf6"
+                          dot={false}
+                          type="monotone"
+                          connectNulls={false}
+                          strokeWidth={1.5}
+                          isAnimationActive={false}
+                        />
+                      )}
+
+                      {enabled.elev && hasMetric.elev && (
+                        <Line
+                          yAxisId="elev"
+                          dataKey="elev"
+                          stroke="#10b981"
+                          dot={false}
+                          type="monotone"
+                          connectNulls={false}
+                          strokeWidth={1.5}
+                          isAnimationActive={false}
+                        />
+                      )}
+
+                      {enabled.vo && hasMetric.vo && (
+                        <Line
+                          yAxisId="vo"
+                          dataKey="vo"
+                          stroke="#f97316"
+                          dot={false}
+                          type="monotone"
+                          connectNulls={false}
+                          strokeWidth={1.5}
+                          isAnimationActive={false}
+                        />
+                      )}
+
+                      {enabled.gct && hasMetric.gct && (
+                        <Line
+                          yAxisId="gct"
+                          dataKey="gct"
+                          stroke="#ec4899"
+                          dot={false}
+                          type="monotone"
+                          connectNulls={false}
+                          strokeWidth={1.5}
+                          isAnimationActive={false}
+                        />
+                      )}
+
+                      {enabled.stride && hasMetric.stride && (
+                        <Line
+                          yAxisId="stride"
+                          dataKey="stride"
+                          stroke="#14b8a6"
+                          dot={false}
+                          type="monotone"
+                          connectNulls={false}
+                          strokeWidth={1.5}
+                          isAnimationActive={false}
+                        />
+                      )}
+
+                      {enabled.verticalRatio && hasMetric.verticalRatio && (
+                        <Line
+                          yAxisId="verticalRatio"
+                          dataKey="verticalRatio"
+                          stroke="#eab308"
+                          dot={false}
+                          type="monotone"
+                          connectNulls={false}
+                          strokeWidth={1.5}
+                          isAnimationActive={false}
+                        />
+                      )}
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Averages sidebar — one card per currently-toggled-on metric
+                    (with data), color-matched to that metric's line so it
+                    reads as "this number belongs to that line" at a glance.
+                    Stacks above the chart on narrow screens, sits to its
+                    right from lg up. */}
+                {METRICS.some((m) => enabled[m.key] && hasMetric[m.key] && graphAverages[m.key] != null) && (
+                  <div className="flex flex-row flex-wrap gap-2 lg:flex-col lg:w-40 lg:shrink-0 lg:border-l lg:pl-4">
+                    {METRICS.filter((m) => enabled[m.key] && hasMetric[m.key] && graphAverages[m.key] != null).map(
+                      (m) => (
+                        <div
+                          key={m.key}
+                          className="rounded-md border px-2.5 py-1.5 bg-card/50 min-w-[92px]"
+                          style={{ borderColor: `${m.color}55` }}
+                        >
+                          <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                            <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ background: m.color }} />
+                            Avg {m.label}
+                          </div>
+                          <div className="text-sm font-semibold tabular-nums" style={{ color: m.color }}>
+                            {formatMetricAverage(m.key, graphAverages[m.key]!, speedMode)}
+                          </div>
+                        </div>
+                      ),
                     )}
-                  </ComposedChart>
-                </ResponsiveContainer>
+                  </div>
+                )}
               </div>
             ) : modeType === "interval" ? (
               <div className="h-[220px] w-full rounded border border-dashed flex flex-col items-center justify-center text-sm text-muted-foreground">
