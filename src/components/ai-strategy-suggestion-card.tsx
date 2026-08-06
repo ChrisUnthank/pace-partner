@@ -27,7 +27,7 @@ import { generateRaceStrategySuggestion, listRaceStrategySuggestions, updateSugg
 const STATUS_STYLES: Record<string, string> = {
   pending: "bg-amber-100 text-amber-700 border-amber-200",
   accepted: "bg-emerald-100 text-emerald-700 border-emerald-200",
-  rejected: "bg-slate-100 text-slate-500 border-slate-200",
+  rejected: "bg-muted text-muted-foreground border-border",
 };
 
 export function AiStrategySuggestionCard({
