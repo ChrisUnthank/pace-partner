@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 export const FEEL_LEVELS = [
   { value: 1, label: "Very Weak", Icon: Angry, color: "text-red-500" },
   { value: 3, label: "Weak", Icon: Frown, color: "text-orange-500" },
-  { value: 5, label: "Normal", Icon: Meh, color: "text-slate-500" },
+  { value: 5, label: "Normal", Icon: Meh, color: "text-muted-foreground" },
   { value: 7, label: "Strong", Icon: Smile, color: "text-teal-500" },
   { value: 10, label: "Very Strong", Icon: Laugh, color: "text-emerald-500" },
 ] as const;
