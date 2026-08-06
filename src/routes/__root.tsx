@@ -5,6 +5,7 @@ import { useEffect, type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { Toaster } from "@/components/ui/sonner";
+import { ThemeProvider } from "@/lib/theme";
 
 function NotFoundComponent() {
   return (
@@ -103,8 +104,23 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className="dark" suppressHydrationWarning>
       <head>
+        {/* Sets the correct light/dark class on <html> before first paint,
+            so there's no flash of the wrong theme. Runs synchronously,
+            blocking, before anything below it renders — the standard
+            no-FOUC technique. Server always renders className="dark"
+            above (it has no way to know a client's stored preference);
+            this corrects it client-side the instant the page loads if the
+            person has actually chosen light. suppressHydrationWarning on
+            <html> above stops React from complaining that this script
+            changed an attribute React didn't render itself. */}
+        <script
+          // eslint-disable-next-line react/no-danger
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem("strider:theme");if(t==="light"){document.documentElement.classList.remove("dark");}}catch(e){}})();`,
+          }}
+        />
         <HeadContent />
       </head>
       <body className="font-sans antialiased">
@@ -120,9 +136,11 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-      <Outlet />
-      <Toaster richColors />
+      <ThemeProvider>
+        {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+        <Outlet />
+        <Toaster richColors />
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }
