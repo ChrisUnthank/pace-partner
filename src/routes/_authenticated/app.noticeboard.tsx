@@ -33,7 +33,7 @@ const TYPE_META: Record<string, { label: string; icon: any; cls: string }> = {
   result: { label: "Result", icon: Trophy, cls: "bg-amber-500/15 text-amber-400" },
   upcoming_race: { label: "Upcoming race", icon: CalendarDays, cls: "bg-emerald-500/15 text-emerald-400" },
   training_event: { label: "Training", icon: MapPin, cls: "bg-purple-500/15 text-purple-400" },
-  resource: { label: "Resource", icon: BookOpen, cls: "bg-slate-500/15 text-slate-300" },
+  resource: { label: "Resource", icon: BookOpen, cls: "bg-muted text-muted-foreground" },
 };
 
 const EMOJIS = ["👍", "🔥", "👏", "💪", "🎉"];
