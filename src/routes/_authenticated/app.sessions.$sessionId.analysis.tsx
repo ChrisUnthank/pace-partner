@@ -2637,7 +2637,13 @@ function LapTimesTooltip({ active, payload, label, metric }: any) {
           Bar height: {secToClock(d.timeDisplay)} equiv. — projected to a full split at this pace
         </div>
       )}
+      <div className="text-muted-foreground">
+        Distance: {d.distanceM > 0 ? metersFmt(roundDistanceForDisplay(d.distanceM)) : "—"}
+      </div>
       <div className="text-muted-foreground">Cumulative: {secToClock(d.cumulativeS)}</div>
+      <div className="text-muted-foreground">
+        Cumulative distance: {d.cumulativeDistanceM > 0 ? metersFmt(roundDistanceForDisplay(d.cumulativeDistanceM)) : "—"}
+      </div>
     </div>
   );
 }
@@ -2690,6 +2696,7 @@ function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any
           pace: r.avgPace ?? 0,
           time: r.durationS ?? 0,
           timeDisplay: r.durationS ?? 0,
+          distanceM: r.distanceM ?? 0,
           isBest: !!r.isBest,
           isPartial: false,
           repIndex: i,
@@ -2714,6 +2721,7 @@ function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any
             pace: r.avgPace ?? 0,
             time: actualTime,
             timeDisplay: projectedTime,
+            distanceM: r.distanceM ?? 0,
             isBest: false,
             isPartial: !!r.isPartial,
             repIndex: r.repIndex ?? 0,
@@ -2725,10 +2733,15 @@ function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any
   // (see description below), so a true wall-clock cumulative would
   // silently reintroduce gaps this chart otherwise hides. Shown in the
   // tooltip alongside whichever metric (Pace/Time) is currently selected.
+  // Cumulative distance is the same running-total treatment applied to
+  // each bar's own distanceM.
   let runningS = 0;
+  let runningM = 0;
   for (const d of chartData) {
     runningS += Number(d.time) || 0;
+    runningM += Number(d.distanceM) || 0;
     (d as any).cumulativeS = runningS;
+    (d as any).cumulativeDistanceM = runningM;
   }
 
   // One background band per rep, so a rep re-split into several lap/km
@@ -2760,6 +2773,23 @@ function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any
   const values = chartData.map((d) => Number((d as any)[metricKey])).filter((v) => v > 0);
   const avgY = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
   const hasPartial = mode !== "reps" && chartData.some((d) => d.isPartial);
+
+  // A plain ["dataMin", "dataMax"] domain puts the axis baseline exactly
+  // AT the fastest/shortest bar's own value — which gives that one bar
+  // zero height, rendering as a blank column even though it's the best
+  // effort on the chart. Padded out a little past both ends (8% of the
+  // range, floored at a couple of seconds so a very tight spread of times
+  // still gets a visible margin) so every bar, including the extremes,
+  // shows some real height. Never goes below 0 — a pace/time value can't
+  // be negative.
+  const yDomain: [number, number] | undefined = values.length
+    ? (() => {
+        const dMin = Math.min(...values);
+        const dMax = Math.max(...values);
+        const pad = Math.max((dMax - dMin) * 0.08, 2);
+        return [Math.max(0, dMin - pad), dMax + pad];
+      })()
+    : undefined;
 
   const description =
     mode === "reps"
@@ -2862,7 +2892,7 @@ function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any
                 tickFormatter={(v) => (metric === "pace" ? `${paceFmt(v)}/km` : secToClock(v))}
                 tick={{ fontSize: 11 }}
                 width={58}
-                domain={["dataMin", "dataMax"]}
+                domain={yDomain ?? ["dataMin", "dataMax"]}
               />
               <Tooltip content={<LapTimesTooltip metric={metric} />} />
               {avgY != null && (
