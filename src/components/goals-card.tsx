@@ -73,7 +73,7 @@ const STATUS_STYLES: Record<Status, string> = {
 const PRIORITY_STYLES: Record<Priority, string> = {
   A: "bg-red-100 text-red-700 border-red-200",
   B: "bg-orange-100 text-orange-700 border-orange-200",
-  C: "bg-slate-100 text-slate-700 border-slate-200",
+  C: "bg-muted text-muted-foreground border-border",
 };
 
 export function GoalsCard({ athleteId }: { athleteId: string }) {
