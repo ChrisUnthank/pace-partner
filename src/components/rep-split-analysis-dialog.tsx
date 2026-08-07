@@ -319,15 +319,25 @@ function projectRoutePoints(
 }
 
 const ROUTE_SPLIT_STROKE: Record<string, string> = {
-  green: "#10b981",
-  yellow: "#f59e0b",
-  red: "#ef4444",
-  none: "#9ca3af",
+  headwind: "#ef4444",
+  tailwind: "#10b981",
+  crosswind: "#f59e0b",
+  calm: "#9ca3af",
+  unknown: "#9ca3af",
 };
 
-function RepRouteShapeCard({ splits, avgPaceSecPerKm }: { splits: Split[]; avgPaceSecPerKm: number | null }) {
+// Midpoint of a split's own path — used to place its number label roughly
+// centred on its stretch of the route, rather than at its start (which
+// would visually crowd against the previous split's end on a tight bend).
+function pathMidpoint(path: Array<{ lat: number; lng: number }>): { lat: number; lng: number } | null {
+  if (!path.length) return null;
+  return path[Math.floor(path.length / 2)];
+}
+
+function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReading }) {
   const allPoints = useMemo(() => splits.flatMap((s) => s.path), [splits]);
   const projection = useMemo(() => projectRoutePoints(allPoints), [allPoints]);
+  const hasWind = wind?.speedKmh != null;
 
   return (
     <Card>
@@ -349,7 +359,17 @@ function RepRouteShapeCard({ splits, avgPaceSecPerKm }: { splits: Split[]; avgPa
               <svg viewBox={`0 0 ${projection.size} ${projection.size}`} className="w-full h-full">
                 {splits.map((s) => {
                   if (s.path.length < 2) return null;
-                  const color = colorForSplit(s.paceSecPerKm, avgPaceSecPerKm);
+                  // Coloured by relative WIND on this stretch (not pace) —
+                  // the split-by-split time grid above already covers
+                  // pace deviation with its own colours, and colouring the
+                  // map by pace too made overlapping loops (a track
+                  // session run over multiple laps) unreadable, since
+                  // pace-colour and position don't correspond to anything
+                  // spatially meaningful. Wind direction DOES have a real
+                  // spatial meaning — the same bend is always the same
+                  // wind angle every lap — so it's what the shape is
+                  // actually useful for showing.
+                  const relative = hasWind ? classifyRelativeWind(s.bearingDeg, wind!) : "unknown";
                   const pointsAttr = s.path
                     .map((p) => {
                       const { x, y } = projection.project(p);
@@ -362,13 +382,43 @@ function RepRouteShapeCard({ splits, avgPaceSecPerKm }: { splits: Split[]; avgPa
                       key={s.index}
                       points={pointsAttr}
                       fill="none"
-                      stroke={ROUTE_SPLIT_STROKE[color] ?? ROUTE_SPLIT_STROKE.none}
+                      stroke={ROUTE_SPLIT_STROKE[relative] ?? ROUTE_SPLIT_STROKE.unknown}
                       strokeWidth={strokeWidth}
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     >
-                      <title>{`Split ${s.index} — ${s.paceSecPerKm != null ? (s.paceSecPerKm / 10).toFixed(1) + "s/100m" : "—"} · ${Math.round(s.cumulativeDistanceM)}m into rep`}</title>
+                      <title>
+                        {`Split ${s.index} — ${RELATIVE_WIND_LABEL[relative]}${s.paceSecPerKm != null ? ` · ${(s.paceSecPerKm / 10).toFixed(1)}s/100m` : ""} · ${Math.round(s.cumulativeDistanceM)}m into rep`}
+                      </title>
                     </polyline>
+                  );
+                })}
+                {/* Numbered split labels — matches the same index shown on
+                    each cell in the "Split-by-split time" grid above, so a
+                    specific 100m can be located on the map from its number
+                    in the grid, or vice versa. A small background disc
+                    keeps the number legible over the coloured line and
+                    over any earlier lap the path crosses again. */}
+                {splits.map((s) => {
+                  const mid = pathMidpoint(s.path);
+                  if (!mid) return null;
+                  const { x, y } = projection.project(mid);
+                  const r = Math.max(4, projection.size * 0.02);
+                  return (
+                    <g key={`label-${s.index}`}>
+                      <circle cx={x} cy={y} r={r} fill="var(--background, #fff)" stroke="currentColor" strokeOpacity={0.3} strokeWidth={0.5} className="text-foreground" />
+                      <text
+                        x={x}
+                        y={y}
+                        textAnchor="middle"
+                        dominantBaseline="central"
+                        fontSize={r * 1.1}
+                        fontWeight={600}
+                        className="fill-foreground"
+                      >
+                        {s.index}
+                      </text>
+                    </g>
                   );
                 })}
                 {(() => {
@@ -401,15 +451,21 @@ function RepRouteShapeCard({ splits, avgPaceSecPerKm }: { splits: Split[]; avgPa
               </div>
             </div>
             <div className="mt-2 flex items-center justify-center gap-3 text-[11px] text-muted-foreground flex-wrap">
-              <span className="flex items-center gap-1">
-                <span className="h-0.5 w-4 rounded bg-emerald-500 inline-block" /> On pace
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="h-0.5 w-4 rounded bg-amber-500 inline-block" /> Slightly off
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="h-0.5 w-4 rounded bg-red-500 inline-block" /> Significant deviation
-              </span>
+              {hasWind ? (
+                <>
+                  <span className="flex items-center gap-1">
+                    <span className="h-0.5 w-4 rounded bg-red-500 inline-block" /> Headwind
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="h-0.5 w-4 rounded bg-emerald-500 inline-block" /> Tailwind
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="h-0.5 w-4 rounded bg-amber-500 inline-block" /> Crosswind
+                  </span>
+                </>
+              ) : (
+                <span>No wind reading for this session — path shown uncoloured.</span>
+              )}
               <span className="flex items-center gap-1">
                 <span className="h-2 w-2 rounded-full bg-blue-500 inline-block" /> Start
               </span>
@@ -417,8 +473,284 @@ function RepRouteShapeCard({ splits, avgPaceSecPerKm }: { splits: Split[]; avgPa
                 <span className="h-2 w-2 bg-foreground inline-block" /> Finish
               </span>
             </div>
+            <p className="text-[10px] text-muted-foreground text-center mt-1">
+              Numbers match the split-by-split grid above — find a number here to see where that 100m was actually run.
+            </p>
           </>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------
+// High-res trace — the same look and feel as the "Session graph" at the
+// top of the Session Analysis page (toggle buttons per metric, an
+// averages sidebar) but scoped to just this rep's own raw point trace,
+// not bucketed into 100m splits. Deliberately a separate, self-contained
+// implementation rather than reusing the Session graph component
+// directly — that component is tightly wired into the analysis page's
+// own state (session-wide scope filters, zone shading, multi-thousand-
+// point virtualisation) and pulling a rep-scoped slice out of it safely
+// would be a much larger, riskier refactor of an already-complex, already
+// -working 4000+ line file. This mirrors its metric palette, toggle
+// pattern, and sidebar layout closely enough to read as "the same style,"
+// without touching that file at all.
+//
+// SIMPLIFICATION vs the Session graph: the Session graph supports up to
+// 4 independent Y-axes (left/right/leftInner/rightInner) so many metrics
+// can each get their own correctly-scaled axis at once. This version uses
+// just 2 visible axes (left/right) — the first two enabled metrics get a
+// real axis, any further enabled metric still plots correctly but shares
+// the nearest axis's visual scale. For a single rep (a few hundred points,
+// rarely more than 2-3 metrics toggled at once to actually read), that
+// trade-off keeps this readable without the extra axis-management
+// complexity a modal this size doesn't have room for anyway.
+type RepTraceMetricKey = "hr" | "pace" | "cadence" | "elev" | "vo" | "gct";
+
+const REP_TRACE_METRICS: { key: RepTraceMetricKey; label: string; color: string; unit: string; axis: "left" | "right" }[] = [
+  { key: "hr", label: "HR", color: "#ef4444", unit: "bpm", axis: "left" },
+  { key: "pace", label: "Pace", color: "#3b82f6", unit: "/km", axis: "right" },
+  { key: "cadence", label: "Cadence", color: "#8b5cf6", unit: "spm", axis: "left" },
+  { key: "elev", label: "Elevation", color: "#10b981", unit: "m", axis: "right" },
+  { key: "vo", label: "Vert Osc", color: "#f97316", unit: "cm", axis: "left" },
+  { key: "gct", label: "Gnd Contact", color: "#ec4899", unit: "ms", axis: "right" },
+];
+
+function paceToSpeedKmh(paceSecPerKm?: number | null): number | null {
+  if (!paceSecPerKm || paceSecPerKm <= 0) return null;
+  return 3600 / paceSecPerKm;
+}
+
+function formatRepTraceAverage(key: RepTraceMetricKey, value: number, speedMode: "pace" | "speed"): string {
+  switch (key) {
+    case "hr":
+      return `${Math.round(value)} bpm`;
+    case "pace":
+      return speedMode === "speed" ? `${value.toFixed(1)} km/h` : `${paceFmt(value)}/km`;
+    case "cadence":
+      return `${Math.round(value)} spm`;
+    case "elev":
+      return `${Math.round(value)} m`;
+    case "vo":
+      return `${value.toFixed(1)} cm`;
+    case "gct":
+      return `${Math.round(value)} ms`;
+    default:
+      return `${value}`;
+  }
+}
+
+function RepTraceChart({ repPoints }: { repPoints: RepPointLike[] }) {
+  const [enabled, setEnabled] = useState<Record<RepTraceMetricKey, boolean>>({
+    hr: true,
+    pace: true,
+    cadence: false,
+    elev: false,
+    vo: false,
+    gct: false,
+  });
+  const [speedMode, setSpeedMode] = useState<"pace" | "speed">("pace");
+
+  const hasMetric = useMemo(() => {
+    const has = (pred: (p: RepPointLike) => boolean) => repPoints.some(pred);
+    return {
+      hr: has((p) => typeof p.hr === "number" && p.hr > 0),
+      pace: has((p) => typeof p.pace_sec_per_km === "number" && p.pace_sec_per_km > 0 && p.pace_sec_per_km <= 1800),
+      cadence: has((p) => typeof p.cadence === "number" && p.cadence > 0),
+      elev: has((p) => typeof p.elevation_m === "number"),
+      vo: has((p) => typeof p.vertical_oscillation_cm === "number" && p.vertical_oscillation_cm > 0),
+      gct: has((p) => typeof p.ground_contact_time_ms === "number" && p.ground_contact_time_ms > 0),
+    } as Record<RepTraceMetricKey, boolean>;
+  }, [repPoints]);
+
+  const chartData = useMemo(() => {
+    if (!repPoints.length) return [];
+    const sorted = [...repPoints].sort((a, b) => Number(a.elapsed_s ?? 0) - Number(b.elapsed_s ?? 0));
+    const t0 = Number(sorted[0].elapsed_s ?? 0);
+    const d0 = Number(sorted[0].distance_m ?? 0);
+    return sorted.map((p) => {
+      const rawPace =
+        typeof p.pace_sec_per_km === "number" && p.pace_sec_per_km > 0 && p.pace_sec_per_km <= 1800
+          ? p.pace_sec_per_km
+          : null;
+      return {
+        t: Number(p.elapsed_s ?? 0) - t0,
+        distanceM: p.distance_m != null ? Number(p.distance_m) - d0 : null,
+        hr: typeof p.hr === "number" && p.hr > 0 ? p.hr : null,
+        pace: rawPace != null ? (speedMode === "speed" ? paceToSpeedKmh(rawPace) : rawPace) : null,
+        cadence: typeof p.cadence === "number" && p.cadence > 0 ? p.cadence : null,
+        elev: typeof p.elevation_m === "number" ? p.elevation_m : null,
+        vo: typeof p.vertical_oscillation_cm === "number" && p.vertical_oscillation_cm > 0 ? p.vertical_oscillation_cm : null,
+        gct: typeof p.ground_contact_time_ms === "number" && p.ground_contact_time_ms > 0 ? p.ground_contact_time_ms : null,
+      };
+    });
+  }, [repPoints, speedMode]);
+
+  const averages = useMemo(() => {
+    const avg = (key: RepTraceMetricKey) => {
+      const vals = chartData.map((d) => d[key]).filter((v): v is number => typeof v === "number");
+      return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+    };
+    return {
+      hr: avg("hr"),
+      pace: avg("pace"),
+      cadence: avg("cadence"),
+      elev: avg("elev"),
+      vo: avg("vo"),
+      gct: avg("gct"),
+    } as Record<RepTraceMetricKey, number | null>;
+  }, [chartData]);
+
+  const activeMetrics = REP_TRACE_METRICS.filter((m) => enabled[m.key] && hasMetric[m.key]);
+  // Only the first metric assigned to each side gets that side's visible
+  // axis — see the SIMPLIFICATION note above the component.
+  const leftAxisMetric = activeMetrics.find((m) => m.axis === "left");
+  const rightAxisMetric = activeMetrics.find((m) => m.axis === "right");
+
+  if (!repPoints.length) return null;
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <CardTitle className="text-sm flex items-center gap-1.5">
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            High-res trace
+          </CardTitle>
+          {hasMetric.pace && (
+            <div className="flex border rounded-md overflow-hidden text-xs">
+              <button
+                type="button"
+                onClick={() => setSpeedMode("pace")}
+                className={`px-2 py-0.5 ${speedMode === "pace" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+              >
+                Pace
+              </button>
+              <button
+                type="button"
+                onClick={() => setSpeedMode("speed")}
+                className={`px-2 py-0.5 border-l ${speedMode === "speed" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+              >
+                km/h
+              </button>
+            </div>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-1 mt-1.5">
+          {REP_TRACE_METRICS.map((m) => {
+            const avail = hasMetric[m.key];
+            return (
+              <button
+                key={m.key}
+                type="button"
+                disabled={!avail}
+                title={!avail ? "No data" : ""}
+                onClick={() => setEnabled((p) => ({ ...p, [m.key]: !p[m.key] }))}
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-xs ${
+                  enabled[m.key] && avail
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-background border-border hover:bg-accent"
+                } ${!avail ? "opacity-40 cursor-default" : ""}`}
+              >
+                <span className="h-1.5 w-1.5 rounded-full inline-block" style={{ background: m.color }} />
+                {m.label}
+              </button>
+            );
+          })}
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="flex gap-3">
+          <div className="flex-1 h-56 min-w-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chartData} margin={{ top: 8, right: 8, left: 4, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                <XAxis
+                  dataKey="t"
+                  tick={{ fontSize: 10 }}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(v) => `${Math.round(v)}s`}
+                />
+                {leftAxisMetric && (
+                  <YAxis
+                    yAxisId="left"
+                    orientation="left"
+                    tick={{ fontSize: 10 }}
+                    tickLine={false}
+                    axisLine={false}
+                    reversed={leftAxisMetric.key === "pace" && speedMode === "pace"}
+                    tickFormatter={(v) => (leftAxisMetric.key === "pace" ? formatSplitTime(v, "pace") : `${Math.round(v)}`)}
+                    width={40}
+                  />
+                )}
+                {rightAxisMetric && (
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    tick={{ fontSize: 10 }}
+                    tickLine={false}
+                    axisLine={false}
+                    reversed={rightAxisMetric.key === "pace" && speedMode === "pace"}
+                    tickFormatter={(v) => (rightAxisMetric.key === "pace" ? formatSplitTime(v, "pace") : `${Math.round(v)}`)}
+                    width={40}
+                  />
+                )}
+                <Tooltip
+                  labelFormatter={(t) => `${Math.round(Number(t))}s into rep`}
+                  formatter={(value: any, name: any) => {
+                    const metric = REP_TRACE_METRICS.find((m) => m.key === name);
+                    if (!metric) return [value, name];
+                    const formatted =
+                      metric.key === "pace"
+                        ? speedMode === "speed"
+                          ? `${Number(value).toFixed(1)} km/h`
+                          : `${formatSplitTime(Number(value), "pace")}/km`
+                        : `${Number(value).toFixed(metric.key === "vo" ? 1 : 0)} ${metric.unit}`;
+                    return [formatted, metric.label];
+                  }}
+                  contentStyle={{ fontSize: 12 }}
+                />
+                {activeMetrics.map((m) => (
+                  <Line
+                    key={m.key}
+                    yAxisId={m.axis}
+                    type="monotone"
+                    dataKey={m.key}
+                    name={m.key}
+                    stroke={m.color}
+                    strokeWidth={1.5}
+                    dot={false}
+                    connectNulls
+                    isAnimationActive={false}
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          {/* Averages sidebar — mirrors the Session graph's own sidebar:
+              one small card per currently-toggled-on, available metric. */}
+          {activeMetrics.length > 0 && (
+            <div className="w-20 shrink-0 flex flex-col gap-1.5">
+              {activeMetrics.map((m) => {
+                const avgValue = averages[m.key];
+                if (avgValue == null) return null;
+                return (
+                  <div key={m.key} className="rounded-md border border-border bg-muted/30 px-1.5 py-1 text-center">
+                    <div className="flex items-center justify-center gap-1">
+                      <span className="h-1.5 w-1.5 rounded-full inline-block" style={{ background: m.color }} />
+                      <span className="text-[9px] text-muted-foreground uppercase">{m.label}</span>
+                    </div>
+                    <div className="text-[11px] font-semibold tabular-nums">
+                      {formatRepTraceAverage(m.key, avgValue, speedMode)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
@@ -443,12 +775,13 @@ export function RepSplitAnalysisDialog({
   targetPaceSecPerKm?: number | null;
   wind?: WindReading;
 }) {
-  const splits = useMemo(() => {
+  const repPoints = useMemo(() => {
     if (selectedRepIndex == null) return [];
     const slices = sliceRepPoints(points, repRows);
-    const repPoints = slices[selectedRepIndex] ?? [];
-    return build100mSplits(repPoints, 100);
+    return slices[selectedRepIndex] ?? [];
   }, [points, repRows, selectedRepIndex]);
+
+  const splits = useMemo(() => build100mSplits(repPoints, 100), [repPoints]);
 
   const summary = useMemo(() => computeSplitSummary(splits), [splits]);
   const drift = useMemo(() => computeDynamicsDrift(splits), [splits]);
@@ -558,9 +891,12 @@ export function RepSplitAnalysisDialog({
                     return (
                       <div
                         key={s.index}
-                        className={`rounded-md border px-1 py-1.5 text-center text-xs font-medium tabular-nums ${SPLIT_COLOR_CLASSES[color]}`}
-                        title={`${Math.round(s.distanceM)}m split, ${Math.round(s.cumulativeDistanceM)}m into rep${s.isPartial ? " (partial)" : ""}`}
+                        className={`relative rounded-md border px-1 py-1.5 text-center text-xs font-medium tabular-nums ${SPLIT_COLOR_CLASSES[color]}`}
+                        title={`Split ${s.index} — ${Math.round(s.distanceM)}m split, ${Math.round(s.cumulativeDistanceM)}m into rep${s.isPartial ? " (partial)" : ""}`}
                       >
+                        <span className="absolute top-0.5 left-1 text-[9px] font-normal opacity-60 leading-none">
+                          {s.index}
+                        </span>
                         {formatSplitTime(s.paceSecPerKm, unit)}
                         {s.isPartial && <span className="ml-0.5 text-[9px] opacity-70">*</span>}
                         {wind && (
@@ -572,6 +908,9 @@ export function RepSplitAnalysisDialog({
                     );
                   })}
                 </div>
+                <p className="text-[10px] text-muted-foreground mt-1.5">
+                  Small number in each cell matches its label on the route shape map below.
+                </p>
                 <div className="mt-2 flex items-center gap-3 text-[11px] text-muted-foreground flex-wrap">
                   <span className="flex items-center gap-1">
                     <span className="h-2.5 w-2.5 rounded-sm bg-emerald-500/40 inline-block" /> On pace
@@ -604,8 +943,11 @@ export function RepSplitAnalysisDialog({
               </CardContent>
             </Card>
 
+            {/* High-res trace */}
+            <RepTraceChart repPoints={repPoints} />
+
             {/* Route shape */}
-            <RepRouteShapeCard splits={splits} avgPaceSecPerKm={summary.avgPaceSecPerKm} />
+            <RepRouteShapeCard splits={splits} wind={wind} />
 
             {/* Pace graph */}
             <Card>
