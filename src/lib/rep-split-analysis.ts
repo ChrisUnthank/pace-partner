@@ -194,6 +194,70 @@ export type Split = {
   path: Array<{ lat: number; lng: number }>;
 };
 
+// Splits should be cut at the EXACT 100m mark — but the raw GPS trace
+// only has samples every few seconds, so the true 100m point almost never
+// lands exactly on a recorded point. Without this, build100mSplits used
+// to snap the boundary to whichever raw point was the FIRST to reach or
+// pass each mark, which produces two compounding problems whenever GPS
+// sampling is sparse or a single point's recorded distance jumps
+// unusually far (a real, common GPS artifact — e.g. brief signal
+// degradation going around a bend):
+//   1. That split runs long, however far the point overshot by.
+//   2. The next mark hasn't moved (it only ever advances by one 100m
+//      increment per detected boundary), so the very next point — even
+//      if only a metre or two further along — immediately re-triggers a
+//      boundary, producing a short split right after the long one.
+// This function pre-processes the point trace and inserts a SYNTHETIC
+// point, linearly interpolated between the two real points that bracket
+// each exact 100m mark, for distance/time/lat/lng only. Per-point sensor
+// readings (hr/cadence/pace/vo/gct) are deliberately left unset on these
+// synthetic points — they exist purely to pin the precise moment and
+// location of the mark; every split's own averages still come only from
+// genuinely recorded points, via the existing metricsFromSlice filtering
+// (which already ignores fields that aren't present).
+function injectDistanceBoundaryPoints(sorted: RepPointLike[], splitDistanceM: number): RepPointLike[] {
+  if (sorted.length < 2) return sorted;
+  const startDist = Number(sorted[0].distance_m ?? 0);
+
+  const out: RepPointLike[] = [sorted[0]];
+  let nextMark = splitDistanceM;
+
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1];
+    const curr = sorted[i];
+    const dPrev = Number(prev.distance_m ?? 0) - startDist;
+    const dCurr = Number(curr.distance_m ?? 0) - startDist;
+
+    // A `while`, not `if` — a single real gap can span more than one 100m
+    // mark (e.g. dPrev=95, dCurr=310 jumps past 100, 200, AND 300 in one
+    // recorded step); each mark in that range gets its own interpolated
+    // point rather than only the first.
+    while (nextMark <= dCurr && nextMark > dPrev) {
+      const frac = dCurr > dPrev ? (nextMark - dPrev) / (dCurr - dPrev) : 0;
+      const elapsedPrev = Number(prev.elapsed_s ?? 0);
+      const elapsedCurr = Number(curr.elapsed_s ?? 0);
+      const lat =
+        typeof prev.lat === "number" && typeof curr.lat === "number" ? prev.lat + frac * (curr.lat - prev.lat) : curr.lat;
+      const lng =
+        typeof prev.lng === "number" && typeof curr.lng === "number" ? prev.lng + frac * (curr.lng - prev.lng) : curr.lng;
+
+      out.push({
+        elapsed_s: elapsedPrev + frac * (elapsedCurr - elapsedPrev),
+        distance_m: startDist + nextMark,
+        lat,
+        lng,
+        segment_type: curr.segment_type,
+      });
+
+      nextMark += splitDistanceM;
+    }
+
+    out.push(curr);
+  }
+
+  return out;
+}
+
 // Buckets one rep's own point slice into fixed-distance splits (100m by
 // default). Always aligns from the start of the rep — a genuine interval
 // rep starts right at 0, so any leftover distance trails as a final
@@ -201,7 +265,8 @@ export type Split = {
 export function build100mSplits(repPoints: RepPointLike[], splitDistanceM = 100): Split[] {
   if (!Array.isArray(repPoints) || repPoints.length < 2 || splitDistanceM <= 0) return [];
 
-  const sorted = [...repPoints].sort((a, b) => Number(a.elapsed_s ?? 0) - Number(b.elapsed_s ?? 0));
+  const sortedRaw = [...repPoints].sort((a, b) => Number(a.elapsed_s ?? 0) - Number(b.elapsed_s ?? 0));
+  const sorted = injectDistanceBoundaryPoints(sortedRaw, splitDistanceM);
   const startDist = Number(sorted[0]?.distance_m ?? 0);
   const endDist = Number(sorted[sorted.length - 1]?.distance_m ?? 0);
   const totalDist = Math.max(0, endDist - startDist);
