@@ -336,6 +336,7 @@ function projectRoutePoints(
   splits: Split[],
 ): {
   project: (p: { lat: number; lng: number }) => ProjectedPoint;
+  projectLabel: (p: { lat: number; lng: number }) => ProjectedPoint;
   size: number;
   maxLoopIndex: number;
   strokeWidth: number;
@@ -510,7 +511,11 @@ function projectRoutePoints(
   });
 
   const lookup = new Map<RoutePathPoint, ProjectedPoint>();
-  flatPoints.forEach((p, i) => lookup.set(p, adjustedXY[i]));
+  const loopIndexLookup = new Map<RoutePathPoint, number>();
+  flatPoints.forEach((p, i) => {
+    lookup.set(p, adjustedXY[i]);
+    loopIndexLookup.set(p, loopIndexByPoint[i]);
+  });
 
   const xs = adjustedXY.map((p) => p.x);
   const ys = adjustedXY.map((p) => p.y);
@@ -526,15 +531,63 @@ function projectRoutePoints(
   const size = span * (1 + PADDING_FRAC * 2);
   const half = size / 2;
 
+  function toScreen(adj: ProjectedPoint): ProjectedPoint {
+    return { x: adj.x - boundsCenterX + half, y: -(adj.y - boundsCenterY) + half }; // flip Y: north = up
+  }
+
   function project(p: { lat: number; lng: number }): ProjectedPoint {
     const adj = lookup.get(p as RoutePathPoint) ?? {
       x: (p.lng - centerLng) * metersPerDegLng,
       y: (p.lat - centerLat) * METERS_PER_DEG_LAT,
     };
-    return { x: adj.x - boundsCenterX + half, y: -(adj.y - boundsCenterY) + half }; // flip Y: north = up
+    return toScreen(adj);
   }
 
-  return { project, size, maxLoopIndex, strokeWidth };
+  // Two different splits from two different laps can land at almost the
+  // exact same FRACTION of their own lap (e.g. split 4 finishing lap 1
+  // and split 8 finishing lap 2) — which, by design, puts them at nearly
+  // the same ANGULAR position on the template, just different radii. With
+  // laps drawn as tight adjacent strands (a deliberately small ring gap —
+  // see ringGap above), a label sized big enough to read comfortably is
+  // WIDER than the gap between two rings, so same-angle labels from
+  // adjacent laps collided directly. This staggers each lap's labels a
+  // few degrees further around the ring than the last (so they spiral
+  // outward rather than stacking radially) and nudges them a little
+  // further out from the line itself.
+  const screenCenter = toScreen({ x: cx, y: cy });
+  const LABEL_STAGGER_DEG = 14;
+  const LABEL_RADIAL_PUSH = strokeWidth * 2;
+
+  function rotateAround(center: ProjectedPoint, p: ProjectedPoint, angleDeg: number): ProjectedPoint {
+    const rad = (angleDeg * Math.PI) / 180;
+    const dx = p.x - center.x;
+    const dy = p.y - center.y;
+    return {
+      x: center.x + dx * Math.cos(rad) - dy * Math.sin(rad),
+      y: center.y + dx * Math.sin(rad) + dy * Math.cos(rad),
+    };
+  }
+
+  function projectLabel(p: { lat: number; lng: number }): ProjectedPoint {
+    const adj = lookup.get(p as RoutePathPoint);
+    const li = loopIndexLookup.get(p as RoutePathPoint) ?? 0;
+    if (!adj) return project(p);
+    const base = toScreen(adj);
+    if (li === 0) return base; // first lap's labels stay exactly on the line — nothing to stagger against yet
+
+    // Push radially outward from the template centre first...
+    const dx = base.x - screenCenter.x;
+    const dy = base.y - screenCenter.y;
+    const r = Math.hypot(dx, dy);
+    const pushed =
+      r < 0.5 ? base : { x: screenCenter.x + (dx / r) * (r + LABEL_RADIAL_PUSH), y: screenCenter.y + (dy / r) * (r + LABEL_RADIAL_PUSH) };
+    // ...then stagger it around the ring by this lap's own index, so lap
+    // 2's labels sit at a different angle than lap 1's, lap 3's at a
+    // different angle again, and so on.
+    return rotateAround(screenCenter, pushed, li * LABEL_STAGGER_DEG);
+  }
+
+  return { project, projectLabel, size, maxLoopIndex, strokeWidth };
 }
 
 // Midpoint of a split's own path — used to place its number label roughly
@@ -595,9 +648,39 @@ function computeWindGradientSegments(splits: Split[], wind: WindReading): Gradie
   // without duplicating the threshold value.
   if (classifyRelativeWind(0, wind) === "calm") return [];
 
+  // Consecutive raw GPS samples very often share the EXACT SAME lat/lng —
+  // a common artifact where the GPS chip itself updates less often than
+  // the logging interval, and split boundaries additionally duplicate a
+  // point on purpose (the same fix is both one split's last point and the
+  // next split's first). computeBearingDeg returns null for an
+  // identical-position pair, and with immediately-adjacent points this
+  // was nulling out enough segments that the whole line fell back to
+  // solid gray. Instead, for each point, look AHEAD (capped at a handful
+  // of points, using the already-recorded distanceM rather than
+  // recomputing distance) to the nearest LATER point that's moved at
+  // least a small genuine distance, and use THAT pair for the bearing —
+  // the drawn line segment itself still connects strictly consecutive
+  // points, only the colour-driving bearing estimate uses the lookahead.
+  const MIN_BEARING_BASELINE_M = 3;
+  const MAX_LOOKAHEAD_POINTS = 10;
+
+  function bearingFrom(i: number): number | null {
+    let j = i + 1;
+    let scanned = 0;
+    while (
+      j < flatPoints.length - 1 &&
+      flatPoints[j].distanceM - flatPoints[i].distanceM < MIN_BEARING_BASELINE_M &&
+      scanned < MAX_LOOKAHEAD_POINTS
+    ) {
+      j++;
+      scanned++;
+    }
+    return computeBearingDeg(flatPoints[i].lat, flatPoints[i].lng, flatPoints[j].lat, flatPoints[j].lng);
+  }
+
   const rawComponents: (number | null)[] = [];
   for (let i = 0; i < flatPoints.length - 1; i++) {
-    const bearing = computeBearingDeg(flatPoints[i].lat, flatPoints[i].lng, flatPoints[i + 1].lat, flatPoints[i + 1].lng);
+    const bearing = bearingFrom(i);
     rawComponents.push(effectiveWindComponentKmh(bearing, wind));
   }
 
@@ -729,7 +812,7 @@ function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReadi
                   {splits.map((s) => {
                     const mid = pathMidpoint(s.path);
                     if (!mid) return null;
-                    const { x, y } = projection.project(mid);
+                    const { x, y } = projection.projectLabel(mid);
                     const r = projection.strokeWidth * 2.8;
                     return (
                       <g key={`label-${s.index}`}>
