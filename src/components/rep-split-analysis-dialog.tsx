@@ -16,7 +16,7 @@
 // reading — both present in the original 10-item feature spec this was
 // built from — are intentionally left out rather than fabricated.
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   LineChart,
   Line,
@@ -31,7 +31,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Ruler, TrendingUp, HeartPulse, Gauge, Trophy, BarChart3 } from "lucide-react";
-import { secToClock, paceFmt } from "@/lib/format";
+import { paceFmt } from "@/lib/format";
 import {
   sliceRepPoints,
   build100mSplits,
@@ -54,6 +54,29 @@ const SPLIT_COLOR_CLASSES: Record<string, string> = {
   red: "bg-red-500/20 text-red-600 dark:text-red-400 border-red-500/40",
   none: "bg-muted text-muted-foreground border-border",
 };
+
+// A 100m split's own natural unit is "seconds for this split" (e.g. 17.9s,
+// 18.4s) — a coach thinking in track-interval terms reads that far faster
+// than a "/km" pace figure for a segment this short. Pace per km stays
+// available as a toggle for anyone who prefers that framing. Every split's
+// paceSecPerKm is already a normalized rate (seconds it would take to cover
+// 1000m at that split's pace), so seconds-per-100m is just ÷10 — an exact
+// unit conversion, not a re-derivation, and colour-coding/consistency/CV
+// stay identical either way since % deviation is unit-invariant.
+type SplitTimeUnit = "sec100" | "pace";
+
+function formatSplitTime(paceSecPerKm: number | null | undefined, unit: SplitTimeUnit): string {
+  if (paceSecPerKm == null) return "—";
+  if (unit === "pace") return paceFmt(paceSecPerKm);
+  return `${(paceSecPerKm / 10).toFixed(1)}s`;
+}
+
+// For a delta/range value already expressed in "per km" seconds (e.g.
+// pacing range, std dev) — same ÷10 conversion, just without the "—" guard
+// clause formatSplitTime has for a single split value.
+function convertPerKmToUnit(valueSecPerKm: number, unit: SplitTimeUnit): number {
+  return unit === "pace" ? valueSecPerKm : valueSecPerKm / 10;
+}
 
 const FATIGUE_TONE: Record<FatigueLevel, { label: string; className: string }> = {
   low: { label: "Low", className: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/40" },
@@ -118,7 +141,7 @@ function DriftRow({
   );
 }
 
-function PaceThroughRepChart({ splits }: { splits: Split[] }) {
+function PaceThroughRepChart({ splits, unit }: { splits: Split[]; unit: SplitTimeUnit }) {
   const data = splits.map((s) => ({
     cumulativeDistanceM: s.cumulativeDistanceM,
     label: `${Math.round(s.cumulativeDistanceM)}m`,
@@ -147,12 +170,12 @@ function PaceThroughRepChart({ splits }: { splits: Split[] }) {
             tick={{ fontSize: 11 }}
             tickLine={false}
             axisLine={false}
-            tickFormatter={(v) => paceFmt(v)}
+            tickFormatter={(v) => formatSplitTime(v, unit)}
             width={64}
             domain={["dataMin - 5", "dataMax + 5"]}
           />
           <Tooltip
-            formatter={(value: any) => [paceFmt(Number(value)), "Pace"]}
+            formatter={(value: any) => [formatSplitTime(Number(value), unit), unit === "pace" ? "Pace" : "Split time"]}
             labelFormatter={(label) => `${label} into rep`}
             contentStyle={{ fontSize: 12 }}
           />
@@ -215,18 +238,44 @@ export function RepSplitAnalysisDialog({
   const hasDynamicsData = splits.some((s) => s.avgCadence != null || s.avgGroundContactTimeMs != null || s.avgVerticalOscillationCm != null);
   const hasHrData = splits.some((s) => s.avgHr != null);
 
+  // Defaults to seconds-per-100m — the natural unit for a split this short
+  // (17.9s, 18.4s reads faster than a "/km" pace figure at a glance).
+  // Toggling to Pace shows the same underlying numbers as a per-km rate
+  // instead; nothing about the underlying calculation changes either way.
+  const [unit, setUnit] = useState<SplitTimeUnit>("sec100");
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto brand-scrollbar">
         <DialogHeader>
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <Ruler className="h-5 w-5" />
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <Ruler className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">100m split breakdown</div>
+                <DialogTitle>{repLabel}</DialogTitle>
+              </div>
             </div>
-            <div>
-              <div className="text-xs uppercase tracking-wide text-muted-foreground">100m split breakdown</div>
-              <DialogTitle>{repLabel}</DialogTitle>
-            </div>
+            {hasSplits && (
+              <div className="flex border rounded-md overflow-hidden text-xs mr-6">
+                <button
+                  type="button"
+                  onClick={() => setUnit("sec100")}
+                  className={`px-2.5 py-1 ${unit === "sec100" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+                >
+                  Per 100m
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUnit("pace")}
+                  className={`px-2.5 py-1 border-l ${unit === "pace" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+                >
+                  Pace /km
+                </button>
+              </div>
+            )}
           </div>
           <DialogDescription>
             Every 100m of this rep, broken out from the raw watch/GPS trace.
@@ -242,12 +291,16 @@ export function RepSplitAnalysisDialog({
           <div className="space-y-5">
             {/* Summary stats */}
             <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-              <StatBox label="Average" value={paceFmt(summary.avgPaceSecPerKm)} />
-              <StatBox label="Fastest" value={paceFmt(summary.fastestSecPerKm)} />
-              <StatBox label="Slowest" value={paceFmt(summary.slowestSecPerKm)} />
+              <StatBox label="Average" value={formatSplitTime(summary.avgPaceSecPerKm, unit)} />
+              <StatBox label="Fastest" value={formatSplitTime(summary.fastestSecPerKm, unit)} />
+              <StatBox label="Slowest" value={formatSplitTime(summary.slowestSecPerKm, unit)} />
               <StatBox
                 label="Pacing range"
-                value={summary.pacingRangeSec != null ? `${summary.pacingRangeSec.toFixed(1)}s` : "—"}
+                value={
+                  summary.pacingRangeSec != null
+                    ? `${convertPerKmToUnit(summary.pacingRangeSec, unit).toFixed(1)}s`
+                    : "—"
+                }
               />
               <StatBox
                 label="Coeff. of variation"
@@ -264,7 +317,7 @@ export function RepSplitAnalysisDialog({
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-1.5">
                   <BarChart3 className="h-4 w-4 text-muted-foreground" />
-                  Split-by-split pace
+                  Split-by-split {unit === "pace" ? "pace" : "time"}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -277,7 +330,7 @@ export function RepSplitAnalysisDialog({
                         className={`rounded-md border px-1 py-1.5 text-center text-xs font-medium tabular-nums ${SPLIT_COLOR_CLASSES[color]}`}
                         title={`${Math.round(s.distanceM)}m split, ${Math.round(s.cumulativeDistanceM)}m into rep${s.isPartial ? " (partial)" : ""}`}
                       >
-                        {s.paceSecPerKm != null ? secToClock(s.paceSecPerKm) : "—"}
+                        {formatSplitTime(s.paceSecPerKm, unit)}
                         {s.isPartial && <span className="ml-0.5 text-[9px] opacity-70">*</span>}
                       </div>
                     );
@@ -303,11 +356,11 @@ export function RepSplitAnalysisDialog({
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-1.5">
                   <TrendingUp className="h-4 w-4 text-muted-foreground" />
-                  Pace through the rep
+                  {unit === "pace" ? "Pace" : "Time"} through the rep
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <PaceThroughRepChart splits={splits} />
+                <PaceThroughRepChart splits={splits} unit={unit} />
               </CardContent>
             </Card>
 
@@ -425,7 +478,7 @@ export function RepSplitAnalysisDialog({
                 <CardContent>
                   {bestSection ? (
                     <div className="space-y-1 text-sm">
-                      <div className="text-xl font-semibold tabular-nums">{paceFmt(bestSection.paceSecPerKm)}</div>
+                      <div className="text-xl font-semibold tabular-nums">{formatSplitTime(bestSection.paceSecPerKm, unit)}</div>
                       <div className="text-muted-foreground">
                         {Math.round(bestSection.startDistanceM)}–{Math.round(bestSection.endDistanceM)}m into the rep
                       </div>
@@ -443,14 +496,14 @@ export function RepSplitAnalysisDialog({
 
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Time spent by pace</CardTitle>
+                  <CardTitle className="text-sm">Time spent by {unit === "pace" ? "pace" : "split time"}</CardTitle>
                 </CardHeader>
                 <CardContent>
                   {paceDistribution.length ? (
                     <div className="space-y-1.5">
                       {paceDistribution.map((band) => (
                         <div key={band.label} className="flex items-center gap-2 text-xs">
-                          <div className="w-20 shrink-0 text-muted-foreground tabular-nums">{paceFmt(band.loSecPerKm)}</div>
+                          <div className="w-20 shrink-0 text-muted-foreground tabular-nums">{formatSplitTime(band.loSecPerKm, unit)}</div>
                           <div className="flex-1 h-3 rounded-full bg-muted overflow-hidden">
                             <div
                               className="h-full bg-primary/60 rounded-full"
