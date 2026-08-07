@@ -37,6 +37,7 @@ export type RepPointLike = {
 export type RepRowLike = {
   type: string;
   distanceM: number;
+  targetPaceSecPerKm?: number | null;
 };
 
 // A stationary/near-stationary stretch (standing drills, a dead GPS patch)
@@ -387,7 +388,67 @@ export function build100mSplits(repPoints: RepPointLike[], splitDistanceM = 100)
     }
   }
 
+  // A short leftover at the very end (e.g. a 1200m rep leaving 5m after
+  // its 12th full 100m) used to become its own tiny "13th split" — a
+  // fragment that skews the average/fastest/slowest stats and reads as a
+  // real 13th 100m when it isn't one. Anything under half a normal split
+  // gets folded into the split before it instead: genuinely small noise
+  // (a few metres) merges away entirely, while a substantial leftover
+  // (40-90% of a full split) still stays visible as its own clearly
+  // marked partial split rather than distorting a full one by merging in
+  // a very different distance/pace. The threshold (50%) is a judgement
+  // call, not a hard physical fact — easy to retune if it doesn't feel
+  // right against real sessions.
+  const MERGE_FINAL_SPLIT_BELOW_FRAC = 0.5;
+  if (out.length >= 2) {
+    const last = out[out.length - 1];
+    if (last.distanceM < splitDistanceM * MERGE_FINAL_SPLIT_BELOW_FRAC) {
+      const prev = out[out.length - 2];
+      out.splice(out.length - 2, 2, mergeSplits(prev, last, splitDistanceM));
+    }
+  }
+
   return out;
+}
+
+// Distance-weighted average of two nullable numeric fields — falls back
+// to whichever side has a value if only one does, null if neither.
+function weightedAvg(aVal: number | null, aWeight: number, bVal: number | null, bWeight: number): number | null {
+  if (aVal == null && bVal == null) return null;
+  if (aVal == null) return bVal;
+  if (bVal == null) return aVal;
+  const totalWeight = aWeight + bWeight;
+  return totalWeight > 0 ? (aVal * aWeight + bVal * bWeight) / totalWeight : (aVal + bVal) / 2;
+}
+
+// Combines two ADJACENT splits (a immediately followed by b) into one —
+// used only to fold a short leftover final split into the one before it.
+// Keeps a's index (the surviving split isn't renumbered), sums distance/
+// duration, recomputes pace from the combined total, and distance-weights
+// every per-point-average metric rather than naively averaging the two
+// splits' own averages (which would silently over-weight whichever split
+// happens to have fewer/more underlying points).
+function mergeSplits(a: Split, b: Split, splitDistanceM: number): Split {
+  const distanceM = a.distanceM + b.distanceM;
+  const durationS = a.durationS + b.durationS;
+  const paceSecPerKm = durationS > 0 && distanceM > 0 ? (durationS / distanceM) * 1000 : (a.paceSecPerKm ?? b.paceSecPerKm);
+  const avgCadence = weightedAvg(a.avgCadence, a.distanceM, b.avgCadence, b.distanceM);
+
+  return {
+    index: a.index,
+    distanceM: Number(distanceM.toFixed(1)),
+    cumulativeDistanceM: b.cumulativeDistanceM,
+    durationS: Number(durationS.toFixed(1)),
+    paceSecPerKm: paceSecPerKm != null ? Number(paceSecPerKm.toFixed(2)) : null,
+    avgHr: weightedAvg(a.avgHr, a.distanceM, b.avgHr, b.distanceM),
+    avgCadence,
+    avgVerticalOscillationCm: weightedAvg(a.avgVerticalOscillationCm, a.distanceM, b.avgVerticalOscillationCm, b.distanceM),
+    avgGroundContactTimeMs: weightedAvg(a.avgGroundContactTimeMs, a.distanceM, b.avgGroundContactTimeMs, b.distanceM),
+    strideLengthM: computeStrideLengthM(distanceM, durationS, avgCadence),
+    isPartial: distanceM < splitDistanceM * 0.9,
+    bearingDeg: a.path.length && b.path.length ? computeBearingDeg(a.path[0].lat, a.path[0].lng, b.path[b.path.length - 1].lat, b.path[b.path.length - 1].lng) : (a.bearingDeg ?? b.bearingDeg),
+    path: [...a.path, ...b.path],
+  };
 }
 
 // ---------------------------------------------------------------------
