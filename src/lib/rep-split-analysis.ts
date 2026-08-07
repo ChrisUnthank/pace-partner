@@ -167,6 +167,61 @@ export function sliceRepPoints(points: RepPointLike[], repRows: RepRowLike[]): R
   return slices;
 }
 
+// GPS distance measurement on a track is a well-known weak point — tight
+// bends cause satellite multipath/tangent-cutting errors that make a
+// watch's own cumulative distance drift from the true distance, often by
+// enough to shift a 1200m rep's own 100m split count by a full split (13
+// splits' worth of GPS-measured distance for a real 1200m rep is a
+// classic symptom). Elapsed TIME through a bend has no equivalent failure
+// mode — the watch's clock doesn't care about satellite geometry — so
+// time is trustworthy where distance isn't.
+//
+// This rescales every point's distance_m so the rep's own total lines up
+// with `targetDistanceM` — the SAME authoritative, already-corrected
+// total already shown everywhere else in the app for this rep (see the
+// "* adjusted" distance in the Session segments table, computed in
+// app.sessions.$sessionId.analysis.tsx). elapsed_s is left completely
+// untouched; only distance moves, and it moves by a single proportional
+// scale factor applied uniformly across the whole rep — appropriate for
+// this specific failure mode, where GPS overshoot on a track accumulates
+// roughly evenly across repeated bends rather than concentrating at one
+// point in the rep. (The app's own rep-level correction elsewhere instead
+// TRIMS the trace to the target distance when it overruns by more than
+// 5% — appropriate there, since it's protecting a single rep-level
+// distance/pace figure and doesn't need to preserve every point for
+// further sub-splitting. Trimming would be the wrong tool here: it
+// discards whichever points fall past the target, which is exactly the
+// data this feature needs to keep in order to show 100m splits for the
+// rep's full recorded length.)
+export function calibrateDistanceToTarget(points: RepPointLike[], targetDistanceM: number | null | undefined): RepPointLike[] {
+  if (!Array.isArray(points) || points.length < 2) return points;
+  if (targetDistanceM == null || !(targetDistanceM > 0)) return points;
+
+  const sorted = [...points].sort((a, b) => Number(a.elapsed_s ?? 0) - Number(b.elapsed_s ?? 0));
+  const startDist = Number(sorted[0].distance_m ?? 0);
+  const endDist = Number(sorted[sorted.length - 1].distance_m ?? 0);
+  const recordedSpan = endDist - startDist;
+
+  // Nothing usable to scale from, or the recorded span is already close
+  // enough to the target that rescaling would just be adding floating-
+  // point noise for no visible benefit.
+  if (recordedSpan <= 0) return points;
+  const deviationFrac = Math.abs(recordedSpan - targetDistanceM) / targetDistanceM;
+  if (deviationFrac < 0.005) return points;
+
+  const scale = targetDistanceM / recordedSpan;
+
+  // Return in the SAME order as the input (not necessarily time-sorted —
+  // callers may depend on original ordering), scaling each point's
+  // distance relative to the rep's own start distance so the first point
+  // stays anchored at its original value and only the SPAN is corrected.
+  return points.map((p) => {
+    const d = p.distance_m;
+    if (typeof d !== "number") return p;
+    return { ...p, distance_m: startDist + (d - startDist) * scale };
+  });
+}
+
 export type Split = {
   index: number;
   distanceM: number;
