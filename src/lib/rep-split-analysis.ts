@@ -186,6 +186,12 @@ export type Split = {
   // relative wind (headwind/tailwind/crosswind) against a session's wind
   // reading — see src/lib/wind.ts.
   bearingDeg: number | null;
+  // Every point in this split that had a real GPS fix, in order — used to
+  // draw the split's own stretch of the route-shape map (a colour-coded
+  // polyline per split, not just its two endpoints), so a curved bend
+  // still reads as curved rather than getting straight-lined into a
+  // chord. Empty when the split has no GPS points at all.
+  path: Array<{ lat: number; lng: number }>;
 };
 
 // Buckets one rep's own point slice into fixed-distance splits (100m by
@@ -231,6 +237,10 @@ export function build100mSplits(repPoints: RepPointLike[], splitDistanceM = 100)
             ? computeBearingDeg(first.lat, first.lng, last.lat, last.lng)
             : null;
 
+        const path = slice
+          .filter((p): p is RepPointLike & { lat: number; lng: number } => typeof p.lat === "number" && typeof p.lng === "number")
+          .map((p) => ({ lat: p.lat, lng: p.lng }));
+
         out.push({
           index: index++,
           distanceM: Number(m.distanceM.toFixed(1)),
@@ -244,6 +254,7 @@ export function build100mSplits(repPoints: RepPointLike[], splitDistanceM = 100)
           strideLengthM: computeStrideLengthM(m.distanceM, movingDurationS, m.avgCadence),
           isPartial: m.distanceM < splitDistanceM * 0.9,
           bearingDeg,
+          path,
         });
       }
 
