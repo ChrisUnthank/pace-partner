@@ -517,20 +517,30 @@ export function computeSplitSummary(splits: Split[]): SplitSummaryStats {
 
 export type SplitColor = "green" | "yellow" | "red" | "none";
 
-// Thresholds are a % deviation from the REP'S OWN average pace (not a plan
-// target — always available, even for unstructured reps). 100m splits are
-// short enough that GPS/watch pace noise is real, so these are deliberately
-// tight: ±0.5% green, ±0.5-2% yellow, beyond that red. Easy to widen if a
-// particular device's noise floor turns out higher than this in practice.
+// DIRECTIONAL, not just magnitude: green = close to the reference value in
+// either direction, amber = meaningfully BELOW the reference, red =
+// meaningfully ABOVE it. This deliberately doesn't mean "amber = bad, red =
+// worse" — it's purely "which way, and by how much," so the same function
+// works for pace (where "above average" seconds means slower) and HR
+// (where "above average" simply means higher heart rate, expected and
+// unremarkable in later splits as cardiovascular drift sets in, not a
+// concerning result). What a given colour means for THAT metric is for the
+// coach reading it to judge, not this function.
+//
+// Thresholds are a % deviation from the reference value (a coach's own
+// target pace when set, otherwise the rep's own average — see
+// referencePaceSecPerKm in rep-split-analysis-dialog.tsx). 100m splits are
+// short enough that GPS/watch noise is real, so these are deliberately
+// tight: ±0.5% green, ±0.5-2% amber/red, beyond that still amber/red (no
+// third tier by magnitude anymore — see note below). Easy to widen if a
+// particular device's noise floor turns out higher in practice.
 export const SPLIT_COLOR_GREEN_PCT = 0.5;
-export const SPLIT_COLOR_YELLOW_PCT = 2;
 
-export function colorForSplit(paceSecPerKm: number | null, avgPaceSecPerKm: number | null): SplitColor {
-  if (paceSecPerKm == null || avgPaceSecPerKm == null || avgPaceSecPerKm <= 0) return "none";
-  const deviationPct = (Math.abs(paceSecPerKm - avgPaceSecPerKm) / avgPaceSecPerKm) * 100;
-  if (deviationPct <= SPLIT_COLOR_GREEN_PCT) return "green";
-  if (deviationPct <= SPLIT_COLOR_YELLOW_PCT) return "yellow";
-  return "red";
+export function colorForSplit(value: number | null, referenceValue: number | null): SplitColor {
+  if (value == null || referenceValue == null || referenceValue <= 0) return "none";
+  const deviationPct = ((value - referenceValue) / referenceValue) * 100;
+  if (Math.abs(deviationPct) <= SPLIT_COLOR_GREEN_PCT) return "green";
+  return deviationPct < 0 ? "yellow" : "red"; // below reference = amber, above = red
 }
 
 // ---------------------------------------------------------------------
