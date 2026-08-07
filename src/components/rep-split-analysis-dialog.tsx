@@ -30,7 +30,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Ruler, TrendingUp, HeartPulse, Gauge, Trophy, BarChart3 } from "lucide-react";
+import { Ruler, TrendingUp, HeartPulse, Gauge, Trophy, BarChart3, Wind, ArrowUp } from "lucide-react";
 import { paceFmt } from "@/lib/format";
 import {
   sliceRepPoints,
@@ -47,6 +47,15 @@ import {
   type Split,
   type FatigueLevel,
 } from "@/lib/rep-split-analysis";
+import {
+  classifyRelativeWind,
+  effectiveWindComponentKmh,
+  compassLabel,
+  windArrowRotationDeg,
+  RELATIVE_WIND_LABEL,
+  type WindReading,
+  type RelativeWind,
+} from "@/lib/wind";
 
 const SPLIT_COLOR_CLASSES: Record<string, string> = {
   green: "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-500/40",
@@ -76,6 +85,49 @@ function formatSplitTime(paceSecPerKm: number | null | undefined, unit: SplitTim
 // clause formatSplitTime has for a single split value.
 function convertPerKmToUnit(valueSecPerKm: number, unit: SplitTimeUnit): number {
   return unit === "pace" ? valueSecPerKm : valueSecPerKm / 10;
+}
+
+const WIND_BADGE_CLASSES: Record<RelativeWind, string> = {
+  headwind: "text-red-500 border-red-500/40",
+  tailwind: "text-emerald-500 border-emerald-500/40",
+  crosswind: "text-amber-500 border-amber-500/40",
+  calm: "text-muted-foreground border-border",
+  unknown: "text-muted-foreground border-border",
+};
+
+// Compact per-split wind indicator — an arrow rotated relative to THIS
+// split's own travel bearing (see windArrowRotationDeg in src/lib/wind.ts):
+// pointing up/forward = tailwind, down/back at the runner = headwind,
+// sideways = crosswind. Colour-coded the same way (red/green/amber).
+// Tooltip spells out the actual compass heading and wind-from direction
+// for that split, since the arrow itself is travel-relative, not
+// true-north. Only rendered when both a real wind reading and a real GPS
+// bearing for that split exist; a split with no lat/lng (GPS dropout) or a
+// session with no wind reading yet just shows nothing here rather than a
+// misleading default.
+function WindBadge({ split, wind }: { split: Split; wind: WindReading }) {
+  const relative = classifyRelativeWind(split.bearingDeg, wind);
+  if (relative === "unknown") return null;
+
+  const component = effectiveWindComponentKmh(split.bearingDeg, wind);
+  const rotation = windArrowRotationDeg(split.bearingDeg, wind);
+  const headingLabel = compassLabel(split.bearingDeg);
+  const windFromLabel = compassLabel(wind.directionDeg);
+
+  const titleParts = [RELATIVE_WIND_LABEL[relative]];
+  if (headingLabel) titleParts.push(`heading ${headingLabel}`);
+  if (windFromLabel && wind.speedKmh != null) titleParts.push(`wind ${Math.round(wind.speedKmh)} km/h from ${windFromLabel}`);
+  if (component != null) titleParts.push(`~${Math.abs(component).toFixed(0)} km/h along direction of travel`);
+
+  return (
+    <span className={`inline-flex items-center ${WIND_BADGE_CLASSES[relative]}`} title={titleParts.join(" • ")}>
+      {rotation != null ? (
+        <ArrowUp className="h-3 w-3" style={{ transform: `rotate(${rotation}deg)` }} />
+      ) : (
+        <Wind className="h-2.5 w-2.5" />
+      )}
+    </span>
+  );
 }
 
 const FATIGUE_TONE: Record<FatigueLevel, { label: string; className: string }> = {
@@ -211,6 +263,7 @@ export function RepSplitAnalysisDialog({
   selectedRepIndex,
   repLabel,
   targetPaceSecPerKm,
+  wind,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -219,6 +272,7 @@ export function RepSplitAnalysisDialog({
   selectedRepIndex: number | null;
   repLabel: string;
   targetPaceSecPerKm?: number | null;
+  wind?: WindReading;
 }) {
   const splits = useMemo(() => {
     if (selectedRepIndex == null) return [];
@@ -279,6 +333,14 @@ export function RepSplitAnalysisDialog({
           </div>
           <DialogDescription>
             Every 100m of this rep, broken out from the raw watch/GPS trace.
+            {wind?.speedKmh != null && (
+              <span className="inline-flex items-center gap-1 ml-1">
+                <Wind className="h-3 w-3" />
+                {Math.round(wind.speedKmh)} km/h
+                {wind.directionDeg != null && ` from ${compassLabel(wind.directionDeg)}`} — see the wind icon on each
+                split below for headwind/tailwind/crosswind on that stretch.
+              </span>
+            )}
           </DialogDescription>
         </DialogHeader>
 
@@ -332,11 +394,16 @@ export function RepSplitAnalysisDialog({
                       >
                         {formatSplitTime(s.paceSecPerKm, unit)}
                         {s.isPartial && <span className="ml-0.5 text-[9px] opacity-70">*</span>}
+                        {wind && (
+                          <div className="mt-0.5 flex justify-center">
+                            <WindBadge split={s} wind={wind} />
+                          </div>
+                        )}
                       </div>
                     );
                   })}
                 </div>
-                <div className="mt-2 flex items-center gap-3 text-[11px] text-muted-foreground">
+                <div className="mt-2 flex items-center gap-3 text-[11px] text-muted-foreground flex-wrap">
                   <span className="flex items-center gap-1">
                     <span className="h-2.5 w-2.5 rounded-sm bg-emerald-500/40 inline-block" /> On pace
                   </span>
@@ -347,6 +414,23 @@ export function RepSplitAnalysisDialog({
                     <span className="h-2.5 w-2.5 rounded-sm bg-red-500/40 inline-block" /> Significant deviation
                   </span>
                   {splits.some((s) => s.isPartial) && <span>* partial split (short of 100m)</span>}
+                  {wind?.speedKmh != null && (
+                    <>
+                      <span className="flex items-center gap-1 text-red-500">
+                        <ArrowUp className="h-3 w-3" style={{ transform: "rotate(180deg)" }} /> Headwind
+                      </span>
+                      <span className="flex items-center gap-1 text-emerald-500">
+                        <ArrowUp className="h-3 w-3" /> Tailwind
+                      </span>
+                      <span className="flex items-center gap-1 text-amber-500">
+                        <ArrowUp className="h-3 w-3" style={{ transform: "rotate(90deg)" }} /> Crosswind
+                      </span>
+                      <span className="w-full text-[10px]">
+                        Arrow shows wind relative to each split's own running direction, not true north — hover a
+                        split for its actual heading and wind-from compass direction.
+                      </span>
+                    </>
+                  )}
                 </div>
               </CardContent>
             </Card>
