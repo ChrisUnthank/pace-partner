@@ -30,7 +30,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Ruler, TrendingUp, HeartPulse, Gauge, Trophy, BarChart3, Wind, ArrowUp, Map as MapIcon } from "lucide-react";
+import { Ruler, TrendingUp, HeartPulse, Gauge, Trophy, BarChart3, Wind, ArrowUp, Map as MapIcon, ChevronLeft, ChevronRight } from "lucide-react";
 import { paceFmt, secToClock } from "@/lib/format";
 import {
   sliceRepPoints,
@@ -88,10 +88,15 @@ function convertPerKmToUnit(valueSecPerKm: number, unit: SplitTimeUnit): number 
   return unit === "pace" ? valueSecPerKm : valueSecPerKm / 10;
 }
 
+// Wind uses a DIFFERENT colour family than pace deviation (blue/purple/
+// orange, not green/amber/red) — using the same red/amber/green for two
+// completely different metrics (how fast vs. which way the wind was
+// blowing) made the split grid and the route map read as if they were
+// showing the same thing when they weren't.
 const WIND_BADGE_CLASSES: Record<RelativeWind, string> = {
-  headwind: "text-red-500 border-red-500/40",
-  tailwind: "text-emerald-500 border-emerald-500/40",
-  crosswind: "text-amber-500 border-amber-500/40",
+  headwind: "text-orange-500 border-orange-500/40",
+  tailwind: "text-sky-500 border-sky-500/40",
+  crosswind: "text-purple-500 border-purple-500/40",
   calm: "text-muted-foreground border-border",
   unknown: "text-muted-foreground border-border",
 };
@@ -99,7 +104,8 @@ const WIND_BADGE_CLASSES: Record<RelativeWind, string> = {
 // Compact per-split wind indicator — an arrow rotated relative to THIS
 // split's own travel bearing (see windArrowRotationDeg in src/lib/wind.ts):
 // pointing up/forward = tailwind, down/back at the runner = headwind,
-// sideways = crosswind. Colour-coded the same way (red/green/amber).
+// sideways = crosswind. Coloured blue/purple/orange — see the note above
+// WIND_BADGE_CLASSES for why that's a different palette than pace.
 // Tooltip spells out the actual compass heading and wind-from direction
 // for that split, since the arrow itself is travel-relative, not
 // true-north. Only rendered when both a real wind reading and a real GPS
@@ -610,16 +616,18 @@ function pathMidpoint(path: RoutePathPoint[]): RoutePathPoint | null {
 // WHOLE rep (not per split), using each segment's own real recorded
 // heading, and render it as a continuous colour ribbon — hundreds of tiny
 // coloured segments rather than ten flat-coloured chords. A bend now
-// genuinely fades red → amber → green as the heading actually rotates
-// through it, and a straight stays a clean solid colour because its
-// heading barely changes point to point.
+// genuinely fades sky-blue → purple → orange as the heading actually
+// rotates through it, and a straight stays a clean solid colour because
+// its heading barely changes point to point. Blue/purple/orange rather
+// than green/amber/red — see the note above WIND_BADGE_CLASSES for why
+// pace and wind deliberately use different colour families.
 // ---------------------------------------------------------------------
 
 type GradientSegment = { p1: RoutePathPoint; p2: RoutePathPoint; color: string };
 
-const WIND_GRADIENT_GREEN: [number, number, number] = [16, 185, 129];
-const WIND_GRADIENT_AMBER: [number, number, number] = [245, 158, 11];
-const WIND_GRADIENT_RED: [number, number, number] = [239, 68, 68];
+const WIND_GRADIENT_TAILWIND: [number, number, number] = [14, 165, 233]; // sky-500
+const WIND_GRADIENT_CROSSWIND: [number, number, number] = [168, 85, 247]; // purple-500
+const WIND_GRADIENT_HEADWIND: [number, number, number] = [249, 115, 22]; // orange-500
 const WIND_GRADIENT_GRAY = "#9ca3af";
 
 function windGradientColor(effectiveComponentKmh: number | null, windSpeedKmh: number): string {
@@ -628,8 +636,8 @@ function windGradientColor(effectiveComponentKmh: number | null, windSpeedKmh: n
   const t = Math.max(-1, Math.min(1, effectiveComponentKmh / windSpeedKmh));
   const [c1, c2, frac] =
     t >= 0
-      ? ([WIND_GRADIENT_AMBER, WIND_GRADIENT_RED, t] as const)
-      : ([WIND_GRADIENT_GREEN, WIND_GRADIENT_AMBER, t + 1] as const);
+      ? ([WIND_GRADIENT_CROSSWIND, WIND_GRADIENT_HEADWIND, t] as const)
+      : ([WIND_GRADIENT_TAILWIND, WIND_GRADIENT_CROSSWIND, t + 1] as const);
   const rgb = c1.map((v, i) => Math.round(v + (c2[i] - v) * frac));
   return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
 }
@@ -711,20 +719,30 @@ function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReadi
     }
   }, [splits]);
   const hasWind = wind?.speedKmh != null;
+  const hasDirection = wind?.directionDeg != null;
   // Calm is a genuinely different state from "no reading at all" — same
   // threshold classifyRelativeWind(0, wind) already uses for the
   // discrete split-grid badges, reused here so the map's legend and the
   // grid never disagree about what counts as calm.
   const isCalm = hasWind && wind ? classifyRelativeWind(0, wind) === "calm" : false;
+  // Wind SPEED alone isn't enough to classify headwind/tailwind/crosswind
+  // — direction is required too. Without this check, a session with a
+  // speed reading but no direction (e.g. an older fetch made before
+  // direction started being captured) silently produced an all-grey line
+  // with no indication why: computeWindGradientSegments doesn't
+  // early-return just because direction is missing, so it still "found"
+  // segments to draw, just every one of them coloured grey (no bearing
+  // component computable without a direction to compare against).
+  const canClassifyWind = hasWind && hasDirection && !isCalm;
   const gradientSegments = useMemo(() => {
-    if (!wind) return [];
+    if (!wind || !canClassifyWind) return [];
     try {
       return computeWindGradientSegments(splits, wind);
     } catch (err) {
       console.error("RepRouteShapeCard: computeWindGradientSegments threw", err);
       return [];
     }
-  }, [splits, wind]);
+  }, [splits, wind, canClassifyWind]);
 
   // Rep-elapsed time AT THE END of each split — a running total across
   // the whole rep, not each split's own duration — for the mini
@@ -754,8 +772,7 @@ function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReadi
           </div>
         ) : (
           <>
-            <div className="flex gap-2 items-stretch">
-              <div className="relative flex-1 aspect-square min-w-0">
+            <div className="relative w-full aspect-square">
                 <svg viewBox={`0 0 ${projection.size} ${projection.size}`} className="w-full h-full">
                   {gradientSegments.length > 0 ? (
                     // Continuous wind-gradient ribbon — see the block
@@ -851,51 +868,64 @@ function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReadi
                 {/* Compass badge — the projection above is always drawn
                     true-north-up (see projectRoutePoints), so this never
                     needs to rotate; it's a static confirmation of that
-                    orientation for the viewer, not a live indicator. */}
+                    orientation for the viewer. When wind direction is
+                    known, the centre arrow rotates to show which way the
+                    wind is actually blowing FROM (0°/up = from the
+                    north) — this one IS a live indicator, unlike the
+                    N/S/E/W ring around it. */}
                 <div className="absolute top-3 right-3 w-14 h-14 rounded-full border border-border bg-background/90 flex items-center justify-center shadow-sm">
                   <span className="absolute top-0.5 text-[11px] font-semibold text-foreground leading-none">N</span>
                   <span className="absolute bottom-0.5 text-[11px] text-muted-foreground leading-none">S</span>
                   <span className="absolute left-1 text-[11px] text-muted-foreground leading-none">W</span>
                   <span className="absolute right-1 text-[11px] text-muted-foreground leading-none">E</span>
-                  <div className="w-px h-5 bg-foreground/30" />
+                  {hasDirection ? (
+                    <ArrowUp
+                      className="h-5 w-5 text-sky-500"
+                      style={{ transform: `rotate(${wind!.directionDeg}deg)` }}
+                      title={`Wind from ${compassLabel(wind!.directionDeg)}`}
+                    />
+                  ) : (
+                    <div className="w-px h-5 bg-foreground/30" />
+                  )}
                 </div>
-              </div>
+            </div>
 
-              {/* Mini split-reference column — a compact stacked version
-                  of the split-by-split grid, first split at top / last at
-                  bottom, so a specific split's time and cumulative rep
-                  elapsed time can be read right next to the map without
-                  scrolling back up to the main grid. */}
-              <div className="w-[52px] shrink-0 flex flex-col gap-1 overflow-y-auto brand-scrollbar pr-0.5">
-                {splits.map((s, i) => (
-                  <div
-                    key={s.index}
-                    className="rounded border border-border bg-muted/30 px-1 py-0.5 text-center leading-tight"
-                    title={`Split ${s.index} · ${Math.round(s.distanceM)}m · ${(s.paceSecPerKm != null ? s.paceSecPerKm / 10 : 0).toFixed(1)}s/100m · ${secToClock(cumulativeTimesS[i])} into rep`}
-                  >
-                    <div className="text-[9px] font-semibold">{s.index}</div>
-                    <div className="text-[8px] text-muted-foreground">{Math.round(s.distanceM)}m</div>
-                    <div className="text-[9px] font-medium tabular-nums">
-                      {s.paceSecPerKm != null ? (s.paceSecPerKm / 10).toFixed(1) : "—"}
-                    </div>
-                    <div className="text-[8px] text-muted-foreground tabular-nums">{secToClock(cumulativeTimesS[i])}</div>
+            {/* Mini split-reference row — a compact horizontal version of
+                the split-by-split grid, first split on the left / last on
+                the right, so a specific split's time and cumulative rep
+                elapsed time can be read right under the map without
+                scrolling back up to the main grid. */}
+            <div className="flex gap-1 overflow-x-auto brand-scrollbar pb-1 mt-2">
+              {splits.map((s, i) => (
+                <div
+                  key={s.index}
+                  className="w-[52px] shrink-0 rounded border border-border bg-muted/30 px-1 py-0.5 text-center leading-tight"
+                  title={`Split ${s.index} · ${Math.round(s.distanceM)}m · ${(s.paceSecPerKm != null ? s.paceSecPerKm / 10 : 0).toFixed(1)}s/100m · ${secToClock(cumulativeTimesS[i])} into rep`}
+                >
+                  <div className="text-[9px] font-semibold">{s.index}</div>
+                  <div className="text-[8px] text-muted-foreground">{Math.round(s.distanceM)}m</div>
+                  <div className="text-[9px] font-medium tabular-nums">
+                    {s.paceSecPerKm != null ? (s.paceSecPerKm / 10).toFixed(1) : "—"}
                   </div>
-                ))}
-              </div>
+                  <div className="text-[8px] text-muted-foreground tabular-nums">{secToClock(cumulativeTimesS[i])}</div>
+                </div>
+              ))}
             </div>
 
             <div className="mt-2 flex flex-col items-center gap-1 text-[11px] text-muted-foreground">
-              {hasWind && !isCalm ? (
+              {canClassifyWind ? (
                 <div className="flex items-center gap-2 w-full max-w-xs">
                   <span>Tailwind</span>
                   <div
                     className="flex-1 h-2 rounded-full"
-                    style={{ background: "linear-gradient(to right, #10b981, #f59e0b, #ef4444)" }}
+                    style={{ background: "linear-gradient(to right, #0ea5e9, #a855f7, #f97316)" }}
                   />
                   <span>Headwind</span>
                 </div>
               ) : hasWind && isCalm ? (
                 <span>Wind was calm for this session (under 6 km/h) — not enough to meaningfully affect pace, path shown uncoloured.</span>
+              ) : hasWind && !hasDirection ? (
+                <span>Wind speed is known for this session but not direction — can't classify headwind/tailwind without it, path shown uncoloured.</span>
               ) : (
                 <span>No wind reading for this session — path shown uncoloured.</span>
               )}
@@ -1210,6 +1240,7 @@ export function RepSplitAnalysisDialog({
   repLabel,
   targetPaceSecPerKm,
   wind,
+  onNavigate,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -1219,6 +1250,7 @@ export function RepSplitAnalysisDialog({
   repLabel: string;
   targetPaceSecPerKm?: number | null;
   wind?: WindReading;
+  onNavigate?: (direction: -1 | 1) => void;
 }) {
   const { repPoints, wasDistanceCalibrated } = useMemo(() => {
     if (selectedRepIndex == null) return { repPoints: [] as RepPointLike[], wasDistanceCalibrated: false };
@@ -1267,6 +1299,17 @@ export function RepSplitAnalysisDialog({
   const splits = useMemo(() => build100mSplits(repPoints, 100), [repPoints]);
 
   const summary = useMemo(() => computeSplitSummary(splits), [splits]);
+  // What each split's colour is measured against. Prefer the coach's own
+  // target pace for this rep when one exists — "on pace" should mean
+  // "close to what was actually planned," not just "close to whatever
+  // pace this rep happened to average," which can quietly hide a rep that
+  // was uniformly too fast or too slow (every split agreeing with each
+  // other doesn't mean they agreed with the plan). Falls back to the
+  // rep's own average only when there's no target to compare against —
+  // still useful for an unstructured or untargeted rep, just a different,
+  // weaker claim, and the legend text below says which one is in use.
+  const referencePaceSecPerKm = targetPaceSecPerKm ?? summary.avgPaceSecPerKm;
+  const referenceIsTarget = targetPaceSecPerKm != null;
   const drift = useMemo(() => computeDynamicsDrift(splits), [splits]);
   const hrDrift = useMemo(() => computeHrDrift(splits), [splits]);
   const fatigue = useMemo(() => computeFatigueScore(splits), [splits]);
@@ -1283,18 +1326,63 @@ export function RepSplitAnalysisDialog({
   // instead; nothing about the underlying calculation changes either way.
   const [unit, setUnit] = useState<SplitTimeUnit>("sec100");
 
+  // Split-by-split grid content toggle — Pace (default) shows the same
+  // per-100m value as the unit toggle above; Time shows rep-elapsed time
+  // at the END of that split (a running total, matching what the route
+  // map's mini reference boxes already show below); HR shows that split's
+  // own average heart rate. The wind arrow badge stays visible in every
+  // mode — it answers a different question (which way was the wind) than
+  // whichever value is currently on display.
+  const [gridMode, setGridMode] = useState<"pace" | "time" | "hr">("pace");
+  const cumulativeTimesS = useMemo(() => {
+    let acc = 0;
+    return splits.map((s) => {
+      acc += s.durationS;
+      return acc;
+    });
+  }, [splits]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto brand-scrollbar">
         <DialogHeader>
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-2.5">
+              {onNavigate && (
+                <div className="flex items-center gap-0.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => onNavigate(-1)}
+                    disabled={selectedRepIndex == null || selectedRepIndex <= 0}
+                    className="h-7 w-7 flex items-center justify-center rounded-md border border-border hover:bg-accent disabled:opacity-30 disabled:hover:bg-transparent"
+                    title="Previous rep"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onNavigate(1)}
+                    disabled={selectedRepIndex == null || selectedRepIndex >= repRows.length - 1}
+                    className="h-7 w-7 flex items-center justify-center rounded-md border border-border hover:bg-accent disabled:opacity-30 disabled:hover:bg-transparent"
+                    title="Next rep"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                 <Ruler className="h-5 w-5" />
               </div>
               <div>
                 <div className="text-xs uppercase tracking-wide text-muted-foreground">100m split breakdown</div>
-                <DialogTitle>{repLabel}</DialogTitle>
+                <DialogTitle className="flex items-baseline gap-1.5">
+                  {repLabel}
+                  {selectedRepIndex != null && repRows[selectedRepIndex]?.distanceM != null && (
+                    <span className="text-sm font-normal text-muted-foreground">
+                      · {Math.round(repRows[selectedRepIndex].distanceM)}m
+                    </span>
+                  )}
+                </DialogTitle>
               </div>
             </div>
             {hasSplits && (
@@ -1372,15 +1460,70 @@ export function RepSplitAnalysisDialog({
             {/* Colour-coded split grid */}
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm flex items-center gap-1.5">
-                  <BarChart3 className="h-4 w-4 text-muted-foreground" />
-                  Split-by-split {unit === "pace" ? "pace" : "time"}
-                </CardTitle>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <CardTitle className="text-sm flex items-center gap-1.5">
+                    <BarChart3 className="h-4 w-4 text-muted-foreground" />
+                    Split-by-split
+                  </CardTitle>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {gridMode === "pace" && (
+                      <div className="flex border rounded-md overflow-hidden text-xs">
+                        <button
+                          type="button"
+                          onClick={() => setUnit("sec100")}
+                          className={`px-2 py-0.5 ${unit === "sec100" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+                        >
+                          Per 100m
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setUnit("pace")}
+                          className={`px-2 py-0.5 border-l ${unit === "pace" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+                        >
+                          Pace /km
+                        </button>
+                      </div>
+                    )}
+                    <div className="flex border rounded-md overflow-hidden text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setGridMode("pace")}
+                        className={`px-2 py-0.5 ${gridMode === "pace" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+                      >
+                        Pace
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setGridMode("time")}
+                        className={`px-2 py-0.5 border-l ${gridMode === "time" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+                      >
+                        Time
+                      </button>
+                      {hasHrData && (
+                        <button
+                          type="button"
+                          onClick={() => setGridMode("hr")}
+                          className={`px-2 py-0.5 border-l ${gridMode === "hr" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+                        >
+                          HR
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-5 sm:grid-cols-10 gap-1.5">
-                  {splits.map((s) => {
-                    const color = colorForSplit(s.paceSecPerKm, summary.avgPaceSecPerKm);
+                  {splits.map((s, i) => {
+                    const color = colorForSplit(s.paceSecPerKm, referencePaceSecPerKm);
+                    const cellValue =
+                      gridMode === "time"
+                        ? secToClock(cumulativeTimesS[i])
+                        : gridMode === "hr"
+                          ? s.avgHr != null
+                            ? `${Math.round(s.avgHr)}`
+                            : "—"
+                          : formatSplitTime(s.paceSecPerKm, unit);
                     return (
                       <div
                         key={s.index}
@@ -1390,7 +1533,7 @@ export function RepSplitAnalysisDialog({
                         <span className="absolute top-0.5 left-1 text-[9px] font-normal opacity-60 leading-none">
                           {s.index}
                         </span>
-                        {formatSplitTime(s.paceSecPerKm, unit)}
+                        {cellValue}
                         {s.isPartial && <span className="ml-0.5 text-[9px] opacity-70">*</span>}
                         {wind && (
                           <div className="mt-0.5 flex justify-center">
@@ -1401,29 +1544,40 @@ export function RepSplitAnalysisDialog({
                     );
                   })}
                 </div>
+                {gridMode === "time" && (
+                  <p className="text-[10px] text-muted-foreground mt-1.5">
+                    Rep-elapsed time at the end of each split (a running total, not that split's own duration).
+                  </p>
+                )}
+                {gridMode === "hr" && (
+                  <p className="text-[10px] text-muted-foreground mt-1.5">Average heart rate across each 100m.</p>
+                )}
                 <p className="text-[10px] text-muted-foreground mt-1.5">
                   Small number in each cell matches its label on the route shape map below.
                 </p>
                 <div className="mt-2 flex items-center gap-3 text-[11px] text-muted-foreground flex-wrap">
                   <span className="flex items-center gap-1">
-                    <span className="h-2.5 w-2.5 rounded-sm bg-emerald-500/40 inline-block" /> On pace
+                    <span className="h-2.5 w-2.5 rounded-sm bg-emerald-500/40 inline-block" />
+                    {referenceIsTarget ? "On target pace" : "Near average pace"}
                   </span>
                   <span className="flex items-center gap-1">
-                    <span className="h-2.5 w-2.5 rounded-sm bg-amber-500/40 inline-block" /> Slightly off
+                    <span className="h-2.5 w-2.5 rounded-sm bg-amber-500/40 inline-block" />
+                    Slightly {referenceIsTarget ? "off target" : "off average"}
                   </span>
                   <span className="flex items-center gap-1">
-                    <span className="h-2.5 w-2.5 rounded-sm bg-red-500/40 inline-block" /> Significant deviation
+                    <span className="h-2.5 w-2.5 rounded-sm bg-red-500/40 inline-block" />
+                    Significantly {referenceIsTarget ? "off target" : "off average"}
                   </span>
                   {splits.some((s) => s.isPartial) && <span>* partial split (short of 100m)</span>}
                   {wind?.speedKmh != null && (
                     <>
-                      <span className="flex items-center gap-1 text-red-500">
+                      <span className="flex items-center gap-1 text-orange-500">
                         <ArrowUp className="h-3 w-3" style={{ transform: "rotate(180deg)" }} /> Headwind
                       </span>
-                      <span className="flex items-center gap-1 text-emerald-500">
+                      <span className="flex items-center gap-1 text-sky-500">
                         <ArrowUp className="h-3 w-3" /> Tailwind
                       </span>
-                      <span className="flex items-center gap-1 text-amber-500">
+                      <span className="flex items-center gap-1 text-purple-500">
                         <ArrowUp className="h-3 w-3" style={{ transform: "rotate(90deg)" }} /> Crosswind
                       </span>
                       <span className="w-full text-[10px]">
@@ -1433,6 +1587,11 @@ export function RepSplitAnalysisDialog({
                     </>
                   )}
                 </div>
+                <p className="text-[10px] text-muted-foreground mt-1.5">
+                  {referenceIsTarget
+                    ? `Colour compares each split to this rep's own target pace (${paceFmt(targetPaceSecPerKm)}/km) — a coach-set plan, not just this rep's own average.`
+                    : "No target pace set for this rep — colour compares each split to this rep's own average instead, since there's no plan to measure against."}
+                </p>
               </CardContent>
             </Card>
 
