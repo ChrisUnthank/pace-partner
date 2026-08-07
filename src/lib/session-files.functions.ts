@@ -2226,19 +2226,51 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
     const candidates = earlyWindow.length > 0 ? earlyWindow : withGps;
     const firstPoint = candidates.length > 0 ? candidates[Math.floor(candidates.length / 2)] : null;
 
+    // A session built from multiple files (warmup.fit + work.fit +
+    // cooldown.fit uploaded separately) triggers a full rebuild — and
+    // therefore this weather/geocode block — once PER FILE. Re-fetching
+    // identical weather and location on the 2nd and 3rd file for the same
+    // session wastes real, rate-limited quota on both Open-Meteo and
+    // Nominatim for no benefit (the location and hour barely differ
+    // between files of the same session). sess (already loaded above with
+    // select("*")) carries whatever a PRIOR rebuild pass already
+    // successfully wrote, so re-fetching only happens for whichever of the
+    // two is still genuinely missing — if an earlier attempt failed (e.g.
+    // today's Open-Meteo quota exhaustion), the next file upload naturally
+    // gets another attempt rather than being permanently stuck.
+    const needsWeather = sess.wind_kph == null;
+    const needsLocation = !sess.location;
+
     // Use this point's OWN timestamp, not parsedFiles[0]'s start time — if
     // the early window came up empty and we fell back to "anywhere in the
     // merged session", that point could be from a much later file (e.g.
     // the cooldown), and pairing its location with a much-earlier file's
     // start time would ask the weather API for the wrong hour entirely.
-    if (firstPoint?.timestamp) {
-      const weather = await fetchWeather(firstPoint.lat!, firstPoint.lng!, firstPoint.timestamp);
-      weatherTemp = weather.temp;
-      weatherWind = weather.wind;
-      weatherWindDirection = weather.windDirection;
-      const geocode = await fetchLocationName(firstPoint.lat!, firstPoint.lng!);
-      locationName = geocode.location;
-      venueName = geocode.venue;
+    if (firstPoint?.timestamp && (needsWeather || needsLocation)) {
+      if (needsWeather) {
+        const weather = await fetchWeather(firstPoint.lat!, firstPoint.lng!, firstPoint.timestamp);
+        weatherTemp = weather.temp;
+        weatherWind = weather.wind;
+        weatherWindDirection = weather.windDirection;
+      } else {
+        // Already have a wind reading from an earlier file's rebuild pass
+        // this session — keep it (and its accompanying temp reading)
+        // rather than let the average_temp_c ?? avgTemp fallback below
+        // quietly downgrade a good Open-Meteo reading back to the
+        // device's rougher onboard-sensor average on every subsequent
+        // file upload to the same session.
+        weatherTemp = sess.average_temp_c;
+        weatherWind = sess.wind_kph;
+        weatherWindDirection = (sess as any).wind_direction_deg ?? null;
+      }
+      if (needsLocation) {
+        const geocode = await fetchLocationName(firstPoint.lat!, firstPoint.lng!);
+        locationName = geocode.location;
+        venueName = geocode.venue;
+      } else {
+        locationName = sess.location;
+        venueName = (sess as any).venue ?? null;
+      }
     }
   }
 
