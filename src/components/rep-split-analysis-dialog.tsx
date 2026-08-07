@@ -34,6 +34,7 @@ import { Ruler, TrendingUp, HeartPulse, Gauge, Trophy, BarChart3, Wind, ArrowUp,
 import { paceFmt, secToClock } from "@/lib/format";
 import {
   sliceRepPoints,
+  calibrateDistanceToTarget,
   build100mSplits,
   computeSplitSummary,
   colorForSplit,
@@ -1218,10 +1219,28 @@ export function RepSplitAnalysisDialog({
   targetPaceSecPerKm?: number | null;
   wind?: WindReading;
 }) {
-  const repPoints = useMemo(() => {
-    if (selectedRepIndex == null) return [];
+  const { repPoints, wasDistanceCalibrated } = useMemo(() => {
+    if (selectedRepIndex == null) return { repPoints: [] as RepPointLike[], wasDistanceCalibrated: false };
     const slices = sliceRepPoints(points, repRows);
-    return slices[selectedRepIndex] ?? [];
+    const rawRepPoints = slices[selectedRepIndex] ?? [];
+    // GPS distance on a track is a known weak point (satellite multipath
+    // on bends inflates the watch's own cumulative distance, sometimes
+    // enough to shift the 100m split count by a full split — the classic
+    // symptom is a 1200m rep coming out as 13 splits). Elapsed TIME has no
+    // equivalent failure mode, so it's left untouched; only distance gets
+    // rescaled, anchored to repRows[selectedRepIndex].distanceM — the same
+    // already-corrected rep distance shown everywhere else in the app for
+    // this rep (see the "* adjusted" distance in the Session segments
+    // table). See calibrateDistanceToTarget in rep-split-analysis.ts for
+    // the full reasoning on why rescaling (not trimming) is the right
+    // correction for this specific failure mode.
+    const targetDistanceM = repRows[selectedRepIndex]?.distanceM ?? null;
+    const calibrated = calibrateDistanceToTarget(rawRepPoints, targetDistanceM);
+    // calibrateDistanceToTarget returns the exact same array reference
+    // when no rescaling was needed — a cheap, correct way to detect
+    // whether calibration actually changed anything, for the UI
+    // disclosure below. Never state a correction happened when it didn't.
+    return { repPoints: calibrated, wasDistanceCalibrated: rawRepPoints.length > 0 && calibrated !== rawRepPoints };
   }, [points, repRows, selectedRepIndex]);
 
   const splits = useMemo(() => build100mSplits(repPoints, 100), [repPoints]);
@@ -1296,6 +1315,13 @@ export function RepSplitAnalysisDialog({
           </div>
         ) : (
           <div className="space-y-5">
+            {wasDistanceCalibrated && (
+              <div className="text-[11px] text-muted-foreground bg-muted/30 border border-border rounded-md px-2.5 py-1.5">
+                GPS distance for this rep was rescaled to match its recorded total — a common GPS-on-track issue
+                (satellite signal on bends can inflate distance) that otherwise throws off where 100m splits fall.
+                Elapsed time is untouched; only distance was corrected.
+              </div>
+            )}
             {/* Summary stats */}
             <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
               <StatBox label="Average" value={formatSplitTime(summary.avgPaceSecPerKm, unit)} />
