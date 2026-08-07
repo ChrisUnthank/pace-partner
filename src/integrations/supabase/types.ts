@@ -4974,6 +4974,7 @@ export type Database = {
           venue: string | null
           weather: string | null
           wind_kph: number | null
+          wind_direction_deg: number | null
           work_avg_cadence: number | null
           work_avg_hr: number | null
           work_avg_pace_sec_per_km: number | null
@@ -5033,6 +5034,7 @@ export type Database = {
           venue?: string | null
           weather?: string | null
           wind_kph?: number | null
+          wind_direction_deg?: number | null
           work_avg_cadence?: number | null
           work_avg_hr?: number | null
           work_avg_pace_sec_per_km?: number | null
@@ -5092,6 +5094,7 @@ export type Database = {
           venue?: string | null
           weather?: string | null
           wind_kph?: number | null
+          wind_direction_deg?: number | null
           work_avg_cadence?: number | null
           work_avg_hr?: number | null
           work_avg_pace_sec_per_km?: number | null
