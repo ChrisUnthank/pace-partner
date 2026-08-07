@@ -478,21 +478,40 @@ function SessionAnalysis() {
   const fetchWeatherFn = useServerFn(fetchSessionWeather);
   const queryClient = useQueryClient();
   const [weatherFetchState, setWeatherFetchState] = useState<"idle" | "loading" | "error">("idle");
+  // Human-readable version of whatever the server told us went wrong, so
+  // "Failed — retry" isn't the only signal — hovering it (or just reading
+  // it) says WHY, which is otherwise invisible without checking server
+  // logs. Kept separate from weatherFetchState so the button's own
+  // idle/loading/error styling logic doesn't need to know these strings.
+  const [weatherFetchError, setWeatherFetchError] = useState<string | null>(null);
+
+  const WEATHER_FAILURE_MESSAGES: Record<string, string> = {
+    query_failed: "A database error stopped the lookup — try again in a moment.",
+    no_start_time: "This session has no recorded start time to fetch weather for.",
+    no_gps: "No GPS coordinates found in this session's file — can't look up a location.",
+    provider_error: "The weather service didn't return usable data — try again shortly.",
+    save_failed: "Weather was found but couldn't be saved to this session.",
+  };
 
   async function handleFetchWeather() {
     if (!sessionId) return;
     setWeatherFetchState("loading");
+    setWeatherFetchError(null);
     try {
       const result = await fetchWeatherFn({ data: { sessionId } });
       if (!result?.ok) {
         setWeatherFetchState("error");
+        setWeatherFetchError(
+          (result as any)?.reason ? WEATHER_FAILURE_MESSAGES[(result as any).reason] ?? "Unknown error." : "Unknown error.",
+        );
         return;
       }
       setWeatherFetchState("idle");
       queryClient.invalidateQueries({ queryKey: ["session", sessionId] });
-    } catch (err) {
+    } catch (err: any) {
       console.error("Fetch weather failed:", err);
       setWeatherFetchState("error");
+      setWeatherFetchError(err?.message ? String(err.message) : "Request failed — check your connection and try again.");
     }
   }
 
@@ -844,16 +863,21 @@ function SessionAnalysis() {
                     )}
                   </p>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={handleFetchWeather}
-                    disabled={weatherFetchState === "loading"}
-                    className="mt-0.5 inline-flex items-center gap-1 text-xs text-primary hover:underline disabled:opacity-60"
-                    title="Fetch temperature and wind for this session from Open-Meteo, using its start location and time"
-                  >
-                    <RefreshCw className={`h-3 w-3 ${weatherFetchState === "loading" ? "animate-spin" : ""}`} />
-                    {weatherFetchState === "loading" ? "Fetching…" : weatherFetchState === "error" ? "Failed — retry" : "Fetch weather"}
-                  </button>
+                  <div>
+                    <button
+                      type="button"
+                      onClick={handleFetchWeather}
+                      disabled={weatherFetchState === "loading"}
+                      className="mt-0.5 inline-flex items-center gap-1 text-xs text-primary hover:underline disabled:opacity-60"
+                      title={weatherFetchError ?? "Fetch temperature and wind for this session from Open-Meteo, using its start location and time"}
+                    >
+                      <RefreshCw className={`h-3 w-3 ${weatherFetchState === "loading" ? "animate-spin" : ""}`} />
+                      {weatherFetchState === "loading" ? "Fetching…" : weatherFetchState === "error" ? "Failed — retry" : "Fetch weather"}
+                    </button>
+                    {weatherFetchState === "error" && weatherFetchError && (
+                      <p className="text-[10px] text-muted-foreground mt-0.5 max-w-[160px]">{weatherFetchError}</p>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
