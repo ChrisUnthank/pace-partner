@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, User, Eye } from "lucide-react";
+import { ChevronLeft, ChevronRight, User, Eye, Wind, RefreshCw } from "lucide-react";
 import {
   ComposedChart,
   Line,
@@ -32,9 +32,11 @@ import { secToClock, metersFmt, paceFmt, roundDistanceForDisplay } from "@/lib/f
 import { sessionClassificationLabel } from "@/lib/session-categories";
 import { useServerFn } from "@tanstack/react-start";
 import { computeContinuousFatigue } from "@/lib/ai.functions";
+import { fetchSessionWeather } from "@/lib/session-files.functions";
 import { useMyRoles } from "@/lib/use-auth";
 import { AthleteSubnav } from "@/components/athlete-subnav";
 import { computeWorkRestSparsity, type RepBlock } from "@/lib/intensity-segments";
+import { compassLabel, classifyRelativeWind, computeBearingDeg, effectiveWindComponentKmh, type WindReading } from "@/lib/wind";
 import {
   normalizeVO,
   formatVO,
@@ -466,6 +468,34 @@ function SessionAnalysis() {
 
   const computeFatigue = useServerFn(computeContinuousFatigue);
 
+  // Manual "Fetch weather" action — for a session that predates automatic
+  // weather capture, or where the automatic upload-time fetch failed
+  // silently (e.g. a transient Open-Meteo error). Reuses the exact same
+  // fetchWeather() the upload pipeline itself calls (see
+  // fetchSessionWeather in session-files.functions.ts), so a
+  // manually-fetched reading is never inconsistent with an upload-time
+  // one for the same session.
+  const fetchWeatherFn = useServerFn(fetchSessionWeather);
+  const queryClient = useQueryClient();
+  const [weatherFetchState, setWeatherFetchState] = useState<"idle" | "loading" | "error">("idle");
+
+  async function handleFetchWeather() {
+    if (!sessionId) return;
+    setWeatherFetchState("loading");
+    try {
+      const result = await fetchWeatherFn({ data: { sessionId } });
+      if (!result?.ok) {
+        setWeatherFetchState("error");
+        return;
+      }
+      setWeatherFetchState("idle");
+      queryClient.invalidateQueries({ queryKey: ["session", sessionId] });
+    } catch (err) {
+      console.error("Fetch weather failed:", err);
+      setWeatherFetchState("error");
+    }
+  }
+
   const { samples, bands, mode, hasMetric, gpsPoints, traceBuildFailed } = useMemo(() => {
     try {
       const built = buildSamples(safeSteps, safeResults, safeRawPoints);
@@ -763,7 +793,7 @@ function SessionAnalysis() {
           </div>
 
           {!showStatBreakdown ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
               <div className="p-3 rounded-lg bg-muted/40">
                 <p className="text-xs text-muted-foreground">Distance</p>
                 <p className="font-semibold">
@@ -797,6 +827,34 @@ function SessionAnalysis() {
                 <p className="font-semibold">
                   {session.average_temp_c != null ? `${session.average_temp_c.toFixed(1)}°C` : "—"}
                 </p>
+              </div>
+
+              <div className="p-3 rounded-lg bg-muted/40">
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Wind className="h-3 w-3" /> Wind
+                </p>
+                {session.wind_kph != null ? (
+                  <p className="font-semibold">
+                    {Math.round(session.wind_kph)} km/h
+                    {(session as any).wind_direction_deg != null && (
+                      <span className="text-muted-foreground font-normal">
+                        {" "}
+                        from {compassLabel((session as any).wind_direction_deg)}
+                      </span>
+                    )}
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleFetchWeather}
+                    disabled={weatherFetchState === "loading"}
+                    className="mt-0.5 inline-flex items-center gap-1 text-xs text-primary hover:underline disabled:opacity-60"
+                    title="Fetch temperature and wind for this session from Open-Meteo, using its start location and time"
+                  >
+                    <RefreshCw className={`h-3 w-3 ${weatherFetchState === "loading" ? "animate-spin" : ""}`} />
+                    {weatherFetchState === "loading" ? "Fetching…" : weatherFetchState === "error" ? "Failed — retry" : "Fetch weather"}
+                  </button>
+                )}
               </div>
             </div>
           ) : (
@@ -1315,6 +1373,7 @@ function SessionAnalysis() {
           results={safeResults}
           steps={safeSteps}
           terrain={session?.terrain}
+          wind={{ speedKmh: session?.wind_kph ?? null, directionDeg: (session as any)?.wind_direction_deg ?? null }}
         />
 
         {/* ✅ START 2-COLUMN LAYOUT */}
@@ -1337,6 +1396,10 @@ function SessionAnalysis() {
           <div className="space-y-6">
             {/* ✅ Insight FIRST */}
             <SessionInsightCard rows={insightRows} />
+            <WindNoteCard
+              gpsPoints={Array.isArray(gpsPoints) ? gpsPoints : []}
+              wind={{ speedKmh: session?.wind_kph ?? null, directionDeg: (session as any)?.wind_direction_deg ?? null }}
+            />
 
             {/* ✅ Feedback */}
             <Card>
@@ -2606,6 +2669,57 @@ function SessionInsightCard({ rows }: { rows: SplitRow[] }) {
   );
 }
 
+// A one-line wind note for the "work" portion of the session — computed
+// from the overall bearing between the first and last GPS fix during work
+// segments, compared against the session's wind reading (see
+// src/lib/wind.ts). Deliberately only shown for a genuine headwind or
+// tailwind — crosswind's effect on pace is much less predictable (can
+// help or hurt depending on stride/form), so surfacing it here as if it
+// explains a pace pattern would overstate what a single hourly wind
+// reading and a single overall bearing can actually tell you. This is a
+// coarse, whole-session read — the Rep Split popup gives the same
+// classification per 100m split, which is the more precise place to check
+// a specific pace swing against wind.
+function WindNoteCard({
+  gpsPoints,
+  wind,
+}: {
+  gpsPoints: { lat: number; lng: number; stepKind: string }[];
+  wind: WindReading;
+}) {
+  const note = useMemo(() => {
+    if (wind.speedKmh == null) return null;
+    const workPoints = gpsPoints.filter((p) => p.stepKind === "work");
+    if (workPoints.length < 2) return null;
+
+    const first = workPoints[0];
+    const last = workPoints[workPoints.length - 1];
+    const bearing = computeBearingDeg(first.lat, first.lng, last.lat, last.lng);
+    if (bearing == null) return null;
+
+    const relative = classifyRelativeWind(bearing, wind);
+    if (relative !== "headwind" && relative !== "tailwind") return null;
+
+    const component = effectiveWindComponentKmh(bearing, wind);
+    return { relative, component };
+  }, [gpsPoints, wind]);
+
+  if (!note) return null;
+
+  return (
+    <Card className="border-l-4 border-sky-500 bg-sky-500/5">
+      <CardContent className="text-sm py-3 flex items-center gap-2">
+        <Wind className="h-4 w-4 text-sky-500 shrink-0" />
+        <span>
+          Work reps ran mostly into a <strong>{note.relative}</strong>
+          {note.component != null && ` (~${Math.abs(note.component).toFixed(0)} km/h along your direction of travel)`} —
+          worth factoring in if pace looked {note.relative === "headwind" ? "slower" : "faster"} than expected.
+        </span>
+      </CardContent>
+    </Card>
+  );
+}
+
 // Bar chart of pace (or time) per rep, or per real track lap / km split.
 // "By reps" uses the exact recorded rep splits (the request this was built
 // for: seeing whether the 5x1km held pace across reps at a glance, faster
@@ -2977,12 +3091,14 @@ function UnifiedSessionTable({
   steps,
   speedMode,
   terrain,
+  wind,
 }: {
   points: any[];
   results: any[];
   steps: any[];
   speedMode: "pace" | "speed";
   terrain?: string | null;
+  wind?: WindReading;
 }) {
   // Multi-select segment filter — matches the same toggle-combination
   // behavior as the Session graph's scope selector above (e.g. Work +
@@ -3300,6 +3416,7 @@ function UnifiedSessionTable({
             ? `${repRowsForSplit[splitDialogRepIndex]?.type === "strides" ? "Strides" : "Work"} ${repRowsForSplit[splitDialogRepIndex]?.repLabel || `Rep ${splitDialogRepIndex + 1}`}`
             : ""
         }
+        wind={wind}
       />
     </>
   );
