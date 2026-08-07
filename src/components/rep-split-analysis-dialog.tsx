@@ -263,6 +263,22 @@ function PaceThroughRepChart({ splits, unit }: { splits: Split[]; unit: SplitTim
 type ProjectedPoint = { x: number; y: number };
 type RoutePathPoint = { lat: number; lng: number; distanceM: number };
 
+// Math.min(...arr)/Math.max(...arr) spread every array element as a
+// function argument — fine for a handful of points, but a real crash risk
+// ("Maximum call stack size exceeded") for a long rep with a lot of GPS
+// samples (some engines cap function arguments well under 100k). A plain
+// loop has no such limit regardless of array size.
+function safeMinMax(arr: number[]): { min: number; max: number } {
+  let min = Infinity;
+  let max = -Infinity;
+  for (const v of arr) {
+    if (v < min) min = v;
+    if (v > max) max = v;
+  }
+  return { min, max };
+}
+
+
 // Cumulative arc-length (in local metres) along an ordered list of local
 // x/y points — used to walk a fraction of the way along a shape by real
 // distance travelled, not by point index (point spacing isn't even).
@@ -329,8 +345,10 @@ function projectRoutePoints(
 
   const lats = flatPoints.map((p) => p.lat);
   const lngs = flatPoints.map((p) => p.lng);
-  const centerLat = (Math.min(...lats) + Math.max(...lats)) / 2;
-  const centerLng = (Math.min(...lngs) + Math.max(...lngs)) / 2;
+  const latRange = safeMinMax(lats);
+  const lngRange = safeMinMax(lngs);
+  const centerLat = (latRange.min + latRange.max) / 2;
+  const centerLng = (lngRange.min + lngRange.max) / 2;
 
   const METERS_PER_DEG_LAT = 111_320;
   const metersPerDegLng = 111_320 * Math.cos((centerLat * Math.PI) / 180);
@@ -443,8 +461,17 @@ function projectRoutePoints(
   }
   const maxLoopIndex = boundaryIndices.length;
 
-  // The template shape = the first lap's own points, in order.
+  // The template shape = the first lap's own points, in order. Should
+  // never be empty (loopIndexByPoint[0] is always 0, so the very first
+  // point always qualifies) — but bailing out explicitly here means a
+  // violated assumption fails loudly (caught by the try/catch in
+  // RepRouteShapeCard) rather than silently dividing by zero into NaN
+  // coordinates a few lines below, which wouldn't throw at all and would
+  // just render nothing with no error to diagnose.
   const templateXY = baseXY.filter((_, i) => loopIndexByPoint[i] === 0);
+  if (templateXY.length === 0) {
+    throw new Error("projectRoutePoints: no points resolved to the first lap — this shouldn't be possible");
+  }
   const templatePoints = flatPoints.filter((_, i) => loopIndexByPoint[i] === 0);
   const firstLapTotalDistanceM =
     templatePoints.length > 1 ? templatePoints[templatePoints.length - 1].distanceM - templatePoints[0].distanceM : 0;
@@ -487,10 +514,12 @@ function projectRoutePoints(
 
   const xs = adjustedXY.map((p) => p.x);
   const ys = adjustedXY.map((p) => p.y);
-  const boundsCenterX = (Math.min(...xs) + Math.max(...xs)) / 2;
-  const boundsCenterY = (Math.min(...ys) + Math.max(...ys)) / 2;
-  const spanX = Math.max(...xs) - Math.min(...xs);
-  const spanY = Math.max(...ys) - Math.min(...ys);
+  const xRange = safeMinMax(xs);
+  const yRange = safeMinMax(ys);
+  const boundsCenterX = (xRange.min + xRange.max) / 2;
+  const boundsCenterY = (yRange.min + yRange.max) / 2;
+  const spanX = xRange.max - xRange.min;
+  const spanY = yRange.max - yRange.min;
   const span = Math.max(spanX, spanY, 10);
 
   const PADDING_FRAC = 0.15;
@@ -588,12 +617,31 @@ function computeWindGradientSegments(splits: Split[], wind: WindReading): Gradie
 }
 
 function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReading }) {
-  const projection = useMemo(() => projectRoutePoints(splits), [splits]);
+  // This geometry code is new and has only been tested against synthetic
+  // data — real GPS traces are messier than anything a hand-built test
+  // case covers. try/catch here means an edge case this hasn't seen yet
+  // shows "couldn't render the route shape" for just this one card
+  // instead of throwing during render and blanking the whole dialog (or
+  // worse, the whole page, if nothing further up the tree catches it).
+  // The actual error is still logged to the console for diagnosis.
+  const projection = useMemo(() => {
+    try {
+      return projectRoutePoints(splits);
+    } catch (err) {
+      console.error("RepRouteShapeCard: projectRoutePoints threw", err);
+      return null;
+    }
+  }, [splits]);
   const hasWind = wind?.speedKmh != null;
-  const gradientSegments = useMemo(
-    () => (wind ? computeWindGradientSegments(splits, wind) : []),
-    [splits, wind],
-  );
+  const gradientSegments = useMemo(() => {
+    if (!wind) return [];
+    try {
+      return computeWindGradientSegments(splits, wind);
+    } catch (err) {
+      console.error("RepRouteShapeCard: computeWindGradientSegments threw", err);
+      return [];
+    }
+  }, [splits, wind]);
 
   // Rep-elapsed time AT THE END of each split — a running total across
   // the whole rep, not each split's own duration — for the mini
@@ -617,8 +665,9 @@ function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReadi
       <CardContent>
         {!projection ? (
           <div className="text-sm text-muted-foreground text-center py-4">
-            No GPS trace for this rep — can't draw its route shape. This is usually a treadmill/indoor session or a
-            manually-logged rep with no file upload.
+            Couldn't draw a route shape for this rep — either there's no GPS trace to work with (a treadmill/indoor
+            session, or a manually-logged rep with no file upload), or something about this rep's data didn't render
+            cleanly. The rest of this rep's analysis above is unaffected.
           </div>
         ) : (
           <>
