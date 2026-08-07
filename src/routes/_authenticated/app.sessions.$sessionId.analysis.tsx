@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, User, Eye, Wind, RefreshCw } from "lucide-react";
+import { ChevronLeft, ChevronRight, User, Eye, Wind, RefreshCw, ArrowUp } from "lucide-react";
 import {
   ComposedChart,
   Line,
@@ -853,13 +853,18 @@ function SessionAnalysis() {
                   <Wind className="h-3 w-3" /> Wind
                 </p>
                 {session.wind_kph != null ? (
-                  <p className="font-semibold">
+                  <p className="font-semibold flex items-center gap-1">
                     {Math.round(session.wind_kph)} km/h
                     {(session as any).wind_direction_deg != null && (
-                      <span className="text-muted-foreground font-normal">
-                        {" "}
-                        from {compassLabel((session as any).wind_direction_deg)}
-                      </span>
+                      <>
+                        <ArrowUp
+                          className="h-3.5 w-3.5 text-sky-500 shrink-0"
+                          style={{ transform: `rotate(${(session as any).wind_direction_deg}deg)` }}
+                        />
+                        <span className="text-muted-foreground font-normal">
+                          from {compassLabel((session as any).wind_direction_deg)}
+                        </span>
+                      </>
                     )}
                   </p>
                 ) : (
@@ -3432,6 +3437,13 @@ function UnifiedSessionTable({
         onOpenChange={(o) => {
           if (!o) setSplitDialogRepIndex(null);
         }}
+        onNavigate={(direction) => {
+          setSplitDialogRepIndex((i) => {
+            if (i == null) return i;
+            const next = i + direction;
+            return next >= 0 && next < repRowsForSplit.length ? next : i;
+          });
+        }}
         points={points}
         repRows={repRowsForSplit}
         selectedRepIndex={splitDialogRepIndex}
@@ -3440,6 +3452,7 @@ function UnifiedSessionTable({
             ? `${repRowsForSplit[splitDialogRepIndex]?.type === "strides" ? "Strides" : "Work"} ${repRowsForSplit[splitDialogRepIndex]?.repLabel || `Rep ${splitDialogRepIndex + 1}`}`
             : ""
         }
+        targetPaceSecPerKm={splitDialogRepIndex != null ? repRowsForSplit[splitDialogRepIndex]?.targetPaceSecPerKm : null}
         wind={wind}
       />
     </>
@@ -3851,6 +3864,12 @@ type SplitRow = {
   elevLoss: number | null;
   repLabel?: string | null;
   adjusted?: boolean;
+  // The step's own coach-set target pace, when this rep's step has one —
+  // threaded through to the Rep Split Analysis popup so its colour coding
+  // can compare each split against the actual plan rather than always
+  // falling back to the rep's own average (see targetPaceSecPerKm usage
+  // in rep-split-analysis-dialog.tsx).
+  targetPaceSecPerKm?: number | null;
 
   // ✅ scoring
   score?: number | null;
@@ -4024,6 +4043,7 @@ function buildSplitsFromResults(results: any[], steps: any[], rawPoints: any[]):
       elevLoss: finalMetrics.elevLoss,
       repLabel,
       adjusted,
+      targetPaceSecPerKm: step?.target_pace_sec_per_km != null ? Number(step.target_pace_sec_per_km) : null,
       hrEnd,
       hrRecovery,
       hrDrop,
