@@ -53,6 +53,7 @@ import {
   effectiveWindComponentKmh,
   compassLabel,
   windArrowRotationDeg,
+  computeBearingDeg,
   RELATIVE_WIND_LABEL,
   type WindReading,
   type RelativeWind,
@@ -534,7 +535,7 @@ function projectRoutePoints(
   const spanY = yRange.max - yRange.min;
   const span = Math.max(spanX, spanY, 10);
 
-  const PADDING_FRAC = 0.15;
+  const PADDING_FRAC = 0.08;
   const size = span * (1 + PADDING_FRAC * 2);
   const half = size / 2;
 
@@ -772,7 +773,7 @@ function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReadi
           </div>
         ) : (
           <>
-            <div className="relative w-full aspect-square">
+            <div className="relative w-full max-w-xs mx-auto aspect-square">
                 <svg viewBox={`0 0 ${projection.size} ${projection.size}`} className="w-full h-full">
                   {gradientSegments.length > 0 ? (
                     // Continuous wind-gradient ribbon — see the block
@@ -1310,6 +1311,14 @@ export function RepSplitAnalysisDialog({
   // weaker claim, and the legend text below says which one is in use.
   const referencePaceSecPerKm = targetPaceSecPerKm ?? summary.avgPaceSecPerKm;
   const referenceIsTarget = targetPaceSecPerKm != null;
+  // Rep's own average HR — the reference point for HR-mode colouring, the
+  // same role summary.avgPaceSecPerKm plays for pace (there's no coach-set
+  // "target HR" for a rep the way there's a target pace, so this always
+  // falls back to the rep's own average).
+  const avgHrAcrossSplits = useMemo(() => {
+    const vals = splits.map((s) => s.avgHr).filter((v): v is number => v != null);
+    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+  }, [splits]);
   const drift = useMemo(() => computeDynamicsDrift(splits), [splits]);
   const hrDrift = useMemo(() => computeHrDrift(splits), [splits]);
   const fatigue = useMemo(() => computeFatigueScore(splits), [splits]);
@@ -1463,59 +1472,50 @@ export function RepSplitAnalysisDialog({
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <CardTitle className="text-sm flex items-center gap-1.5">
                     <BarChart3 className="h-4 w-4 text-muted-foreground" />
-                    Split-by-split
+                    Split-by-split (100m)
                   </CardTitle>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {gridMode === "pace" && (
-                      <div className="flex border rounded-md overflow-hidden text-xs">
-                        <button
-                          type="button"
-                          onClick={() => setUnit("sec100")}
-                          className={`px-2 py-0.5 ${unit === "sec100" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
-                        >
-                          Per 100m
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setUnit("pace")}
-                          className={`px-2 py-0.5 border-l ${unit === "pace" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
-                        >
-                          Pace /km
-                        </button>
-                      </div>
+                  <div className="flex border rounded-md overflow-hidden text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setGridMode("pace")}
+                      className={`px-2 py-0.5 ${gridMode === "pace" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+                    >
+                      Pace
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGridMode("time")}
+                      className={`px-2 py-0.5 border-l ${gridMode === "time" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+                    >
+                      Time
+                    </button>
+                    {hasHrData && (
+                      <button
+                        type="button"
+                        onClick={() => setGridMode("hr")}
+                        className={`px-2 py-0.5 border-l ${gridMode === "hr" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
+                      >
+                        HR
+                      </button>
                     )}
-                    <div className="flex border rounded-md overflow-hidden text-xs">
-                      <button
-                        type="button"
-                        onClick={() => setGridMode("pace")}
-                        className={`px-2 py-0.5 ${gridMode === "pace" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
-                      >
-                        Pace
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setGridMode("time")}
-                        className={`px-2 py-0.5 border-l ${gridMode === "time" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
-                      >
-                        Time
-                      </button>
-                      {hasHrData && (
-                        <button
-                          type="button"
-                          onClick={() => setGridMode("hr")}
-                          className={`px-2 py-0.5 border-l ${gridMode === "hr" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}
-                        >
-                          HR
-                        </button>
-                      )}
-                    </div>
                   </div>
                 </div>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-5 sm:grid-cols-10 gap-1.5">
                   {splits.map((s, i) => {
-                    const color = colorForSplit(s.paceSecPerKm, referencePaceSecPerKm);
+                    // Colour always reflects DIRECTION relative to that
+                    // mode's own reference — pace vs. target/average pace,
+                    // HR vs. this rep's own average HR. Time mode (a
+                    // cumulative running total) has no meaningful
+                    // "average" of its own, so it keeps showing pace's
+                    // colour underneath — the quality signal is still
+                    // about how this split was run, whichever value is on
+                    // display.
+                    const color =
+                      gridMode === "hr"
+                        ? colorForSplit(s.avgHr, avgHrAcrossSplits)
+                        : colorForSplit(s.paceSecPerKm, referencePaceSecPerKm);
                     const cellValue =
                       gridMode === "time"
                         ? secToClock(cumulativeTimesS[i])
@@ -1523,7 +1523,7 @@ export function RepSplitAnalysisDialog({
                           ? s.avgHr != null
                             ? `${Math.round(s.avgHr)}`
                             : "—"
-                          : formatSplitTime(s.paceSecPerKm, unit);
+                          : formatSplitTime(s.paceSecPerKm, "sec100");
                     return (
                       <div
                         key={s.index}
@@ -1546,7 +1546,8 @@ export function RepSplitAnalysisDialog({
                 </div>
                 {gridMode === "time" && (
                   <p className="text-[10px] text-muted-foreground mt-1.5">
-                    Rep-elapsed time at the end of each split (a running total, not that split's own duration).
+                    Rep-elapsed time at the end of each split (a running total, not that split's own duration). Colour
+                    still reflects pace, since a running total has no "average" of its own.
                   </p>
                 )}
                 {gridMode === "hr" && (
@@ -1558,15 +1559,15 @@ export function RepSplitAnalysisDialog({
                 <div className="mt-2 flex items-center gap-3 text-[11px] text-muted-foreground flex-wrap">
                   <span className="flex items-center gap-1">
                     <span className="h-2.5 w-2.5 rounded-sm bg-emerald-500/40 inline-block" />
-                    {referenceIsTarget ? "On target pace" : "Near average pace"}
+                    Near average
                   </span>
                   <span className="flex items-center gap-1">
                     <span className="h-2.5 w-2.5 rounded-sm bg-amber-500/40 inline-block" />
-                    Slightly {referenceIsTarget ? "off target" : "off average"}
+                    Below average
                   </span>
                   <span className="flex items-center gap-1">
                     <span className="h-2.5 w-2.5 rounded-sm bg-red-500/40 inline-block" />
-                    Significantly {referenceIsTarget ? "off target" : "off average"}
+                    Above average
                   </span>
                   {splits.some((s) => s.isPartial) && <span>* partial split (short of 100m)</span>}
                   {wind?.speedKmh != null && (
@@ -1588,9 +1589,12 @@ export function RepSplitAnalysisDialog({
                   )}
                 </div>
                 <p className="text-[10px] text-muted-foreground mt-1.5">
+                  "Above"/"below" isn't automatically good or bad — it's just direction. Below-average HR early in a
+                  rep and above-average HR late in it are both completely normal; for pace it depends on what this
+                  rep was for.{" "}
                   {referenceIsTarget
-                    ? `Colour compares each split to this rep's own target pace (${paceFmt(targetPaceSecPerKm)}/km) — a coach-set plan, not just this rep's own average.`
-                    : "No target pace set for this rep — colour compares each split to this rep's own average instead, since there's no plan to measure against."}
+                    ? `Pace is measured against this rep's own target pace (${paceFmt(targetPaceSecPerKm)}/km).`
+                    : "No target pace set for this rep — pace is measured against this rep's own average instead."}
                 </p>
               </CardContent>
             </Card>
