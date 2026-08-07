@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, User } from "lucide-react";
+import { ChevronLeft, ChevronRight, User, Eye } from "lucide-react";
 import {
   ComposedChart,
   Line,
@@ -2660,7 +2660,17 @@ function LapTimesTooltip({ active, payload, label, metric }: any) {
   );
 }
 
-function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any[]; terrain?: string | null }) {
+function RepPaceChart({
+  rows,
+  points,
+  terrain,
+  onRepClick,
+}: {
+  rows: SplitRow[];
+  points: any[];
+  terrain?: string | null;
+  onRepClick?: (repIndex: number) => void;
+}) {
   const repRows = useMemo(() => rows.filter((r) => r.type === "work" || r.type === "strides"), [rows]);
   const hasReps = repRows.length > 1;
 
@@ -2694,13 +2704,6 @@ function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any
     hasReps ? "reps" : hasKmSplits ? "km" : "lap",
   );
   const [metric, setMetric] = useState<"pace" | "time">("pace");
-
-  // Rep Split Analysis popup — clicking a rep's bar in "By reps" mode opens
-  // a 100m-by-100m breakdown of that specific rep. Only meaningful in reps
-  // mode (a distance-bucketed "By km"/"By lap" bar isn't a whole rep), and
-  // the dialog itself states plainly if the rep has no raw point trace to
-  // sub-split (e.g. a manually-logged rep with no file upload).
-  const [splitDialogRepIndex, setSplitDialogRepIndex] = useState<number | null>(null);
 
   if (!hasReps && !hasKmSplits && !hasLapSplits) return null;
 
@@ -2937,7 +2940,7 @@ function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any
                 style={{ cursor: mode === "reps" ? "pointer" : "default" }}
                 onClick={(data: any) => {
                   if (mode === "reps" && typeof data?.repIndex === "number") {
-                    setSplitDialogRepIndex(data.repIndex);
+                    onRepClick?.(data.repIndex);
                   }
                 }}
               >
@@ -2964,20 +2967,6 @@ function RepPaceChart({ rows, points, terrain }: { rows: SplitRow[]; points: any
           <p className="text-[11px] text-muted-foreground mt-1">Shaded band = one rep — hover a bar for pace/time plus cumulative time.</p>
         )}
       </CardContent>
-      <RepSplitAnalysisDialog
-        open={splitDialogRepIndex != null}
-        onOpenChange={(o) => {
-          if (!o) setSplitDialogRepIndex(null);
-        }}
-        points={points}
-        repRows={repRows}
-        selectedRepIndex={splitDialogRepIndex}
-        repLabel={
-          splitDialogRepIndex != null
-            ? repRows[splitDialogRepIndex]?.repLabel || `Rep ${splitDialogRepIndex + 1}`
-            : ""
-        }
-      />
     </Card>
   );
 }
@@ -3002,6 +2991,15 @@ function UnifiedSessionTable({
   // graph above it.
   const [segmentFilters, setSegmentFilters] = useState<ScopeKey[]>(["full"]);
   const [detailMode, setDetailMode] = useState<"basic" | "advanced">("basic");
+
+  // Rep Split Analysis popup — shared between the Lap times chart (click a
+  // rep's bar) and the Session segments table below (eye icon on a Work/
+  // Strides row), so both entry points open the exact same dialog against
+  // the exact same rep. repRowsForSplit uses the identical work/strides
+  // filter RepPaceChart applies internally to its own `rows` prop — same
+  // source array, same order, so index N here always means the same rep as
+  // index N there.
+  const [splitDialogRepIndex, setSplitDialogRepIndex] = useState<number | null>(null);
 
   function toggleSegmentFilter(k: ScopeKey) {
     setSegmentFilters((prev) => {
@@ -3037,6 +3035,11 @@ function UnifiedSessionTable({
     return rows.filter((r) => segmentFilters.includes(r.type as ScopeKey));
   }, [rows, segmentFilters]);
 
+  // Same filter RepPaceChart applies to its own `rows` prop internally —
+  // kept identical here so a rep's index always lines up between the two
+  // trigger points sharing this dialog.
+  const repRowsForSplit = useMemo(() => rows.filter((r) => r.type === "work" || r.type === "strides"), [rows]);
+
   const totalTime = filteredRows.reduce((a, r) => a + (r.durationS ?? 0), 0);
   const totalDist = filteredRows.reduce((a, r) => a + (r.distanceM ?? 0), 0);
 
@@ -3067,7 +3070,7 @@ function UnifiedSessionTable({
 
   return (
     <>
-      <RepPaceChart rows={rows} points={points} terrain={terrain} />
+      <RepPaceChart rows={rows} points={points} terrain={terrain} onRepClick={setSplitDialogRepIndex} />
       <Card>
         <CardHeader>
           <CardTitle>Session segments</CardTitle>
@@ -3184,8 +3187,23 @@ function UnifiedSessionTable({
                       <td className="py-1 pr-2 tabular-nums">{r.index}</td>
                       <td className="py-1 pr-2 capitalize">{r.type}</td>
                       <td className="py-1 pr-2">
-                        {r.repLabel ?? "—"}
-                        {r.adjusted ? " *" : ""}
+                        <span className="inline-flex items-center gap-1">
+                          {r.repLabel ?? "—"}
+                          {r.adjusted ? " *" : ""}
+                          {(r.type === "work" || r.type === "strides") && (
+                            <button
+                              type="button"
+                              title="View 100m split breakdown"
+                              onClick={() => {
+                                const idx = repRowsForSplit.indexOf(r);
+                                if (idx >= 0) setSplitDialogRepIndex(idx);
+                              }}
+                              className="text-muted-foreground hover:text-primary transition-colors"
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </span>
                       </td>
                       <td className="py-1 pr-2 text-right tabular-nums">
                         {r.distanceM > 0 ? metersFmt(roundDistanceForDisplay(r.distanceM)) : "—"}
@@ -3268,6 +3286,21 @@ function UnifiedSessionTable({
           </div>
         </CardContent>
       </Card>
+
+      <RepSplitAnalysisDialog
+        open={splitDialogRepIndex != null}
+        onOpenChange={(o) => {
+          if (!o) setSplitDialogRepIndex(null);
+        }}
+        points={points}
+        repRows={repRowsForSplit}
+        selectedRepIndex={splitDialogRepIndex}
+        repLabel={
+          splitDialogRepIndex != null
+            ? `${repRowsForSplit[splitDialogRepIndex]?.type === "strides" ? "Strides" : "Work"} ${repRowsForSplit[splitDialogRepIndex]?.repLabel || `Rep ${splitDialogRepIndex + 1}`}`
+            : ""
+        }
+      />
     </>
   );
 }
