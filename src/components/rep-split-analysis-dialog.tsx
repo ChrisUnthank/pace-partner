@@ -261,26 +261,61 @@ function PaceThroughRepChart({ splits, unit }: { splits: Split[]; unit: SplitTim
 // ---------------------------------------------------------------------
 
 type ProjectedPoint = { x: number; y: number };
+type RoutePathPoint = { lat: number; lng: number; distanceM: number };
 
-// Local equirectangular projection with LOOP SEPARATION — accurate enough
-// for a single rep (rarely more than a couple of km across) and,
-// critically, preserves TRUE SHAPE: longitude is scaled by cos(latitude)
-// before treating both axes as equivalent "metres", so a track oval
-// renders as an oval and a straight road stays straight, rather than
-// getting stretched by naively mapping lat/lng degrees directly onto x/y
-// (a degree of longitude is a different real-world distance than a
-// degree of latitude almost everywhere except the equator).
+// Cumulative arc-length (in local metres) along an ordered list of local
+// x/y points — used to walk a fraction of the way along a shape by real
+// distance travelled, not by point index (point spacing isn't even).
+function buildArcLength(pts: ProjectedPoint[]): { cumDist: number[]; totalLength: number } {
+  const cumDist = [0];
+  for (let i = 1; i < pts.length; i++) {
+    const d = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    cumDist.push(cumDist[i - 1] + d);
+  }
+  return { cumDist, totalLength: cumDist[cumDist.length - 1] ?? 0 };
+}
+
+// Samples a point at a given fraction (0-1) of the way along a shape's
+// own arc length, interpolating between whichever two of its points
+// bracket that fraction.
+function sampleAtFraction(pts: ProjectedPoint[], cumDist: number[], totalLength: number, fraction: number): ProjectedPoint {
+  if (pts.length === 0) return { x: 0, y: 0 };
+  if (pts.length === 1 || totalLength <= 0) return pts[0];
+  const targetDist = Math.max(0, Math.min(1, fraction)) * totalLength;
+  let i = 1;
+  while (i < cumDist.length && cumDist[i] < targetDist) i++;
+  if (i >= cumDist.length) return pts[pts.length - 1];
+  const d0 = cumDist[i - 1];
+  const d1 = cumDist[i];
+  const segFrac = d1 > d0 ? (targetDist - d0) / (d1 - d0) : 0;
+  const p0 = pts[i - 1];
+  const p1 = pts[i];
+  return { x: p0.x + (p1.x - p0.x) * segFrac, y: p0.y + (p1.y - p0.y) * segFrac };
+}
+
+// Local equirectangular projection with LAP-TEMPLATE ALIGNMENT — accurate
+// enough for a single rep and, critically, preserves TRUE SHAPE:
+// longitude is scaled by cos(latitude) before treating both axes as
+// equivalent "metres", so a track oval renders as an oval and a straight
+// road stays straight.
 //
-// LOOP SEPARATION: a rep run on a short closed loop (e.g. a 1000m rep on
-// a 400m track = 2.5 laps) would otherwise draw every lap directly on top
-// of the last, which is unreadable. This detects each time the athlete
-// leaves the start point and comes back near it again — a completed lap —
-// and pushes every point on the 2nd, 3rd, etc. lap radially outward from
-// the loop's own centre, so laps nest as concentric rings: lap 1
-// innermost, each later lap a wider ring around it. A route that's never
-// closed (a straight road, an out-and-back) never triggers a second
-// "leave" after the first, so maxLoopIndex stays 0 and nothing is offset
-// — this only activates for genuine repeated loops.
+// This is deliberately a SCHEMATIC, not a literal GPS trace: real GPS
+// noise means lap 2 of the same physical loop is never pixel-identical to
+// lap 1 (different tangent lines through bends, jitter, drift), which
+// made repeated laps look like slightly different, messy shapes instead
+// of clean parallel rings — and made "no overlap" and "no gap" fights
+// with each other, since real per-lap shape differences don't line up
+// cleanly at any fixed offset.
+//
+// Instead: the FIRST lap's own shape becomes a fixed TEMPLATE. Every
+// point on every lap (including the first) is repositioned to sit at the
+// same PROPORTIONAL DISTANCE along that one template shape that it
+// actually covered in its own lap (e.g. "40% of the way through this
+// lap" always lands at the same spot on the template, lap after lap),
+// then laps 2+ are pushed radially outward from the template's own
+// centre so they don't sit on top of it. The drawn line's length no
+// longer has to represent literal recorded distance — it's a consistent,
+// repeatable visual position, not a ruler.
 function projectRoutePoints(
   splits: Split[],
 ): {
@@ -289,7 +324,7 @@ function projectRoutePoints(
   maxLoopIndex: number;
   strokeWidth: number;
 } | null {
-  const flatPoints = splits.flatMap((s) => s.path);
+  const flatPoints: RoutePathPoint[] = splits.flatMap((s) => s.path);
   if (flatPoints.length < 2) return null;
 
   const lats = flatPoints.map((p) => p.lat);
@@ -300,78 +335,154 @@ function projectRoutePoints(
   const METERS_PER_DEG_LAT = 111_320;
   const metersPerDegLng = 111_320 * Math.cos((centerLat * Math.PI) / 180);
 
-  const baseXY = flatPoints.map((p) => ({
+  const baseXY: ProjectedPoint[] = flatPoints.map((p) => ({
     x: (p.lng - centerLng) * metersPerDegLng,
     y: (p.lat - centerLat) * METERS_PER_DEG_LAT,
   }));
 
   // Loop detection: track distance from the very first point. "Leaving"
   // requires getting more than LEAVE_THRESHOLD_M away; a lap only counts
-  // once the athlete has genuinely left and then comes back within
-  // RETURN_THRESHOLD_M — the gap between the two thresholds avoids GPS
-  // jitter right at the start line falsely registering as a completed
-  // lap before the athlete has actually gone anywhere.
+  // once the athlete has genuinely left, come back within
+  // RETURN_THRESHOLD_M, AND actually covered at least MIN_LAP_DISTANCE_M
+  // of real recorded distance since the lap started. That last check
+  // matters more than it looks: on a tight/eccentric bend, a point can
+  // swing spatially close to the origin well before the lap is actually
+  // complete (the origin sits ON the path, and a sharp bend's own
+  // curvature can bring nearby-but-not-yet-there points within the return
+  // threshold early) — without a minimum real distance travelled, that
+  // fired a false "lap complete" partway around the first lap, well
+  // before the athlete had actually finished it. Also records the real
+  // recorded distance (distanceM) at the moment each lap begins, so "how
+  // far into THIS lap is this point" can be computed per point.
   const LEAVE_THRESHOLD_M = 20;
   const RETURN_THRESHOLD_M = 12;
+  const MIN_LAP_DISTANCE_M = 150;
   const origin = baseXY[0];
-  let hasLeft = false;
-  let loopIndex = 0;
-  const loopIndexByPoint: number[] = [];
-  for (const p of baseXY) {
-    const dist = Math.hypot(p.x - origin.x, p.y - origin.y);
-    if (!hasLeft && dist > LEAVE_THRESHOLD_M) {
-      hasLeft = true;
-    } else if (hasLeft && dist < RETURN_THRESHOLD_M) {
-      loopIndex++;
-      hasLeft = false;
+  const distFromOrigin = baseXY.map((p) => Math.hypot(p.x - origin.x, p.y - origin.y));
+
+  // The FIRST point that dips under RETURN_THRESHOLD_M isn't necessarily
+  // the real lap finish: on a tight or eccentric bend, the path can swing
+  // spatially close to the origin well before the lap is actually
+  // complete (the origin sits ON the path, and a sharp bend's own
+  // curvature brings nearby-but-not-there-yet points within the
+  // threshold early). Firing on the first dip registered a "lap
+  // complete" a third of the way around a bend, before the athlete had
+  // actually finished it. Fixed with two passes: pass 1 finds each
+  // contiguous stretch of points within the return threshold and picks
+  // the point with the SMALLEST distance from origin within that whole
+  // stretch — the genuine closest approach — as the real lap boundary,
+  // discarding any stretch that hasn't covered at least
+  // MIN_LAP_DISTANCE_M of real recorded distance since the lap started
+  // (guards a short backtrack near the start line from counting as a
+  // "lap"). Pass 2 assigns every point's lap index and lap-start distance
+  // based on which boundary it falls after.
+  const boundaryIndices: number[] = [];
+  {
+    let hasLeft = false;
+    let lastBoundaryDistanceM = flatPoints[0].distanceM;
+    let i = 0;
+    while (i < baseXY.length) {
+      if (!hasLeft && distFromOrigin[i] > LEAVE_THRESHOLD_M) {
+        hasLeft = true;
+      }
+      if (hasLeft && distFromOrigin[i] < RETURN_THRESHOLD_M) {
+        let zoneEnd = i;
+        while (zoneEnd + 1 < baseXY.length && distFromOrigin[zoneEnd + 1] < RETURN_THRESHOLD_M * 1.5) {
+          zoneEnd++;
+        }
+        let minIdx = i;
+        for (let k = i; k <= zoneEnd; k++) {
+          if (distFromOrigin[k] < distFromOrigin[minIdx]) minIdx = k;
+        }
+        const traveledSinceLapStart = flatPoints[minIdx].distanceM - lastBoundaryDistanceM;
+        if (traveledSinceLapStart >= MIN_LAP_DISTANCE_M) {
+          boundaryIndices.push(minIdx);
+          lastBoundaryDistanceM = flatPoints[minIdx].distanceM;
+          hasLeft = false;
+        }
+        i = zoneEnd + 1;
+        continue;
+      }
+      i++;
     }
-    loopIndexByPoint.push(loopIndex);
+
+    // A boundary detected right at (or almost at) the very end of the
+    // data isn't a transition INTO another lap — there's no further lap
+    // to offset, it's just where the rep's own recording happened to
+    // stop, which can legitimately be close to the origin again if the
+    // rep's total distance happens to be a near-exact multiple of the
+    // loop length (e.g. a rep that's almost exactly 2 full laps, not
+    // 2.5). Counting it would overstate "how many laps" in the caption
+    // below and misassign the very last few points to a phantom next lap
+    // with nothing in it.
+    const TRAILING_BOUNDARY_GUARD_M = LEAVE_THRESHOLD_M;
+    while (
+      boundaryIndices.length > 0 &&
+      flatPoints[flatPoints.length - 1].distanceM - flatPoints[boundaryIndices[boundaryIndices.length - 1]].distanceM <
+        TRAILING_BOUNDARY_GUARD_M
+    ) {
+      boundaryIndices.pop();
+    }
   }
-  const maxLoopIndex = loopIndex;
 
-  // Expansion centre is derived from the FIRST lap only — using every
-  // lap's points to find the centre would let later, already-offset laps
-  // drag the centre outward too, compounding on itself. The first lap is
-  // always the true, un-offset shape.
-  const firstLapXY = baseXY.filter((_, i) => loopIndexByPoint[i] === 0);
-  const cx = firstLapXY.reduce((a, p) => a + p.x, 0) / firstLapXY.length;
-  const cy = firstLapXY.reduce((a, p) => a + p.y, 0) / firstLapXY.length;
-  const firstLapRadii = firstLapXY.map((p) => Math.hypot(p.x - cx, p.y - cy));
-  const avgFirstLapRadius = firstLapRadii.length
-    ? firstLapRadii.reduce((a, b) => a + b, 0) / firstLapRadii.length
-    : 10;
+  const loopIndexByPoint: number[] = [];
+  const lapStartDistanceByPoint: number[] = [];
+  {
+    let boundaryCursor = 0;
+    let currentLoopIndex = 0;
+    let currentLapStartDistanceM = flatPoints[0].distanceM;
+    for (let i = 0; i < flatPoints.length; i++) {
+      while (boundaryCursor < boundaryIndices.length && i > boundaryIndices[boundaryCursor]) {
+        currentLoopIndex++;
+        currentLapStartDistanceM = flatPoints[boundaryIndices[boundaryCursor]].distanceM;
+        boundaryCursor++;
+      }
+      loopIndexByPoint.push(currentLoopIndex);
+      lapStartDistanceByPoint.push(currentLapStartDistanceM);
+    }
+  }
+  const maxLoopIndex = boundaryIndices.length;
 
-  // STROKE WIDTH AND RING GAP ARE BOTH DERIVED FROM THE FIRST LAP'S OWN
-  // GEOMETRY, NOT FROM THE FINAL (POST-OFFSET) MAP SIZE. This breaks what
-  // was previously a runaway feedback loop: the old code sized the stroke
-  // as a fraction of the fully-expanded map (which itself grew with every
-  // additional lap), so both the lines AND the gaps between them kept
-  // growing together as more laps were added — three loosely separated
-  // rings, exactly what looked wrong in testing. Anchoring both to the
-  // FIRST lap's radius (which never changes regardless of lap count)
-  // keeps the line thickness and gap between laps constant and small no
-  // matter how many laps a rep covers.
-  //
-  // ringGap is set to just over one stroke width — enough that adjacent
-  // laps read as distinct coloured strands sitting right next to each
-  // other (like a multi-strand cable), not as a single blurred line, but
-  // without the wide dead-space gap of the earlier percentage-of-radius
-  // approach.
+  // The template shape = the first lap's own points, in order.
+  const templateXY = baseXY.filter((_, i) => loopIndexByPoint[i] === 0);
+  const templatePoints = flatPoints.filter((_, i) => loopIndexByPoint[i] === 0);
+  const firstLapTotalDistanceM =
+    templatePoints.length > 1 ? templatePoints[templatePoints.length - 1].distanceM - templatePoints[0].distanceM : 0;
+  const { cumDist, totalLength } = buildArcLength(templateXY);
+
+  const cx = templateXY.reduce((a, p) => a + p.x, 0) / templateXY.length;
+  const cy = templateXY.reduce((a, p) => a + p.y, 0) / templateXY.length;
+  const templateRadii = templateXY.map((p) => Math.hypot(p.x - cx, p.y - cy));
+  const avgFirstLapRadius = templateRadii.length ? templateRadii.reduce((a, b) => a + b, 0) / templateRadii.length : 10;
+
+  // Stroke width and ring gap both derived from the TEMPLATE's own
+  // geometry (fixed, regardless of lap count) rather than the final map
+  // size — keeps line thickness and lap spacing constant and small no
+  // matter how many laps a rep covers, instead of both compounding
+  // together as more laps get added.
   const strokeWidth = Math.max(1.5, avgFirstLapRadius * 0.03);
   const ringGap = strokeWidth * 1.4;
 
-  const adjustedXY = baseXY.map((p, i) => {
+  // Every point (on every lap) is repositioned onto the TEMPLATE shape by
+  // its own proportional progress through its lap, then pushed outward if
+  // it's on lap 2+.
+  const adjustedXY: ProjectedPoint[] = flatPoints.map((p, i) => {
+    const distanceIntoLap = p.distanceM - lapStartDistanceByPoint[i];
+    const fraction = firstLapTotalDistanceM > 0 ? distanceIntoLap / firstLapTotalDistanceM : 0;
+    const templatePos = sampleAtFraction(templateXY, cumDist, totalLength, fraction);
+
     const li = loopIndexByPoint[i];
-    if (li === 0) return p;
-    const dx = p.x - cx;
-    const dy = p.y - cy;
+    if (li === 0) return templatePos;
+
+    const dx = templatePos.x - cx;
+    const dy = templatePos.y - cy;
     const r = Math.hypot(dx, dy);
-    if (r < 0.5) return p; // avoid blowing up a point that sits essentially on the centre
+    if (r < 0.5) return templatePos; // avoid blowing up a point essentially on the centre
     const scale = (r + li * ringGap) / r;
     return { x: cx + dx * scale, y: cy + dy * scale };
   });
 
-  const lookup = new Map<{ lat: number; lng: number }, ProjectedPoint>();
+  const lookup = new Map<RoutePathPoint, ProjectedPoint>();
   flatPoints.forEach((p, i) => lookup.set(p, adjustedXY[i]));
 
   const xs = adjustedXY.map((p) => p.x);
@@ -380,9 +491,6 @@ function projectRoutePoints(
   const boundsCenterY = (Math.min(...ys) + Math.max(...ys)) / 2;
   const spanX = Math.max(...xs) - Math.min(...xs);
   const spanY = Math.max(...ys) - Math.min(...ys);
-  // Guards a near-zero span (e.g. a dead-straight short rep run almost
-  // due north/south, where spanX could be a few centimetres) from
-  // producing a degenerate near-infinite zoom.
   const span = Math.max(spanX, spanY, 10);
 
   const PADDING_FRAC = 0.15;
@@ -390,73 +498,102 @@ function projectRoutePoints(
   const half = size / 2;
 
   function project(p: { lat: number; lng: number }): ProjectedPoint {
-    const adj = lookup.get(p) ?? {
+    const adj = lookup.get(p as RoutePathPoint) ?? {
       x: (p.lng - centerLng) * metersPerDegLng,
       y: (p.lat - centerLat) * METERS_PER_DEG_LAT,
     };
-    // Recentre on the ADJUSTED bounding box (not the original centerLat/
-    // centerLng) since loop offsetting can shift the overall bounds —
-    // without this, an outward-pushed outer lap could render partly
-    // outside the viewBox.
     return { x: adj.x - boundsCenterX + half, y: -(adj.y - boundsCenterY) + half }; // flip Y: north = up
   }
 
   return { project, size, maxLoopIndex, strokeWidth };
 }
 
-const ROUTE_SPLIT_STROKE: Record<string, string> = {
-  headwind: "#ef4444",
-  tailwind: "#10b981",
-  crosswind: "#f59e0b",
-  calm: "#9ca3af",
-  unknown: "#9ca3af",
-};
-
 // Midpoint of a split's own path — used to place its number label roughly
 // centred on its stretch of the route, rather than at its start (which
 // would visually crowd against the previous split's end on a tight bend).
-function pathMidpoint(path: Array<{ lat: number; lng: number }>): { lat: number; lng: number } | null {
+function pathMidpoint(path: RoutePathPoint[]): RoutePathPoint | null {
   if (!path.length) return null;
   return path[Math.floor(path.length / 2)];
 }
 
-// Shrinks a split's already-PROJECTED (screen-space) path a small
-// fraction of the way in from each end, toward its second/second-last
-// point — deliberately done AFTER projection, not before: shrinking in
-// lat/lng space would create brand-new point objects that never went
-// through the loop-offset lookup in projectRoutePoints, snapping any
-// split on an outer lap back to its un-offset (wrong) position. Working
-// in x/y screen space avoids that entirely — there's nothing left to look
-// up. Point-count trimming (the previous approach) also produced wildly
-// inconsistent gaps: removing one point from a split with only 5 sparse
-// GPS fixes cut off a big, visible chunk of it, while a densely-sampled
-// split barely showed a gap at all. A fractional shrink scales with
-// however far apart that split's own points actually are, so the gap
-// stays small and consistent regardless of GPS recording density.
-const SPLIT_GAP_FRACTION = 0.18;
-function shrinkProjectedPathForGap(points: ProjectedPoint[]): ProjectedPoint[] {
-  if (points.length < 2) return points;
-  const first = points[0];
-  const second = points[1];
-  const secondLast = points[points.length - 2];
-  const last = points[points.length - 1];
+// ---------------------------------------------------------------------
+// Continuous wind-gradient colouring for the route line.
+//
+// The map used to colour each split as ONE flat colour, using a single
+// bearing averaged across that split's whole ~100m chord. On a tight
+// track bend, that average bearing lands somewhere between the bend's
+// entry and exit heading — which usually falls in the 90°-wide
+// "crosswind" bucket regardless of what the entry/exit angles actually
+// were, systematically under-counting genuine headwind/tailwind splits
+// and over-colouring everything amber. It also meant a split couldn't
+// show a real fade even when the athlete's heading clearly rotated
+// through multiple wind angles within that single 100m.
+//
+// Fix: classify wind at every small point-to-point segment across the
+// WHOLE rep (not per split), using each segment's own real recorded
+// heading, and render it as a continuous colour ribbon — hundreds of tiny
+// coloured segments rather than ten flat-coloured chords. A bend now
+// genuinely fades red → amber → green as the heading actually rotates
+// through it, and a straight stays a clean solid colour because its
+// heading barely changes point to point.
+// ---------------------------------------------------------------------
 
-  const shrunkFirst = {
-    x: first.x + (second.x - first.x) * SPLIT_GAP_FRACTION,
-    y: first.y + (second.y - first.y) * SPLIT_GAP_FRACTION,
-  };
-  const shrunkLast = {
-    x: last.x + (secondLast.x - last.x) * SPLIT_GAP_FRACTION,
-    y: last.y + (secondLast.y - last.y) * SPLIT_GAP_FRACTION,
-  };
+type GradientSegment = { p1: RoutePathPoint; p2: RoutePathPoint; color: string };
 
-  if (points.length === 2) return [shrunkFirst, shrunkLast];
-  return [shrunkFirst, ...points.slice(1, -1), shrunkLast];
+const WIND_GRADIENT_GREEN: [number, number, number] = [16, 185, 129];
+const WIND_GRADIENT_AMBER: [number, number, number] = [245, 158, 11];
+const WIND_GRADIENT_RED: [number, number, number] = [239, 68, 68];
+const WIND_GRADIENT_GRAY = "#9ca3af";
+
+function windGradientColor(effectiveComponentKmh: number | null, windSpeedKmh: number): string {
+  if (effectiveComponentKmh == null) return WIND_GRADIENT_GRAY;
+  // t: -1 = full tailwind, 0 = pure crosswind, +1 = full headwind.
+  const t = Math.max(-1, Math.min(1, effectiveComponentKmh / windSpeedKmh));
+  const [c1, c2, frac] =
+    t >= 0
+      ? ([WIND_GRADIENT_AMBER, WIND_GRADIENT_RED, t] as const)
+      : ([WIND_GRADIENT_GREEN, WIND_GRADIENT_AMBER, t + 1] as const);
+  const rgb = c1.map((v, i) => Math.round(v + (c2[i] - v) * frac));
+  return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+}
+
+function computeWindGradientSegments(splits: Split[], wind: WindReading): GradientSegment[] {
+  const flatPoints: RoutePathPoint[] = splits.flatMap((s) => s.path);
+  if (flatPoints.length < 2 || wind.speedKmh == null) return [];
+  // classifyRelativeWind(0, wind) === "calm" is exactly the same speed
+  // check the discrete split-grid badges use (see src/lib/wind.ts) —
+  // reusing it here keeps "calm" consistent between the grid and the map
+  // without duplicating the threshold value.
+  if (classifyRelativeWind(0, wind) === "calm") return [];
+
+  const rawComponents: (number | null)[] = [];
+  for (let i = 0; i < flatPoints.length - 1; i++) {
+    const bearing = computeBearingDeg(flatPoints[i].lat, flatPoints[i].lng, flatPoints[i + 1].lat, flatPoints[i + 1].lng);
+    rawComponents.push(effectiveWindComponentKmh(bearing, wind));
+  }
+
+  // Light ±1 smoothing so the colour genuinely fades across a bend
+  // instead of flickering from point-to-point GPS noise (a very short
+  // baseline between two consecutive fixes is a noisy bearing estimate).
+  const smoothed = rawComponents.map((v, i) => {
+    const window = [rawComponents[i - 1], v, rawComponents[i + 1]].filter((x): x is number => typeof x === "number");
+    return window.length ? window.reduce((a, b) => a + b, 0) / window.length : null;
+  });
+
+  return rawComponents.map((_, i) => ({
+    p1: flatPoints[i],
+    p2: flatPoints[i + 1],
+    color: windGradientColor(smoothed[i], wind.speedKmh as number),
+  }));
 }
 
 function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReading }) {
   const projection = useMemo(() => projectRoutePoints(splits), [splits]);
   const hasWind = wind?.speedKmh != null;
+  const gradientSegments = useMemo(
+    () => (wind ? computeWindGradientSegments(splits, wind) : []),
+    [splits, wind],
+  );
 
   // Rep-elapsed time AT THE END of each split — a running total across
   // the whole rep, not each split's own duration — for the mini
@@ -488,39 +625,51 @@ function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReadi
             <div className="flex gap-2 items-stretch">
               <div className="relative flex-1 aspect-square min-w-0">
                 <svg viewBox={`0 0 ${projection.size} ${projection.size}`} className="w-full h-full">
-                  {splits.map((s) => {
-                    if (s.path.length < 2) return null;
-                    // Coloured by relative WIND on this stretch (not pace)
-                    // — the split-by-split time grid above already covers
-                    // pace deviation with its own colours, and colouring
-                    // the map by pace too made overlapping loops (a track
-                    // session run over multiple laps) unreadable, since
-                    // pace-colour and position don't correspond to
-                    // anything spatially meaningful. Wind direction DOES
-                    // have a real spatial meaning — the same bend is
-                    // always the same wind angle every lap — so it's what
-                    // the shape is actually useful for showing.
-                    const relative = hasWind ? classifyRelativeWind(s.bearingDeg, wind!) : "unknown";
-                    const projectedPoints = s.path.map((p) => projection.project(p));
-                    const drawPoints = shrinkProjectedPathForGap(projectedPoints);
-                    const pointsAttr = drawPoints.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
-                    const strokeWidth = projection.strokeWidth;
-                    return (
-                      <polyline
-                        key={s.index}
-                        points={pointsAttr}
-                        fill="none"
-                        stroke={ROUTE_SPLIT_STROKE[relative] ?? ROUTE_SPLIT_STROKE.unknown}
-                        strokeWidth={strokeWidth}
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <title>
-                          {`Split ${s.index} — ${RELATIVE_WIND_LABEL[relative]}${s.paceSecPerKm != null ? ` · ${(s.paceSecPerKm / 10).toFixed(1)}s/100m` : ""} · ${Math.round(s.cumulativeDistanceM)}m into rep`}
-                        </title>
-                      </polyline>
-                    );
-                  })}
+                  {gradientSegments.length > 0 ? (
+                    // Continuous wind-gradient ribbon — see the block
+                    // comment above computeWindGradientSegments. Drawn as
+                    // many small solid-colour segments rather than a
+                    // single flat-coloured line per split, so bends
+                    // genuinely fade between headwind/crosswind/tailwind
+                    // colours instead of averaging to one misleading tone.
+                    gradientSegments.map((seg, i) => {
+                      const a = projection.project(seg.p1);
+                      const b = projection.project(seg.p2);
+                      return (
+                        <line
+                          key={i}
+                          x1={a.x}
+                          y1={a.y}
+                          x2={b.x}
+                          y2={b.y}
+                          stroke={seg.color}
+                          strokeWidth={projection.strokeWidth}
+                          strokeLinecap="round"
+                        />
+                      );
+                    })
+                  ) : (
+                    // No wind reading for this session — draw the plain
+                    // route shape as one continuous neutral-coloured line
+                    // instead of per-split segments (still no gaps).
+                    (() => {
+                      const flat = splits.flatMap((s) => s.path);
+                      const pointsAttr = flat.map((p) => {
+                        const { x, y } = projection.project(p);
+                        return `${x.toFixed(1)},${y.toFixed(1)}`;
+                      }).join(" ");
+                      return (
+                        <polyline
+                          points={pointsAttr}
+                          fill="none"
+                          stroke={WIND_GRADIENT_GRAY}
+                          strokeWidth={projection.strokeWidth}
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      );
+                    })()
+                  )}
                   {/* Numbered split labels — matches the same index shown
                       on each cell in the "Split-by-split time" grid above
                       and in the mini reference column beside this map, so
@@ -532,7 +681,7 @@ function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReadi
                     const mid = pathMidpoint(s.path);
                     if (!mid) return null;
                     const { x, y } = projection.project(mid);
-                    const r = projection.strokeWidth * 2.8; // numbered label disc — scaled off the stable stroke width, not map size
+                    const r = projection.strokeWidth * 2.8;
                     return (
                       <g key={`label-${s.index}`}>
                         <circle cx={x} cy={y} r={r} fill="var(--background, #fff)" stroke="currentColor" strokeOpacity={0.3} strokeWidth={0.5} className="text-foreground" />
@@ -555,7 +704,7 @@ function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReadi
                     const firstPoint = firstWithPath?.path[0];
                     if (!firstPoint) return null;
                     const { x, y } = projection.project(firstPoint);
-                    const r = projection.strokeWidth * 1.8; // start/finish marker — scaled off the stable stroke width, not map size
+                    const r = projection.strokeWidth * 1.8;
                     return <circle cx={x} cy={y} r={r} fill="#3b82f6" />;
                   })()}
                   {(() => {
@@ -563,7 +712,7 @@ function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReadi
                     const lastPoint = lastWithPath?.path[lastWithPath.path.length - 1];
                     if (!lastPoint) return null;
                     const { x, y } = projection.project(lastPoint);
-                    const r = projection.strokeWidth * 1.8; // start/finish marker — scaled off the stable stroke width, not map size
+                    const r = projection.strokeWidth * 1.8;
                     return <rect x={x - r} y={y - r} width={r * 2} height={r * 2} fill="currentColor" className="text-foreground" />;
                   })()}
                 </svg>
@@ -603,39 +752,39 @@ function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReadi
               </div>
             </div>
 
-            <div className="mt-2 flex items-center justify-center gap-3 text-[11px] text-muted-foreground flex-wrap">
+            <div className="mt-2 flex flex-col items-center gap-1 text-[11px] text-muted-foreground">
               {hasWind ? (
-                <>
-                  <span className="flex items-center gap-1">
-                    <span className="h-0.5 w-4 rounded bg-red-500 inline-block" /> Headwind
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className="h-0.5 w-4 rounded bg-emerald-500 inline-block" /> Tailwind
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className="h-0.5 w-4 rounded bg-amber-500 inline-block" /> Crosswind
-                  </span>
-                </>
+                <div className="flex items-center gap-2 w-full max-w-xs">
+                  <span>Tailwind</span>
+                  <div
+                    className="flex-1 h-2 rounded-full"
+                    style={{ background: "linear-gradient(to right, #10b981, #f59e0b, #ef4444)" }}
+                  />
+                  <span>Headwind</span>
+                </div>
               ) : (
                 <span>No wind reading for this session — path shown uncoloured.</span>
               )}
-              <span className="flex items-center gap-1">
-                <span className="h-2 w-2 rounded-full bg-blue-500 inline-block" /> Start
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="h-2 w-2 bg-foreground inline-block" /> Finish
-              </span>
+              <div className="flex items-center gap-3 flex-wrap justify-center">
+                <span className="flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-blue-500 inline-block" /> Start
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="h-2 w-2 bg-foreground inline-block" /> Finish
+                </span>
+              </div>
             </div>
             <p className="text-[10px] text-muted-foreground text-center mt-1">
               Numbers match the split-by-split grid and the mini reference column beside the map — find a number
-              there to see where that 100m was actually run. Small gaps in the line mark where one 100m ends and the
-              next begins.
+              there to see where that 100m was actually run. Colour fades continuously with the athlete's actual
+              heading, so a bend shades gradually between headwind/crosswind/tailwind rather than one flat colour.
             </p>
             {projection.maxLoopIndex > 0 && (
               <p className="text-[10px] text-muted-foreground text-center mt-0.5">
-                This rep covered the same loop {projection.maxLoopIndex + 1} times — each lap is drawn as its own
-                thin strand right next to the one before it (first lap innermost), like strands in a cable, so they
-                stay readable without spreading the whole shape out.
+                This rep covered the same loop {projection.maxLoopIndex + 1} times. Each lap is redrawn onto the
+                first lap's own shape (same relative position every lap) and offset outward as a thin adjacent
+                strand — this is a schematic, not a literal GPS trace, so the line's length doesn't need to match
+                recorded distance exactly.
               </p>
             )}
           </>
