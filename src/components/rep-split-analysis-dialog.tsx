@@ -30,7 +30,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Ruler, TrendingUp, HeartPulse, Gauge, Trophy, BarChart3, Wind, ArrowUp } from "lucide-react";
+import { Ruler, TrendingUp, HeartPulse, Gauge, Trophy, BarChart3, Wind, ArrowUp, Map as MapIcon } from "lucide-react";
 import { paceFmt } from "@/lib/format";
 import {
   sliceRepPoints,
@@ -255,6 +255,175 @@ function PaceThroughRepChart({ splits, unit }: { splits: Split[]; unit: SplitTim
   );
 }
 
+// ---------------------------------------------------------------------
+// Route shape — a simplified schematic of the rep's actual GPS path,
+// colour-coded per split, oriented true-north-up with a compass badge.
+// ---------------------------------------------------------------------
+
+type ProjectedPoint = { x: number; y: number };
+
+// Local equirectangular projection — accurate enough for a single rep
+// (rarely more than a couple of km across) and, critically, preserves
+// TRUE SHAPE: longitude is scaled by cos(latitude) before treating both
+// axes as equivalent "metres", so a track oval renders as an oval and a
+// straight road stays straight, rather than getting stretched by naively
+// mapping lat/lng degrees directly onto x/y (a degree of longitude is a
+// different real-world distance than a degree of latitude almost
+// everywhere except the equator). A single uniform scale factor (fit to
+// whichever of width/height spans further) is then applied to both axes
+// together, never independently — independent axis scaling is exactly
+// what would turn an oval into an egg.
+function projectRoutePoints(
+  allPoints: { lat: number; lng: number }[],
+): { project: (p: { lat: number; lng: number }) => ProjectedPoint; size: number } | null {
+  if (allPoints.length < 2) return null;
+
+  const lats = allPoints.map((p) => p.lat);
+  const lngs = allPoints.map((p) => p.lng);
+  const centerLat = (Math.min(...lats) + Math.max(...lats)) / 2;
+  const centerLng = (Math.min(...lngs) + Math.max(...lngs)) / 2;
+
+  const METERS_PER_DEG_LAT = 111_320;
+  const metersPerDegLng = 111_320 * Math.cos((centerLat * Math.PI) / 180);
+
+  const metersPoints = allPoints.map((p) => ({
+    xM: (p.lng - centerLng) * metersPerDegLng,
+    yM: (p.lat - centerLat) * METERS_PER_DEG_LAT,
+  }));
+
+  const xs = metersPoints.map((p) => p.xM);
+  const ys = metersPoints.map((p) => p.yM);
+  const spanX = Math.max(...xs) - Math.min(...xs);
+  const spanY = Math.max(...ys) - Math.min(...ys);
+  // Guards a near-zero span (e.g. a dead-straight short rep run almost
+  // due north/south, where spanX could be a few centimetres) from
+  // producing a degenerate near-infinite zoom.
+  const span = Math.max(spanX, spanY, 10);
+
+  const PADDING_FRAC = 0.15;
+  const size = span * (1 + PADDING_FRAC * 2);
+  const half = size / 2;
+
+  // xM/yM are already centred on 0 by construction (centerLat/centerLng
+  // are the exact midpoints of the data), so adding `half` (half of
+  // whichever span is larger, plus padding) centres both axes correctly
+  // inside the square SVG canvas regardless of which axis is the limiting
+  // one.
+  function project(p: { lat: number; lng: number }): ProjectedPoint {
+    const xM = (p.lng - centerLng) * metersPerDegLng;
+    const yM = (p.lat - centerLat) * METERS_PER_DEG_LAT;
+    return { x: xM + half, y: -yM + half }; // flip Y: higher latitude (north) = up = smaller SVG y
+  }
+
+  return { project, size };
+}
+
+const ROUTE_SPLIT_STROKE: Record<string, string> = {
+  green: "#10b981",
+  yellow: "#f59e0b",
+  red: "#ef4444",
+  none: "#9ca3af",
+};
+
+function RepRouteShapeCard({ splits, avgPaceSecPerKm }: { splits: Split[]; avgPaceSecPerKm: number | null }) {
+  const allPoints = useMemo(() => splits.flatMap((s) => s.path), [splits]);
+  const projection = useMemo(() => projectRoutePoints(allPoints), [allPoints]);
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-1.5">
+          <MapIcon className="h-4 w-4 text-muted-foreground" />
+          Route shape
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {!projection ? (
+          <div className="text-sm text-muted-foreground text-center py-4">
+            No GPS trace for this rep — can't draw its route shape. This is usually a treadmill/indoor session or a
+            manually-logged rep with no file upload.
+          </div>
+        ) : (
+          <>
+            <div className="relative w-full max-w-xs mx-auto aspect-square">
+              <svg viewBox={`0 0 ${projection.size} ${projection.size}`} className="w-full h-full">
+                {splits.map((s) => {
+                  if (s.path.length < 2) return null;
+                  const color = colorForSplit(s.paceSecPerKm, avgPaceSecPerKm);
+                  const pointsAttr = s.path
+                    .map((p) => {
+                      const { x, y } = projection.project(p);
+                      return `${x.toFixed(1)},${y.toFixed(1)}`;
+                    })
+                    .join(" ");
+                  const strokeWidth = Math.max(2, projection.size * 0.012);
+                  return (
+                    <polyline
+                      key={s.index}
+                      points={pointsAttr}
+                      fill="none"
+                      stroke={ROUTE_SPLIT_STROKE[color] ?? ROUTE_SPLIT_STROKE.none}
+                      strokeWidth={strokeWidth}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <title>{`Split ${s.index} — ${s.paceSecPerKm != null ? (s.paceSecPerKm / 10).toFixed(1) + "s/100m" : "—"} · ${Math.round(s.cumulativeDistanceM)}m into rep`}</title>
+                    </polyline>
+                  );
+                })}
+                {(() => {
+                  const firstWithPath = splits.find((s) => s.path.length > 0);
+                  const firstPoint = firstWithPath?.path[0];
+                  if (!firstPoint) return null;
+                  const { x, y } = projection.project(firstPoint);
+                  const r = Math.max(2.5, projection.size * 0.014);
+                  return <circle cx={x} cy={y} r={r} fill="#3b82f6" />;
+                })()}
+                {(() => {
+                  const lastWithPath = [...splits].reverse().find((s) => s.path.length > 0);
+                  const lastPoint = lastWithPath?.path[lastWithPath.path.length - 1];
+                  if (!lastPoint) return null;
+                  const { x, y } = projection.project(lastPoint);
+                  const r = Math.max(2.5, projection.size * 0.014);
+                  return <rect x={x - r} y={y - r} width={r * 2} height={r * 2} fill="currentColor" className="text-foreground" />;
+                })()}
+              </svg>
+              {/* Compass badge — the projection above is always drawn
+                  true-north-up (see projectRoutePoints), so this never
+                  needs to rotate; it's a static confirmation of that
+                  orientation for the viewer, not a live indicator. */}
+              <div className="absolute top-1 right-1 w-8 h-8 rounded-full border border-border bg-background/90 flex items-center justify-center">
+                <span className="absolute top-0 text-[8px] font-semibold text-foreground leading-none pt-0.5">N</span>
+                <span className="absolute bottom-0 text-[8px] text-muted-foreground leading-none pb-0.5">S</span>
+                <span className="absolute left-0.5 text-[8px] text-muted-foreground leading-none">W</span>
+                <span className="absolute right-0.5 text-[8px] text-muted-foreground leading-none">E</span>
+                <div className="w-px h-3 bg-foreground/30" />
+              </div>
+            </div>
+            <div className="mt-2 flex items-center justify-center gap-3 text-[11px] text-muted-foreground flex-wrap">
+              <span className="flex items-center gap-1">
+                <span className="h-0.5 w-4 rounded bg-emerald-500 inline-block" /> On pace
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="h-0.5 w-4 rounded bg-amber-500 inline-block" /> Slightly off
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="h-0.5 w-4 rounded bg-red-500 inline-block" /> Significant deviation
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="h-2 w-2 rounded-full bg-blue-500 inline-block" /> Start
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="h-2 w-2 bg-foreground inline-block" /> Finish
+              </span>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function RepSplitAnalysisDialog({
   open,
   onOpenChange,
@@ -434,6 +603,9 @@ export function RepSplitAnalysisDialog({
                 </div>
               </CardContent>
             </Card>
+
+            {/* Route shape */}
+            <RepRouteShapeCard splits={splits} avgPaceSecPerKm={summary.avgPaceSecPerKm} />
 
             {/* Pace graph */}
             <Card>
