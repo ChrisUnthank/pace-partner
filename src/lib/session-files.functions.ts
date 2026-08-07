@@ -2,7 +2,20 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { computeRefinedContinuousZoneTime, hrZoneFor, type HrZoneBoundaries } from "@/lib/intensity-segments";
 
-async function fetchWeather(lat: number, lon: number, timestamp: string) {
+type WeatherResult = { temp: number | null; wind: number | null; windDirection: number | null };
+
+// Primary weather source — free, no API key required. rateLimited is
+// reported separately from a plain failure so the caller (fetchWeather,
+// below) can decide whether it's worth spending a Visual Crossing quota
+// call on the fallback: a genuine rate-limit (429) is worth falling back
+// for since it'll recur on every call until the daily reset, while a
+// one-off network blip or bad-request error is more likely to just work
+// again next upload without burning fallback quota on it.
+async function fetchWeatherOpenMeteo(
+  lat: number,
+  lon: number,
+  timestamp: string,
+): Promise<WeatherResult & { rateLimited: boolean }> {
   let url = "";
   try {
     const date = new Date(timestamp);
@@ -27,13 +40,13 @@ async function fetchWeather(lat: number, lon: number, timestamp: string) {
       } catch {
         // ignore — body isn't essential if it can't be read
       }
-      console.error("fetchWeather: request failed", {
+      console.error("fetchWeatherOpenMeteo: request failed", {
         url,
         status: res.status,
         statusText: res.statusText,
         body: bodyText.slice(0, 500),
       });
-      return { temp: null, wind: null, windDirection: null };
+      return { temp: null, wind: null, windDirection: null, rateLimited: res.status === 429 };
     }
     const data = await res.json();
 
@@ -47,7 +60,7 @@ async function fetchWeather(lat: number, lon: number, timestamp: string) {
     // be told apart from a genuine gap in the data.
     const windDirs: (number | null)[] = data?.hourly?.wind_direction_10m ?? [];
     if (!times.length) {
-      console.error("fetchWeather: response had no hourly.time entries", {
+      console.error("fetchWeatherOpenMeteo: response had no hourly.time entries", {
         url,
         lat,
         lon,
@@ -55,7 +68,7 @@ async function fetchWeather(lat: number, lon: number, timestamp: string) {
         responseKeys: Object.keys(data ?? {}),
         rawResponse: JSON.stringify(data).slice(0, 500),
       });
-      return { temp: null, wind: null, windDirection: null };
+      return { temp: null, wind: null, windDirection: null, rateLimited: false };
     }
 
     let bestIdx = 0;
@@ -98,7 +111,7 @@ async function fetchWeather(lat: number, lon: number, timestamp: string) {
       // window we searched so a real provider gap (vs. a bug here) can be
       // confirmed from server logs instead of guessing after the fact.
       console.error(
-        "fetchWeather: no usable wind_speed_10m reading",
+        "fetchWeatherOpenMeteo: no usable wind_speed_10m reading",
         JSON.stringify({
           lat,
           lon,
@@ -109,7 +122,7 @@ async function fetchWeather(lat: number, lon: number, timestamp: string) {
       );
     }
 
-    return { temp: resolvedTemp, wind: resolvedWind, windDirection: resolvedWindDirection };
+    return { temp: resolvedTemp, wind: resolvedWind, windDirection: resolvedWindDirection, rateLimited: false };
   } catch (err) {
     // Catches network-level failures (DNS, timeout, connection refused,
     // TLS) that never even reach the res.ok check above — e.g. this
@@ -119,9 +132,144 @@ async function fetchWeather(lat: number, lon: number, timestamp: string) {
     // inside the try block, since a failure this early (before the fetch
     // resolves) is most useful to diagnose WITH the exact URL that was
     // attempted.
-    console.error("fetchWeather: threw before completing", { url, lat, lon, timestamp, err: String(err) });
+    console.error("fetchWeatherOpenMeteo: threw before completing", { url, lat, lon, timestamp, err: String(err) });
+    return { temp: null, wind: null, windDirection: null, rateLimited: false };
+  }
+}
+
+// Fallback weather source, used only when Open-Meteo specifically returns
+// a 429 (rate limit) — see fetchWeather() below. Requires a free Visual
+// Crossing account and API key (sign up at
+// https://www.visualcrossing.com/weather-api, free tier is 1,000
+// records/day at time of writing) stored as the VISUAL_CROSSING_API_KEY
+// environment variable / secret. Returns null (not a WeatherResult) when
+// the key isn't configured at all, so the caller can tell "fallback not
+// set up" apart from "fallback was tried and genuinely found nothing" —
+// both end up showing null weather to the user, but they're worth logging
+// differently since only one of them is actionable by adding a key.
+async function fetchWeatherVisualCrossing(lat: number, lon: number, timestamp: string): Promise<WeatherResult | null> {
+  const apiKey = process.env.VISUAL_CROSSING_API_KEY;
+  if (!apiKey) {
+    console.error(
+      "fetchWeatherVisualCrossing: VISUAL_CROSSING_API_KEY not set — fallback skipped. " +
+        "Sign up free at https://www.visualcrossing.com/weather-api and set this secret to enable the Open-Meteo rate-limit fallback.",
+    );
+    return null;
+  }
+
+  let url = "";
+  try {
+    const date = new Date(timestamp);
+    const target = date.getTime();
+    const day = date.toISOString().slice(0, 10);
+
+    // unitGroup=metric gives °C and km/h directly, matching what
+    // fetchWeatherOpenMeteo already returns — no unit conversion needed
+    // between the two sources. include=hours limits the response to just
+    // the hourly breakdown (skips daily summary/alerts/etc. this app
+    // doesn't use).
+    url = `https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/${lat},${lon}/${day}?unitGroup=metric&include=hours&contentType=json&key=${apiKey}`;
+
+    const res = await fetch(url);
+    if (!res.ok) {
+      let bodyText = "";
+      try {
+        bodyText = await res.text();
+      } catch {
+        // ignore
+      }
+      console.error("fetchWeatherVisualCrossing: request failed", {
+        // Log the URL with the key redacted — this is the fallback path,
+        // so a failure here is worth the same diagnostic detail as the
+        // primary source, but the key itself shouldn't end up in logs.
+        url: url.replace(apiKey, "REDACTED"),
+        status: res.status,
+        statusText: res.statusText,
+        body: bodyText.slice(0, 500),
+      });
+      return { temp: null, wind: null, windDirection: null };
+    }
+
+    const data = await res.json();
+    const hours: any[] = data?.days?.[0]?.hours ?? [];
+    if (!hours.length) {
+      console.error("fetchWeatherVisualCrossing: response had no hours entries", {
+        lat,
+        lon,
+        day,
+        responseKeys: Object.keys(data ?? {}),
+      });
+      return { temp: null, wind: null, windDirection: null };
+    }
+
+    // Visual Crossing gives each hour a datetimeEpoch (Unix seconds, UTC)
+    // directly — deliberately used instead of parsing the "datetime"
+    // string, which is in the location's local time by default and would
+    // need a separate timezone lookup to convert safely.
+    let bestIdx = 0;
+    let bestDelta = Infinity;
+    for (let i = 0; i < hours.length; i++) {
+      const d = Math.abs(Number(hours[i].datetimeEpoch) * 1000 - target);
+      if (d < bestDelta) {
+        bestDelta = d;
+        bestIdx = i;
+      }
+    }
+
+    const hour = hours[bestIdx];
+    // winddir in Visual Crossing's API is already "direction the wind is
+    // coming from", the same meteorological convention Open-Meteo uses —
+    // no conversion needed to keep the two sources consistent.
+    return {
+      temp: typeof hour.temp === "number" ? hour.temp : null,
+      wind: typeof hour.windspeed === "number" ? hour.windspeed : null,
+      windDirection: typeof hour.winddir === "number" ? hour.winddir : null,
+    };
+  } catch (err) {
+    console.error("fetchWeatherVisualCrossing: threw before completing", {
+      url: apiKey ? url.replace(apiKey, "REDACTED") : url,
+      lat,
+      lon,
+      timestamp,
+      err: String(err),
+    });
     return { temp: null, wind: null, windDirection: null };
   }
+}
+
+// Public entry point — tries Open-Meteo (free, no key) first, and falls
+// back to Visual Crossing ONLY when Open-Meteo specifically hit its rate
+// limit (429), not for other failure kinds (a bad request or a one-off
+// network error is more likely transient and not worth spending Visual
+// Crossing's much smaller free quota on). If Visual Crossing isn't
+// configured (no API key) or also comes up empty, this returns all-null —
+// exactly the same shape callers already handle today.
+async function fetchWeather(lat: number, lon: number, timestamp: string): Promise<WeatherResult> {
+  const primary = await fetchWeatherOpenMeteo(lat, lon, timestamp);
+
+  if (primary.temp != null || primary.wind != null || primary.windDirection != null) {
+    return { temp: primary.temp, wind: primary.wind, windDirection: primary.windDirection };
+  }
+
+  if (!primary.rateLimited) {
+    return { temp: null, wind: null, windDirection: null };
+  }
+
+  console.error("fetchWeather: Open-Meteo rate-limited, trying Visual Crossing fallback", { lat, lon, timestamp });
+  const fallback = await fetchWeatherVisualCrossing(lat, lon, timestamp);
+  if (!fallback) {
+    // Either not configured, or fetchWeatherVisualCrossing already logged
+    // its own specific failure above — nothing further to add here.
+    return { temp: null, wind: null, windDirection: null };
+  }
+
+  if (fallback.temp == null && fallback.wind == null && fallback.windDirection == null) {
+    console.error("fetchWeather: Visual Crossing fallback also returned nothing usable", { lat, lon, timestamp });
+  } else {
+    console.log("fetchWeather: Visual Crossing fallback succeeded after Open-Meteo rate limit", { lat, lon, timestamp });
+  }
+
+  return fallback;
 }
 
 async function fetchLocationName(lat: number, lon: number): Promise<{ location: string | null; venue: string | null }> {
