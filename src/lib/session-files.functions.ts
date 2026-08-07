@@ -3,6 +3,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { computeRefinedContinuousZoneTime, hrZoneFor, type HrZoneBoundaries } from "@/lib/intensity-segments";
 
 async function fetchWeather(lat: number, lon: number, timestamp: string) {
+  let url = "";
   try {
     const date = new Date(timestamp);
     const target = date.getTime();
@@ -12,11 +13,26 @@ async function fetchWeather(lat: number, lon: number, timestamp: string) {
     const base =
       daysAgo > 5 ? "https://archive-api.open-meteo.com/v1/archive" : "https://api.open-meteo.com/v1/forecast";
 
-    const url = `${base}?latitude=${lat}&longitude=${lon}&hourly=temperature_2m,wind_speed_10m,wind_direction_10m&start_date=${day}&end_date=${day}&timezone=UTC`;
+    url = `${base}?latitude=${lat}&longitude=${lon}&hourly=temperature_2m,wind_speed_10m,wind_direction_10m&start_date=${day}&end_date=${day}&timezone=UTC`;
 
     const res = await fetch(url);
     if (!res.ok) {
-      console.error("Weather fetch failed:", res.status);
+      // Capture the response body too — Open-Meteo returns a JSON error
+      // object with a human-readable `reason` on a 400 (e.g. an
+      // out-of-range coordinate or a malformed date), which a bare status
+      // code alone won't explain.
+      let bodyText = "";
+      try {
+        bodyText = await res.text();
+      } catch {
+        // ignore — body isn't essential if it can't be read
+      }
+      console.error("fetchWeather: request failed", {
+        url,
+        status: res.status,
+        statusText: res.statusText,
+        body: bodyText.slice(0, 500),
+      });
       return { temp: null, wind: null, windDirection: null };
     }
     const data = await res.json();
@@ -30,7 +46,17 @@ async function fetchWeather(lat: number, lon: number, timestamp: string) {
     // calm reading (speed near 0, direction meaningless/noisy) can still
     // be told apart from a genuine gap in the data.
     const windDirs: (number | null)[] = data?.hourly?.wind_direction_10m ?? [];
-    if (!times.length) return { temp: null, wind: null, windDirection: null };
+    if (!times.length) {
+      console.error("fetchWeather: response had no hourly.time entries", {
+        url,
+        lat,
+        lon,
+        day,
+        responseKeys: Object.keys(data ?? {}),
+        rawResponse: JSON.stringify(data).slice(0, 500),
+      });
+      return { temp: null, wind: null, windDirection: null };
+    }
 
     let bestIdx = 0;
     let bestDelta = Infinity;
@@ -85,7 +111,15 @@ async function fetchWeather(lat: number, lon: number, timestamp: string) {
 
     return { temp: resolvedTemp, wind: resolvedWind, windDirection: resolvedWindDirection };
   } catch (err) {
-    console.error("Weather fetch failed", err);
+    // Catches network-level failures (DNS, timeout, connection refused,
+    // TLS) that never even reach the res.ok check above — e.g. this
+    // runtime's outbound network not permitting the open-meteo.com host at
+    // all, which would explain every call failing identically regardless
+    // of session/date/location. url is logged even though it's built
+    // inside the try block, since a failure this early (before the fetch
+    // resolves) is most useful to diagnose WITH the exact URL that was
+    // attempted.
+    console.error("fetchWeather: threw before completing", { url, lat, lon, timestamp, err: String(err) });
     return { temp: null, wind: null, windDirection: null };
   }
 }
