@@ -511,11 +511,11 @@ function projectRoutePoints(
     return { x: cx + dx * scale, y: cy + dy * scale };
   });
 
-  const lookup = new Map<RoutePathPoint, ProjectedPoint>();
-  const loopIndexLookup = new Map<RoutePathPoint, number>();
+  const lookup = new Map<RoutePathPoint, { pos: ProjectedPoint; loopIndex: number; fraction: number }>();
   flatPoints.forEach((p, i) => {
-    lookup.set(p, adjustedXY[i]);
-    loopIndexLookup.set(p, loopIndexByPoint[i]);
+    const distanceIntoLap = p.distanceM - lapStartDistanceByPoint[i];
+    const fraction = firstLapTotalDistanceM > 0 ? distanceIntoLap / firstLapTotalDistanceM : 0;
+    lookup.set(p, { pos: adjustedXY[i], loopIndex: loopIndexByPoint[i], fraction });
   });
 
   const xs = adjustedXY.map((p) => p.x);
@@ -537,7 +537,8 @@ function projectRoutePoints(
   }
 
   function project(p: { lat: number; lng: number }): ProjectedPoint {
-    const adj = lookup.get(p as RoutePathPoint) ?? {
+    const rec = lookup.get(p as RoutePathPoint);
+    const adj = rec?.pos ?? {
       x: (p.lng - centerLng) * metersPerDegLng,
       y: (p.lat - centerLat) * METERS_PER_DEG_LAT,
     };
@@ -547,45 +548,38 @@ function projectRoutePoints(
   // Two different splits from two different laps can land at almost the
   // exact same FRACTION of their own lap (e.g. split 4 finishing lap 1
   // and split 8 finishing lap 2) — which, by design, puts them at nearly
-  // the same ANGULAR position on the template, just different radii. With
-  // laps drawn as tight adjacent strands (a deliberately small ring gap —
-  // see ringGap above), a label sized big enough to read comfortably is
-  // WIDER than the gap between two rings, so same-angle labels from
-  // adjacent laps collided directly. This staggers each lap's labels a
-  // few degrees further around the ring than the last (so they spiral
-  // outward rather than stacking radially) and nudges them a little
-  // further out from the line itself.
-  const screenCenter = toScreen({ x: cx, y: cy });
-  const LABEL_STAGGER_DEG = 14;
-  const LABEL_RADIAL_PUSH = strokeWidth * 2;
-
-  function rotateAround(center: ProjectedPoint, p: ProjectedPoint, angleDeg: number): ProjectedPoint {
-    const rad = (angleDeg * Math.PI) / 180;
-    const dx = p.x - center.x;
-    const dy = p.y - center.y;
-    return {
-      x: center.x + dx * Math.cos(rad) - dy * Math.sin(rad),
-      y: center.y + dx * Math.sin(rad) + dy * Math.cos(rad),
-    };
-  }
+  // the same position on the template, just different radii. With laps
+  // drawn as tight adjacent strands (a deliberately small ring gap — see
+  // ringGap above), a label sized big enough to read comfortably is WIDER
+  // than the gap between two rings, so same-position labels from adjacent
+  // laps collided directly.
+  //
+  // Fix: nudge each lap's labels a little FURTHER ALONG the template (a
+  // small extra fraction of the lap, scaled by loop index) using the
+  // exact same sampleAtFraction + ring-offset math every other point on
+  // that lap already uses — not a new geometric operation like rotating
+  // around a global centre. That distinction matters: a real track isn't
+  // a perfect circle (straights have very different local curvature than
+  // bends), and rotating a point near the end of a straight around a
+  // distant centre by even a modest angle swung it substantially off the
+  // actual shape — confirmed as the cause of labels floating away from
+  // the line entirely on a real session. Sampling further along the SAME
+  // parametrised curve can only ever land back on that curve.
+  const LABEL_STAGGER_FRACTION = 0.05;
 
   function projectLabel(p: { lat: number; lng: number }): ProjectedPoint {
-    const adj = lookup.get(p as RoutePathPoint);
-    const li = loopIndexLookup.get(p as RoutePathPoint) ?? 0;
-    if (!adj) return project(p);
-    const base = toScreen(adj);
-    if (li === 0) return base; // first lap's labels stay exactly on the line — nothing to stagger against yet
+    const rec = lookup.get(p as RoutePathPoint);
+    if (!rec) return project(p);
+    const { loopIndex: li, fraction } = rec;
+    if (li === 0) return toScreen(rec.pos); // first lap's labels stay exactly on the line — nothing to stagger against yet
 
-    // Push radially outward from the template centre first...
-    const dx = base.x - screenCenter.x;
-    const dy = base.y - screenCenter.y;
+    const staggeredFraction = fraction + li * LABEL_STAGGER_FRACTION;
+    const templatePos = sampleAtFraction(templateXY, cumDist, totalLength, staggeredFraction);
+    const dx = templatePos.x - cx;
+    const dy = templatePos.y - cy;
     const r = Math.hypot(dx, dy);
-    const pushed =
-      r < 0.5 ? base : { x: screenCenter.x + (dx / r) * (r + LABEL_RADIAL_PUSH), y: screenCenter.y + (dy / r) * (r + LABEL_RADIAL_PUSH) };
-    // ...then stagger it around the ring by this lap's own index, so lap
-    // 2's labels sit at a different angle than lap 1's, lap 3's at a
-    // different angle again, and so on.
-    return rotateAround(screenCenter, pushed, li * LABEL_STAGGER_DEG);
+    const offsetPos = r < 0.5 ? templatePos : { x: cx + (dx / r) * (r + li * ringGap), y: cy + (dy / r) * (r + li * ringGap) };
+    return toScreen(offsetPos);
   }
 
   return { project, projectLabel, size, maxLoopIndex, strokeWidth };
@@ -717,6 +711,11 @@ function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReadi
     }
   }, [splits]);
   const hasWind = wind?.speedKmh != null;
+  // Calm is a genuinely different state from "no reading at all" — same
+  // threshold classifyRelativeWind(0, wind) already uses for the
+  // discrete split-grid badges, reused here so the map's legend and the
+  // grid never disagree about what counts as calm.
+  const isCalm = hasWind && wind ? classifyRelativeWind(0, wind) === "calm" : false;
   const gradientSegments = useMemo(() => {
     if (!wind) return [];
     try {
@@ -886,7 +885,7 @@ function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReadi
             </div>
 
             <div className="mt-2 flex flex-col items-center gap-1 text-[11px] text-muted-foreground">
-              {hasWind ? (
+              {hasWind && !isCalm ? (
                 <div className="flex items-center gap-2 w-full max-w-xs">
                   <span>Tailwind</span>
                   <div
@@ -895,6 +894,8 @@ function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReadi
                   />
                   <span>Headwind</span>
                 </div>
+              ) : hasWind && isCalm ? (
+                <span>Wind was calm for this session (under 6 km/h) — not enough to meaningfully affect pace, path shown uncoloured.</span>
               ) : (
                 <span>No wind reading for this session — path shown uncoloured.</span>
               )}
@@ -1240,7 +1241,27 @@ export function RepSplitAnalysisDialog({
     // when no rescaling was needed — a cheap, correct way to detect
     // whether calibration actually changed anything, for the UI
     // disclosure below. Never state a correction happened when it didn't.
-    return { repPoints: calibrated, wasDistanceCalibrated: rawRepPoints.length > 0 && calibrated !== rawRepPoints };
+    const didCalibrate = rawRepPoints.length > 0 && calibrated !== rawRepPoints;
+
+    // Diagnostic only — if the split count still looks wrong after this,
+    // the number that matters is targetDistanceM here: calibration can
+    // only ever be as good as repRows[selectedRepIndex].distanceM itself.
+    // If THAT number is also GPS-inflated (e.g. this rep's step wasn't a
+    // distance target, or the app's own rep-level correction didn't fire
+    // for it), calibrating against it won't fix anything — it needs a
+    // trustworthy target to correct toward in the first place.
+    if (rawRepPoints.length > 1) {
+      const sorted = [...rawRepPoints].sort((a, b) => Number(a.elapsed_s ?? 0) - Number(b.elapsed_s ?? 0));
+      const rawSpan = Number(sorted[sorted.length - 1].distance_m ?? 0) - Number(sorted[0].distance_m ?? 0);
+      console.log("RepSplitAnalysisDialog: distance calibration check", {
+        repIndex: selectedRepIndex,
+        rawGpsDistanceM: Number(rawSpan.toFixed(1)),
+        targetDistanceM,
+        calibrationApplied: didCalibrate,
+      });
+    }
+
+    return { repPoints: calibrated, wasDistanceCalibrated: didCalibrate };
   }, [points, repRows, selectedRepIndex]);
 
   const splits = useMemo(() => build100mSplits(repPoints, 100), [repPoints]);
