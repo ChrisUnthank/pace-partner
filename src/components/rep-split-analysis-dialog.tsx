@@ -283,7 +283,12 @@ type ProjectedPoint = { x: number; y: number };
 // — this only activates for genuine repeated loops.
 function projectRoutePoints(
   splits: Split[],
-): { project: (p: { lat: number; lng: number }) => ProjectedPoint; size: number; maxLoopIndex: number } | null {
+): {
+  project: (p: { lat: number; lng: number }) => ProjectedPoint;
+  size: number;
+  maxLoopIndex: number;
+  strokeWidth: number;
+} | null {
   const flatPoints = splits.flatMap((s) => s.path);
   if (flatPoints.length < 2) return null;
 
@@ -324,10 +329,10 @@ function projectRoutePoints(
   }
   const maxLoopIndex = loopIndex;
 
-  // Expansion centre and ring size are both derived from the FIRST lap
-  // only — using every lap's points to find the centre would let later,
-  // already-offset laps drag the centre outward too, compounding on
-  // itself. The first lap is always the true, un-offset shape.
+  // Expansion centre is derived from the FIRST lap only — using every
+  // lap's points to find the centre would let later, already-offset laps
+  // drag the centre outward too, compounding on itself. The first lap is
+  // always the true, un-offset shape.
   const firstLapXY = baseXY.filter((_, i) => loopIndexByPoint[i] === 0);
   const cx = firstLapXY.reduce((a, p) => a + p.x, 0) / firstLapXY.length;
   const cy = firstLapXY.reduce((a, p) => a + p.y, 0) / firstLapXY.length;
@@ -335,13 +340,25 @@ function projectRoutePoints(
   const avgFirstLapRadius = firstLapRadii.length
     ? firstLapRadii.reduce((a, b) => a + b, 0) / firstLapRadii.length
     : 10;
-  // Each successive lap pushed outward by a fraction of the first lap's
-  // own average radius — just enough that laps read as clearly separate
-  // rings, not stacked directly on top of each other, without leaving a
-  // wide dead-space gap between them. (Started at 0.35, which visually
-  // read as three loosely separated ovals rather than one tight nested
-  // track — 0.12 keeps rings close while still readable.)
-  const ringGap = Math.max(2, avgFirstLapRadius * 0.12);
+
+  // STROKE WIDTH AND RING GAP ARE BOTH DERIVED FROM THE FIRST LAP'S OWN
+  // GEOMETRY, NOT FROM THE FINAL (POST-OFFSET) MAP SIZE. This breaks what
+  // was previously a runaway feedback loop: the old code sized the stroke
+  // as a fraction of the fully-expanded map (which itself grew with every
+  // additional lap), so both the lines AND the gaps between them kept
+  // growing together as more laps were added — three loosely separated
+  // rings, exactly what looked wrong in testing. Anchoring both to the
+  // FIRST lap's radius (which never changes regardless of lap count)
+  // keeps the line thickness and gap between laps constant and small no
+  // matter how many laps a rep covers.
+  //
+  // ringGap is set to just over one stroke width — enough that adjacent
+  // laps read as distinct coloured strands sitting right next to each
+  // other (like a multi-strand cable), not as a single blurred line, but
+  // without the wide dead-space gap of the earlier percentage-of-radius
+  // approach.
+  const strokeWidth = Math.max(1.5, avgFirstLapRadius * 0.03);
+  const ringGap = strokeWidth * 1.4;
 
   const adjustedXY = baseXY.map((p, i) => {
     const li = loopIndexByPoint[i];
@@ -384,7 +401,7 @@ function projectRoutePoints(
     return { x: adj.x - boundsCenterX + half, y: -(adj.y - boundsCenterY) + half }; // flip Y: north = up
   }
 
-  return { project, size, maxLoopIndex };
+  return { project, size, maxLoopIndex, strokeWidth };
 }
 
 const ROUTE_SPLIT_STROKE: Record<string, string> = {
@@ -403,21 +420,38 @@ function pathMidpoint(path: Array<{ lat: number; lng: number }>): { lat: number;
   return path[Math.floor(path.length / 2)];
 }
 
-// Trims a small number of points off each end of a split's path before
-// it's drawn. Splits share their exact boundary GPS fix with the
-// neighbouring split (the same point is both one split's last point and
-// the next split's first), so drawn at full length every split's line
-// flows directly into the next with no visible seam at all — which reads
-// as one continuous line rather than 100m segments. Trimming a couple of
-// points off each end leaves a small, deliberate gap at every split
-// boundary, so where one 100m ends and the next begins is visible on the
-// line itself, not just from the colour/number changing. Skips trimming
-// entirely on a short split (few GPS points) where trimming would either
-// leave nothing to draw or shrink an already-short stretch too far.
-const SPLIT_TRIM_POINTS = 1;
-function trimSplitPathForGap<T>(path: T[]): T[] {
-  if (path.length <= SPLIT_TRIM_POINTS * 2 + 2) return path;
-  return path.slice(SPLIT_TRIM_POINTS, path.length - SPLIT_TRIM_POINTS);
+// Shrinks a split's already-PROJECTED (screen-space) path a small
+// fraction of the way in from each end, toward its second/second-last
+// point — deliberately done AFTER projection, not before: shrinking in
+// lat/lng space would create brand-new point objects that never went
+// through the loop-offset lookup in projectRoutePoints, snapping any
+// split on an outer lap back to its un-offset (wrong) position. Working
+// in x/y screen space avoids that entirely — there's nothing left to look
+// up. Point-count trimming (the previous approach) also produced wildly
+// inconsistent gaps: removing one point from a split with only 5 sparse
+// GPS fixes cut off a big, visible chunk of it, while a densely-sampled
+// split barely showed a gap at all. A fractional shrink scales with
+// however far apart that split's own points actually are, so the gap
+// stays small and consistent regardless of GPS recording density.
+const SPLIT_GAP_FRACTION = 0.18;
+function shrinkProjectedPathForGap(points: ProjectedPoint[]): ProjectedPoint[] {
+  if (points.length < 2) return points;
+  const first = points[0];
+  const second = points[1];
+  const secondLast = points[points.length - 2];
+  const last = points[points.length - 1];
+
+  const shrunkFirst = {
+    x: first.x + (second.x - first.x) * SPLIT_GAP_FRACTION,
+    y: first.y + (second.y - first.y) * SPLIT_GAP_FRACTION,
+  };
+  const shrunkLast = {
+    x: last.x + (secondLast.x - last.x) * SPLIT_GAP_FRACTION,
+    y: last.y + (secondLast.y - last.y) * SPLIT_GAP_FRACTION,
+  };
+
+  if (points.length === 2) return [shrunkFirst, shrunkLast];
+  return [shrunkFirst, ...points.slice(1, -1), shrunkLast];
 }
 
 function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReading }) {
@@ -467,14 +501,10 @@ function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReadi
                     // always the same wind angle every lap — so it's what
                     // the shape is actually useful for showing.
                     const relative = hasWind ? classifyRelativeWind(s.bearingDeg, wind!) : "unknown";
-                    const drawPath = trimSplitPathForGap(s.path);
-                    const pointsAttr = drawPath
-                      .map((p) => {
-                        const { x, y } = projection.project(p);
-                        return `${x.toFixed(1)},${y.toFixed(1)}`;
-                      })
-                      .join(" ");
-                    const strokeWidth = Math.max(2, projection.size * 0.012);
+                    const projectedPoints = s.path.map((p) => projection.project(p));
+                    const drawPoints = shrinkProjectedPathForGap(projectedPoints);
+                    const pointsAttr = drawPoints.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+                    const strokeWidth = projection.strokeWidth;
                     return (
                       <polyline
                         key={s.index}
@@ -502,7 +532,7 @@ function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReadi
                     const mid = pathMidpoint(s.path);
                     if (!mid) return null;
                     const { x, y } = projection.project(mid);
-                    const r = Math.max(4, projection.size * 0.02);
+                    const r = projection.strokeWidth * 2.8; // numbered label disc — scaled off the stable stroke width, not map size
                     return (
                       <g key={`label-${s.index}`}>
                         <circle cx={x} cy={y} r={r} fill="var(--background, #fff)" stroke="currentColor" strokeOpacity={0.3} strokeWidth={0.5} className="text-foreground" />
@@ -525,7 +555,7 @@ function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReadi
                     const firstPoint = firstWithPath?.path[0];
                     if (!firstPoint) return null;
                     const { x, y } = projection.project(firstPoint);
-                    const r = Math.max(2.5, projection.size * 0.014);
+                    const r = projection.strokeWidth * 1.8; // start/finish marker — scaled off the stable stroke width, not map size
                     return <circle cx={x} cy={y} r={r} fill="#3b82f6" />;
                   })()}
                   {(() => {
@@ -533,7 +563,7 @@ function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReadi
                     const lastPoint = lastWithPath?.path[lastWithPath.path.length - 1];
                     if (!lastPoint) return null;
                     const { x, y } = projection.project(lastPoint);
-                    const r = Math.max(2.5, projection.size * 0.014);
+                    const r = projection.strokeWidth * 1.8; // start/finish marker — scaled off the stable stroke width, not map size
                     return <rect x={x - r} y={y - r} width={r * 2} height={r * 2} fill="currentColor" className="text-foreground" />;
                   })()}
                 </svg>
@@ -603,8 +633,9 @@ function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReadi
             </p>
             {projection.maxLoopIndex > 0 && (
               <p className="text-[10px] text-muted-foreground text-center mt-0.5">
-                This rep covered the same loop {projection.maxLoopIndex + 1} times — each lap is drawn as a wider
-                ring around the one before it (first lap innermost) so they don't sit directly on top of each other.
+                This rep covered the same loop {projection.maxLoopIndex + 1} times — each lap is drawn as its own
+                thin strand right next to the one before it (first lap innermost), like strands in a cable, so they
+                stay readable without spreading the whole shape out.
               </p>
             )}
           </>
