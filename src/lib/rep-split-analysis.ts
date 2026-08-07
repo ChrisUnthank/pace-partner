@@ -190,8 +190,12 @@ export type Split = {
   // draw the split's own stretch of the route-shape map (a colour-coded
   // polyline per split, not just its two endpoints), so a curved bend
   // still reads as curved rather than getting straight-lined into a
-  // chord. Empty when the split has no GPS points at all.
-  path: Array<{ lat: number; lng: number }>;
+  // chord. Empty when the split has no GPS points at all. distanceM is
+  // this point's own cumulative rep distance (not just this split's) —
+  // used by the route-shape map to work out how far into its OWN lap each
+  // point is, for aligning repeated laps onto a shared shape (see
+  // rep-split-analysis-dialog.tsx).
+  path: Array<{ lat: number; lng: number; distanceM: number }>;
 };
 
 // Splits should be cut at the EXACT 100m mark — but the raw GPS trace
@@ -304,7 +308,7 @@ export function build100mSplits(repPoints: RepPointLike[], splitDistanceM = 100)
 
         const path = slice
           .filter((p): p is RepPointLike & { lat: number; lng: number } => typeof p.lat === "number" && typeof p.lng === "number")
-          .map((p) => ({ lat: p.lat, lng: p.lng }));
+          .map((p) => ({ lat: p.lat, lng: p.lng, distanceM: Number(p.distance_m ?? 0) }));
 
         out.push({
           index: index++,
