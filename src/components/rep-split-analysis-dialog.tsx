@@ -335,11 +335,13 @@ function projectRoutePoints(
   const avgFirstLapRadius = firstLapRadii.length
     ? firstLapRadii.reduce((a, b) => a + b, 0) / firstLapRadii.length
     : 10;
-  // Each successive lap pushed outward by ~35% of the first lap's own
-  // average radius — wide enough that laps read as clearly separate
-  // rings rather than a blur, without each additional lap ballooning the
-  // whole map for a rep with many laps.
-  const ringGap = Math.max(3, avgFirstLapRadius * 0.35);
+  // Each successive lap pushed outward by a fraction of the first lap's
+  // own average radius — just enough that laps read as clearly separate
+  // rings, not stacked directly on top of each other, without leaving a
+  // wide dead-space gap between them. (Started at 0.35, which visually
+  // read as three loosely separated ovals rather than one tight nested
+  // track — 0.12 keeps rings close while still readable.)
+  const ringGap = Math.max(2, avgFirstLapRadius * 0.12);
 
   const adjustedXY = baseXY.map((p, i) => {
     const li = loopIndexByPoint[i];
@@ -401,6 +403,23 @@ function pathMidpoint(path: Array<{ lat: number; lng: number }>): { lat: number;
   return path[Math.floor(path.length / 2)];
 }
 
+// Trims a small number of points off each end of a split's path before
+// it's drawn. Splits share their exact boundary GPS fix with the
+// neighbouring split (the same point is both one split's last point and
+// the next split's first), so drawn at full length every split's line
+// flows directly into the next with no visible seam at all — which reads
+// as one continuous line rather than 100m segments. Trimming a couple of
+// points off each end leaves a small, deliberate gap at every split
+// boundary, so where one 100m ends and the next begins is visible on the
+// line itself, not just from the colour/number changing. Skips trimming
+// entirely on a short split (few GPS points) where trimming would either
+// leave nothing to draw or shrink an already-short stretch too far.
+const SPLIT_TRIM_POINTS = 1;
+function trimSplitPathForGap<T>(path: T[]): T[] {
+  if (path.length <= SPLIT_TRIM_POINTS * 2 + 2) return path;
+  return path.slice(SPLIT_TRIM_POINTS, path.length - SPLIT_TRIM_POINTS);
+}
+
 function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReading }) {
   const projection = useMemo(() => projectRoutePoints(splits), [splits]);
   const hasWind = wind?.speedKmh != null;
@@ -448,7 +467,8 @@ function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReadi
                     // always the same wind angle every lap — so it's what
                     // the shape is actually useful for showing.
                     const relative = hasWind ? classifyRelativeWind(s.bearingDeg, wind!) : "unknown";
-                    const pointsAttr = s.path
+                    const drawPath = trimSplitPathForGap(s.path);
+                    const pointsAttr = drawPath
                       .map((p) => {
                         const { x, y } = projection.project(p);
                         return `${x.toFixed(1)},${y.toFixed(1)}`;
@@ -578,7 +598,8 @@ function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReadi
             </div>
             <p className="text-[10px] text-muted-foreground text-center mt-1">
               Numbers match the split-by-split grid and the mini reference column beside the map — find a number
-              there to see where that 100m was actually run.
+              there to see where that 100m was actually run. Small gaps in the line mark where one 100m ends and the
+              next begins.
             </p>
             {projection.maxLoopIndex > 0 && (
               <p className="text-[10px] text-muted-foreground text-center mt-0.5">
