@@ -169,7 +169,7 @@ export const fetchSessionWeather = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const sb = context.supabase;
 
-    const { data: earliestFile } = await sb
+    const { data: earliestFile, error: fileErr } = await sb
       .from("session_files")
       .select("id, started_at")
       .eq("session_id", data.sessionId)
@@ -178,11 +178,17 @@ export const fetchSessionWeather = createServerFn({ method: "POST" })
       .limit(1)
       .maybeSingle();
 
+    if (fileErr) {
+      console.error("fetchSessionWeather: session_files query failed", { sessionId: data.sessionId, fileErr });
+      return { ok: false, reason: "query_failed" as const };
+    }
+
     if (!earliestFile?.started_at) {
+      console.error("fetchSessionWeather: no session_files row with a start time", { sessionId: data.sessionId });
       return { ok: false, reason: "no_start_time" as const };
     }
 
-    const { data: points } = await sb
+    const { data: points, error: pointsErr } = await sb
       .from("raw_session_points")
       .select("elapsed_s, lat, lng")
       .eq("session_id", data.sessionId)
@@ -192,17 +198,36 @@ export const fetchSessionWeather = createServerFn({ method: "POST" })
       .order("elapsed_s", { ascending: true })
       .limit(200);
 
+    if (pointsErr) {
+      console.error("fetchSessionWeather: raw_session_points query failed", {
+        sessionId: data.sessionId,
+        fileId: earliestFile.id,
+        pointsErr,
+      });
+      return { ok: false, reason: "query_failed" as const };
+    }
+
     const withGps = (points ?? []).filter(
       (p) =>
-        typeof p.lat === "number" &&
-        typeof p.lng === "number" &&
-        Math.abs(p.lat) > 0.001 &&
-        Math.abs(p.lng) > 0.001 &&
-        Math.abs(p.lat) <= 90 &&
-        Math.abs(p.lng) <= 180,
+        p.lat != null &&
+        p.lng != null &&
+        Math.abs(Number(p.lat)) > 0.001 &&
+        Math.abs(Number(p.lng)) > 0.001 &&
+        Math.abs(Number(p.lat)) <= 90 &&
+        Math.abs(Number(p.lng)) <= 180,
     );
 
     if (withGps.length === 0) {
+      // Logged with the raw count vs. GPS-filtered count so a genuine "this
+      // file has no GPS at all" (manually-logged session, indoor
+      // treadmill) can be told apart from "points exist but something about
+      // the lat/lng values didn't pass the filter" from server logs alone.
+      console.error("fetchSessionWeather: no usable GPS fix on the earliest file's points", {
+        sessionId: data.sessionId,
+        fileId: earliestFile.id,
+        rawPointCount: points?.length ?? 0,
+        samplePoint: points?.[0] ?? null,
+      });
       return { ok: false, reason: "no_gps" as const };
     }
 
@@ -217,6 +242,16 @@ export const fetchSessionWeather = createServerFn({ method: "POST" })
     const weather = await fetchWeather(Number(fixPoint.lat), Number(fixPoint.lng), fixTimestamp);
 
     if (weather.temp == null && weather.wind == null && weather.windDirection == null) {
+      // fetchWeather() itself already logs the specific provider-side
+      // failure (bad response, network error, etc.) — this just confirms
+      // at the call-site level that nothing usable came back at all, with
+      // the exact inputs that were sent to it.
+      console.error("fetchSessionWeather: fetchWeather returned nothing usable", {
+        sessionId: data.sessionId,
+        lat: fixPoint.lat,
+        lng: fixPoint.lng,
+        fixTimestamp,
+      });
       return { ok: false, reason: "provider_error" as const };
     }
 
@@ -230,7 +265,7 @@ export const fetchSessionWeather = createServerFn({ method: "POST" })
       .eq("id", data.sessionId);
 
     if (updErr) {
-      console.error("fetchSessionWeather: sessions update failed", updErr);
+      console.error("fetchSessionWeather: sessions update failed", { sessionId: data.sessionId, updErr });
       return { ok: false, reason: "save_failed" as const };
     }
 
