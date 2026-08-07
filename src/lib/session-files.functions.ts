@@ -12,19 +12,25 @@ async function fetchWeather(lat: number, lon: number, timestamp: string) {
     const base =
       daysAgo > 5 ? "https://archive-api.open-meteo.com/v1/archive" : "https://api.open-meteo.com/v1/forecast";
 
-    const url = `${base}?latitude=${lat}&longitude=${lon}&hourly=temperature_2m,wind_speed_10m&start_date=${day}&end_date=${day}&timezone=UTC`;
+    const url = `${base}?latitude=${lat}&longitude=${lon}&hourly=temperature_2m,wind_speed_10m,wind_direction_10m&start_date=${day}&end_date=${day}&timezone=UTC`;
 
     const res = await fetch(url);
     if (!res.ok) {
       console.error("Weather fetch failed:", res.status);
-      return { temp: null, wind: null };
+      return { temp: null, wind: null, windDirection: null };
     }
     const data = await res.json();
 
     const times: string[] = data?.hourly?.time ?? [];
     const temps: (number | null)[] = data?.hourly?.temperature_2m ?? [];
     const winds: (number | null)[] = data?.hourly?.wind_speed_10m ?? [];
-    if (!times.length) return { temp: null, wind: null };
+    // Wind direction (0-360°, meteorological convention — the direction
+    // the wind is blowing FROM, e.g. 0/360 = from the north). Deliberately
+    // pulled as its own array rather than derived from wind_speed_10m so a
+    // calm reading (speed near 0, direction meaningless/noisy) can still
+    // be told apart from a genuine gap in the data.
+    const windDirs: (number | null)[] = data?.hourly?.wind_direction_10m ?? [];
+    if (!times.length) return { temp: null, wind: null, windDirection: null };
 
     let bestIdx = 0;
     let bestDelta = Infinity;
@@ -55,6 +61,11 @@ async function fetchWeather(lat: number, lon: number, timestamp: string) {
 
     const resolvedTemp = nearestNonNull(temps, 2);
     let resolvedWind = nearestNonNull(winds, 6);
+    // Direction gets the same nearest-hour fallback as speed — picking the
+    // single nearest available reading, never averaging across hours
+    // (averaging two compass bearings naively would produce a nonsense
+    // midpoint, e.g. 350° and 10° averaging to 180° instead of ~0°).
+    const resolvedWindDirection = nearestNonNull(windDirs, 6);
 
     if (resolvedWind == null) {
       // Wind still unresolved even with the wider window - log the raw
@@ -72,10 +83,10 @@ async function fetchWeather(lat: number, lon: number, timestamp: string) {
       );
     }
 
-    return { temp: resolvedTemp, wind: resolvedWind };
+    return { temp: resolvedTemp, wind: resolvedWind, windDirection: resolvedWindDirection };
   } catch (err) {
     console.error("Weather fetch failed", err);
-    return { temp: null, wind: null };
+    return { temp: null, wind: null, windDirection: null };
   }
 }
 
@@ -137,6 +148,99 @@ async function fetchLocationName(lat: number, lon: number): Promise<{ location: 
     return { location: null, venue: null };
   }
 }
+
+// Manual "Fetch weather" action for a session that predates automatic
+// weather capture, or where the automatic fetch failed silently at upload
+// time (e.g. a transient Open-Meteo error). Reuses the exact same
+// fetchWeather() call the upload pipeline itself uses — same source, same
+// resolution — so a manually-fetched reading and an upload-time one are
+// never inconsistent with each other for the same session.
+//
+// Needs a real GPS fix + an absolute timestamp to ask Open-Meteo for the
+// right hour at the right place. raw_session_points only stores elapsed_s
+// (seconds since that file's own start), not an absolute clock time, so
+// this reconstructs one from session_files.started_at (the file's real
+// upload-time start) + that point's own elapsed_s — the same reference
+// frame parseFIT used when it computed each point's absolute timestamp at
+// upload time, just rebuilt from what's actually persisted in the DB.
+export const fetchSessionWeather = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { sessionId: string }) => d)
+  .handler(async ({ data, context }) => {
+    const sb = context.supabase;
+
+    const { data: earliestFile } = await sb
+      .from("session_files")
+      .select("id, started_at")
+      .eq("session_id", data.sessionId)
+      .not("started_at", "is", null)
+      .order("started_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (!earliestFile?.started_at) {
+      return { ok: false, reason: "no_start_time" as const };
+    }
+
+    const { data: points } = await sb
+      .from("raw_session_points")
+      .select("elapsed_s, lat, lng")
+      .eq("session_id", data.sessionId)
+      .eq("file_id", earliestFile.id)
+      .not("lat", "is", null)
+      .not("lng", "is", null)
+      .order("elapsed_s", { ascending: true })
+      .limit(200);
+
+    const withGps = (points ?? []).filter(
+      (p) =>
+        typeof p.lat === "number" &&
+        typeof p.lng === "number" &&
+        Math.abs(p.lat) > 0.001 &&
+        Math.abs(p.lng) > 0.001 &&
+        Math.abs(p.lat) <= 90 &&
+        Math.abs(p.lng) <= 180,
+    );
+
+    if (withGps.length === 0) {
+      return { ok: false, reason: "no_gps" as const };
+    }
+
+    const earlyWindow = withGps.filter((p) => Number(p.elapsed_s ?? 0) <= 300);
+    const candidates = earlyWindow.length > 0 ? earlyWindow : withGps;
+    const fixPoint = candidates[Math.floor(candidates.length / 2)];
+
+    const fixTimestamp = new Date(
+      new Date(earliestFile.started_at).getTime() + Number(fixPoint.elapsed_s ?? 0) * 1000,
+    ).toISOString();
+
+    const weather = await fetchWeather(Number(fixPoint.lat), Number(fixPoint.lng), fixTimestamp);
+
+    if (weather.temp == null && weather.wind == null && weather.windDirection == null) {
+      return { ok: false, reason: "provider_error" as const };
+    }
+
+    const { error: updErr } = await sb
+      .from("sessions")
+      .update({
+        average_temp_c: weather.temp,
+        wind_kph: weather.wind,
+        wind_direction_deg: weather.windDirection,
+      } as any)
+      .eq("id", data.sessionId);
+
+    if (updErr) {
+      console.error("fetchSessionWeather: sessions update failed", updErr);
+      return { ok: false, reason: "save_failed" as const };
+    }
+
+    return {
+      ok: true as const,
+      temp: weather.temp,
+      wind: weather.wind,
+      windDirection: weather.windDirection,
+    };
+  });
 
 function mapFitSport(sport: string | null | undefined): string {
   const s = (sport ?? "").toLowerCase();
@@ -2033,6 +2137,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   const workTime = isIntervals ? workLaps.reduce((s, l) => s + Number(l.total_elapsed_time ?? 0), 0) : totalTimeS;
   let weatherTemp: number | null = null;
   let weatherWind: number | null = null;
+  let weatherWindDirection: number | null = null;
   let locationName: string | null = null;
   let venueName: string | null = null;
 
@@ -2061,6 +2166,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
       const weather = await fetchWeather(firstPoint.lat!, firstPoint.lng!, firstPoint.timestamp);
       weatherTemp = weather.temp;
       weatherWind = weather.wind;
+      weatherWindDirection = weather.windDirection;
       const geocode = await fetchLocationName(firstPoint.lat!, firstPoint.lng!);
       locationName = geocode.location;
       venueName = geocode.venue;
@@ -2426,6 +2532,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
       max_hr: maxHr,
       average_temp_c: weatherTemp ?? avgTemp,
       wind_kph: weatherWind ?? null,
+      wind_direction_deg: weatherWindDirection ?? null,
       location: locationName ?? null,
       ...(venueName ? { venue: venueName } : {}),
       completion_pct: 100,
