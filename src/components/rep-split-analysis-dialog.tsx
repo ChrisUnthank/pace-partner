@@ -31,7 +31,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Ruler, TrendingUp, HeartPulse, Gauge, Trophy, BarChart3, Wind, ArrowUp, Map as MapIcon } from "lucide-react";
-import { paceFmt } from "@/lib/format";
+import { paceFmt, secToClock } from "@/lib/format";
 import {
   sliceRepPoints,
   build100mSplits,
@@ -262,37 +262,103 @@ function PaceThroughRepChart({ splits, unit }: { splits: Split[]; unit: SplitTim
 
 type ProjectedPoint = { x: number; y: number };
 
-// Local equirectangular projection — accurate enough for a single rep
-// (rarely more than a couple of km across) and, critically, preserves
-// TRUE SHAPE: longitude is scaled by cos(latitude) before treating both
-// axes as equivalent "metres", so a track oval renders as an oval and a
-// straight road stays straight, rather than getting stretched by naively
-// mapping lat/lng degrees directly onto x/y (a degree of longitude is a
-// different real-world distance than a degree of latitude almost
-// everywhere except the equator). A single uniform scale factor (fit to
-// whichever of width/height spans further) is then applied to both axes
-// together, never independently — independent axis scaling is exactly
-// what would turn an oval into an egg.
+// Local equirectangular projection with LOOP SEPARATION — accurate enough
+// for a single rep (rarely more than a couple of km across) and,
+// critically, preserves TRUE SHAPE: longitude is scaled by cos(latitude)
+// before treating both axes as equivalent "metres", so a track oval
+// renders as an oval and a straight road stays straight, rather than
+// getting stretched by naively mapping lat/lng degrees directly onto x/y
+// (a degree of longitude is a different real-world distance than a
+// degree of latitude almost everywhere except the equator).
+//
+// LOOP SEPARATION: a rep run on a short closed loop (e.g. a 1000m rep on
+// a 400m track = 2.5 laps) would otherwise draw every lap directly on top
+// of the last, which is unreadable. This detects each time the athlete
+// leaves the start point and comes back near it again — a completed lap —
+// and pushes every point on the 2nd, 3rd, etc. lap radially outward from
+// the loop's own centre, so laps nest as concentric rings: lap 1
+// innermost, each later lap a wider ring around it. A route that's never
+// closed (a straight road, an out-and-back) never triggers a second
+// "leave" after the first, so maxLoopIndex stays 0 and nothing is offset
+// — this only activates for genuine repeated loops.
 function projectRoutePoints(
-  allPoints: { lat: number; lng: number }[],
-): { project: (p: { lat: number; lng: number }) => ProjectedPoint; size: number } | null {
-  if (allPoints.length < 2) return null;
+  splits: Split[],
+): { project: (p: { lat: number; lng: number }) => ProjectedPoint; size: number; maxLoopIndex: number } | null {
+  const flatPoints = splits.flatMap((s) => s.path);
+  if (flatPoints.length < 2) return null;
 
-  const lats = allPoints.map((p) => p.lat);
-  const lngs = allPoints.map((p) => p.lng);
+  const lats = flatPoints.map((p) => p.lat);
+  const lngs = flatPoints.map((p) => p.lng);
   const centerLat = (Math.min(...lats) + Math.max(...lats)) / 2;
   const centerLng = (Math.min(...lngs) + Math.max(...lngs)) / 2;
 
   const METERS_PER_DEG_LAT = 111_320;
   const metersPerDegLng = 111_320 * Math.cos((centerLat * Math.PI) / 180);
 
-  const metersPoints = allPoints.map((p) => ({
-    xM: (p.lng - centerLng) * metersPerDegLng,
-    yM: (p.lat - centerLat) * METERS_PER_DEG_LAT,
+  const baseXY = flatPoints.map((p) => ({
+    x: (p.lng - centerLng) * metersPerDegLng,
+    y: (p.lat - centerLat) * METERS_PER_DEG_LAT,
   }));
 
-  const xs = metersPoints.map((p) => p.xM);
-  const ys = metersPoints.map((p) => p.yM);
+  // Loop detection: track distance from the very first point. "Leaving"
+  // requires getting more than LEAVE_THRESHOLD_M away; a lap only counts
+  // once the athlete has genuinely left and then comes back within
+  // RETURN_THRESHOLD_M — the gap between the two thresholds avoids GPS
+  // jitter right at the start line falsely registering as a completed
+  // lap before the athlete has actually gone anywhere.
+  const LEAVE_THRESHOLD_M = 20;
+  const RETURN_THRESHOLD_M = 12;
+  const origin = baseXY[0];
+  let hasLeft = false;
+  let loopIndex = 0;
+  const loopIndexByPoint: number[] = [];
+  for (const p of baseXY) {
+    const dist = Math.hypot(p.x - origin.x, p.y - origin.y);
+    if (!hasLeft && dist > LEAVE_THRESHOLD_M) {
+      hasLeft = true;
+    } else if (hasLeft && dist < RETURN_THRESHOLD_M) {
+      loopIndex++;
+      hasLeft = false;
+    }
+    loopIndexByPoint.push(loopIndex);
+  }
+  const maxLoopIndex = loopIndex;
+
+  // Expansion centre and ring size are both derived from the FIRST lap
+  // only — using every lap's points to find the centre would let later,
+  // already-offset laps drag the centre outward too, compounding on
+  // itself. The first lap is always the true, un-offset shape.
+  const firstLapXY = baseXY.filter((_, i) => loopIndexByPoint[i] === 0);
+  const cx = firstLapXY.reduce((a, p) => a + p.x, 0) / firstLapXY.length;
+  const cy = firstLapXY.reduce((a, p) => a + p.y, 0) / firstLapXY.length;
+  const firstLapRadii = firstLapXY.map((p) => Math.hypot(p.x - cx, p.y - cy));
+  const avgFirstLapRadius = firstLapRadii.length
+    ? firstLapRadii.reduce((a, b) => a + b, 0) / firstLapRadii.length
+    : 10;
+  // Each successive lap pushed outward by ~35% of the first lap's own
+  // average radius — wide enough that laps read as clearly separate
+  // rings rather than a blur, without each additional lap ballooning the
+  // whole map for a rep with many laps.
+  const ringGap = Math.max(3, avgFirstLapRadius * 0.35);
+
+  const adjustedXY = baseXY.map((p, i) => {
+    const li = loopIndexByPoint[i];
+    if (li === 0) return p;
+    const dx = p.x - cx;
+    const dy = p.y - cy;
+    const r = Math.hypot(dx, dy);
+    if (r < 0.5) return p; // avoid blowing up a point that sits essentially on the centre
+    const scale = (r + li * ringGap) / r;
+    return { x: cx + dx * scale, y: cy + dy * scale };
+  });
+
+  const lookup = new Map<{ lat: number; lng: number }, ProjectedPoint>();
+  flatPoints.forEach((p, i) => lookup.set(p, adjustedXY[i]));
+
+  const xs = adjustedXY.map((p) => p.x);
+  const ys = adjustedXY.map((p) => p.y);
+  const boundsCenterX = (Math.min(...xs) + Math.max(...xs)) / 2;
+  const boundsCenterY = (Math.min(...ys) + Math.max(...ys)) / 2;
   const spanX = Math.max(...xs) - Math.min(...xs);
   const spanY = Math.max(...ys) - Math.min(...ys);
   // Guards a near-zero span (e.g. a dead-straight short rep run almost
@@ -304,18 +370,19 @@ function projectRoutePoints(
   const size = span * (1 + PADDING_FRAC * 2);
   const half = size / 2;
 
-  // xM/yM are already centred on 0 by construction (centerLat/centerLng
-  // are the exact midpoints of the data), so adding `half` (half of
-  // whichever span is larger, plus padding) centres both axes correctly
-  // inside the square SVG canvas regardless of which axis is the limiting
-  // one.
   function project(p: { lat: number; lng: number }): ProjectedPoint {
-    const xM = (p.lng - centerLng) * metersPerDegLng;
-    const yM = (p.lat - centerLat) * METERS_PER_DEG_LAT;
-    return { x: xM + half, y: -yM + half }; // flip Y: higher latitude (north) = up = smaller SVG y
+    const adj = lookup.get(p) ?? {
+      x: (p.lng - centerLng) * metersPerDegLng,
+      y: (p.lat - centerLat) * METERS_PER_DEG_LAT,
+    };
+    // Recentre on the ADJUSTED bounding box (not the original centerLat/
+    // centerLng) since loop offsetting can shift the overall bounds —
+    // without this, an outward-pushed outer lap could render partly
+    // outside the viewBox.
+    return { x: adj.x - boundsCenterX + half, y: -(adj.y - boundsCenterY) + half }; // flip Y: north = up
   }
 
-  return { project, size };
+  return { project, size, maxLoopIndex };
 }
 
 const ROUTE_SPLIT_STROKE: Record<string, string> = {
@@ -335,9 +402,19 @@ function pathMidpoint(path: Array<{ lat: number; lng: number }>): { lat: number;
 }
 
 function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReading }) {
-  const allPoints = useMemo(() => splits.flatMap((s) => s.path), [splits]);
-  const projection = useMemo(() => projectRoutePoints(allPoints), [allPoints]);
+  const projection = useMemo(() => projectRoutePoints(splits), [splits]);
   const hasWind = wind?.speedKmh != null;
+
+  // Rep-elapsed time AT THE END of each split — a running total across
+  // the whole rep, not each split's own duration — for the mini
+  // split-reference column below.
+  const cumulativeTimesS = useMemo(() => {
+    let acc = 0;
+    return splits.map((s) => {
+      acc += s.durationS;
+      return acc;
+    });
+  }, [splits]);
 
   return (
     <Card>
@@ -355,101 +432,127 @@ function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReadi
           </div>
         ) : (
           <>
-            <div className="relative w-full max-w-xs mx-auto aspect-square">
-              <svg viewBox={`0 0 ${projection.size} ${projection.size}`} className="w-full h-full">
-                {splits.map((s) => {
-                  if (s.path.length < 2) return null;
-                  // Coloured by relative WIND on this stretch (not pace) —
-                  // the split-by-split time grid above already covers
-                  // pace deviation with its own colours, and colouring the
-                  // map by pace too made overlapping loops (a track
-                  // session run over multiple laps) unreadable, since
-                  // pace-colour and position don't correspond to anything
-                  // spatially meaningful. Wind direction DOES have a real
-                  // spatial meaning — the same bend is always the same
-                  // wind angle every lap — so it's what the shape is
-                  // actually useful for showing.
-                  const relative = hasWind ? classifyRelativeWind(s.bearingDeg, wind!) : "unknown";
-                  const pointsAttr = s.path
-                    .map((p) => {
-                      const { x, y } = projection.project(p);
-                      return `${x.toFixed(1)},${y.toFixed(1)}`;
-                    })
-                    .join(" ");
-                  const strokeWidth = Math.max(2, projection.size * 0.012);
-                  return (
-                    <polyline
-                      key={s.index}
-                      points={pointsAttr}
-                      fill="none"
-                      stroke={ROUTE_SPLIT_STROKE[relative] ?? ROUTE_SPLIT_STROKE.unknown}
-                      strokeWidth={strokeWidth}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <title>
-                        {`Split ${s.index} — ${RELATIVE_WIND_LABEL[relative]}${s.paceSecPerKm != null ? ` · ${(s.paceSecPerKm / 10).toFixed(1)}s/100m` : ""} · ${Math.round(s.cumulativeDistanceM)}m into rep`}
-                      </title>
-                    </polyline>
-                  );
-                })}
-                {/* Numbered split labels — matches the same index shown on
-                    each cell in the "Split-by-split time" grid above, so a
-                    specific 100m can be located on the map from its number
-                    in the grid, or vice versa. A small background disc
-                    keeps the number legible over the coloured line and
-                    over any earlier lap the path crosses again. */}
-                {splits.map((s) => {
-                  const mid = pathMidpoint(s.path);
-                  if (!mid) return null;
-                  const { x, y } = projection.project(mid);
-                  const r = Math.max(4, projection.size * 0.02);
-                  return (
-                    <g key={`label-${s.index}`}>
-                      <circle cx={x} cy={y} r={r} fill="var(--background, #fff)" stroke="currentColor" strokeOpacity={0.3} strokeWidth={0.5} className="text-foreground" />
-                      <text
-                        x={x}
-                        y={y}
-                        textAnchor="middle"
-                        dominantBaseline="central"
-                        fontSize={r * 1.1}
-                        fontWeight={600}
-                        className="fill-foreground"
+            <div className="flex gap-2 items-stretch">
+              <div className="relative flex-1 aspect-square min-w-0">
+                <svg viewBox={`0 0 ${projection.size} ${projection.size}`} className="w-full h-full">
+                  {splits.map((s) => {
+                    if (s.path.length < 2) return null;
+                    // Coloured by relative WIND on this stretch (not pace)
+                    // — the split-by-split time grid above already covers
+                    // pace deviation with its own colours, and colouring
+                    // the map by pace too made overlapping loops (a track
+                    // session run over multiple laps) unreadable, since
+                    // pace-colour and position don't correspond to
+                    // anything spatially meaningful. Wind direction DOES
+                    // have a real spatial meaning — the same bend is
+                    // always the same wind angle every lap — so it's what
+                    // the shape is actually useful for showing.
+                    const relative = hasWind ? classifyRelativeWind(s.bearingDeg, wind!) : "unknown";
+                    const pointsAttr = s.path
+                      .map((p) => {
+                        const { x, y } = projection.project(p);
+                        return `${x.toFixed(1)},${y.toFixed(1)}`;
+                      })
+                      .join(" ");
+                    const strokeWidth = Math.max(2, projection.size * 0.012);
+                    return (
+                      <polyline
+                        key={s.index}
+                        points={pointsAttr}
+                        fill="none"
+                        stroke={ROUTE_SPLIT_STROKE[relative] ?? ROUTE_SPLIT_STROKE.unknown}
+                        strokeWidth={strokeWidth}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
                       >
-                        {s.index}
-                      </text>
-                    </g>
-                  );
-                })}
-                {(() => {
-                  const firstWithPath = splits.find((s) => s.path.length > 0);
-                  const firstPoint = firstWithPath?.path[0];
-                  if (!firstPoint) return null;
-                  const { x, y } = projection.project(firstPoint);
-                  const r = Math.max(2.5, projection.size * 0.014);
-                  return <circle cx={x} cy={y} r={r} fill="#3b82f6" />;
-                })()}
-                {(() => {
-                  const lastWithPath = [...splits].reverse().find((s) => s.path.length > 0);
-                  const lastPoint = lastWithPath?.path[lastWithPath.path.length - 1];
-                  if (!lastPoint) return null;
-                  const { x, y } = projection.project(lastPoint);
-                  const r = Math.max(2.5, projection.size * 0.014);
-                  return <rect x={x - r} y={y - r} width={r * 2} height={r * 2} fill="currentColor" className="text-foreground" />;
-                })()}
-              </svg>
-              {/* Compass badge — the projection above is always drawn
-                  true-north-up (see projectRoutePoints), so this never
-                  needs to rotate; it's a static confirmation of that
-                  orientation for the viewer, not a live indicator. */}
-              <div className="absolute top-1 right-1 w-8 h-8 rounded-full border border-border bg-background/90 flex items-center justify-center">
-                <span className="absolute top-0 text-[8px] font-semibold text-foreground leading-none pt-0.5">N</span>
-                <span className="absolute bottom-0 text-[8px] text-muted-foreground leading-none pb-0.5">S</span>
-                <span className="absolute left-0.5 text-[8px] text-muted-foreground leading-none">W</span>
-                <span className="absolute right-0.5 text-[8px] text-muted-foreground leading-none">E</span>
-                <div className="w-px h-3 bg-foreground/30" />
+                        <title>
+                          {`Split ${s.index} — ${RELATIVE_WIND_LABEL[relative]}${s.paceSecPerKm != null ? ` · ${(s.paceSecPerKm / 10).toFixed(1)}s/100m` : ""} · ${Math.round(s.cumulativeDistanceM)}m into rep`}
+                        </title>
+                      </polyline>
+                    );
+                  })}
+                  {/* Numbered split labels — matches the same index shown
+                      on each cell in the "Split-by-split time" grid above
+                      and in the mini reference column beside this map, so
+                      a specific 100m can be located here from either. A
+                      small background disc keeps the number legible over
+                      the coloured line and over any earlier lap the path
+                      crosses again. */}
+                  {splits.map((s) => {
+                    const mid = pathMidpoint(s.path);
+                    if (!mid) return null;
+                    const { x, y } = projection.project(mid);
+                    const r = Math.max(4, projection.size * 0.02);
+                    return (
+                      <g key={`label-${s.index}`}>
+                        <circle cx={x} cy={y} r={r} fill="var(--background, #fff)" stroke="currentColor" strokeOpacity={0.3} strokeWidth={0.5} className="text-foreground" />
+                        <text
+                          x={x}
+                          y={y}
+                          textAnchor="middle"
+                          dominantBaseline="central"
+                          fontSize={r * 1.1}
+                          fontWeight={600}
+                          className="fill-foreground"
+                        >
+                          {s.index}
+                        </text>
+                      </g>
+                    );
+                  })}
+                  {(() => {
+                    const firstWithPath = splits.find((s) => s.path.length > 0);
+                    const firstPoint = firstWithPath?.path[0];
+                    if (!firstPoint) return null;
+                    const { x, y } = projection.project(firstPoint);
+                    const r = Math.max(2.5, projection.size * 0.014);
+                    return <circle cx={x} cy={y} r={r} fill="#3b82f6" />;
+                  })()}
+                  {(() => {
+                    const lastWithPath = [...splits].reverse().find((s) => s.path.length > 0);
+                    const lastPoint = lastWithPath?.path[lastWithPath.path.length - 1];
+                    if (!lastPoint) return null;
+                    const { x, y } = projection.project(lastPoint);
+                    const r = Math.max(2.5, projection.size * 0.014);
+                    return <rect x={x - r} y={y - r} width={r * 2} height={r * 2} fill="currentColor" className="text-foreground" />;
+                  })()}
+                </svg>
+                {/* Compass badge — the projection above is always drawn
+                    true-north-up (see projectRoutePoints), so this never
+                    needs to rotate; it's a static confirmation of that
+                    orientation for the viewer, not a live indicator. */}
+                <div className="absolute top-3 right-3 w-14 h-14 rounded-full border border-border bg-background/90 flex items-center justify-center shadow-sm">
+                  <span className="absolute top-0.5 text-[11px] font-semibold text-foreground leading-none">N</span>
+                  <span className="absolute bottom-0.5 text-[11px] text-muted-foreground leading-none">S</span>
+                  <span className="absolute left-1 text-[11px] text-muted-foreground leading-none">W</span>
+                  <span className="absolute right-1 text-[11px] text-muted-foreground leading-none">E</span>
+                  <div className="w-px h-5 bg-foreground/30" />
+                </div>
+              </div>
+
+              {/* Mini split-reference column — a compact stacked version
+                  of the split-by-split grid, first split at top / last at
+                  bottom, so a specific split's time and cumulative rep
+                  elapsed time can be read right next to the map without
+                  scrolling back up to the main grid. */}
+              <div className="w-[52px] shrink-0 flex flex-col gap-1 overflow-y-auto brand-scrollbar pr-0.5">
+                {splits.map((s, i) => (
+                  <div
+                    key={s.index}
+                    className="rounded border border-border bg-muted/30 px-1 py-0.5 text-center leading-tight"
+                    title={`Split ${s.index} · ${Math.round(s.distanceM)}m · ${(s.paceSecPerKm != null ? s.paceSecPerKm / 10 : 0).toFixed(1)}s/100m · ${secToClock(cumulativeTimesS[i])} into rep`}
+                  >
+                    <div className="text-[9px] font-semibold">{s.index}</div>
+                    <div className="text-[8px] text-muted-foreground">{Math.round(s.distanceM)}m</div>
+                    <div className="text-[9px] font-medium tabular-nums">
+                      {s.paceSecPerKm != null ? (s.paceSecPerKm / 10).toFixed(1) : "—"}
+                    </div>
+                    <div className="text-[8px] text-muted-foreground tabular-nums">{secToClock(cumulativeTimesS[i])}</div>
+                  </div>
+                ))}
               </div>
             </div>
+
             <div className="mt-2 flex items-center justify-center gap-3 text-[11px] text-muted-foreground flex-wrap">
               {hasWind ? (
                 <>
@@ -474,8 +577,15 @@ function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReadi
               </span>
             </div>
             <p className="text-[10px] text-muted-foreground text-center mt-1">
-              Numbers match the split-by-split grid above — find a number here to see where that 100m was actually run.
+              Numbers match the split-by-split grid and the mini reference column beside the map — find a number
+              there to see where that 100m was actually run.
             </p>
+            {projection.maxLoopIndex > 0 && (
+              <p className="text-[10px] text-muted-foreground text-center mt-0.5">
+                This rep covered the same loop {projection.maxLoopIndex + 1} times — each lap is drawn as a wider
+                ring around the one before it (first lap innermost) so they don't sit directly on top of each other.
+              </p>
+            )}
           </>
         )}
       </CardContent>
@@ -616,7 +726,7 @@ function RepTraceChart({ repPoints }: { repPoints: RepPointLike[] }) {
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <CardTitle className="text-sm flex items-center gap-1.5">
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
-            High-res trace
+            Rep Analysis
           </CardTitle>
           {hasMetric.pace && (
             <div className="flex border rounded-md overflow-hidden text-xs">
@@ -876,6 +986,9 @@ export function RepSplitAnalysisDialog({
               />
             </div>
 
+            {/* Rep Analysis (was "High-res trace") */}
+            <RepTraceChart repPoints={repPoints} />
+
             {/* Colour-coded split grid */}
             <Card>
               <CardHeader className="pb-2">
@@ -942,9 +1055,6 @@ export function RepSplitAnalysisDialog({
                 </div>
               </CardContent>
             </Card>
-
-            {/* High-res trace */}
-            <RepTraceChart repPoints={repPoints} />
 
             {/* Route shape */}
             <RepRouteShapeCard splits={splits} wind={wind} />
