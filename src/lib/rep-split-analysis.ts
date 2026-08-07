@@ -18,6 +18,7 @@
 // what the "By lap"/"By km" chart already shows for the same rep.
 
 import { normalizeVO, computeStrideLengthM } from "@/lib/session-metrics";
+import { computeBearingDeg } from "@/lib/wind";
 
 export type RepPointLike = {
   elapsed_s?: number | null;
@@ -29,6 +30,8 @@ export type RepPointLike = {
   vertical_oscillation_cm?: number | null;
   ground_contact_time_ms?: number | null;
   segment_type?: string | null;
+  lat?: number | null;
+  lng?: number | null;
 };
 
 export type RepRowLike = {
@@ -176,6 +179,13 @@ export type Split = {
   avgGroundContactTimeMs: number | null;
   strideLengthM: number | null;
   isPartial: boolean;
+  // Compass bearing (0-360, toward which the athlete was heading) across
+  // this split's own first-to-last GPS fix — null when either end of the
+  // split is missing a lat/lng (e.g. a GPS dropout, or an indoor/treadmill
+  // session with no GPS trace at all). Used to classify this split's
+  // relative wind (headwind/tailwind/crosswind) against a session's wind
+  // reading — see src/lib/wind.ts.
+  bearingDeg: number | null;
 };
 
 // Buckets one rep's own point slice into fixed-distance splits (100m by
@@ -211,6 +221,16 @@ export function build100mSplits(repPoints: RepPointLike[], splitDistanceM = 100)
 
         cumulativeDistanceM += m.distanceM;
 
+        const first = slice[0];
+        const last = slice[slice.length - 1];
+        const bearingDeg =
+          typeof first.lat === "number" &&
+          typeof first.lng === "number" &&
+          typeof last.lat === "number" &&
+          typeof last.lng === "number"
+            ? computeBearingDeg(first.lat, first.lng, last.lat, last.lng)
+            : null;
+
         out.push({
           index: index++,
           distanceM: Number(m.distanceM.toFixed(1)),
@@ -223,6 +243,7 @@ export function build100mSplits(repPoints: RepPointLike[], splitDistanceM = 100)
           avgGroundContactTimeMs: m.avgGroundContactTimeMs,
           strideLengthM: computeStrideLengthM(m.distanceM, movingDurationS, m.avgCadence),
           isPartial: m.distanceM < splitDistanceM * 0.9,
+          bearingDeg,
         });
       }
 
