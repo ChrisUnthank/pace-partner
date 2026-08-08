@@ -335,7 +335,7 @@ export function MultiRouteFlyoverMap({ tracks, heightPx }: MultiRouteFlyoverMapP
   const hasTerrain = useMemo(() => supportsWebGL2(), []);
 
   const prepared = useMemo<PreparedTrack[]>(() => {
-    return (tracks as any[])
+    return tracks
       .map((t) => {
         const safe = t.points.filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng) && p.elapsed_s != null);
         if (safe.length < 2) return null;
@@ -352,7 +352,7 @@ export function MultiRouteFlyoverMap({ tracks, heightPx }: MultiRouteFlyoverMapP
           maxElapsedS: safe[safe.length - 1].elapsed_s ?? 0,
         };
       })
-      .filter((t: any): t is PreparedTrack => t !== null);
+      .filter((t): t is NonNullable<typeof t> => t !== null) as unknown as PreparedTrack[];
   }, [tracks]);
 
   const maxElapsedS = useMemo(() => prepared.reduce((max, t) => Math.max(max, t.maxElapsedS), 0), [prepared]);
