@@ -358,6 +358,12 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
             <BrandLogo size="md" showWordmark={!collapsed} allowWide={!collapsed} />
           </Link>
         </div>
+        {/* Nav highlights use --sidebar-primary, NOT --accent-red. That's
+            the white-label two-tone split: a coach's PRIMARY colour drives
+            buttons and CTAs, their SECONDARY colour drives sidebar/nav
+            chrome. When no secondary is set, --sidebar-primary simply
+            repeats the primary, so a single-colour brand (and an unbranded
+            install) looks exactly as it did before. */}
         <nav className="flex-1 px-2 py-4 space-y-0.5">
           {/* Single interleaved pass — order comes straight from
               visibleEntries, so Health & Vitals (a leaf) renders between
@@ -379,9 +385,9 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
                   )}
                 >
                   {active && (
-                    <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-[var(--accent-red)]" />
+                    <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-[var(--sidebar-primary)]" />
                   )}
-                  <entry.icon className={cn("h-4 w-4", active && "text-[var(--accent-red)]")} />
+                  <entry.icon className={cn("h-4 w-4", active && "text-[var(--sidebar-primary)]")} />
                   {!collapsed && <span>{entry.label}</span>}
                 </Link>
               );
@@ -410,9 +416,9 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
                   )}
                 >
                   {active && (
-                    <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-[var(--accent-red)]" />
+                    <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-[var(--sidebar-primary)]" />
                   )}
-                  <bucket.icon className={cn("h-4 w-4", active && "text-[var(--accent-red)]")} />
+                  <bucket.icon className={cn("h-4 w-4", active && "text-[var(--sidebar-primary)]")} />
                 </Link>
               );
             }
@@ -431,9 +437,9 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
                   aria-expanded={open}
                 >
                   {active && (
-                    <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-[var(--accent-red)]" />
+                    <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-[var(--sidebar-primary)]" />
                   )}
-                  <bucket.icon className={cn("h-4 w-4", active && "text-[var(--accent-red)]")} />
+                  <bucket.icon className={cn("h-4 w-4", active && "text-[var(--sidebar-primary)]")} />
                   <span className="flex-1 text-left">{bucket.label}</span>
                   <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")} />
                 </button>
@@ -452,7 +458,7 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
                               : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/60",
                           )}
                         >
-                          <n.icon className={cn("h-3.5 w-3.5", childActive && "text-[var(--accent-red)]")} />
+                          <n.icon className={cn("h-3.5 w-3.5", childActive && "text-[var(--sidebar-primary)]")} />
                           <span>{n.label}</span>
                         </Link>
                       );
@@ -482,9 +488,9 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
                 )}
               >
                 {active && (
-                  <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-[var(--accent-red)]" />
+                  <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-[var(--sidebar-primary)]" />
                 )}
-                <n.icon className={cn("h-4 w-4", active && "text-[var(--accent-red)]")} />
+                <n.icon className={cn("h-4 w-4", active && "text-[var(--sidebar-primary)]")} />
                 {!collapsed && <span>{n.label}</span>}
               </Link>
             );
@@ -601,7 +607,7 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
                 aria-label={n.label}
                 className={cn(
                   "flex-1 min-w-0 flex items-center justify-center py-2.5",
-                  active ? "text-[var(--accent-red)]" : "text-muted-foreground",
+                  active ? "text-[var(--sidebar-primary)]" : "text-muted-foreground",
                 )}
               >
                 <n.icon className="h-4.5 w-4.5 shrink-0" strokeWidth={active ? 2.5 : 2} />
