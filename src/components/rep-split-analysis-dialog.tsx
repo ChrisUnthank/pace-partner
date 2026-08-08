@@ -871,9 +871,12 @@ function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReadi
                     needs to rotate; it's a static confirmation of that
                     orientation for the viewer. When wind direction is
                     known, the centre arrow rotates to show which way the
-                    wind is actually blowing FROM (0°/up = from the
-                    north) — this one IS a live indicator, unlike the
-                    N/S/E/W ring around it. */}
+                    wind is actually blowing TOWARD, not where it's coming
+                    from — for a runner, "does this arrow point roughly
+                    the same way I'm running" is a much faster read of
+                    headwind vs. tailwind than the standard meteorological
+                    "wind FROM" convention would give. This one IS a live
+                    indicator, unlike the N/S/E/W ring around it. */}
                 <div className="absolute top-3 right-3 w-14 h-14 rounded-full border border-border bg-background/90 flex items-center justify-center shadow-sm">
                   <span className="absolute top-0.5 text-[11px] font-semibold text-foreground leading-none">N</span>
                   <span className="absolute bottom-0.5 text-[11px] text-muted-foreground leading-none">S</span>
@@ -882,8 +885,8 @@ function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReadi
                   {hasDirection ? (
                     <ArrowUp
                       className="h-5 w-5 text-sky-500"
-                      style={{ transform: `rotate(${wind!.directionDeg}deg)` }}
-                      title={`Wind from ${compassLabel(wind!.directionDeg)}`}
+                      style={{ transform: `rotate(${(wind!.directionDeg! + 180) % 360}deg)` }}
+                      title={`Wind blowing toward ${compassLabel((wind!.directionDeg! + 180) % 360)} (from ${compassLabel(wind!.directionDeg)}) — arrow points the way the wind is pushing, not where it's coming from.`}
                     />
                   ) : (
                     <div className="w-px h-5 bg-foreground/30" />
@@ -944,6 +947,12 @@ function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReadi
               there to see where that 100m was actually run. Colour fades continuously with the athlete's actual
               heading, so a bend shades gradually between headwind/crosswind/tailwind rather than one flat colour.
             </p>
+            {hasDirection && (
+              <p className="text-[10px] text-muted-foreground text-center mt-0.5">
+                Compass arrow points the way the wind is blowing TOWARD, not where it's coming from — if it points
+                roughly the same way you were running, that's a tailwind; roughly opposite, a headwind.
+              </p>
+            )}
             {projection.maxLoopIndex > 0 && (
               <p className="text-[10px] text-muted-foreground text-center mt-0.5">
                 This rep covered the same loop {projection.maxLoopIndex + 1} times. Each lap is redrawn onto the
@@ -1319,6 +1328,40 @@ export function RepSplitAnalysisDialog({
     const vals = splits.map((s) => s.avgHr).filter((v): v is number => v != null);
     return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
   }, [splits]);
+  // The %-deviation threshold in colorForSplit can legitimately produce
+  // ZERO green splits for a coarse-grained metric like HR: each split's
+  // avgHr is rounded to a whole bpm, but the reference (the average of
+  // those rounded values) is usually a fractional number, and ±0.5% of a
+  // typical HR is under 1 bpm — tighter than the rounding itself. That
+  // means "no split happened to land within a bpm of the average" is
+  // common even though there's always SOME split that's closest. This
+  // finds that closest split (for whichever mode's own reference value)
+  // and guarantees it reads green, so "closest to average" is never
+  // silently invisible. Applied to every mode, not just HR — pace can hit
+  // the same edge case with a target pace that sits a bit off from what
+  // was actually run.
+  const splitColors = useMemo(() => {
+    const getValue = (s: Split): number | null => (gridMode === "hr" ? s.avgHr : s.paceSecPerKm);
+    const referenceValue = gridMode === "hr" ? avgHrAcrossSplits : referencePaceSecPerKm;
+    const colors = splits.map((s) => colorForSplit(getValue(s), referenceValue));
+
+    if (referenceValue != null) {
+      let bestIdx = -1;
+      let bestDeviation = Infinity;
+      splits.forEach((s, i) => {
+        const v = getValue(s);
+        if (v == null) return;
+        const deviation = Math.abs(v - referenceValue);
+        if (deviation < bestDeviation) {
+          bestDeviation = deviation;
+          bestIdx = i;
+        }
+      });
+      if (bestIdx >= 0) colors[bestIdx] = "green";
+    }
+
+    return colors;
+  }, [splits, gridMode, avgHrAcrossSplits, referencePaceSecPerKm]);
   const drift = useMemo(() => computeDynamicsDrift(splits), [splits]);
   const hrDrift = useMemo(() => computeHrDrift(splits), [splits]);
   const fatigue = useMemo(() => computeFatigueScore(splits), [splits]);
@@ -1504,26 +1547,7 @@ export function RepSplitAnalysisDialog({
               <CardContent>
                 <div className="grid grid-cols-5 sm:grid-cols-10 gap-1.5">
                   {splits.map((s, i) => {
-                    // Colour always reflects DIRECTION relative to that
-                    // mode's own reference — pace vs. target/average pace,
-                    // HR vs. this rep's own average HR. Time mode (a
-                    // cumulative running total) has no meaningful
-                    // "average" of its own, so it keeps showing pace's
-                    // colour underneath — the quality signal is still
-                    // about how this split was run, whichever value is on
-                    // display.
-                    const color =
-                      gridMode === "hr"
-                        ? colorForSplit(s.avgHr, avgHrAcrossSplits)
-                        : colorForSplit(s.paceSecPerKm, referencePaceSecPerKm);
-                    const cellValue =
-                      gridMode === "time"
-                        ? secToClock(cumulativeTimesS[i])
-                        : gridMode === "hr"
-                          ? s.avgHr != null
-                            ? `${Math.round(s.avgHr)}`
-                            : "—"
-                          : formatSplitTime(s.paceSecPerKm, "sec100");
+                    const color = splitColors[i];
                     return (
                       <div
                         key={s.index}
@@ -1533,7 +1557,18 @@ export function RepSplitAnalysisDialog({
                         <span className="absolute top-0.5 left-1 text-[9px] font-normal opacity-60 leading-none">
                           {s.index}
                         </span>
-                        {cellValue}
+                        {gridMode === "time" ? (
+                          <>
+                            {formatSplitTime(s.paceSecPerKm, "sec100")}
+                            <div className="text-[9px] font-normal opacity-70 leading-none mt-0.5">
+                              {secToClock(cumulativeTimesS[i])}
+                            </div>
+                          </>
+                        ) : gridMode === "hr" ? (
+                          s.avgHr != null ? `${Math.round(s.avgHr)}` : "—"
+                        ) : (
+                          formatSplitTime(s.paceSecPerKm, "pace")
+                        )}
                         {s.isPartial && <span className="ml-0.5 text-[9px] opacity-70">*</span>}
                         {wind && (
                           <div className="mt-0.5 flex justify-center">
@@ -1546,8 +1581,9 @@ export function RepSplitAnalysisDialog({
                 </div>
                 {gridMode === "time" && (
                   <p className="text-[10px] text-muted-foreground mt-1.5">
-                    Rep-elapsed time at the end of each split (a running total, not that split's own duration). Colour
-                    still reflects pace, since a running total has no "average" of its own.
+                    Top: this split's own time per 100m. Below: rep-elapsed time at the end of this split (a running
+                    total, e.g. "0:58" for where the third 100m finished). Colour still reflects pace, since a
+                    running total has no "average" of its own.
                   </p>
                 )}
                 {gridMode === "hr" && (
