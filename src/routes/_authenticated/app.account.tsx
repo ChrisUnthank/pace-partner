@@ -18,6 +18,7 @@ import { TIMEZONE_OPTIONS, guessLocalTimezone } from "@/lib/timezones";
 import { ContactDetailsCard } from "@/components/contact-details-card";
 import { Link } from "@tanstack/react-router";
 import { UserCircle2, Moon, SunMedium, Palette, Lock } from "lucide-react";
+import type { Appearance } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { logAccountActivity } from "@/lib/account-activity-log";
 import { useTheme } from "@/lib/theme";
@@ -162,8 +163,22 @@ function PreferencesCard({ userId }: { userId: string }) {
   // localStorage) — same pattern as the existing Coach/Athlete view-mode
   // toggle in view-mode.tsx, not synced to the profiles row like
   // units/timezone below. Applies instantly, no Save button needed.
-  const { theme, setTheme, isLockedByBrand } = useTheme();
+  const { appearance, setAppearance, isLockedByBrand, brandTintAvailable } = useTheme();
   const { appName } = useBranding();
+
+  // Brand Dark / Brand Light keep the same light/dark structure but tint
+  // every surface toward the coach's brand hue. Only offered when a brand
+  // colour actually exists — otherwise they'd be two options that do nothing.
+  const appearanceOptions: { value: Appearance; label: string; icon: typeof Moon }[] = [
+    { value: "dark", label: "Dark", icon: Moon },
+    { value: "light", label: "Light", icon: SunMedium },
+    ...(brandTintAvailable
+      ? ([
+          { value: "brand-dark", label: `${appName} Dark`, icon: Moon },
+          { value: "brand-light", label: `${appName} Light`, icon: SunMedium },
+        ] as { value: Appearance; label: string; icon: typeof Moon }[])
+      : []),
+  ];
 
   const { data: profile } = useQuery({
     queryKey: ["my-profile", userId],
@@ -219,40 +234,32 @@ function PreferencesCard({ userId }: { userId: string }) {
       </CardHeader>
 
       <CardContent className="grid sm:grid-cols-2 gap-3">
-        <div>
+        <div className="sm:col-span-2">
           <Label>Appearance</Label>
           {/* A white-labelling coach can LOCK their squad to one appearance
-              (coach_branding.force_theme). When they have, this toggle is
+              (coach_branding.force_theme). When they have, this picker is
               disabled rather than hidden — silently removing a control
               someone used yesterday is more confusing than showing it
               greyed out with a reason. */}
-          <div className={cn("mt-1 inline-flex rounded-md border p-0.5", isLockedByBrand && "opacity-60")}>
-            <button
-              type="button"
-              disabled={isLockedByBrand}
-              onClick={() => setTheme("dark")}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-sm font-medium transition-colors",
-                isLockedByBrand && "cursor-not-allowed",
-                theme === "dark" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <Moon className="h-3.5 w-3.5" />
-              Dark
-            </button>
-            <button
-              type="button"
-              disabled={isLockedByBrand}
-              onClick={() => setTheme("light")}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-sm font-medium transition-colors",
-                isLockedByBrand && "cursor-not-allowed",
-                theme === "light" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <SunMedium className="h-3.5 w-3.5" />
-              Light
-            </button>
+          <div className={cn("mt-1 flex flex-wrap gap-1", isLockedByBrand && "opacity-60")}>
+            {appearanceOptions.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                disabled={isLockedByBrand}
+                onClick={() => setAppearance(o.value)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
+                  isLockedByBrand && "cursor-not-allowed",
+                  appearance === o.value
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <o.icon className="h-3.5 w-3.5" />
+                {o.label}
+              </button>
+            ))}
           </div>
           {isLockedByBrand ? (
             <p className="text-xs text-muted-foreground mt-1 flex items-start gap-1.5">
@@ -260,7 +267,10 @@ function PreferencesCard({ userId }: { userId: string }) {
               {appName} has set a fixed appearance for everyone.
             </p>
           ) : (
-            <p className="text-xs text-muted-foreground mt-1">This device only — applies right away.</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              This device only — applies right away.
+              {brandTintAvailable && ` The ${appName} options tint every panel toward the brand colour.`}
+            </p>
           )}
         </div>
 
