@@ -17,10 +17,12 @@ import { setStoredUnits } from "@/lib/units";
 import { TIMEZONE_OPTIONS, guessLocalTimezone } from "@/lib/timezones";
 import { ContactDetailsCard } from "@/components/contact-details-card";
 import { Link } from "@tanstack/react-router";
-import { UserCircle2, Moon, SunMedium } from "lucide-react";
+import { UserCircle2, Moon, SunMedium, Palette, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { logAccountActivity } from "@/lib/account-activity-log";
 import { useTheme } from "@/lib/theme";
+import { useBranding } from "@/lib/branding";
+import { PoweredByStrider } from "@/components/brand-logo";
 
 export const Route = createFileRoute("/_authenticated/app/account")({
   component: Account,
@@ -30,6 +32,7 @@ function Account() {
   const { user } = useAuthUser();
   const { data: roles = [] } = useMyRawRoles();
   const isAthlete = roles.includes("athlete");
+  const isCoach = roles.includes("coach") || roles.includes("manager");
 
   return (
     <AppShell fullWidth>
@@ -78,6 +81,30 @@ function Account() {
                 </CardContent>
               </Card>
             )}
+            {/* Same discoverability-pointer pattern as the Athlete Info card
+                above — Branding is a whole page of its own, this is just the
+                signpost from the place people go looking for settings. */}
+            {isCoach && (
+              <Card>
+                <CardContent className="pt-6">
+                  <Link to="/app/branding" className="flex items-center gap-3 group">
+                    <div
+                      className="h-9 w-9 shrink-0 rounded-lg grid place-items-center"
+                      style={{ background: "var(--accent-red)" }}
+                    >
+                      <Palette className="h-4.5 w-4.5 text-[var(--primary-foreground)]" strokeWidth={2} />
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold group-hover:underline">Branding</div>
+                      <div className="text-xs text-muted-foreground">
+                        Put your own name, logo, and colour on the app — for you and your athletes
+                      </div>
+                    </div>
+                  </Link>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Self-service contact details — feeds the coach's address book.
                 Shown to every signed-in user (athlete or parent alike). */}
             {user && <ContactDetailsCard userId={user.id} />}
@@ -118,6 +145,12 @@ function Account() {
         </div>
 
         {user && <AccountActivityLogCard userId={user.id} />}
+
+        {/* Second, always-visible home for the non-removable attribution —
+            the sidebar copy is hidden while the sidebar is collapsed, and
+            on mobile there's no sidebar at all. Renders nothing on an
+            unbranded install. */}
+        <PoweredByStrider className="px-0 pt-2" />
       </div>
     </AppShell>
   );
@@ -129,7 +162,8 @@ function PreferencesCard({ userId }: { userId: string }) {
   // localStorage) — same pattern as the existing Coach/Athlete view-mode
   // toggle in view-mode.tsx, not synced to the profiles row like
   // units/timezone below. Applies instantly, no Save button needed.
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, isLockedByBrand } = useTheme();
+  const { appName } = useBranding();
 
   const { data: profile } = useQuery({
     queryKey: ["my-profile", userId],
@@ -187,12 +221,19 @@ function PreferencesCard({ userId }: { userId: string }) {
       <CardContent className="grid sm:grid-cols-2 gap-3">
         <div>
           <Label>Appearance</Label>
-          <div className="mt-1 inline-flex rounded-md border p-0.5">
+          {/* A white-labelling coach can LOCK their squad to one appearance
+              (coach_branding.force_theme). When they have, this toggle is
+              disabled rather than hidden — silently removing a control
+              someone used yesterday is more confusing than showing it
+              greyed out with a reason. */}
+          <div className={cn("mt-1 inline-flex rounded-md border p-0.5", isLockedByBrand && "opacity-60")}>
             <button
               type="button"
+              disabled={isLockedByBrand}
               onClick={() => setTheme("dark")}
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-sm font-medium transition-colors",
+                isLockedByBrand && "cursor-not-allowed",
                 theme === "dark" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
               )}
             >
@@ -201,9 +242,11 @@ function PreferencesCard({ userId }: { userId: string }) {
             </button>
             <button
               type="button"
+              disabled={isLockedByBrand}
               onClick={() => setTheme("light")}
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-sm font-medium transition-colors",
+                isLockedByBrand && "cursor-not-allowed",
                 theme === "light" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
               )}
             >
@@ -211,7 +254,14 @@ function PreferencesCard({ userId }: { userId: string }) {
               Light
             </button>
           </div>
-          <p className="text-xs text-muted-foreground mt-1">This device only — applies right away.</p>
+          {isLockedByBrand ? (
+            <p className="text-xs text-muted-foreground mt-1 flex items-start gap-1.5">
+              <Lock className="h-3 w-3 shrink-0 mt-0.5" />
+              {appName} has set a fixed appearance for everyone.
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground mt-1">This device only — applies right away.</p>
+          )}
         </div>
 
         <div>
