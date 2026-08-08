@@ -16,7 +16,7 @@
 // reading — both present in the original 10-item feature spec this was
 // built from — are intentionally left out rather than fabricated.
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   LineChart,
   Line,
@@ -30,7 +30,8 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Ruler, TrendingUp, HeartPulse, Gauge, Trophy, BarChart3, Wind, ArrowUp, Map as MapIcon, ChevronLeft, ChevronRight } from "lucide-react";
+import { Ruler, TrendingUp, HeartPulse, Gauge, Trophy, BarChart3, Wind, ArrowUp, Map as MapIcon, ChevronLeft, ChevronRight, Info } from "lucide-react";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { paceFmt, secToClock } from "@/lib/format";
 import {
   sliceRepPoints,
@@ -143,6 +144,33 @@ const FATIGUE_TONE: Record<FatigueLevel, { label: string; className: string }> =
   medium: { label: "Medium", className: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/40" },
   high: { label: "High", className: "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/40" },
 };
+
+// A small (i) icon that expands a popover with explanation prose — used
+// throughout this dialog to move "how this works" / "why this design
+// choice" text out of the way by default, since a coach scanning a rep
+// mid-session mostly wants the numbers and the legend, not paragraphs of
+// reasoning every time. Deliberately NOT used for legends (the coloured
+// swatches, the wind arrow key, Start/Finish) — those stay always visible
+// since they're needed to read the chart at a glance, not background on
+// how it was built.
+function InfoNote({ children }: { children: ReactNode }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center justify-center h-4 w-4 rounded-full text-muted-foreground hover:text-foreground shrink-0"
+          aria-label="More info"
+        >
+          <Info className="h-3.5 w-3.5" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="text-xs leading-relaxed text-muted-foreground space-y-2 w-72" align="start">
+        {children}
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 function StatBox({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
@@ -762,6 +790,27 @@ function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReadi
         <CardTitle className="text-sm flex items-center gap-1.5">
           <MapIcon className="h-4 w-4 text-muted-foreground" />
           Route shape
+          <InfoNote>
+            <p>
+              Numbers match the split-by-split grid and the mini reference row below the map — find a number there
+              to see where that 100m was actually run. Colour fades continuously with the athlete's actual heading,
+              so a bend shades gradually between headwind/crosswind/tailwind rather than one flat colour.
+            </p>
+            {hasDirection && (
+              <p>
+                Compass arrow points the way the wind is blowing TOWARD, not where it's coming from — if it points
+                roughly the same way you were running, that's a tailwind; roughly opposite, a headwind.
+              </p>
+            )}
+            {projection && projection.maxLoopIndex > 0 && (
+              <p>
+                This rep covered the same loop {projection.maxLoopIndex + 1} times. Each lap is redrawn onto the
+                first lap's own shape (same relative position every lap) and offset outward as a thin adjacent
+                strand — this is a schematic, not a literal GPS trace, so the line's length doesn't need to match
+                recorded distance exactly.
+              </p>
+            )}
+          </InfoNote>
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -942,25 +991,6 @@ function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReadi
                 </span>
               </div>
             </div>
-            <p className="text-[10px] text-muted-foreground text-center mt-1">
-              Numbers match the split-by-split grid and the mini reference column beside the map — find a number
-              there to see where that 100m was actually run. Colour fades continuously with the athlete's actual
-              heading, so a bend shades gradually between headwind/crosswind/tailwind rather than one flat colour.
-            </p>
-            {hasDirection && (
-              <p className="text-[10px] text-muted-foreground text-center mt-0.5">
-                Compass arrow points the way the wind is blowing TOWARD, not where it's coming from — if it points
-                roughly the same way you were running, that's a tailwind; roughly opposite, a headwind.
-              </p>
-            )}
-            {projection.maxLoopIndex > 0 && (
-              <p className="text-[10px] text-muted-foreground text-center mt-0.5">
-                This rep covered the same loop {projection.maxLoopIndex + 1} times. Each lap is redrawn onto the
-                first lap's own shape (same relative position every lap) and offset outward as a thin adjacent
-                strand — this is a schematic, not a literal GPS trace, so the line's length doesn't need to match
-                recorded distance exactly.
-              </p>
-            )}
           </>
         )}
       </CardContent>
@@ -1516,6 +1546,30 @@ export function RepSplitAnalysisDialog({
                   <CardTitle className="text-sm flex items-center gap-1.5">
                     <BarChart3 className="h-4 w-4 text-muted-foreground" />
                     Split-by-split (100m)
+                    <InfoNote>
+                      {gridMode === "time" && (
+                        <p>
+                          Top: this split's own time per 100m. Below: rep-elapsed time at the end of this split (a
+                          running total, e.g. "0:58" for where the third 100m finished).
+                        </p>
+                      )}
+                      {gridMode === "hr" && <p>Average heart rate across each 100m.</p>}
+                      <p>Small number in each cell matches its label on the route shape map below.</p>
+                      {wind?.speedKmh != null && (
+                        <p>
+                          Wind arrow shows relative to each split's own running direction, not true north — hover a
+                          split for its actual heading and wind-from compass direction.
+                        </p>
+                      )}
+                      <p>
+                        "Above"/"below" isn't automatically good or bad — it's just direction. Below-average HR
+                        early in a rep and above-average HR late in it are both completely normal; for pace it
+                        depends on what this rep was for.{" "}
+                        {referenceIsTarget
+                          ? `Pace is measured against this rep's own target pace (${paceFmt(targetPaceSecPerKm)}/km).`
+                          : "No target pace set for this rep — pace is measured against this rep's own average instead."}
+                      </p>
+                    </InfoNote>
                   </CardTitle>
                   <div className="flex border rounded-md overflow-hidden text-xs">
                     <button
@@ -1579,19 +1633,6 @@ export function RepSplitAnalysisDialog({
                     );
                   })}
                 </div>
-                {gridMode === "time" && (
-                  <p className="text-[10px] text-muted-foreground mt-1.5">
-                    Top: this split's own time per 100m. Below: rep-elapsed time at the end of this split (a running
-                    total, e.g. "0:58" for where the third 100m finished). Colour still reflects pace, since a
-                    running total has no "average" of its own.
-                  </p>
-                )}
-                {gridMode === "hr" && (
-                  <p className="text-[10px] text-muted-foreground mt-1.5">Average heart rate across each 100m.</p>
-                )}
-                <p className="text-[10px] text-muted-foreground mt-1.5">
-                  Small number in each cell matches its label on the route shape map below.
-                </p>
                 <div className="mt-2 flex items-center gap-3 text-[11px] text-muted-foreground flex-wrap">
                   <span className="flex items-center gap-1">
                     <span className="h-2.5 w-2.5 rounded-sm bg-emerald-500/40 inline-block" />
@@ -1617,21 +1658,9 @@ export function RepSplitAnalysisDialog({
                       <span className="flex items-center gap-1 text-purple-500">
                         <ArrowUp className="h-3 w-3" style={{ transform: "rotate(90deg)" }} /> Crosswind
                       </span>
-                      <span className="w-full text-[10px]">
-                        Arrow shows wind relative to each split's own running direction, not true north — hover a
-                        split for its actual heading and wind-from compass direction.
-                      </span>
                     </>
                   )}
                 </div>
-                <p className="text-[10px] text-muted-foreground mt-1.5">
-                  "Above"/"below" isn't automatically good or bad — it's just direction. Below-average HR early in a
-                  rep and above-average HR late in it are both completely normal; for pace it depends on what this
-                  rep was for.{" "}
-                  {referenceIsTarget
-                    ? `Pace is measured against this rep's own target pace (${paceFmt(targetPaceSecPerKm)}/km).`
-                    : "No target pace set for this rep — pace is measured against this rep's own average instead."}
-                </p>
               </CardContent>
             </Card>
 
