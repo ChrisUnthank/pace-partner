@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 
@@ -37,6 +38,12 @@ type InviteInfo = {
   coach_name: string | null;
 };
 
+// Bump this whenever the consent wording below meaningfully changes — it
+// gets stored alongside each consent record, so a parent's actual
+// agreement can always be traced back to the exact text they saw, even
+// after the wording is later updated.
+const PARENT_CONSENT_TEXT_VERSION = "v1-2026-08";
+
 function ClaimPage() {
   const { token } = Route.useParams();
   const navigate = useNavigate();
@@ -44,6 +51,7 @@ function ClaimPage() {
   const [fullName, setFullName] = useState("");
   const [busy, setBusy] = useState(false);
   const [signedInEmail, setSignedInEmail] = useState<string | null>(null);
+  const [consentChecked, setConsentChecked] = useState(false);
 
   const { data: invite, isLoading } = useQuery<InviteInfo>({
     queryKey: ["invite", token],
@@ -75,6 +83,23 @@ function ClaimPage() {
   }, [invite?.athlete_name, invite?.kind]);
 
   async function finalizeClaim() {
+    if (isParentInvite) {
+      const { data: sessionData } = await supabase.auth.getUser();
+      const parentUserId = sessionData.user?.id;
+      if (!parentUserId) {
+        toast.error("Couldn't confirm your account — try signing in again.");
+        return false;
+      }
+      const { error: consentErr } = await supabase.from("parent_consent_records").insert({
+        invite_token: token,
+        parent_user_id: parentUserId,
+        consent_text_version: PARENT_CONSENT_TEXT_VERSION,
+      });
+      if (consentErr) {
+        toast.error("Couldn't record consent — please try again.");
+        return false;
+      }
+    }
     const rpcName = isParentInvite ? "claim_parent_invite" : "claim_athlete_invite";
     const { data, error } = await supabase.rpc(rpcName, { _token: token });
     if (error) { toast.error(error.message); return false; }
@@ -186,6 +211,21 @@ function ClaimPage() {
 
           {!isLoading && invite?.status === "valid" && (
             <>
+              {isParentInvite && (
+                <div className="flex items-start gap-2.5 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
+                  <Checkbox
+                    id="parent-consent"
+                    checked={consentChecked}
+                    onCheckedChange={(v) => setConsentChecked(!!v)}
+                    className="mt-0.5"
+                  />
+                  <label htmlFor="parent-consent" className="text-xs leading-relaxed cursor-pointer">
+                    I confirm I am the parent or legal guardian of <strong>{invite.athlete_name}</strong>, and I
+                    consent to their training data (sessions, performance metrics, and check-ins) being collected
+                    and processed within Strider{invite.coach_name ? ` by ${invite.coach_name}` : ""}.
+                  </label>
+                </div>
+              )}
               {signedInEmail && signedInEmail.toLowerCase() === invite.invited_email?.toLowerCase() ? (
                 <>
                   <p className="text-sm">
@@ -197,7 +237,9 @@ function ClaimPage() {
                     )}
                     . This adds to your account — it won't remove any roles or links you already have.
                   </p>
-                  <Button className="w-full" disabled={busy} onClick={claimAsSignedIn}>Accept invite</Button>
+                  <Button className="w-full" disabled={busy || (isParentInvite && !consentChecked)} onClick={claimAsSignedIn}>
+                    Accept invite
+                  </Button>
                 </>
               ) : signedInEmail ? (
                 <>
@@ -226,9 +268,22 @@ function ClaimPage() {
                     <Label>Password</Label>
                     <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 6 characters" />
                   </div>
-                  <Button className="w-full" disabled={busy} onClick={createAccountAndClaim}>Create account & accept invite</Button>
+                  <Button
+                    className="w-full"
+                    disabled={busy || (isParentInvite && !consentChecked)}
+                    onClick={createAccountAndClaim}
+                  >
+                    Create account & accept invite
+                  </Button>
                   <div className="text-center text-xs text-muted-foreground">Already have an account?</div>
-                  <Button variant="outline" className="w-full" disabled={busy} onClick={signInAndClaim}>Sign in & accept invite</Button>
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    disabled={busy || (isParentInvite && !consentChecked)}
+                    onClick={signInAndClaim}
+                  >
+                    Sign in & accept invite
+                  </Button>
                   {isParentInvite && (
                     <p className="text-xs text-muted-foreground text-center">
                       Already coach or athlete on Strider? Sign in above with that same account instead of creating a
