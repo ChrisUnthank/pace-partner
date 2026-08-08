@@ -23,7 +23,7 @@ import {
   LineChart,
   Zap,
 } from "lucide-react";
-import { isValidHex, readableForeground, contrastRatioWithWhite } from "@/lib/branding";
+import { isValidHex, readableForeground, contrastRatioWithWhite, colorDistance } from "@/lib/branding";
 import { logAccountActivity } from "@/lib/account-activity-log";
 
 export const Route = createFileRoute("/_authenticated/app/branding")({
@@ -39,6 +39,11 @@ const MAX_BYTES = 2 * 1024 * 1024;
 
 const STRIDER_RED = "#FF004C";
 
+// Below this RGB distance, two colours read as "the same colour, slightly
+// off" rather than as two different things. Used to warn when the danger
+// colour is too close to the brand colour to signal danger.
+const MIN_DANGER_DISTANCE = 60;
+
 interface BrandingForm {
   enabled: boolean;
   app_name: string;
@@ -46,6 +51,10 @@ interface BrandingForm {
   logo_mark_url: string;
   logo_initials: string;
   brand_color: string;
+  /** Empty string = not set. Falls back to the brand colour everywhere. */
+  secondary_color: string;
+  /** Empty string = not set. Falls back to Strider red. */
+  danger_color: string;
   default_theme: "user" | "dark" | "light";
   force_theme: boolean;
   support_email: string;
@@ -58,6 +67,8 @@ const EMPTY: BrandingForm = {
   logo_mark_url: "",
   logo_initials: "",
   brand_color: STRIDER_RED,
+  secondary_color: "",
+  danger_color: "",
   default_theme: "user",
   force_theme: false,
   support_email: "",
@@ -99,7 +110,11 @@ function BrandingPage() {
   });
   const entitled = profile?.white_label_active === true;
 
-  const { data: row, isLoading } = useQuery({
+  const {
+    data: row,
+    isSuccess,
+    error: loadError,
+  } = useQuery({
     queryKey: ["coach-branding", user?.id],
     enabled: !!user,
     queryFn: async () => {
@@ -109,12 +124,27 @@ function BrandingPage() {
         .eq("coach_user_id", user!.id)
         .maybeSingle();
       if (error) throw error;
-      return data;
+      // maybeSingle() gives null for "no row yet", which is a legitimate
+      // state — normalised so `isSuccess` is the only thing this component
+      // has to reason about.
+      return data ?? null;
     },
   });
 
+  // THE BUG THIS REPLACES, because it will absolutely be reintroduced
+  // otherwise: this used to guard on `isLoading`. useAuthUser() resolves the
+  // user asynchronously, so on the very first render `user` is null and the
+  // query is DISABLED — and a disabled TanStack Query v5 query reports
+  // `isLoading === false` (isLoading = isPending && isFetching, and a disabled
+  // query never fetches). The effect therefore ran immediately against
+  // `row === undefined`, took the "no saved row" branch, and set
+  // `loaded = true` permanently. When the real row arrived a moment later the
+  // guard blocked it. Net effect: the form ALWAYS showed defaults, so the
+  // Branding switch appeared to flip back off after every save even though the
+  // save had succeeded. Gate on `isSuccess` (the query actually completed),
+  // never on `isLoading`.
   useEffect(() => {
-    if (isLoading || loaded) return;
+    if (!user || !isSuccess || loaded) return;
     if (row) {
       setForm({
         enabled: !!row.enabled,
@@ -123,15 +153,20 @@ function BrandingPage() {
         logo_mark_url: row.logo_mark_url ?? "",
         logo_initials: row.logo_initials ?? "",
         brand_color: row.brand_color ?? STRIDER_RED,
+        secondary_color: row.secondary_color ?? "",
+        danger_color: row.danger_color ?? "",
         default_theme: (row.default_theme ?? "user") as BrandingForm["default_theme"],
         force_theme: !!row.force_theme,
         support_email: row.support_email ?? "",
       });
     }
     setLoaded(true);
-  }, [row, isLoading, loaded]);
+  }, [user, isSuccess, row, loaded]);
 
   const colorValid = isValidHex(form.brand_color);
+  const secondaryValid = !form.secondary_color || isValidHex(form.secondary_color);
+  const dangerValid = !form.danger_color || isValidHex(form.danger_color);
+
   const contrast = colorValid ? contrastRatioWithWhite(form.brand_color) : 0;
   // Below ~3:1 against white, white text on the brand colour is unreadable.
   // The app flips to near-black text automatically at that point (see
@@ -139,10 +174,21 @@ function BrandingPage() {
   // coach should know their colour is going to behave differently.
   const lowContrast = colorValid && contrast < 3;
 
+  const effectiveDanger = isValidHex(form.danger_color) ? form.danger_color : STRIDER_RED;
+  const dangerTooClose = colorValid && colorDistance(form.brand_color, effectiveDanger) < MIN_DANGER_DISTANCE;
+
   async function save() {
     if (!user) return;
     if (!colorValid) {
       toast.error("Brand colour must be a 6-digit hex value, e.g. #1D4ED8");
+      return;
+    }
+    if (!secondaryValid) {
+      toast.error("Secondary colour must be a 6-digit hex value, or left blank");
+      return;
+    }
+    if (!dangerValid) {
+      toast.error("Danger colour must be a 6-digit hex value, or left blank");
       return;
     }
     if (form.enabled && !form.app_name.trim()) {
@@ -159,14 +205,22 @@ function BrandingPage() {
         logo_mark_url: form.logo_mark_url.trim() || null,
         logo_initials: form.logo_initials.trim().toUpperCase() || null,
         brand_color: form.brand_color,
+        secondary_color: form.secondary_color.trim() || null,
+        danger_color: form.danger_color.trim() || null,
         default_theme: form.default_theme,
         force_theme: form.force_theme,
         support_email: form.support_email.trim() || null,
       };
-      const { error } = await (supabase as any)
+      // .select() so a silently-zero-row write (the classic RLS symptom —
+      // no error returned, nothing actually written) surfaces as an error
+      // here rather than as a success toast over an unchanged database.
+      const { data, error } = await (supabase as any)
         .from("coach_branding")
-        .upsert(payload, { onConflict: "coach_user_id" });
+        .upsert(payload, { onConflict: "coach_user_id" })
+        .select()
+        .maybeSingle();
       if (error) throw error;
+      if (!data) throw new Error("The save was blocked — check you still hold the coach role on this account.");
 
       toast.success(form.enabled ? "Branding saved and live" : "Branding saved (not live yet)");
       logAccountActivity(
@@ -181,7 +235,21 @@ function BrandingPage() {
       qc.invalidateQueries({ queryKey: ["coach-branding", user.id] });
       qc.invalidateQueries({ queryKey: ["effective-branding", user.id] });
     } catch (e: any) {
-      toast.error(e.message ?? "Could not save branding");
+      const msg: string = e?.message ?? "Could not save branding";
+      // The single most likely cause of a hard failure here is the migration
+      // not having been run yet, and PostgREST's raw message for that is
+      // opaque enough to send someone hunting in the wrong place.
+      if (/secondary_color|danger_color/i.test(msg)) {
+        toast.error("Colour columns not found — run the Phase 1b migration for secondary and danger colours.");
+      } else if (/coach_branding|schema cache|does not exist/i.test(msg)) {
+        toast.error("Branding table not found — the database migration hasn't been run yet.");
+      } else {
+        toast.error(msg);
+      }
+      // Full error kept in the console: the toast is deliberately short, but
+      // the underlying PostgREST detail is what actually diagnoses an RLS or
+      // constraint failure.
+      console.error("[branding] save failed", e);
     } finally {
       setSaving(false);
     }
@@ -208,6 +276,21 @@ function BrandingPage() {
       <div className="space-y-6 max-w-6xl">
         <PageHeader />
 
+        {loadError && (
+          <Card className="border-destructive/50">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <AlertTriangle className="h-4 w-4 text-destructive" />
+                Couldn't load your saved branding
+              </CardTitle>
+              <CardDescription>
+                {(loadError as any)?.message ?? "Unknown error"} — if this mentions a missing table, the database
+                migration hasn't been run yet. Anything you change below won't save until it is.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        )}
+
         {!entitled && (
           <Card className="border-[var(--accent-red)]/40">
             <CardHeader>
@@ -231,17 +314,14 @@ function BrandingPage() {
               <CardHeader>
                 <CardTitle className="text-base">Turn branding on</CardTitle>
                 <CardDescription>
-                  When this is on, your brand replaces Strider's name, logo, and colour throughout the app — for you
+                  When this is on, your brand replaces Strider's name, logo, and colours throughout the app — for you
                   and for every athlete on your roster (and their linked parents) when they log in. Leave it off
                   while you're still setting things up.
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <label className="flex items-center gap-3 cursor-pointer">
-                  <Switch
-                    checked={form.enabled}
-                    onCheckedChange={(v) => setForm({ ...form, enabled: v })}
-                  />
+                  <Switch checked={form.enabled} onCheckedChange={(v) => setForm({ ...form, enabled: v })} />
                   <span className="text-sm font-medium">
                     {form.enabled ? "Branding is on" : "Branding is off"}
                   </span>
@@ -270,7 +350,9 @@ function BrandingPage() {
                       onChange={(e) => setForm({ ...form, app_name: e.target.value })}
                       placeholder="Apex Endurance"
                     />
-                    <p className="text-xs text-muted-foreground mt-1">Shown wherever "Strider" appears in the app chrome.</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Shown wherever "Strider" appears in the app chrome.
+                    </p>
                   </div>
                   <div>
                     <Label>Initials fallback</Label>
@@ -308,53 +390,72 @@ function BrandingPage() {
               </CardContent>
             </Card>
 
-            {/* ── Colour ───────────────────────────────────────────────── */}
+            {/* ── Colours ──────────────────────────────────────────────── */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Brand colour</CardTitle>
+                <CardTitle className="text-base">Colours</CardTitle>
                 <CardDescription>
-                  Replaces Strider red on buttons, active nav, highlights, and the first chart series. Warning and
-                  delete actions stay red on purpose — those need to read as danger no matter what your brand colour
-                  is.
+                  Primary is the main brand colour. Secondary is an optional second accent. Danger is what delete and
+                  other destructive actions use — it needs to look clearly different from your primary, which is why
+                  it's set separately rather than following the brand.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex items-end gap-3">
-                  <div>
-                    <Label>Colour</Label>
-                    <Input
-                      type="color"
-                      className="mt-1 h-10 w-20 p-1"
-                      value={colorValid ? form.brand_color : STRIDER_RED}
-                      onChange={(e) => setForm({ ...form, brand_color: e.target.value.toUpperCase() })}
-                    />
-                  </div>
-                  <div className="flex-1 max-w-[180px]">
-                    <Label>Hex</Label>
-                    <Input
-                      className={cn("mt-1 font-mono", !colorValid && "border-destructive")}
-                      value={form.brand_color}
-                      onChange={(e) => setForm({ ...form, brand_color: e.target.value.toUpperCase() })}
-                      placeholder="#FF004C"
-                    />
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setForm({ ...form, brand_color: STRIDER_RED })}
-                  >
-                    Reset to Strider red
-                  </Button>
-                </div>
+              <CardContent className="space-y-5">
+                <ColorField
+                  label="Primary"
+                  hint="Buttons, active nav, highlights, the first chart series."
+                  value={form.brand_color}
+                  onChange={(v) => setForm({ ...form, brand_color: v })}
+                  fallback={STRIDER_RED}
+                  valid={colorValid}
+                  onReset={() => setForm({ ...form, brand_color: STRIDER_RED })}
+                  resetLabel="Strider red"
+                />
                 {!colorValid && (
-                  <p className="text-xs text-destructive">Needs to be a 6-digit hex value, e.g. #1D4ED8.</p>
+                  <p className="text-xs text-destructive -mt-2">Needs to be a 6-digit hex value, e.g. #1D4ED8.</p>
                 )}
                 {lowContrast && (
-                  <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                  <p className="flex items-start gap-1.5 text-xs text-muted-foreground -mt-2">
                     <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-[var(--accent-red)]" />
                     That's a light colour — text sitting on it will switch to dark automatically so it stays
                     readable, which changes the look of buttons a little. Worth checking the preview.
+                  </p>
+                )}
+
+                <ColorField
+                  label="Secondary"
+                  hint="Optional. A second accent, and the second chart series. Leave blank to use your primary everywhere."
+                  value={form.secondary_color}
+                  onChange={(v) => setForm({ ...form, secondary_color: v })}
+                  fallback={colorValid ? form.brand_color : STRIDER_RED}
+                  valid={secondaryValid}
+                  optional
+                  onReset={() => setForm({ ...form, secondary_color: "" })}
+                  resetLabel="Clear"
+                />
+                {!secondaryValid && (
+                  <p className="text-xs text-destructive -mt-2">Needs to be a 6-digit hex value, or left blank.</p>
+                )}
+
+                <ColorField
+                  label="Danger"
+                  hint="Delete, remove, and other destructive actions. Leave blank for Strider red."
+                  value={form.danger_color}
+                  onChange={(v) => setForm({ ...form, danger_color: v })}
+                  fallback={STRIDER_RED}
+                  valid={dangerValid}
+                  optional
+                  onReset={() => setForm({ ...form, danger_color: "" })}
+                  resetLabel="Clear"
+                />
+                {!dangerValid && (
+                  <p className="text-xs text-destructive -mt-2">Needs to be a 6-digit hex value, or left blank.</p>
+                )}
+                {dangerTooClose && (
+                  <p className="flex items-start gap-1.5 text-xs text-muted-foreground -mt-2">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-[var(--accent-red)]" />
+                    Your danger colour is very close to your primary — a Delete button will look like any other
+                    button. Pick something clearly different so destructive actions still stand out.
                   </p>
                 )}
               </CardContent>
@@ -432,7 +533,7 @@ function BrandingPage() {
             </Card>
 
             <div className="flex items-center gap-3">
-              <Button onClick={save} disabled={saving || isLoading}>
+              <Button onClick={save} disabled={saving || !loaded}>
                 {saving ? "Saving…" : "Save branding"}
               </Button>
               <p className="text-xs text-muted-foreground">
@@ -470,6 +571,66 @@ function PageHeader() {
   );
 }
 
+/**
+ * One colour row: swatch picker, hex field, reset. `fallback` is what the app
+ * will actually use when the field is left blank — shown in the swatch so an
+ * optional colour never looks like "nothing", it looks like what you'll get.
+ */
+function ColorField({
+  label,
+  hint,
+  value,
+  onChange,
+  fallback,
+  valid,
+  optional = false,
+  onReset,
+  resetLabel,
+}: {
+  label: string;
+  hint: string;
+  value: string;
+  onChange: (v: string) => void;
+  fallback: string;
+  valid: boolean;
+  optional?: boolean;
+  onReset: () => void;
+  resetLabel: string;
+}) {
+  const shown = isValidHex(value) ? value : fallback;
+  return (
+    <div>
+      <div className="flex items-end gap-3 flex-wrap">
+        <div>
+          <Label>
+            {label}
+            {optional && <span className="ml-1.5 text-xs font-normal text-muted-foreground">optional</span>}
+          </Label>
+          <Input
+            type="color"
+            className="mt-1 h-10 w-20 p-1"
+            value={shown}
+            onChange={(e) => onChange(e.target.value.toUpperCase())}
+          />
+        </div>
+        <div className="flex-1 min-w-[140px] max-w-[180px]">
+          <Label className="text-xs text-muted-foreground">Hex</Label>
+          <Input
+            className={cn("mt-1 font-mono", !valid && "border-destructive")}
+            value={value}
+            onChange={(e) => onChange(e.target.value.toUpperCase())}
+            placeholder={optional ? `${fallback} (inherited)` : fallback}
+          />
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={onReset}>
+          {resetLabel}
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground mt-1">{hint}</p>
+    </div>
+  );
+}
+
 function ImageField({
   label,
   hint,
@@ -501,6 +662,7 @@ function ImageField({
       onChange(await uploadImage(userId, f));
     } catch (err: any) {
       toast.error(err.message ?? "Upload failed");
+      console.error("[branding] logo upload failed", err);
     } finally {
       setBusy(false);
     }
@@ -553,8 +715,14 @@ function ImageField({
  * brand while the surrounding page stays on the current live one.
  */
 function BrandPreview({ form }: { form: BrandingForm }) {
-  const color = isValidHex(form.brand_color) ? form.brand_color : STRIDER_RED;
-  const fg = readableForeground(color);
+  const primary = isValidHex(form.brand_color) ? form.brand_color : STRIDER_RED;
+  const secondary = isValidHex(form.secondary_color) ? form.secondary_color : primary;
+  const danger = isValidHex(form.danger_color) ? form.danger_color : STRIDER_RED;
+
+  const primaryFg = readableForeground(primary);
+  const secondaryFg = readableForeground(secondary);
+  const dangerFg = readableForeground(danger);
+
   const name = form.app_name.trim() || "Strider";
   const initials = form.logo_initials.trim() || name.charAt(0).toUpperCase();
 
@@ -575,9 +743,13 @@ function BrandPreview({ form }: { form: BrandingForm }) {
           className="overflow-hidden rounded-lg border border-border"
           style={
             {
-              "--accent-red": color,
-              "--primary": color,
-              "--primary-foreground": fg,
+              "--accent-red": primary,
+              "--primary": primary,
+              "--primary-foreground": primaryFg,
+              "--brand-secondary": secondary,
+              "--brand-secondary-foreground": secondaryFg,
+              "--destructive": danger,
+              "--destructive-foreground": dangerFg,
             } as React.CSSProperties
           }
         >
@@ -590,7 +762,7 @@ function BrandPreview({ form }: { form: BrandingForm }) {
                 ) : (
                   <span
                     className="grid h-5 w-5 place-items-center rounded"
-                    style={{ background: color, color: fg }}
+                    style={{ background: primary, color: primaryFg }}
                   >
                     {form.app_name.trim() || form.logo_initials.trim() ? (
                       <span className="text-[9px] font-extrabold">{initials}</span>
@@ -615,10 +787,10 @@ function BrandPreview({ form }: { form: BrandingForm }) {
                     {it.active && (
                       <span
                         className="absolute left-0 top-1 bottom-1 w-[2px] rounded-full"
-                        style={{ background: color }}
+                        style={{ background: primary }}
                       />
                     )}
-                    <it.icon className="h-3 w-3" style={it.active ? { color } : undefined} />
+                    <it.icon className="h-3 w-3" style={it.active ? { color: primary } : undefined} />
                     {it.label}
                   </div>
                 ))}
@@ -634,17 +806,36 @@ function BrandPreview({ form }: { form: BrandingForm }) {
                 <span className="text-foreground">Home</span>
               </div>
               <div className="space-y-2 p-2.5">
-                <div className="h-2 w-2/3 rounded bg-muted" />
-                <div className="h-2 w-1/2 rounded bg-muted" />
-                <div className="flex gap-1.5 pt-1">
+                {/* Two-series chart stub — the clearest place a secondary
+                    colour actually earns its keep. */}
+                <div className="flex h-10 items-end gap-1">
+                  {[0.5, 0.8, 0.35, 0.95, 0.6].map((h, i) => (
+                    <div key={i} className="flex flex-1 items-end gap-[2px]">
+                      <div className="flex-1 rounded-sm" style={{ height: `${h * 100}%`, background: primary }} />
+                      <div
+                        className="flex-1 rounded-sm"
+                        style={{ height: `${(1 - h) * 90 + 10}%`, background: secondary }}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-1.5 flex-wrap pt-1">
                   <span
                     className="rounded px-2 py-1 text-[9px] font-semibold"
-                    style={{ background: color, color: fg }}
+                    style={{ background: primary, color: primaryFg }}
                   >
                     Primary
                   </span>
-                  <span className="rounded border border-border px-2 py-1 text-[9px] font-semibold">Secondary</span>
-                  <span className="rounded bg-destructive px-2 py-1 text-[9px] font-semibold text-destructive-foreground">
+                  <span
+                    className="rounded px-2 py-1 text-[9px] font-semibold"
+                    style={{ background: secondary, color: secondaryFg }}
+                  >
+                    Secondary
+                  </span>
+                  <span
+                    className="rounded px-2 py-1 text-[9px] font-semibold"
+                    style={{ background: danger, color: dangerFg }}
+                  >
                     Delete
                   </span>
                 </div>
@@ -653,7 +844,7 @@ function BrandPreview({ form }: { form: BrandingForm }) {
           </div>
         </div>
         <p className="text-xs text-muted-foreground mt-3">
-          Note the Delete button stays red — danger actions never take the brand colour.
+          Check the Delete chip still reads as "careful" next to the other two — that's the one that matters.
         </p>
       </CardContent>
     </Card>
