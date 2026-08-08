@@ -3520,6 +3520,7 @@ export type Database = {
       }
       profiles: {
         Row: {
+          advanced_metrics_enabled: boolean
           ai_subscription_active: boolean
           anthropic_api_key: string | null
           anthropic_api_key_last4: string | null
@@ -3533,6 +3534,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          advanced_metrics_enabled?: boolean
           ai_subscription_active?: boolean
           anthropic_api_key?: string | null
           anthropic_api_key_last4?: string | null
@@ -3546,6 +3548,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          advanced_metrics_enabled?: boolean
           ai_subscription_active?: boolean
           anthropic_api_key?: string | null
           anthropic_api_key_last4?: string | null
