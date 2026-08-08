@@ -3147,6 +3147,30 @@ export type Database = {
           },
         ]
       }
+      parent_consent_records: {
+        Row: {
+          accepted_at: string
+          consent_text_version: string
+          id: string
+          invite_token: string
+          parent_user_id: string
+        }
+        Insert: {
+          accepted_at?: string
+          consent_text_version: string
+          id?: string
+          invite_token: string
+          parent_user_id: string
+        }
+        Update: {
+          accepted_at?: string
+          consent_text_version?: string
+          id?: string
+          invite_token?: string
+          parent_user_id?: string
+        }
+        Relationships: []
+      }
       pending_reminders: {
         Row: {
           athlete_id: string
