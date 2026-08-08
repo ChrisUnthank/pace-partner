@@ -38,7 +38,16 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 sm:rounded-lg",
+        // w-[calc(100%-2rem)] instead of w-full: this element is
+        // position:fixed, so w-full computes against the full VIEWPORT
+        // width with no side margin — on a phone the dialog was rendering
+        // edge-to-edge with zero gutter (this is what "not responsive on
+        // mobile/tablet" was actually reporting). The calc() leaves a 1rem
+        // gutter on each side below the max-width breakpoint; above it,
+        // max-w-* still wins exactly as before, so desktop is unaffected.
+        // This is the shared dialog primitive, so this fixes the same gap
+        // for every dialog in the app, not just this one.
+        "fixed left-[50%] top-[50%] z-50 grid w-[calc(100%-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 sm:rounded-lg",
         className,
       )}
       {...props}
