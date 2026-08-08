@@ -16,7 +16,6 @@ import {
   ChevronsLeft,
   ChevronsRight,
   ChevronDown,
-  Zap,
   HeartPulse,
   Clock,
   Backpack,
@@ -35,11 +34,14 @@ import {
   Map as MapIcon,
   PersonStanding,
   UserCircle2,
+  Palette,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NotificationBell } from "@/components/notification-bell";
 import { useQuery } from "@tanstack/react-query";
 import { useViewMode } from "@/lib/view-mode";
+import { useBranding, clearBrandingCache } from "@/lib/branding";
+import { BrandLogo, BrandMark, PoweredByStrider } from "@/components/brand-logo";
 
 type NavLeaf = { to: string; label: string; icon: any; show: boolean };
 type NavBucket = { id: string; label: string; icon: any; children: NavLeaf[] };
@@ -77,6 +79,11 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
   // page that reads them shows one coherent view at a time rather than a
   // merged coach+athlete nav neither role actually wants.
   const { isCoachView, isAthleteView, isDualRole, viewMode, setViewMode } = useViewMode();
+  // White-label: every place the word "Strider" or the Zap mark used to be
+  // hardcoded in this shell now goes through this. Unbranded installs get
+  // "Strider" back from useBranding()'s own fallback, so there is no
+  // separate code path for the default case.
+  const { appName } = useBranding();
   // Parent Portal: deliberately narrow. Most existing "show: true" items
   // below were written back when only coach/athlete existed, so "true"
   // effectively meant "either of the two roles that existed" — now that
@@ -111,6 +118,11 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
   async function signOut() {
     await qc.cancelQueries();
     qc.clear();
+    // Branding is cached in localStorage for pre-paint (see __root.tsx). On a
+    // shared device that cache would otherwise survive the sign-out and paint
+    // the previous coach's brand over the next person's login screen, so it
+    // gets cleared explicitly here rather than left to expire.
+    clearBrandingCache();
     await supabase.auth.signOut();
     navigate({ to: "/auth", replace: true });
   }
@@ -131,7 +143,16 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
   // original position at the end of the nav) rather than up top with
   // Home/Athletes — it's the account-settings page, not a frequent
   // destination the way Home is.
-  const accountItems: NavLeaf[] = [{ to: "/app/account", label: "Account", icon: User2, show: true }];
+  // Branding sits with Account rather than in a bucket for the same reason
+  // Account does — it's a settings destination, not a daily one. Coach-view
+  // only: an athlete has nothing to configure here, they just inherit their
+  // coach's brand. The page itself handles the "not entitled yet" case, so
+  // this is deliberately NOT gated on the premium flag — a coach who can't
+  // see the page at all can't find out the feature exists.
+  const accountItems: NavLeaf[] = [
+    { to: "/app/branding", label: "Branding", icon: Palette, show: isCoachView },
+    { to: "/app/account", label: "Account", icon: User2, show: true },
+  ];
 
   // Single ordered list — this array's order IS the sidebar's visual
   // order, so leaves and buckets can be interleaved (Health & Vitals sits
@@ -300,7 +321,7 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
   );
   const crumb = (() => {
     const matches = allLeaves.filter((n) => isPathActive(path, n.to));
-    if (matches.length === 0) return "Strider";
+    if (matches.length === 0) return appName;
     return matches.reduce((best, n) => (n.to.length > best.to.length ? n : best)).label;
   })();
 
@@ -329,13 +350,12 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
         )}
       >
         <div className={cn("h-14 flex items-center border-b border-border", collapsed ? "justify-center" : "px-5")}>
-          <Link to="/app" className="flex items-center gap-2 group">
-            <span className="w-7 h-7 grid place-items-center rounded-md bg-[var(--accent-red)] shadow-[0_0_18px_-4px_var(--accent-red)]">
-              <Zap className="h-4 w-4 text-white" strokeWidth={2.5} />
-            </span>
-            {!collapsed && (
-              <span className="font-display text-base font-extrabold tracking-tight uppercase">Strider</span>
-            )}
+          <Link to="/app" className="flex items-center gap-2 group min-w-0">
+            {/* Collapsed sidebar is 64px wide — a wide brand logo can't fit,
+                so it falls back to the square mark there (allowWide is moot
+                once showWordmark is false, but passed explicitly to make the
+                intent obvious). */}
+            <BrandLogo size="md" showWordmark={!collapsed} allowWide={!collapsed} />
           </Link>
         </div>
         <nav className="flex-1 px-2 py-4 space-y-0.5">
@@ -471,6 +491,12 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
           })}
         </nav>
         <div className="border-t border-border p-2">
+          {/* Non-removable attribution. Renders only when branding is
+              actually active, and only when the sidebar is expanded — at
+              64px there is genuinely nowhere legible to put it, and the
+              Account page carries the same line as the always-available
+              copy. */}
+          {!collapsed && <PoweredByStrider className="px-1 pb-1" />}
           <button
             onClick={() => setCollapsed((c) => !c)}
             className={cn(
@@ -495,12 +521,10 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
         <header className="h-14 sticky top-0 z-10 border-b border-border bg-background/80 backdrop-blur-md flex items-center justify-between px-4 md:px-6 print:hidden">
           <div className="flex items-center gap-3 min-w-0">
             <Link to="/app" className="md:hidden flex items-center gap-2">
-              <span className="w-6 h-6 grid place-items-center rounded-md bg-[var(--accent-red)]">
-                <Zap className="h-3.5 w-3.5 text-white" strokeWidth={2.5} />
-              </span>
+              <BrandMark size="sm" />
             </Link>
             <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
-              <span>Strider</span>
+              <span className="truncate max-w-[140px]">{appName}</span>
               <span className="text-border">/</span>
               <span className="text-foreground">{crumb}</span>
             </div>
@@ -519,7 +543,7 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
                   className={cn(
                     "px-2.5 h-6 rounded transition-colors",
                     viewMode === "coach"
-                      ? "bg-[var(--accent-red)] text-white"
+                      ? "bg-[var(--accent-red)] text-[var(--primary-foreground)]"
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
@@ -531,7 +555,7 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
                   className={cn(
                     "px-2.5 h-6 rounded transition-colors",
                     viewMode === "athlete"
-                      ? "bg-[var(--accent-red)] text-white"
+                      ? "bg-[var(--accent-red)] text-[var(--primary-foreground)]"
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
