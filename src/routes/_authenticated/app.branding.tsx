@@ -23,7 +23,13 @@ import {
   LineChart,
   Zap,
 } from "lucide-react";
-import { isValidHex, readableForeground, contrastRatioWithWhite, colorDistance } from "@/lib/branding";
+import {
+  isValidHex,
+  readableForeground,
+  contrastRatioWithWhite,
+  colorDistance,
+  buildSurfaceVars,
+} from "@/lib/branding";
 import { logAccountActivity } from "@/lib/account-activity-log";
 
 export const Route = createFileRoute("/_authenticated/app/branding")({
@@ -55,7 +61,7 @@ interface BrandingForm {
   secondary_color: string;
   /** Empty string = not set. Falls back to Strider red. */
   danger_color: string;
-  default_theme: "user" | "dark" | "light";
+  default_theme: "user" | "dark" | "light" | "brand-dark" | "brand-light";
   force_theme: boolean;
   support_email: string;
 }
@@ -466,7 +472,9 @@ function BrandingPage() {
               <CardHeader>
                 <CardTitle className="text-base">Default appearance</CardTitle>
                 <CardDescription>
-                  Which of light or dark your athletes start on. This is a starting point, not a lock — anyone who's
+                  Four options. Dark and Light are the neutral black-and-white palettes. Brand Dark and Brand Light
+                  keep the same structure but tint every panel toward your brand colour — a blue brand gets
+                  near-navy panels instead of near-black ones. This is a starting point, not a lock: anyone who's
                   already chosen their own keeps it, unless you lock it below.
                 </CardDescription>
               </CardHeader>
@@ -482,8 +490,10 @@ function BrandingPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="user">Let each person choose</SelectItem>
-                      <SelectItem value="dark">Dark</SelectItem>
-                      <SelectItem value="light">Light</SelectItem>
+                      <SelectItem value="dark">Dark (neutral)</SelectItem>
+                      <SelectItem value="light">Light (neutral)</SelectItem>
+                      <SelectItem value="brand-dark">Brand Dark (tinted)</SelectItem>
+                      <SelectItem value="brand-light">Brand Light (tinted)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -715,6 +725,10 @@ function ImageField({
  * brand while the surrounding page stays on the current live one.
  */
 function BrandPreview({ form }: { form: BrandingForm }) {
+  // The preview needs its own appearance switch. The surrounding editor stays
+  // on whatever the coach is actually using, so without this there's no way
+  // to see what Brand Light looks like from a Brand Dark session.
+  const [mode, setMode] = useState<"dark" | "light" | "brand-dark" | "brand-light">("brand-dark");
   const primary = isValidHex(form.brand_color) ? form.brand_color : STRIDER_RED;
   const secondary = isValidHex(form.secondary_color) ? form.secondary_color : primary;
   const danger = isValidHex(form.danger_color) ? form.danger_color : STRIDER_RED;
@@ -722,6 +736,10 @@ function BrandPreview({ form }: { form: BrandingForm }) {
   const primaryFg = readableForeground(primary);
   const secondaryFg = readableForeground(secondary);
   const dangerFg = readableForeground(danger);
+
+  const isDarkMode = mode === "dark" || mode === "brand-dark";
+  const surfaceVars =
+    mode === "brand-dark" || mode === "brand-light" ? buildSurfaceVars(primary, isDarkMode) : {};
 
   const name = form.app_name.trim() || "Strider";
   const initials = form.logo_initials.trim() || name.charAt(0).toUpperCase();
@@ -739,17 +757,37 @@ function BrandPreview({ form }: { form: BrandingForm }) {
         <CardDescription>How the app chrome will look to you and your athletes.</CardDescription>
       </CardHeader>
       <CardContent>
+        <div className="mb-3 flex flex-wrap gap-1">
+          {(["dark", "light", "brand-dark", "brand-light"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setMode(m)}
+              className={cn(
+                "rounded-md border px-2 py-1 text-[11px] font-medium transition-colors",
+                mode === m ? "bg-primary text-primary-foreground border-primary" : "text-muted-foreground",
+              )}
+            >
+              {m === "dark" ? "Dark" : m === "light" ? "Light" : m === "brand-dark" ? "Brand Dark" : "Brand Light"}
+            </button>
+          ))}
+        </div>
         <div
-          className="overflow-hidden rounded-lg border border-border"
+          className={cn("overflow-hidden rounded-lg border border-border", isDarkMode && "dark")}
           style={
             {
               "--accent-red": primary,
               "--primary": primary,
               "--primary-foreground": primaryFg,
+              "--sidebar-primary": secondary,
               "--brand-secondary": secondary,
               "--brand-secondary-foreground": secondaryFg,
               "--destructive": danger,
               "--destructive-foreground": dangerFg,
+              // Real tinted-surface values, straight from the same function
+              // the live app uses — so this is an actual preview, not an
+              // approximation that can drift from what ships.
+              ...surfaceVars,
             } as React.CSSProperties
           }
         >
@@ -787,10 +825,10 @@ function BrandPreview({ form }: { form: BrandingForm }) {
                     {it.active && (
                       <span
                         className="absolute left-0 top-1 bottom-1 w-[2px] rounded-full"
-                        style={{ background: primary }}
+                        style={{ background: secondary }}
                       />
                     )}
-                    <it.icon className="h-3 w-3" style={it.active ? { color: primary } : undefined} />
+                    <it.icon className="h-3 w-3" style={it.active ? { color: secondary } : undefined} />
                     {it.label}
                   </div>
                 ))}
@@ -844,7 +882,8 @@ function BrandPreview({ form }: { form: BrandingForm }) {
           </div>
         </div>
         <p className="text-xs text-muted-foreground mt-3">
-          Check the Delete chip still reads as "careful" next to the other two — that's the one that matters.
+          Nav highlights use your secondary colour; buttons use your primary. Check the Delete chip still reads as
+          "careful" next to the other two — that's the one that matters.
         </p>
       </CardContent>
     </Card>
