@@ -79,9 +79,14 @@ export const METHOD_META: Record<
     bestFor: "Best when resting HR is known and tracked — more individualised than %HRmax alone.",
   },
   threshold_hr: {
-    label: "Threshold Heart Rate (Joe Friel)",
+    label: "Threshold Heart Rate",
     basis: "hr",
-    blurb: "Enter a known lactate-threshold HR directly — Friel's published %LTHR zone bands.",
+    // Was previously described as "Friel's published %LTHR zone bands" —
+    // corrected. The bands below are this app's own %LTHR scheme (72/83/
+    // 94/100/108% of threshold HR), not a reproduction of Joe Friel's
+    // actual published percentages. Nothing about the numbers changed here,
+    // only the claim about where they come from.
+    blurb: "Enter a known lactate-threshold HR directly — applies this app's standard %LTHR zone bands.",
     bestFor: "Best when threshold HR is already known from a field test (e.g. a 30-minute time trial).",
   },
   pct_max_hr: {
@@ -102,6 +107,14 @@ export type ZoneRow = { key: string; name: string; low: number; high: number | n
 // HR bands are % of threshold HR, ascending the normal way.
 // ---------------------------------------------------------------------
 
+// As of the proportional-pace fix, these multipliers are now the SAME ones
+// the live public.zones_from_pace_threshold DB function uses (previously
+// this file documented the intended model while the live function actually
+// ran a completely different flat-second-offset one — see
+// 20260808040000_zones-proportional-pace.sql). Kept as a literal duplicate
+// rather than fetched at runtime because this is specifically the
+// zero-round-trip instant-preview path; the real DB result still always
+// wins once it resolves (see the file-level comment above).
 const PACE_BANDS: { key: string; name: string; lowMult: number; highMult: number | null }[] = [
   { key: "recovery", name: "Recovery", lowMult: 1.5, highMult: null },
   { key: "endurance", name: "Endurance", lowMult: 1.3, highMult: 1.5 },
@@ -111,17 +124,19 @@ const PACE_BANDS: { key: string; name: string; lowMult: number; highMult: number
   { key: "anaerobic", name: "Anaerobic", lowMult: 0.8, highMult: 0.9 },
 ];
 
-// Friel's published %LTHR (lactate-threshold heart rate) zone bands —
-// the same well-known model cited directly by the Threshold HR method,
-// reused here as the shared band for every HR-based method so they stay
-// comparable to each other.
+// This app's own %LTHR (lactate-threshold heart rate) zone bands — NOT
+// Joe Friel's published percentages, despite this file previously claiming
+// that (see the corrected threshold_hr blurb above). These are the same
+// 72/83/94/100/108% cutoffs the live public.zones_from_hr_threshold DB
+// function actually returns, kept in sync here for the same instant-preview
+// reason as PACE_BANDS above.
 const HR_BANDS: { key: string; name: string; lowPct: number; highPct: number | null }[] = [
-  { key: "recovery", name: "Recovery", lowPct: 0, highPct: 81 },
-  { key: "endurance", name: "Endurance", lowPct: 81, highPct: 89 },
-  { key: "tempo", name: "Tempo", lowPct: 90, highPct: 93 },
-  { key: "threshold", name: "Threshold", lowPct: 94, highPct: 99 },
-  { key: "vo2max", name: "VO₂ Max", lowPct: 100, highPct: 102 },
-  { key: "anaerobic", name: "Anaerobic", lowPct: 103, highPct: null },
+  { key: "recovery", name: "Recovery", lowPct: 0, highPct: 72 },
+  { key: "endurance", name: "Endurance", lowPct: 72, highPct: 83 },
+  { key: "tempo", name: "Tempo", lowPct: 83, highPct: 94 },
+  { key: "threshold", name: "Threshold", lowPct: 94, highPct: 100 },
+  { key: "vo2max", name: "VO₂ Max", lowPct: 100, highPct: 108 },
+  { key: "anaerobic", name: "Anaerobic", lowPct: 108, highPct: null },
 ];
 
 export function deriveZonesFromPaceThreshold(thresholdSecPerKm: number): ZoneRow[] {
