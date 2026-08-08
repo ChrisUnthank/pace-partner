@@ -37,7 +37,7 @@ function AuthPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
-  const [role, setRole] = useState<"athlete" | "coach" | "manager">("athlete");
+  const [role, setRole] = useState<"athlete" | "coach" | "manager" | "parent">("athlete");
   const [busy, setBusy] = useState(false);
 
   // Forgot password / temporary magic-link re-login
@@ -72,12 +72,25 @@ function AuthPage() {
     return () => subscription.unsubscribe();
   }, [navigate]);
 
-  async function ensureRole(userId: string, r: "athlete" | "coach" | "manager") {
+  async function ensureRole(userId: string, r: "athlete" | "coach" | "manager" | "parent") {
+    // Coach is a premium plan — this MUST match the same gate in
+    // RolesCard.toggle() (app.account.tsx): self-service sign-up can never
+    // grant Coach, only Athlete/Manager/Parent are free. Without this, a
+    // brand-new account choosing "Coach" here would get instant coach
+    // access with none of the restriction that already exists for an
+    // EXISTING account trying to turn Coach on from their profile — same
+    // bug, just reachable through a different door. Falls back to Athlete
+    // rather than leaving the account with no role at all.
+    const effectiveRole = r === "coach" ? "athlete" : r;
+    if (r === "coach") {
+      toast.error("Coach access requires a premium plan — get in touch to upgrade. Your account was created as Athlete for now.");
+    }
+
     const { error: roleErr } = await supabase
       .from("user_roles")
-      .upsert({ user_id: userId, role: r }, { onConflict: "user_id,role" });
+      .upsert({ user_id: userId, role: effectiveRole }, { onConflict: "user_id,role" });
     if (roleErr) throw roleErr;
-    if (r === "athlete") {
+    if (effectiveRole === "athlete") {
       const { data: existing } = await supabase.from("athletes").select("id").eq("user_id", userId).maybeSingle();
       if (!existing) {
         await supabase.from("athletes").insert({
@@ -336,9 +349,13 @@ function AuthPage() {
                       <label className="flex items-center gap-2 cursor-pointer">
                         <RadioGroupItem value="manager" /> Manager
                       </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <RadioGroupItem value="parent" /> Parent
+                      </label>
                     </RadioGroup>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Manager = team/squad admin with coach-level access to every athlete.
+                      Manager = team/squad admin with coach-level access to every athlete. Coach requires a premium
+                      plan — choosing it creates your account as Athlete for now; get in touch to upgrade.
                     </p>
                   </div>
                   <Button className="w-full" disabled={busy} onClick={signUp}>
