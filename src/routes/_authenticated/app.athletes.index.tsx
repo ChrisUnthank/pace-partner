@@ -58,6 +58,27 @@ function formatRelative(iso: string) {
   return `${days}d ago`;
 }
 
+// Whether an athlete's OWN independent login can be invited right now.
+// Deliberately conservative: a DOB that's missing entirely is treated the
+// same as a confirmed minor (block, don't assume adult) — the point of
+// this check is to make sure a minor never gets their own account without
+// a parent already in the loop, so guessing "probably an adult" when we
+// genuinely don't know defeats that. Once a DOB is set and shows 18+,
+// invites are unrestricted as before. Under 18 (or unknown) requires an
+// ACTIVE parent link first — recorded consent from a parent/guardian
+// before the athlete gets their own account.
+function ageStatus(dob: string | null | undefined): "adult" | "minor_or_unknown" {
+  if (!dob) return "minor_or_unknown";
+  const birth = new Date(dob);
+  if (Number.isNaN(birth.getTime())) return "minor_or_unknown";
+  const now = new Date();
+  let age = now.getFullYear() - birth.getFullYear();
+  const hasHadBirthdayThisYear =
+    now.getMonth() > birth.getMonth() || (now.getMonth() === birth.getMonth() && now.getDate() >= birth.getDate());
+  if (!hasHadBirthdayThisYear) age--;
+  return age >= 18 ? "adult" : "minor_or_unknown";
+}
+
 function AthletesPage() {
   const { user } = useAuthUser();
   const { data: rawRoles = [] } = useMyRawRoles();
@@ -66,6 +87,7 @@ function AthletesPage() {
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [event, setEvent] = useState("");
+  const [dob, setDob] = useState("");
   const [email, setEmail] = useState("");
   // Separate from `email` above — that one is specifically for the
   // "become a Strider user" invite flow (writes an athlete_invites row).
@@ -229,20 +251,32 @@ function AthletesPage() {
     if (!name) { toast.error("Name required"); return; }
     const { data: ath, error } = await supabase.from("athletes").insert({
       name, primary_event: event || null, created_by: user!.id, timezone,
-      email: contactEmail || null,
+      email: contactEmail || null, dob: dob || null,
     }).select().single();
     if (error || !ath) { toast.error(error?.message ?? "Failed"); return; }
     await supabase.from("coach_athletes").insert({ coach_user_id: user!.id, athlete_id: ath.id });
     if (email) {
-      const { data: inv } = await supabase.from("athlete_invites").insert({
-        coach_user_id: user!.id, athlete_id: ath.id, email,
-      }).select("token").single();
-      if (inv?.token) {
-        setInviteLinkLabel("Invite link ready");
-        setInviteLink(`${window.location.origin}/claim/${inv.token}`);
+      // A brand-new athlete can't have an active parent link yet (there's
+      // been no chance to invite one), so ageStatus alone decides here —
+      // this only ever fires for a confirmed adult (a DOB was entered
+      // showing 18+). Anyone else (no DOB entered, or a minor's DOB)
+      // skips the auto-invite entirely rather than silently handing out
+      // an independent login with no parent in the loop yet.
+      if (ageStatus(dob) === "adult") {
+        const { data: inv } = await supabase.from("athlete_invites").insert({
+          coach_user_id: user!.id, athlete_id: ath.id, email,
+        }).select("token").single();
+        if (inv?.token) {
+          setInviteLinkLabel("Invite link ready");
+          setInviteLink(`${window.location.origin}/claim/${inv.token}`);
+        }
+      } else {
+        toast.info(
+          "This athlete is under 18 (or no date of birth was entered) — their own login isn't sent automatically. Invite a parent/guardian from their row first; their login invite becomes available once a parent has linked.",
+        );
       }
     }
-    setName(""); setEvent(""); setEmail(""); setContactEmail("");
+    setName(""); setEvent(""); setDob(""); setEmail(""); setContactEmail("");
     toast.success("Athlete added");
     qc.invalidateQueries({ queryKey: ["athletes-page-roster"] });
   }
@@ -256,9 +290,29 @@ function AthletesPage() {
     qc.invalidateQueries({ queryKey: ["athletes-page-roster"] });
   }
 
-  async function copyExistingInvite(athleteId: string, existing: any) {
+  async function updateDob(athleteId: string, current: string | null) {
+    const next = window.prompt("Date of birth (YYYY-MM-DD) — leave blank to clear:", current ?? "");
+    if (next === null) return; // cancelled
+    const trimmed = next.trim();
+    if (trimmed && Number.isNaN(new Date(trimmed).getTime())) {
+      toast.error("Couldn't read that as a date — use YYYY-MM-DD.");
+      return;
+    }
+    const { error } = await supabase.from("athletes").update({ dob: trimmed || null }).eq("id", athleteId);
+    if (error) { toast.error(error.message); return; }
+    toast.success(trimmed ? "Date of birth saved" : "Date of birth cleared");
+    qc.invalidateQueries({ queryKey: ["athletes-page-roster"] });
+  }
+
+  async function copyExistingInvite(athleteId: string, existing: any, dob: string | null, hasActiveParentLink: boolean) {
     let token: string | undefined = existing?.[0]?.token && !existing?.[0]?.accepted_at ? existing[0].token : undefined;
     if (!token) {
+      if (ageStatus(dob) !== "adult" && !hasActiveParentLink) {
+        toast.error(
+          "This athlete is under 18 (or has no date of birth set) — invite a parent/guardian first from their row. Their own login invite becomes available once a parent has linked.",
+        );
+        return;
+      }
       const inviteEmail = window.prompt("Email to send the invite to:");
       if (!inviteEmail) return;
       const { data, error } = await supabase.from("athlete_invites").insert({
@@ -502,7 +556,18 @@ function AthletesPage() {
                             ) : (
                               <>
                                 <Badge variant="outline">Invite pending</Badge>
-                                <Button size="sm" variant="ghost" onClick={() => copyExistingInvite(r.athlete_id, r.athlete_invites)}>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() =>
+                                    copyExistingInvite(
+                                      r.athlete_id,
+                                      r.athlete_invites,
+                                      r.athletes?.dob ?? null,
+                                      (parentInfo?.countByAthlete.get(r.athlete_id) ?? 0) > 0,
+                                    )
+                                  }
+                                >
                                   {r.athlete_invites?.length ? "Copy invite link" : "Generate invite link"}
                                 </Button>
                               </>
@@ -515,6 +580,20 @@ function AthletesPage() {
                             >
                               <Mail className="h-3 w-3" />
                               {r.athletes?.email ? "Email on file" : "No email"}
+                            </Badge>
+                            <Badge
+                              variant="outline"
+                              title={
+                                r.athletes?.dob
+                                  ? `Date of birth: ${r.athletes.dob} (${ageStatus(r.athletes.dob) === "adult" ? "18+" : "under 18"})`
+                                  : "No date of birth on file — treated as under 18 for the independent-login gate"
+                              }
+                              className={`cursor-pointer gap-1 ${
+                                ageStatus(r.athletes?.dob ?? null) === "adult" ? "text-muted-foreground" : "text-amber-600 dark:text-amber-400"
+                              }`}
+                              onClick={() => updateDob(r.athlete_id, r.athletes?.dob ?? null)}
+                            >
+                              {r.athletes?.dob ? (ageStatus(r.athletes.dob) === "adult" ? "18+" : "Under 18") : "No DOB"}
                             </Badge>
                             {/* Parent invite — coach-granted, mirrors the
                                 athlete invite affordance. Shows a count badge
@@ -597,6 +676,14 @@ function AthletesPage() {
               <CardContent className="grid gap-3">
                 <div><Label>Name</Label><Input value={name} onChange={(e) => setName(e.target.value)} /></div>
                 <div><Label>Primary event</Label><Input placeholder="800m" value={event} onChange={(e) => setEvent(e.target.value)} /></div>
+                <div>
+                  <Label>Date of birth</Label>
+                  <Input type="date" max={todayISO()} value={dob} onChange={(e) => setDob(e.target.value)} />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Used to protect athletes under 18 — their own login can't be sent until a parent/guardian has
+                    linked first. Leave blank and it's treated the same as under 18 for that check.
+                  </p>
+                </div>
                 <div><Label>Invite email (optional)</Label><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
                 <div>
                   <Label>Contact email (optional — for sending programs directly, no app account needed)</Label>
