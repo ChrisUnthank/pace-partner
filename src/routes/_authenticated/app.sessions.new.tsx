@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { z } from "zod";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuthUser, useMyRoles, useMyRawRoles, useMyAthlete } from "@/lib/use-auth";
+import { useAuthUser, useMyRoles, useMyAthlete, useCoachRoster } from "@/lib/use-auth";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -185,28 +185,23 @@ function NewSession() {
   const search = Route.useSearch();
   const { user } = useAuthUser();
   const { data: roles = [] } = useMyRoles();
-  const { data: rawRoles = [] } = useMyRawRoles();
   const { data: myAthlete } = useMyAthlete();
   const isCoach = roles.includes("coach");
-  const isManager = rawRoles.includes("manager");
 
-  const { data: rosterAthletes } = useQuery({
-    queryKey: ["coach-roster", user?.id, isManager],
-    enabled: !!user && isCoach,
-    queryFn: async () => {
-      if (isManager) {
-        const { data } = await supabase.from("athletes").select("id, name").order("name");
-        return data ?? [];
-      }
-
-      const { data } = await supabase
-        .from("coach_athletes")
-        .select("athletes(id, name)")
-        .eq("coach_user_id", user!.id);
-
-      return (data ?? []).map((r: any) => r.athletes).filter(Boolean);
-    },
-  });
+  // Was its own inline copy of this exact query, under the exact same
+  // React Query cache key ("coach-roster") as the shared useCoachRoster()
+  // hook used across 10+ other pages — but with a DIFFERENT return shape
+  // (flat {id,name}[] here vs useCoachRoster's wrapped
+  // {athlete_id, athletes:{...}}[]). Since React Query treats a matching
+  // key as interchangeable regardless of which queryFn produced it,
+  // whichever one happened to fetch first could silently hand its shape
+  // to the other — a real source of inconsistent/duplicate-looking roster
+  // data depending on which page loaded first in a session. Using the
+  // shared hook directly (and flattening its shape locally, just for this
+  // page's own dropdown) removes the collision at the source instead of
+  // just renaming around it.
+  const { data: coachRoster } = useCoachRoster();
+  const rosterAthletes = (coachRoster ?? []).map((r: any) => r.athletes).filter(Boolean);
 
   const { data: templates } = useQuery({
     queryKey: ["templates", user?.id],
