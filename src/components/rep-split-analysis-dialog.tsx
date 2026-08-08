@@ -1788,13 +1788,27 @@ export function RepSplitAnalysisDialog({
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm flex items-center gap-1.5">
                     <Trophy className="h-4 w-4 text-muted-foreground" />
-                    Best 400m
+                    Best 400m+
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
                   {bestSection ? (
                     <div className="space-y-1 text-sm">
-                      <div className="text-xl font-semibold tabular-nums">{formatSplitTime(bestSection.paceSecPerKm, unit)}</div>
+                      {/* Total elapsed time for the window is the primary
+                          number — unambiguous regardless of unit
+                          preference, unlike showing pace alone here (see
+                          note below). Pace is still shown, just clearly
+                          labelled as a rate rather than bare "Xs", which
+                          previously read as "this whole window took Xs
+                          total" — physically impossible for anything
+                          resembling a real 400m pace and confirmed
+                          confusing in practice. */}
+                      <div className="text-xl font-semibold tabular-nums">{secToClock(bestSection.timeS)}</div>
+                      <div className="text-muted-foreground">
+                        {formatSplitTime(bestSection.paceSecPerKm, unit)}
+                        {unit === "sec100" ? "/100m pace" : " pace"} over{" "}
+                        {Math.round(bestSection.endDistanceM - bestSection.startDistanceM)}m
+                      </div>
                       <div className="text-muted-foreground">
                         {Math.round(bestSection.startDistanceM)}–{Math.round(bestSection.endDistanceM)}m into the rep
                       </div>
