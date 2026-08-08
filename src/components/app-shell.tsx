@@ -42,6 +42,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useViewMode } from "@/lib/view-mode";
 import { useBranding, clearBrandingCache } from "@/lib/branding";
 import { BrandLogo, BrandMark, PoweredByStrider } from "@/components/brand-logo";
+import { PwaInstallPrompt } from "@/components/pwa-install-card";
+import { useAppMode } from "@/lib/device";
 
 type NavLeaf = { to: string; label: string; icon: any; show: boolean };
 type NavBucket = { id: string; label: string; icon: any; children: NavLeaf[] };
@@ -84,6 +86,12 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
   // "Strider" back from useBranding()'s own fallback, so there is no
   // separate code path for the default case.
   const { appName } = useBranding();
+  // Mobile-app foundation (Update 40): isMobileViewport already covers
+  // every existing layout decision in this file via Tailwind's own md:
+  // breakpoint, so nothing needed to migrate there. isAppMode additionally
+  // covers the installed-standalone case, which matters for the install
+  // nudge below (never shown once actually installed).
+  const { isMobileViewport, isStandalone } = useAppMode();
   // Parent Portal: deliberately narrow. Most existing "show: true" items
   // below were written back when only coach/athlete existed, so "true"
   // effectively meant "either of the two roles that existed" — now that
@@ -524,7 +532,10 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
 
       {/* Main column */}
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-14 sticky top-0 z-10 border-b border-border bg-background/80 backdrop-blur-md flex items-center justify-between px-4 md:px-6 print:hidden">
+        <header
+          className="h-14 sticky top-0 z-10 border-b border-border bg-background/80 backdrop-blur-md flex items-center justify-between px-4 md:px-6 print:hidden"
+          style={{ paddingTop: "env(safe-area-inset-top)", height: "calc(3.5rem + env(safe-area-inset-top))" }}
+        >
           <div className="flex items-center gap-3 min-w-0">
             <Link to="/app" className="md:hidden flex items-center gap-2">
               <BrandMark size="sm" />
@@ -595,7 +606,8 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
             it's no longer pinned out-of-flow at the bottom, `main` no
             longer needs the old bottom padding reserved to clear it. */}
         <nav
-          className="md:hidden sticky top-14 z-10 border-b border-border bg-background/95 backdrop-blur-md flex print:hidden"
+          className="md:hidden sticky z-10 border-b border-border bg-background/95 backdrop-blur-md flex print:hidden"
+          style={{ top: "calc(3.5rem + env(safe-area-inset-top))" }}
         >
           {mobileItems.map((n) => {
             const active = n.bucketActive ?? isPathActive(path, n.to);
@@ -606,21 +618,41 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
                 title={n.label}
                 aria-label={n.label}
                 className={cn(
-                  "flex-1 min-w-0 flex items-center justify-center py-2.5",
+                  // active:scale-90 is the one-line version of the
+                  // press-down feedback every native app nav has and a
+                  // plain hover-only web nav doesn't — cheap, and the
+                  // single highest-leverage "does this feel like an app"
+                  // change available without touching layout or position.
+                  "flex-1 min-w-0 flex items-center justify-center py-3 transition-transform active:scale-90",
                   active ? "text-[var(--sidebar-primary)]" : "text-muted-foreground",
                 )}
               >
-                <n.icon className="h-4.5 w-4.5 shrink-0" strokeWidth={active ? 2.5 : 2} />
+                <n.icon className="h-5 w-5 shrink-0" strokeWidth={active ? 2.5 : 2} />
               </Link>
             );
           })}
         </nav>
+
+        {/* Install nudge — mobile browser tab only. Excludes standalone
+            (nothing to offer someone already using the installed app) and
+            desktop (a nudge to "install" on a full browser window is a
+            different, lower-priority conversation than "you're on your
+            phone in Safari/Chrome right now"). Self-contained: renders
+            nothing unless the platform can actually install and the person
+            hasn't dismissed it recently — see usePwaInstall()'s
+            shouldOfferInstall. */}
+        {isMobileViewport && !isStandalone && (
+          <div className="md:hidden px-3 pt-3 print:hidden">
+            <PwaInstallPrompt variant="banner" />
+          </div>
+        )}
 
         <main
           className={cn(
             "flex-1 px-4 md:px-8 py-6 md:py-8 w-full mx-auto print:p-0 print:max-w-none",
             fullWidth ? "max-w-none" : "max-w-7xl",
           )}
+          style={{ paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))" }}
         >
           {children}
         </main>
