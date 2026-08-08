@@ -63,12 +63,12 @@ function TrendIcon({ trend, current, previous }: { trend: Trend; current: number
       ? `Fitness ${Math.round(previous)} → ${Math.round(current)}`
       : undefined;
   if (trend === "up") {
-    return <TrendingUp className="h-4 w-4 text-emerald-600 inline-block" title={title} />;
+    return <TrendingUp className="h-4 w-4 text-emerald-600 inline-block" {...{ title }} />;
   }
   if (trend === "down") {
-    return <TrendingDown className="h-4 w-4 text-rose-600 inline-block" title={title} />;
+    return <TrendingDown className="h-4 w-4 text-rose-600 inline-block" {...{ title }} />;
   }
-  return <Minus className="h-4 w-4 text-muted-foreground inline-block" title={title} />;
+  return <Minus className="h-4 w-4 text-muted-foreground inline-block" {...{ title }} />;
 }
 
 export function FitnessHistoryCard({ athleteId }: { athleteId: string }) {
