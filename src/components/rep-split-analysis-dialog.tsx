@@ -1358,6 +1358,15 @@ export function RepSplitAnalysisDialog({
     const vals = splits.map((s) => s.avgHr).filter((v): v is number => v != null);
     return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
   }, [splits]);
+  // Split-by-split grid content toggle — Pace (default) shows the same
+  // per-100m value as the unit toggle below; Time shows rep-elapsed time
+  // at the END of that split (a running total, matching what the route
+  // map's mini reference boxes already show below); HR shows that split's
+  // own average heart rate. The wind arrow badge stays visible in every
+  // mode — it answers a different question (which way was the wind) than
+  // whichever value is currently on display.
+  // Declared here (above splitColors) because that memo reads it.
+  const [gridMode, setGridMode] = useState<"pace" | "time" | "hr">("pace");
   // The %-deviation threshold in colorForSplit can legitimately produce
   // ZERO green splits for a coarse-grained metric like HR: each split's
   // avgHr is rounded to a whole bpm, but the reference (the average of
@@ -1407,15 +1416,6 @@ export function RepSplitAnalysisDialog({
   // Toggling to Pace shows the same underlying numbers as a per-km rate
   // instead; nothing about the underlying calculation changes either way.
   const [unit, setUnit] = useState<SplitTimeUnit>("sec100");
-
-  // Split-by-split grid content toggle — Pace (default) shows the same
-  // per-100m value as the unit toggle above; Time shows rep-elapsed time
-  // at the END of that split (a running total, matching what the route
-  // map's mini reference boxes already show below); HR shows that split's
-  // own average heart rate. The wind arrow badge stays visible in every
-  // mode — it answers a different question (which way was the wind) than
-  // whichever value is currently on display.
-  const [gridMode, setGridMode] = useState<"pace" | "time" | "hr">("pace");
   const cumulativeTimesS = useMemo(() => {
     let acc = 0;
     return splits.map((s) => {
