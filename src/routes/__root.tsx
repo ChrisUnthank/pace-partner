@@ -106,19 +106,51 @@ function RootShell({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
       <head>
-        {/* Sets the correct light/dark class on <html> before first paint,
-            so there's no flash of the wrong theme. Runs synchronously,
-            blocking, before anything below it renders — the standard
-            no-FOUC technique. Server always renders className="dark"
-            above (it has no way to know a client's stored preference);
-            this corrects it client-side the instant the page loads if the
-            person has actually chosen light. suppressHydrationWarning on
-            <html> above stops React from complaining that this script
-            changed an attribute React didn't render itself. */}
+        {/* Pre-paint bootstrap. Runs synchronously, blocking, before
+            anything below it renders — the standard no-FOUC technique.
+            Does two jobs:
+
+            1. Light/dark class on <html>. The server always renders
+               className="dark" above (it has no way to know a client's
+               stored preference); this corrects it client-side the instant
+               the page loads.
+            2. White-label brand colour, from the cache BrandingProvider
+               writes to localStorage. Without this the app would paint
+               Strider red for a frame on every load and then flip to the
+               coach's colour once the branding RPC resolves.
+
+            Theme precedence here MUST match the resolution in
+            src/lib/theme.tsx: a FORCED brand theme wins, then the person's
+            own stored choice, then the brand's suggested default, then
+            dark. The readable-foreground threshold must match
+            readableForeground() in src/lib/branding.tsx. Both are
+            duplicated here by necessity — this script runs before any
+            module has loaded, so it can't import them.
+
+            suppressHydrationWarning on <html> above stops React from
+            complaining that this script changed attributes React didn't
+            render itself. */}
         <script
           // eslint-disable-next-line react/no-danger
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem("strider:theme");if(t==="light"){document.documentElement.classList.remove("dark");}}catch(e){}})();`,
+            __html: `(function(){try{
+var el=document.documentElement;
+var stored=localStorage.getItem("strider:theme");
+var b=null;try{b=JSON.parse(localStorage.getItem("strider:brand")||"null")}catch(e){}
+var bt=(b&&(b.defaultTheme==="dark"||b.defaultTheme==="light"))?b.defaultTheme:null;
+var forced=!!(b&&b.forceTheme&&bt);
+var t=forced?bt:((stored==="light"||stored==="dark")?stored:(bt||"dark"));
+if(t==="light"){el.classList.remove("dark")}else{el.classList.add("dark")}
+var c=b&&b.brandColor;
+if(c&&/^#[0-9a-fA-F]{6}$/.test(c)){
+var v=["--accent-red","--primary","--ring","--sidebar-primary","--sidebar-ring","--chart-1"];
+for(var i=0;i<v.length;i++){el.style.setProperty(v[i],c)}
+var r=parseInt(c.slice(1,3),16),g=parseInt(c.slice(3,5),16),bl=parseInt(c.slice(5,7),16);
+var fg=(0.2126*r+0.7152*g+0.0722*bl)>150?"#111111":"#ffffff";
+el.style.setProperty("--primary-foreground",fg);
+el.style.setProperty("--sidebar-primary-foreground",fg);
+}
+}catch(e){}})();`,
           }}
         />
         <HeadContent />
