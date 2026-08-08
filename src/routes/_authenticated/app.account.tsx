@@ -478,7 +478,7 @@ function RolesCard({ userId, roles, email }: { userId: string; roles: AppRole[];
   const qc = useQueryClient();
   const has = (r: AppRole) => roles.includes(r);
 
-  async function toggle(r: "athlete" | "coach" | "manager", on: boolean) {
+  async function toggle(r: "athlete" | "coach" | "manager" | "parent", on: boolean) {
     // Matches the disabled checkbox below — belt-and-suspenders in case
     // this ever gets called some other way. Real enforcement still needs
     // to live in RLS once the premium-plan check exists server-side;
@@ -518,10 +518,11 @@ function RolesCard({ userId, roles, email }: { userId: string; roles: AppRole[];
     qc.invalidateQueries({ queryKey: ["my-athlete"] });
   }
 
-  const items: { role: "athlete" | "coach" | "manager"; label: string; desc: string }[] = [
+  const items: { role: "athlete" | "coach" | "manager" | "parent"; label: string; desc: string }[] = [
     { role: "athlete", label: "Athlete", desc: "See your own training, check-ins, PBs and readiness." },
     { role: "coach", label: "Coach", desc: "Manage your linked roster of athletes, sessions and templates." },
     { role: "manager", label: "Manager", desc: "Team / squad administrator — coach-level access to every athlete." },
+    { role: "parent", label: "Parent", desc: "Follow a linked athlete's training and check-ins from a parent's view." },
   ];
 
   return (
