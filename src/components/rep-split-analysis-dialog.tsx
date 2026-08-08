@@ -209,16 +209,22 @@ function DriftRow({
   }
   const rose = (deltaAbs ?? 0) > 0;
   return (
-    <div className="flex items-center justify-between py-1.5 text-sm border-b border-border/60 last:border-b-0">
-      <span className="text-muted-foreground">{label}</span>
-      <div className="flex items-center gap-2 tabular-nums">
+    <div className="flex items-center justify-between gap-2 py-1.5 text-sm border-b border-border/60 last:border-b-0">
+      <span className="text-muted-foreground shrink-0">{label}</span>
+      {/* min-w-0 + flex-wrap here is the fix: this group (start → end value
+          + unit + a delta Badge) previously had no shrink allowance, so on
+          a narrow dialog or mobile viewport it forced the whole row — and
+          by extension the card containing it — wider than available space
+          instead of wrapping onto a second line. justify-end keeps it
+          right-aligned even once wrapped. */}
+      <div className="flex items-center gap-2 tabular-nums min-w-0 flex-wrap justify-end">
         <span>{startValue.toFixed(precision)}</span>
         <span className="text-muted-foreground">→</span>
         <span>{endValue.toFixed(precision)} {unit}</span>
         {deltaPct != null && (
           <Badge
             variant="outline"
-            className={rose ? "text-red-500 border-red-500/40" : "text-emerald-500 border-emerald-500/40"}
+            className={`shrink-0 ${rose ? "text-red-500 border-red-500/40" : "text-emerald-500 border-emerald-500/40"}`}
           >
             {rose ? "+" : ""}
             {deltaPct.toFixed(1)}%
@@ -1757,9 +1763,9 @@ export function RepSplitAnalysisDialog({
                 <CardContent>
                   {fatigue ? (
                     <div className="space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-muted-foreground">First 200m → Last 200m</span>
-                        <Badge variant="outline" className={FATIGUE_TONE[fatigue.level].className}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm text-muted-foreground min-w-0">First 200m → Last 200m</span>
+                        <Badge variant="outline" className={`shrink-0 ${FATIGUE_TONE[fatigue.level].className}`}>
                           {FATIGUE_TONE[fatigue.level].label}
                         </Badge>
                       </div>
