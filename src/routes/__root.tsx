@@ -114,20 +114,24 @@ function RootShell({ children }: { children: ReactNode }) {
                className="dark" above (it has no way to know a client's
                stored preference); this corrects it client-side the instant
                the page loads.
-            2. White-label brand colours (primary, secondary, danger) from
-               the cache BrandingProvider writes to localStorage. Without
-               this the app would paint Strider red for a frame on every
-               load and then flip to the coach's colours once the branding
-               RPC resolves.
+            2. White-label CSS variables, from the cache BrandingProvider
+               writes to localStorage. Without this the app would paint
+               Strider red (and, on a Brand Dark/Light appearance, plain
+               black or white surfaces) for a frame on every load, then
+               flip once the branding RPC resolves.
 
-            Theme precedence here MUST match the resolution in
-            src/lib/theme.tsx: a FORCED brand theme wins, then the person's
-            own stored choice, then the brand's suggested default, then
-            dark. The variable lists and the readable-foreground threshold
-            must match BRAND_/SECONDARY_/DANGER_*_VARS and
-            readableForeground() in src/lib/branding.tsx. Both are
-            duplicated here by necessity — this script runs before any
-            module has loaded, so it can't import them.
+            This script contains NO colour maths. BrandingProvider computes
+            the variable maps and caches them under `_vars` (brand colours)
+            and `_surfaces` (tinted surfaces, keyed by appearance), so all
+            this does is loop and apply key/value pairs. That's deliberate —
+            duplicating the tinting algorithm inside an inline <script>
+            string would guarantee it drifts out of sync.
+
+            Appearance precedence here DOES still have to match the
+            resolution in src/lib/theme.tsx: a FORCED brand appearance wins,
+            then the person's own stored choice, then the brand's suggested
+            default, then dark — and a brand-* appearance with no cached
+            tint degrades to its neutral base.
 
             suppressHydrationWarning on <html> above stops React from
             complaining that this script changed attributes React didn't
@@ -139,19 +143,18 @@ function RootShell({ children }: { children: ReactNode }) {
 var el=document.documentElement;
 var stored=localStorage.getItem("strider:theme");
 var b=null;try{b=JSON.parse(localStorage.getItem("strider:brand")||"null")}catch(e){}
-var bt=(b&&(b.defaultTheme==="dark"||b.defaultTheme==="light"))?b.defaultTheme:null;
+var ok={dark:1,light:1,"brand-dark":1,"brand-light":1};
+var tint=!!(b&&b._surfaces&&(b._surfaces["brand-dark"]||b._surfaces["brand-light"]));
+var bt=(b&&ok[b.defaultTheme])?b.defaultTheme:null;
 var forced=!!(b&&b.forceTheme&&bt);
-var t=forced?bt:((stored==="light"||stored==="dark")?stored:(bt||"dark"));
-if(t==="light"){el.classList.remove("dark")}else{el.classList.add("dark")}
-function fg(c){var r=parseInt(c.slice(1,3),16),g=parseInt(c.slice(3,5),16),bl=parseInt(c.slice(5,7),16);
-return (0.2126*r+0.7152*g+0.0722*bl)>150?"#111111":"#ffffff"}
-function set(c,vars,fgvars){if(!c||!/^#[0-9a-fA-F]{6}$/.test(c))return;var f=fg(c);
-for(var i=0;i<vars.length;i++){el.style.setProperty(vars[i],c)}
-for(var j=0;j<fgvars.length;j++){el.style.setProperty(fgvars[j],f)}}
+var a=forced?bt:((stored&&ok[stored])?stored:(bt||"dark"));
+if(!tint&&(a==="brand-dark"||a==="brand-light")){a=a==="brand-dark"?"dark":"light"}
+if(a==="light"||a==="brand-light"){el.classList.remove("dark")}else{el.classList.add("dark")}
 if(b){
-set(b.brandColor,["--accent-red","--primary","--ring","--sidebar-primary","--sidebar-ring","--chart-1"],["--primary-foreground","--sidebar-primary-foreground"]);
-set(b.secondaryColor,["--brand-secondary","--chart-2"],["--brand-secondary-foreground"]);
-set(b.dangerColor,["--destructive"],["--destructive-foreground"]);
+var v=b._vars||{};
+var sf=(b._surfaces||{})[a]||{};
+for(var k in v){el.style.setProperty(k,v[k])}
+for(var k2 in sf){el.style.setProperty(k2,sf[k2])}
 }
 }catch(e){}})();`,
           }}
