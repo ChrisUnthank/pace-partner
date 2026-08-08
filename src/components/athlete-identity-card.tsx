@@ -163,7 +163,7 @@ export function AthleteIdentityCard({
         primary_event: primaryEvent.trim() || null,
         secondary_events: secondaryEvents
           .split(",")
-          .map((s) => s.trim())
+          .map((s: string) => s.trim())
           .filter(Boolean),
         training_age_years: trainingAge ? Number(trainingAge) : null,
         typical_training_frequency: frequency ? Number(frequency) : null,
