@@ -34,7 +34,7 @@ import { sessionClassificationLabel } from "@/lib/session-categories";
 import { useServerFn } from "@tanstack/react-start";
 import { computeContinuousFatigue } from "@/lib/ai.functions";
 import { fetchSessionWeather } from "@/lib/session-files.functions";
-import { useMyRoles } from "@/lib/use-auth";
+import { useMyRoles, useAuthUser } from "@/lib/use-auth";
 import { AthleteSubnav } from "@/components/athlete-subnav";
 import { computeWorkRestSparsity, type RepBlock } from "@/lib/intensity-segments";
 import { compassLabel, classifyRelativeWind, computeBearingDeg, effectiveWindComponentKmh, type WindReading } from "@/lib/wind";
@@ -3143,6 +3143,26 @@ function UnifiedSessionTable({
   const [segmentFilters, setSegmentFilters] = useState<ScopeKey[]>(["full"]);
   const [detailMode, setDetailMode] = useState<"basic" | "advanced">("basic");
 
+  // Advanced view (extra metrics columns + the 100m split breakdown popup)
+  // is gated behind a per-account entitlement flag, the same pattern
+  // already used for profiles.ai_subscription_active elsewhere in the app.
+  // Checked client-side since nothing sensitive is actually being
+  // protected here — just which UI renders — unlike the AI features,
+  // which gate an actual paid API call server-side.
+  const { user: currentUser } = useAuthUser();
+  const { data: hasAdvancedAccess } = useQuery({
+    queryKey: ["advanced-metrics-enabled", currentUser?.id],
+    enabled: !!currentUser,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("profiles")
+        .select("advanced_metrics_enabled")
+        .eq("id", currentUser!.id)
+        .maybeSingle();
+      return data?.advanced_metrics_enabled ?? false;
+    },
+  });
+
   // Rep Split Analysis popup — shared between the Lap times chart (click a
   // rep's bar) and the Session segments table below (eye icon on a Work/
   // Strides row), so both entry points open the exact same dialog against
@@ -3265,12 +3285,16 @@ function UnifiedSessionTable({
             <Button
               size="sm"
               variant={detailMode === "advanced" ? "default" : "outline"}
-              onClick={() =>
-                toast("Advanced view requires an upgrade", {
-                  description:
-                    "Advanced metrics and the 100m split breakdown are part of an upcoming premium tier — not available on your current plan yet.",
-                })
-              }
+              onClick={() => {
+                if (hasAdvancedAccess) {
+                  setDetailMode("advanced");
+                } else {
+                  toast("Advanced view requires an upgrade", {
+                    description:
+                      "Advanced metrics and the 100m split breakdown are part of an upcoming premium tier — not available on your current plan yet.",
+                  });
+                }
+              }}
             >
               Advanced
             </Button>
