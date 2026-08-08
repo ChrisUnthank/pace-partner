@@ -241,13 +241,14 @@ function AppHome() {
                 </Button>
                 <Button
                   variant="outline"
-                  onClick={async () => {
-                    const { error } = await supabase.from("user_roles").insert({ user_id: user!.id, role: "coach" });
-                    if (error) {
-                      toast.error(error.message);
-                      return;
-                    }
-                    window.location.reload();
+                  onClick={() => {
+                    // Coach is a premium plan — this MUST match the same
+                    // gate in RolesCard.toggle() (app.account.tsx) and
+                    // ensureRole() (auth.tsx). This card is a THIRD path
+                    // to self-assign a role that had no gate at all until
+                    // now — same underlying rule, just one more door it
+                    // needed to be enforced at.
+                    toast.error("Coach access requires a premium plan — get in touch to upgrade.");
                   }}
                 >
                   I'm a Coach
@@ -264,6 +265,19 @@ function AppHome() {
                   }}
                 >
                   I'm a Manager
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    const { error } = await supabase.from("user_roles").insert({ user_id: user!.id, role: "parent" });
+                    if (error) {
+                      toast.error(error.message);
+                      return;
+                    }
+                    window.location.reload();
+                  }}
+                >
+                  I'm a Parent
                 </Button>
               </div>
             </CardContent>
