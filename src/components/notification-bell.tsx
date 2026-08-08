@@ -14,6 +14,7 @@ import {
 } from "@/lib/notifications.functions";
 import { useAuthUser } from "@/lib/use-auth";
 import { formatDistanceToNow } from "date-fns";
+import { shouldRegisterServiceWorker, registerServiceWorker, unregisterServiceWorker } from "@/lib/service-worker";
 
 function urlBase64ToUint8Array(base64String: string) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
@@ -22,43 +23,6 @@ function urlBase64ToUint8Array(base64String: string) {
   const out = new Uint8Array(raw.length);
   for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
   return out;
-}
-
-function isLovablePreviewHost(host: string) {
-  return (
-    host.startsWith("id-preview--") ||
-    host.startsWith("preview--") ||
-    host === "lovableproject.com" ||
-    host.endsWith(".lovableproject.com") ||
-    host === "lovableproject-dev.com" ||
-    host.endsWith(".lovableproject-dev.com") ||
-    host === "beta.lovable.dev" ||
-    host.endsWith(".beta.lovable.dev")
-  );
-}
-
-function shouldRegisterServiceWorker() {
-  if (typeof window === "undefined") return false;
-  if (!import.meta.env.PROD) return false;
-  try {
-    if (window.self !== window.top) return false;
-  } catch {
-    return false;
-  }
-  if (new URL(window.location.href).searchParams.get("sw") === "off") return false;
-  if (isLovablePreviewHost(window.location.hostname)) return false;
-  return true;
-}
-
-async function unregisterAppServiceWorker() {
-  if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
-  try {
-    const regs = await navigator.serviceWorker.getRegistrations();
-    for (const r of regs) {
-      const url = r.active?.scriptURL || r.installing?.scriptURL || r.waiting?.scriptURL || "";
-      if (url.endsWith("/sw.js")) await r.unregister();
-    }
-  } catch {}
 }
 
 export function NotificationBell() {
@@ -97,13 +61,19 @@ export function NotificationBell() {
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
     if (!shouldRegisterServiceWorker()) {
       // Clean up any worker that was registered in preview previously.
-      void unregisterAppServiceWorker();
+      void unregisterServiceWorker();
       return;
     }
     if (Notification.permission !== "granted") return;
     (async () => {
       try {
-        const reg = await navigator.serviceWorker.register("/sw.js");
+        // registerServiceWorker() is idempotent — the PWA install layer
+        // (src/lib/pwa-install.tsx) likely already registered this same
+        // worker for installability well before push permission was ever
+        // granted. Calling it again here just confirms/reuses that same
+        // registration rather than racing a second one.
+        const reg = await registerServiceWorker();
+        if (!reg) return;
         const { key } = await vapid();
         if (!key) return;
         const existing = await reg.pushManager.getSubscription();
