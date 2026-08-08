@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, User, Eye, Wind, RefreshCw, ArrowUp } from "lucide-react";
@@ -3220,7 +3221,7 @@ function UnifiedSessionTable({
 
   return (
     <>
-      <RepPaceChart rows={rows} points={points} terrain={terrain} onRepClick={setSplitDialogRepIndex} />
+      <RepPaceChart rows={rows} points={points} terrain={terrain} />
       <Card>
         <CardHeader>
           <CardTitle>Session segments</CardTitle>
@@ -3264,7 +3265,12 @@ function UnifiedSessionTable({
             <Button
               size="sm"
               variant={detailMode === "advanced" ? "default" : "outline"}
-              onClick={() => setDetailMode("advanced")}
+              onClick={() =>
+                toast("Advanced view requires an upgrade", {
+                  description:
+                    "Advanced metrics and the 100m split breakdown are part of an upcoming premium tier — not available on your current plan yet.",
+                })
+              }
             >
               Advanced
             </Button>
@@ -3340,7 +3346,7 @@ function UnifiedSessionTable({
                         <span className="inline-flex items-center gap-1">
                           {r.repLabel ?? "—"}
                           {r.adjusted ? " *" : ""}
-                          {(r.type === "work" || r.type === "strides") && (
+                          {(r.type === "work" || r.type === "strides") && detailMode === "advanced" && (
                             <button
                               type="button"
                               title="View 100m split breakdown"
