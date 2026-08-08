@@ -6,6 +6,7 @@ import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/lib/theme";
+import { PwaInstallProvider } from "@/lib/pwa-install";
 
 function NotFoundComponent() {
   return (
@@ -69,15 +70,33 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      // viewport-fit=cover is required for the env(safe-area-inset-*) CSS
+      // vars used throughout the mobile app shell (src/lib/device.tsx /
+      // app-shell.tsx) to actually receive real values on notched iPhones —
+      // without it, iOS Safari never extends the layout under the notch/home
+      // indicator in the first place, so the insets stay 0 and the safe-area
+      // padding rules silently do nothing.
+      { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
+      { title: "Strider" },
+      { name: "description", content: "Coaching and athlete performance platform for endurance runners." },
+      { name: "author", content: "Strider" },
+      { property: "og:title", content: "Strider" },
+      { property: "og:description", content: "Coaching and athlete performance platform for endurance runners." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
-      { name: "twitter:site", content: "@Lovable" },
+      // Static defaults only. A white-labelled coach's brand name/logo is
+      // resolved client-side after auth (src/lib/branding.tsx) and repaints
+      // the in-app chrome, but this document-level <head> is rendered before
+      // any auth context exists, so it can't reflect per-coach branding —
+      // flagged as a known gap rather than silently left inconsistent.
+      { name: "theme-color", content: "#111312" },
+      { name: "mobile-web-app-capable", content: "yes" },
+      // iOS-specific PWA meta — Safari doesn't honour the standard
+      // mobile-web-app-capable tag for its own install-to-home-screen
+      // behaviour and requires this Apple-prefixed one instead.
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
+      { name: "apple-mobile-web-app-title", content: "Strider" },
     ],
     links: [
       {
@@ -94,6 +113,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: "https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600;700&display=swap",
       },
+      { rel: "manifest", href: "/manifest.webmanifest" },
+      { rel: "icon", href: "/favicon.ico", sizes: "48x48" },
+      { rel: "icon", href: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      // apple-touch-icon is what iOS actually uses for the home-screen tile
+      // and app-switcher thumbnail — it ignores the manifest's icon list
+      // entirely for this purpose, hence needing this separate link even
+      // though /icons/icon-180.png is already listed there too.
+      { rel: "apple-touch-icon", href: "/icons/icon-180.png" },
     ],
   }),
   shellComponent: RootShell,
@@ -175,9 +202,14 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-        <Outlet />
-        <Toaster richColors />
+        {/* Mounted above the router outlet, not inside _authenticated, since
+            beforeinstallprompt can fire — and installing genuinely makes
+            sense — from a public coach page before anyone has signed in. */}
+        <PwaInstallProvider>
+          {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+          <Outlet />
+          <Toaster richColors />
+        </PwaInstallProvider>
       </ThemeProvider>
     </QueryClientProvider>
   );
