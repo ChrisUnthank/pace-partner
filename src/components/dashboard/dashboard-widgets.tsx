@@ -893,7 +893,7 @@ export function AthleteAttentionWidget({ athleteId }: { athleteId: string }) {
         {soonEvent && (
           <div className="flex items-center justify-between gap-2">
             <span className="truncate">
-              {soonEvent.event_name} — {relativeDate(soonEvent.event_date)}
+              {soonEvent.event_name} — {relativeDate(soonEvent.event_date ?? "")}
             </span>
             <Link to="/app/event-entries" className="text-xs text-[var(--accent-red)] hover:underline shrink-0">
               Open →

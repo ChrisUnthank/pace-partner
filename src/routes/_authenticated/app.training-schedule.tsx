@@ -131,7 +131,7 @@ function TrainingSchedulePage() {
       const { data, error } = await supabase
         .from("squad_training_sessions")
         .select("*, training_locations(id, name, address, lat, lng)")
-        .eq("group_id", activeGroupId)
+        .eq("group_id", activeGroupId as string)
         .eq("active", true);
       if (error) {
         toast.error(error.message);

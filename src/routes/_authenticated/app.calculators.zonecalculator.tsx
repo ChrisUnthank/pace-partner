@@ -270,12 +270,12 @@ function ZoneCalculatorPage() {
       result.basis === "pace"
         ? await supabase.rpc("set_pace_threshold_manual", {
             _athlete_id: athleteId,
-            _threshold_sec_per_km: result.thresholdPace,
+            _threshold_sec_per_km: result.thresholdPace ?? 0,
             _source: "manual",
           })
         : await supabase.rpc("set_hr_threshold_manual", {
             _athlete_id: athleteId,
-            _hr_threshold: result.thresholdHr,
+            _hr_threshold: result.thresholdHr ?? 0,
             _source: "manual",
           });
     setSaving(null);

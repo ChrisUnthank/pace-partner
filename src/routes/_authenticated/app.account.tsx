@@ -639,7 +639,7 @@ function AccountActivityLogCard({ userId }: { userId: string }) {
         .order("created_at", { ascending: false })
         .limit(100);
       if (error) throw error;
-      return (data ?? []) as { id: string; action: string; description: string; created_at: string }[];
+      return (data ?? []) as unknown as { id: string; action: string; description: string; created_at: string }[];
     },
   });
 

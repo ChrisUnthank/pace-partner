@@ -530,6 +530,8 @@ function SessionAnalysis() {
           elev: false,
           vo: false,
           gct: false,
+          stride: false,
+          verticalRatio: false,
         },
         gpsPoints: Array.isArray(built?.gpsPoints) ? built.gpsPoints : [],
         traceBuildFailed: false,
@@ -548,6 +550,8 @@ function SessionAnalysis() {
           elev: false,
           vo: false,
           gct: false,
+          stride: false,
+          verticalRatio: false,
         },
         gpsPoints: [],
         traceBuildFailed: true,
@@ -860,7 +864,7 @@ function SessionAnalysis() {
                         <ArrowUp
                           className="h-3.5 w-3.5 text-sky-500 shrink-0"
                           style={{ transform: `rotate(${((session as any).wind_direction_deg + 180) % 360}deg)` }}
-                          title={`Wind blowing toward ${compassLabel(((session as any).wind_direction_deg + 180) % 360)} — this arrow points the way the wind is pushing, not where it's coming from.`}
+                          {...{ title: `Wind blowing toward ${compassLabel(((session as any).wind_direction_deg + 180) % 360)} — this arrow points the way the wind is pushing, not where it's coming from.` }}
                         />
                         <span className="text-muted-foreground font-normal">
                           from {compassLabel((session as any).wind_direction_deg)}

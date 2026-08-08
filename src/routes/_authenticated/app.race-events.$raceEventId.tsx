@@ -139,7 +139,7 @@ function RaceEventDetailPage() {
               lat: Number(p.lat),
               lng: Number(p.lng),
               elapsed_s: Number(p.elapsed_s ?? 0) - baseElapsed,
-              distance_m: p.distance_m != null ? Number(p.distance_m) - baseDistance : null,
+              distance_m: p.distance_m != null ? Number(p.distance_m) - baseDistance : undefined,
               hr: p.hr ?? null,
             })),
           });

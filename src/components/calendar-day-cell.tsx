@@ -178,7 +178,7 @@ export function CalendarDayCell({
         {pbs.length > 0 && (
           <Medal
             className="h-3 w-3 text-amber-500 shrink-0"
-            title={pbTooltip(pbs)}
+            {...{ title: pbTooltip(pbs) }}
             aria-label={pbTooltip(pbs)}
           />
         )}

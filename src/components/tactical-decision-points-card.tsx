@@ -45,7 +45,7 @@ export function TacticalDecisionPointsCard({
         .eq("plan_id", planId)
         .order("distance_m", { ascending: true });
       if (error) throw error;
-      return (data ?? []) as DecisionPoint[];
+      return (data ?? []) as unknown as DecisionPoint[];
     },
   });
 

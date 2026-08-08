@@ -352,7 +352,7 @@ export function MultiRouteFlyoverMap({ tracks, heightPx }: MultiRouteFlyoverMapP
           maxElapsedS: safe[safe.length - 1].elapsed_s ?? 0,
         };
       })
-      .filter((t): t is PreparedTrack => t !== null);
+      .filter((t): t is NonNullable<typeof t> => t !== null) as unknown as PreparedTrack[];
   }, [tracks]);
 
   const maxElapsedS = useMemo(() => prepared.reduce((max, t) => Math.max(max, t.maxElapsedS), 0), [prepared]);

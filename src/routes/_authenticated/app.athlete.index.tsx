@@ -86,7 +86,7 @@ function AthleteProfileIndexPage() {
       const slugByAthlete = new Map((pages ?? []).map((p: any) => [p.athlete_id, p.slug]));
       if (!cancelled) {
         setParentPages(
-          athletes.map((a: any) => ({ athlete_id: a.id, name: a.name, slug: slugByAthlete.get(a.id) ?? null })),
+          athletes.map((a: any) => ({ athlete_id: a.id, name: a.name, slug: (slugByAthlete.get(a.id) as string | undefined) ?? null })),
         );
       }
     })();
@@ -204,7 +204,7 @@ function AthleteProfileIndexPage() {
   const displayedRoster = filterAthleteId ? roster.filter((r) => r.athlete_id === filterAthleteId) : roster;
   const filteredAthleteName = filterAthleteId
     ? roster.find((r) => r.athlete_id === filterAthleteId)?.name ??
-      (selfAthlete?.id === filterAthleteId ? selfAthlete.name : undefined)
+      (selfAthlete?.id === filterAthleteId ? selfAthlete?.name : undefined)
     : undefined;
   // Shape roster needs for the shared picker — this page's own roster
   // state carries extra fields (hasPage/slug) the picker doesn't need.
@@ -231,7 +231,7 @@ function AthleteProfileIndexPage() {
               <CoachAthletePicker
                 roster={pickerRoster}
                 value={filterAthleteId}
-                onChange={(v) => navigate({ search: (p: any) => ({ ...p, athleteId: v }) })}
+                onChange={(v) => navigate({ search: ((p: any) => ({ ...p, athleteId: v })) as any })}
               />
             </div>
             <AthleteSubnav athleteId={filterAthleteId} active="athlete-page" />

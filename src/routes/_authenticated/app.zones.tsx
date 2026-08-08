@@ -253,7 +253,7 @@ function AthleteZonesView() {
 
       {athlete ? (
         <>
-          <ZoneBoundariesCard athleteId={athlete.id} profile={zoneProfile} />
+          <ZoneBoundariesCard athleteId={athlete.id} profile={zoneProfile as any} />
 
           <div className="flex items-center justify-end gap-1">
               {(Object.keys(RANGES) as RangeKey[]).map((r) => (
@@ -525,7 +525,7 @@ function CoachAthleteZonesView({ athleteId }: { athleteId: string }) {
         </div>
       </div>
 
-      <ZoneBoundariesCard athleteId={athleteId} profile={zoneProfile} />
+      <ZoneBoundariesCard athleteId={athleteId} profile={zoneProfile as any} />
 
       <div className="flex items-center justify-end gap-1">
         {(Object.keys(RANGES) as RangeKey[]).map((r) => (
