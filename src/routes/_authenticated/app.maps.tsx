@@ -736,7 +736,7 @@ function RouteStatsCard({ route }: { route: TrainingRoute }) {
       const { data, error } = await supabase
         .from("sessions")
         .select("id, athlete_id, session_date, total_time_seconds, total_moving_time_seconds, athletes(name, profile_image_url)")
-        .eq("route_id", route.id)
+        .eq("route_id" as any, route.id)
         .not("completed_at", "is", null);
       if (error) throw error;
       return (data ?? []) as any[];
