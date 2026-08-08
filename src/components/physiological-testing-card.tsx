@@ -188,7 +188,7 @@ export function PhysiologicalTestingCard({ athleteId }: { athleteId: string }) {
         .order("test_date", { ascending: false })
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return (data ?? []) as TestRow[];
+      return (data ?? []) as unknown as TestRow[];
     },
   });
 
@@ -464,7 +464,7 @@ function PlatformValuesSection({
         {rows.map((r) => (
           <div key={r.key} className="rounded border bg-background p-2.5">
             <div className="text-[10px] text-muted-foreground uppercase tracking-wide">{r.label}</div>
-            <div className="text-base font-semibold tabular-nums">{formatMeasurementValue(r.metric, r.value, r.unit)}</div>
+            <div className="text-base font-semibold tabular-nums">{formatMeasurementValue(r.metric, r.value ?? 0, r.unit)}</div>
             {r.method && <div className="text-[10px] text-muted-foreground mt-0.5">{r.method}</div>}
             {isCoach && (
               <Button
@@ -474,7 +474,7 @@ function PlatformValuesSection({
                 onClick={() =>
                   onLog({
                     metric: r.metric,
-                    value: String(roundForEntry(r.metric, r.value)),
+                    value: String(roundForEntry(r.metric, r.value ?? 0)),
                     source: r.source,
                     measurementType: r.type,
                     method: r.method,
@@ -581,7 +581,7 @@ function AddTestDialog({
       toast.error(existingError.message);
       return;
     }
-    const existing = (existingRows ?? [])[0] as { value: number; test_date: string } | undefined;
+    const existing = (existingRows ?? [])[0] as unknown as { value: number; test_date: string } | undefined;
 
     const { error: deleteError } = await supabase
       .from("athlete_physiological_tests" as any)

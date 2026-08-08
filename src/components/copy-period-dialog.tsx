@@ -1212,7 +1212,7 @@ export function CopyPeriodDialog({
               <Button variant="outline" onClick={() => setStepUi("setup")}>
                 Back
               </Button>
-              <Button onClick={commit} disabled={committing || drafts.length === 0}>
+              <Button onClick={() => commit()} disabled={committing || drafts.length === 0}>
                 {committing ? "Copying..." : `Copy ${drafts.length} session${drafts.length === 1 ? "" : "s"}`}
               </Button>
             </>
