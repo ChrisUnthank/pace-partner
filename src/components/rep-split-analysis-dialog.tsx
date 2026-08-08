@@ -1426,7 +1426,16 @@ export function RepSplitAnalysisDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto brand-scrollbar">
+      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto overflow-x-hidden brand-scrollbar">
+        {/* overflow-x-hidden is deliberate, not decorative: with only
+            overflow-y-auto set, the CSS spec computes overflow-x to auto as
+            well (a non-'visible' value on one axis forces 'visible' on the
+            other to compute to 'auto'). That's exactly what let one
+            unwrappable child (see the wind description below) grow the
+            WHOLE dialog a horizontal scrollbar instead of just wrapping or
+            clipping. This doesn't fix a specific bug — it prevents this
+            entire failure shape from being possible again, regardless of
+            what future content gets added inside. */}
         <DialogHeader>
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-2.5">
@@ -1489,12 +1498,23 @@ export function RepSplitAnalysisDialog({
           <DialogDescription>
             Every 100m of this rep, broken out from the raw watch/GPS trace.
             {wind?.speedKmh != null && (
-              <span className="inline-flex items-center gap-1 ml-1">
-                <Wind className="h-3 w-3" />
-                {Math.round(wind.speedKmh)} km/h
-                {wind.directionDeg != null && ` from ${compassLabel(wind.directionDeg)}`} — see the wind icon on each
-                split below for headwind/tailwind/crosswind on that stretch.
-              </span>
+              <>
+                {" "}
+                {/* Only the short "icon + Xkm/h from Y" segment is a flex
+                    row — it's always short enough to never wrap badly. The
+                    long explanatory clause after it is deliberately OUTSIDE
+                    the flex container and flows as normal text, so it wraps
+                    like any other sentence instead of forcing one
+                    unbreakable line that used to push the whole dialog into
+                    horizontal scroll (inline-flex defaults to nowrap, and
+                    previously wrapped the entire sentence, icon included). */}
+                <span className="inline-flex items-center gap-1 align-text-bottom">
+                  <Wind className="h-3 w-3" />
+                  {Math.round(wind.speedKmh)} km/h
+                  {wind.directionDeg != null && ` from ${compassLabel(wind.directionDeg)}`}
+                </span>
+                {" "}— see the wind icon on each split below for headwind/tailwind/crosswind on that stretch.
+              </>
             )}
           </DialogDescription>
         </DialogHeader>
