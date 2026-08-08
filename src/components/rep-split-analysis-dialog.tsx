@@ -1438,7 +1438,17 @@ export function RepSplitAnalysisDialog({
             what future content gets added inside. */}
         <DialogHeader>
           <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-2.5">
+            {/* min-w-0 here is the actual fix for the "resize hasn't
+                happened" report. flex-wrap on the OUTER row above only
+                lets this whole left group drop to its own line versus the
+                Per-100m/Pace toggle on the right — it does nothing to let
+                THIS group's own contents (nav buttons + icon + title)
+                shrink below their natural size, because flex items default
+                to min-width:auto (their content's intrinsic width) unless
+                explicitly told otherwise. Without min-w-0 here, a long rep
+                label could keep forcing this row wider than the dialog
+                regardless of anything at the outer level. */}
+            <div className="flex items-center gap-2.5 min-w-0">
               {onNavigate && (
                 <div className="flex items-center gap-0.5 shrink-0">
                   <button
@@ -1464,12 +1474,12 @@ export function RepSplitAnalysisDialog({
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                 <Ruler className="h-5 w-5" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <div className="text-xs uppercase tracking-wide text-muted-foreground">100m split breakdown</div>
-                <DialogTitle className="flex items-baseline gap-1.5">
-                  {repLabel}
+                <DialogTitle className="flex items-baseline gap-1.5 min-w-0 flex-wrap">
+                  <span className="break-words">{repLabel}</span>
                   {selectedRepIndex != null && repRows[selectedRepIndex]?.distanceM != null && (
-                    <span className="text-sm font-normal text-muted-foreground">
+                    <span className="text-sm font-normal text-muted-foreground shrink-0">
                       · {Math.round(repRows[selectedRepIndex].distanceM)}m
                     </span>
                   )}
