@@ -253,8 +253,8 @@ function SessionsList() {
       // Recovery/Cross-training/Rest, which have no intent value at all).
       if (filterIntent !== "all") {
         const [kind, value] = filterIntent.split(":");
-        if (kind === "intent") q = q.eq("intent", value);
-        else if (kind === "daytype") q = q.eq("day_type", value);
+        if (kind === "intent") q = q.eq("intent", value as any);
+        else if (kind === "daytype") q = q.eq("day_type", value as any);
       }
       if (filterFrom) q = q.gte("session_date", filterFrom);
       if (filterTo) q = q.lte("session_date", filterTo);
