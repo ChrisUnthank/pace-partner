@@ -29,6 +29,10 @@ export interface Branding {
   logoMarkUrl: string | null;
   logoInitials: string | null;
   brandColor: string | null;
+  /** Optional accent. Drives --brand-secondary and --chart-2. */
+  secondaryColor: string | null;
+  /** Destructive/danger actions. Null falls back to the stock Strider red. */
+  dangerColor: string | null;
   defaultTheme: "user" | "dark" | "light";
   forceTheme: boolean;
   supportEmail: string | null;
@@ -43,13 +47,12 @@ export interface Branding {
  *  on a shared device. */
 export const BRAND_CACHE_KEY = "strider:brand";
 
-// The exact set of tokens the brand colour takes over. Kept as one list so
-// there's a single place to audit.
+// The exact sets of tokens each configured colour takes over. Kept as lists so
+// there's a single place to audit what a brand can and can't repaint.
 //
-// --destructive is DELIBERATELY ABSENT. In the stock palette it happens to
-// equal --accent-red, which makes it look like it belongs here; it doesn't.
-// "Delete this athlete" must read as danger even when the brand colour is
-// green, and must not read as danger-coloured chrome when the brand is red.
+// --destructive is NOT in the primary list. Danger is its own colour (see
+// DANGER_* below): a delete button has to stay distinguishable from ordinary
+// branded chrome, which a shared token can't guarantee.
 const BRAND_COLOR_VARS = [
   "--accent-red",
   "--primary",
@@ -60,6 +63,18 @@ const BRAND_COLOR_VARS = [
 ] as const;
 
 const BRAND_FOREGROUND_VARS = ["--primary-foreground", "--sidebar-primary-foreground"] as const;
+
+// Secondary accent. --brand-secondary is a token added in styles.css for this
+// (usable as `bg-brand-secondary`); --chart-2 is the existing "second series"
+// slot. Deliberately NOT --secondary, which is shadcn's muted SURFACE token —
+// a bright colour there would repaint every secondary button solid.
+const SECONDARY_COLOR_VARS = ["--brand-secondary", "--chart-2"] as const;
+const SECONDARY_FOREGROUND_VARS = ["--brand-secondary-foreground"] as const;
+
+// Danger. Defaults to Strider red when unset, which is what the stock palette
+// already resolves to — so leaving it blank changes nothing.
+const DANGER_COLOR_VARS = ["--destructive"] as const;
+const DANGER_FOREGROUND_VARS = ["--destructive-foreground"] as const;
 
 const HEX_RE = /^#[0-9a-f]{6}$/i;
 
@@ -101,21 +116,50 @@ export function contrastRatioWithWhite(hex: string): number {
   return (1.0 + 0.05) / (L + 0.05);
 }
 
-/** Applies (or clears) the brand colour on <html>. Inline styles on the
- *  element beat both `:root` and `.dark` class rules on specificity, so this
- *  overrides the design-system palette without touching styles.css — and
- *  clearing it restores the stock palette exactly, with no leftovers. */
-export function applyBrandColor(hex: string | null) {
-  if (typeof document === "undefined") return;
+/** Perceptual-ish distance between two hex colours, 0-441. Used to warn a
+ *  coach when their danger colour is too close to their brand colour to read
+ *  as a different thing. Plain RGB euclidean rather than a proper Lab deltaE —
+ *  this only has to catch "these are basically the same red", and a real
+ *  colour-science dependency isn't worth it for a warning string. */
+export function colorDistance(a: string, b: string): number {
+  const rgb = (h: string) => {
+    const x = h.replace("#", "");
+    return [parseInt(x.slice(0, 2), 16), parseInt(x.slice(2, 4), 16), parseInt(x.slice(4, 6), 16)];
+  };
+  const [r1, g1, b1] = rgb(a);
+  const [r2, g2, b2] = rgb(b);
+  return Math.sqrt((r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2);
+}
+
+function setOrClear(
+  vars: readonly string[],
+  fgVars: readonly string[],
+  hex: string | null | undefined,
+) {
   const el = document.documentElement;
   if (isValidHex(hex)) {
     const fg = readableForeground(hex!);
-    BRAND_COLOR_VARS.forEach((v) => el.style.setProperty(v, hex!));
-    BRAND_FOREGROUND_VARS.forEach((v) => el.style.setProperty(v, fg));
+    vars.forEach((v) => el.style.setProperty(v, hex!));
+    fgVars.forEach((v) => el.style.setProperty(v, fg));
   } else {
-    BRAND_COLOR_VARS.forEach((v) => el.style.removeProperty(v));
-    BRAND_FOREGROUND_VARS.forEach((v) => el.style.removeProperty(v));
+    vars.forEach((v) => el.style.removeProperty(v));
+    fgVars.forEach((v) => el.style.removeProperty(v));
   }
+}
+
+/** Applies (or clears) all three brand colours on <html>. Inline styles on the
+ *  element beat both `:root` and `.dark` class rules on specificity, so this
+ *  overrides the design-system palette without touching styles.css — and
+ *  clearing it restores the stock palette exactly, with no leftovers.
+ *
+ *  Each colour clears independently: a coach who sets a primary but no
+ *  secondary gets the stock secondary back, not a stale one from a previous
+ *  save. */
+export function applyBrandColors(b: Pick<Branding, "brandColor" | "secondaryColor" | "dangerColor"> | null) {
+  if (typeof document === "undefined") return;
+  setOrClear(BRAND_COLOR_VARS, BRAND_FOREGROUND_VARS, b?.brandColor);
+  setOrClear(SECONDARY_COLOR_VARS, SECONDARY_FOREGROUND_VARS, b?.secondaryColor);
+  setOrClear(DANGER_COLOR_VARS, DANGER_FOREGROUND_VARS, b?.dangerColor);
 }
 
 export function cacheBranding(b: Branding | null) {
@@ -130,7 +174,7 @@ export function cacheBranding(b: Branding | null) {
 
 export function clearBrandingCache() {
   cacheBranding(null);
-  applyBrandColor(null);
+  applyBrandColors(null);
 }
 
 export function readCachedBranding(): Branding | null {
@@ -192,7 +236,7 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (isLoading && !branding) return;
     cacheBranding(branding);
-    applyBrandColor(branding?.brandColor ?? null);
+    applyBrandColors(branding);
   }, [branding, isLoading]);
 
   // Hand the brand's appearance preference to the theme layer. Precedence
