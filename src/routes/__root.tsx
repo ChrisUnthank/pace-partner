@@ -114,15 +114,17 @@ function RootShell({ children }: { children: ReactNode }) {
                className="dark" above (it has no way to know a client's
                stored preference); this corrects it client-side the instant
                the page loads.
-            2. White-label brand colour, from the cache BrandingProvider
-               writes to localStorage. Without this the app would paint
-               Strider red for a frame on every load and then flip to the
-               coach's colour once the branding RPC resolves.
+            2. White-label brand colours (primary, secondary, danger) from
+               the cache BrandingProvider writes to localStorage. Without
+               this the app would paint Strider red for a frame on every
+               load and then flip to the coach's colours once the branding
+               RPC resolves.
 
             Theme precedence here MUST match the resolution in
             src/lib/theme.tsx: a FORCED brand theme wins, then the person's
             own stored choice, then the brand's suggested default, then
-            dark. The readable-foreground threshold must match
+            dark. The variable lists and the readable-foreground threshold
+            must match BRAND_/SECONDARY_/DANGER_*_VARS and
             readableForeground() in src/lib/branding.tsx. Both are
             duplicated here by necessity — this script runs before any
             module has loaded, so it can't import them.
@@ -141,14 +143,15 @@ var bt=(b&&(b.defaultTheme==="dark"||b.defaultTheme==="light"))?b.defaultTheme:n
 var forced=!!(b&&b.forceTheme&&bt);
 var t=forced?bt:((stored==="light"||stored==="dark")?stored:(bt||"dark"));
 if(t==="light"){el.classList.remove("dark")}else{el.classList.add("dark")}
-var c=b&&b.brandColor;
-if(c&&/^#[0-9a-fA-F]{6}$/.test(c)){
-var v=["--accent-red","--primary","--ring","--sidebar-primary","--sidebar-ring","--chart-1"];
-for(var i=0;i<v.length;i++){el.style.setProperty(v[i],c)}
-var r=parseInt(c.slice(1,3),16),g=parseInt(c.slice(3,5),16),bl=parseInt(c.slice(5,7),16);
-var fg=(0.2126*r+0.7152*g+0.0722*bl)>150?"#111111":"#ffffff";
-el.style.setProperty("--primary-foreground",fg);
-el.style.setProperty("--sidebar-primary-foreground",fg);
+function fg(c){var r=parseInt(c.slice(1,3),16),g=parseInt(c.slice(3,5),16),bl=parseInt(c.slice(5,7),16);
+return (0.2126*r+0.7152*g+0.0722*bl)>150?"#111111":"#ffffff"}
+function set(c,vars,fgvars){if(!c||!/^#[0-9a-fA-F]{6}$/.test(c))return;var f=fg(c);
+for(var i=0;i<vars.length;i++){el.style.setProperty(vars[i],c)}
+for(var j=0;j<fgvars.length;j++){el.style.setProperty(fgvars[j],f)}}
+if(b){
+set(b.brandColor,["--accent-red","--primary","--ring","--sidebar-primary","--sidebar-ring","--chart-1"],["--primary-foreground","--sidebar-primary-foreground"]);
+set(b.secondaryColor,["--brand-secondary","--chart-2"],["--brand-secondary-foreground"]);
+set(b.dangerColor,["--destructive"],["--destructive-foreground"]);
 }
 }catch(e){}})();`,
           }}
