@@ -935,7 +935,7 @@ function RepRouteShapeCard({ splits, wind }: { splits: Split[]; wind?: WindReadi
                     <ArrowUp
                       className="h-5 w-5 text-sky-500"
                       style={{ transform: `rotate(${(wind!.directionDeg! + 180) % 360}deg)` }}
-                      title={`Wind blowing toward ${compassLabel((wind!.directionDeg! + 180) % 360)} (from ${compassLabel(wind!.directionDeg)}) — arrow points the way the wind is pushing, not where it's coming from.`}
+                      {...{ title: `Wind blowing toward ${compassLabel((wind!.directionDeg! + 180) % 360)} (from ${compassLabel(wind!.directionDeg)}) — arrow points the way the wind is pushing, not where it's coming from.` }}
                     />
                   ) : (
                     <div className="w-px h-5 bg-foreground/30" />
