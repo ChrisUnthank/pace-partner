@@ -17,6 +17,7 @@ import { Route as CSlugRouteImport } from './routes/c.$slug'
 import { Route as ClaimTokenRouteImport } from './routes/claim.$token'
 import { Route as AuthenticatedAppIndexRouteImport } from './routes/_authenticated/app.index'
 import { Route as AuthenticatedAppAccountRouteImport } from './routes/_authenticated/app.account'
+import { Route as AuthenticatedAppBrandingRouteImport } from './routes/_authenticated/app.branding'
 import { Route as AuthenticatedAppAddressBookRouteImport } from './routes/_authenticated/app.address-book'
 import { Route as AuthenticatedAppAnalyticsRouteImport } from './routes/_authenticated/app.analytics'
 import { Route as AuthenticatedAppAthleteInfoRouteImport } from './routes/_authenticated/app.athlete-info'
@@ -124,6 +125,11 @@ const AuthenticatedAppIndexRoute = AuthenticatedAppIndexRouteImport.update({
 const AuthenticatedAppAccountRoute = AuthenticatedAppAccountRouteImport.update({
   id: '/app/account',
   path: '/app/account',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedAppBrandingRoute = AuthenticatedAppBrandingRouteImport.update({
+  id: '/app/branding',
+  path: '/app/branding',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedAppAddressBookRoute =
@@ -537,6 +543,7 @@ export interface FileRoutesByFullPath {
   '/c/$slug': typeof CSlugRoute
   '/claim/$token': typeof ClaimTokenRoute
   '/app/account': typeof AuthenticatedAppAccountRoute
+  '/app/branding': typeof AuthenticatedAppBrandingRoute
   '/app/address-book': typeof AuthenticatedAppAddressBookRoute
   '/app/analytics': typeof AuthenticatedAppAnalyticsRoute
   '/app/athlete-info': typeof AuthenticatedAppAthleteInfoRoute
@@ -615,6 +622,7 @@ export interface FileRoutesByTo {
   '/c/$slug': typeof CSlugRoute
   '/claim/$token': typeof ClaimTokenRoute
   '/app/account': typeof AuthenticatedAppAccountRoute
+  '/app/branding': typeof AuthenticatedAppBrandingRoute
   '/app/address-book': typeof AuthenticatedAppAddressBookRoute
   '/app/analytics': typeof AuthenticatedAppAnalyticsRoute
   '/app/athlete-info': typeof AuthenticatedAppAthleteInfoRoute
@@ -689,6 +697,7 @@ export interface FileRoutesById {
   '/c/$slug': typeof CSlugRoute
   '/claim/$token': typeof ClaimTokenRoute
   '/_authenticated/app/account': typeof AuthenticatedAppAccountRoute
+  '/_authenticated/app/branding': typeof AuthenticatedAppBrandingRoute
   '/_authenticated/app/address-book': typeof AuthenticatedAppAddressBookRoute
   '/_authenticated/app/analytics': typeof AuthenticatedAppAnalyticsRoute
   '/_authenticated/app/athlete-info': typeof AuthenticatedAppAthleteInfoRoute
@@ -769,6 +778,7 @@ export interface FileRouteTypes {
     | '/c/$slug'
     | '/claim/$token'
     | '/app/account'
+    | '/app/branding'
     | '/app/address-book'
     | '/app/analytics'
     | '/app/athlete-info'
@@ -847,6 +857,7 @@ export interface FileRouteTypes {
     | '/c/$slug'
     | '/claim/$token'
     | '/app/account'
+    | '/app/branding'
     | '/app/address-book'
     | '/app/analytics'
     | '/app/athlete-info'
@@ -920,6 +931,7 @@ export interface FileRouteTypes {
     | '/c/$slug'
     | '/claim/$token'
     | '/_authenticated/app/account'
+    | '/_authenticated/app/branding'
     | '/_authenticated/app/address-book'
     | '/_authenticated/app/analytics'
     | '/_authenticated/app/athlete-info'
@@ -1059,6 +1071,13 @@ declare module '@tanstack/react-router' {
       path: '/app/account'
       fullPath: '/app/account'
       preLoaderRoute: typeof AuthenticatedAppAccountRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/branding': {
+      id: '/_authenticated/app/branding'
+      path: '/app/branding'
+      fullPath: '/app/branding'
+      preLoaderRoute: typeof AuthenticatedAppBrandingRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/app/address-book': {
@@ -1670,6 +1689,7 @@ const AuthenticatedAppSessionsRouteWithChildren =
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAppAccountRoute: typeof AuthenticatedAppAccountRoute
+  AuthenticatedAppBrandingRoute: typeof AuthenticatedAppBrandingRoute
   AuthenticatedAppAddressBookRoute: typeof AuthenticatedAppAddressBookRoute
   AuthenticatedAppAnalyticsRoute: typeof AuthenticatedAppAnalyticsRoute
   AuthenticatedAppAthleteInfoRoute: typeof AuthenticatedAppAthleteInfoRoute
@@ -1724,6 +1744,7 @@ interface AuthenticatedRouteRouteChildren {
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAppAccountRoute: AuthenticatedAppAccountRoute,
+  AuthenticatedAppBrandingRoute: AuthenticatedAppBrandingRoute,
   AuthenticatedAppAddressBookRoute: AuthenticatedAppAddressBookRoute,
   AuthenticatedAppAnalyticsRoute: AuthenticatedAppAnalyticsRoute,
   AuthenticatedAppAthleteInfoRoute: AuthenticatedAppAthleteInfoRoute,
