@@ -111,7 +111,7 @@ export function RaceProfileCard({ athleteId }: { athleteId: string }) {
         .eq("athlete_id", athleteId)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return (data ?? []) as ObsRow[];
+      return (data ?? []) as unknown as ObsRow[];
     },
   });
 

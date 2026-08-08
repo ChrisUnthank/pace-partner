@@ -366,7 +366,7 @@ export const listDashboardAlerts = createServerFn({ method: "GET" })
       }
       const athCreds = lapsingCredentials.find((c: any) => c.athlete_id === athId);
       if (athCreds) {
-        const expired = athCreds.registration_expiry < today;
+        const expired = (athCreds.registration_expiry ?? "") < today;
         push({
           alert_type: "credentials_expiring", severity: expired ? "warning" : "info",
           athlete_id: athId, athlete_name: name, athlete_image_url: img,
