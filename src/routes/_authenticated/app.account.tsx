@@ -24,6 +24,7 @@ import { logAccountActivity } from "@/lib/account-activity-log";
 import { useTheme } from "@/lib/theme";
 import { useBranding } from "@/lib/branding";
 import { PoweredByStrider } from "@/components/brand-logo";
+import { PwaInstallPrompt } from "@/components/pwa-install-card";
 
 export const Route = createFileRoute("/_authenticated/app/account")({
   component: Account,
@@ -136,6 +137,12 @@ function Account() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Deliberate settings-page home for someone who goes looking
+                for this — the app-shell also offers it unprompted as a
+                dismissible banner on a mobile browser tab, but this card
+                always renders regardless of dismissal state. */}
+            <PwaInstallPrompt variant="card" />
 
             {user && <ProfileImageUploader userId={user.id} name={user.user_metadata?.full_name ?? user.email ?? ""} />}
 
