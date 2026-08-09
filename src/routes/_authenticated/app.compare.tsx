@@ -127,13 +127,14 @@ function ComparePage() {
       const { data, error } = await supabase
         .from("sessions")
         .select(
-          "id, title, session_date, intent, structure, work_distance_m, work_time_s, work_avg_pace_sec_per_km, work_avg_hr",
+          "id, title, session_date, intent, structure, work_distance_m, work_time_s, work_avg_pace_sec_per_km, work_avg_hr, time_of_day",
         )
         .eq("athlete_id", athleteId)
         .not("completed_at", "is", null)
         .not("work_distance_m", "is", null)
         .not("work_time_s", "is", null)
-        .order("session_date", { ascending: false });
+        .order("session_date", { ascending: false })
+        .order("time_of_day", { ascending: false });
       if (error) throw error;
       return (data ?? []) as CompSession[];
     },
