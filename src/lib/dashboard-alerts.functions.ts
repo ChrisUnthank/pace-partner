@@ -61,7 +61,7 @@ export const listDashboardAlerts = createServerFn({ method: "GET" })
     const [loadRes, ckRes, sessRes, insRes, dismRes, injuriesRes, gearRes, eventsRes, credsRes] = await Promise.all([
       sb.from("athlete_load_daily").select("athlete_id, load_date, atl, tsb, load_ratio").in("athlete_id", ids).gte("load_date", since28).order("load_date", { ascending: false }),
       sb.from("daily_checkins").select("athlete_id, checkin_date, sleep_quality, soreness, injury_flag, injury_notes").in("athlete_id", ids).gte("checkin_date", since28).order("checkin_date", { ascending: false }),
-      sb.from("sessions").select("id, athlete_id, session_date, title, day_type, intent, rpe, completed_at").in("athlete_id", ids).gte("session_date", since28).order("session_date", { ascending: false }),
+      sb.from("sessions").select("id, athlete_id, session_date, title, day_type, intent, rpe, completed_at, time_of_day").in("athlete_id", ids).gte("session_date", since28).order("session_date", { ascending: false }).order("time_of_day", { ascending: false }),
       sb.from("session_insights").select("athlete_id, session_id, feel_score, created_at").in("athlete_id", ids).order("created_at", { ascending: false }).limit(200),
       sb.from("alert_dismissals").select("athlete_id, alert_type").eq("coach_user_id", context.userId).eq("dismissed_date", today),
       // Health & Vitals / Locker additions — open injuries regardless of
