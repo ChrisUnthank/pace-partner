@@ -245,6 +245,7 @@ function SessionsList() {
         .select("*, athletes(name, timezone)", { count: "exact" })
         .in("athlete_id", ids)
         .order("session_date", { ascending: false })
+        .order("time_of_day", { ascending: false })
         .range(pageParam, pageParam + PAGE_SIZE - 1);
       if (filterStatus === "done") q = q.not("completed_at", "is", null);
       if (filterStatus === "planned") q = q.is("completed_at", null);
