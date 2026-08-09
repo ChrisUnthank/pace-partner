@@ -19,6 +19,11 @@ export type CalendarSession = {
   total_distance_m?: number | null;
   total_time_seconds?: number | null;
   total_moving_time_seconds?: number | null;
+  // Coarse manual fallback (morning/afternoon/evening) used to order this
+  // session against others on the same day when there's no real
+  // file-derived start time to sort by instead — see timeOfDayHintMs in
+  // session-categories.ts.
+  time_of_day?: string | null;
   // Resolved workout target for PLANNED sessions (Phase 3), e.g.
   // "95% thr · 4:07–4:20/km" — computed by the calendar page from the
   // session's first work step + the athlete's zone profile. Null/absent
