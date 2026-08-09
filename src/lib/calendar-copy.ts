@@ -121,12 +121,15 @@ function baseDraftStep(step: any): DraftStep {
 
 // Rounds a scaled (or even unscaled) distance to a number a coach would
 // actually write in a plan, not an arithmetic artifact of a percentage
-// multiplier (5437m instead of 5400m). Finer-grained for interval-length
-// distances, coarser for continuous/long-run distances — a judgment call
-// on granularity, not a confirmed product spec; easy to change the two
-// thresholds below if a different rounding feels more natural.
+// multiplier (5437m instead of 5400m). Tiered by distance — a short
+// interval rep needs fine granularity (50m), but a flat 100m step applied
+// all the way up to marathon distance still lets through numbers nobody
+// would actually write ("21.3km" instead of "21km"/"21.5km"). Real coach
+// plans get rounder as the distance gets longer, so the step size grows
+// with it. Thresholds are a judgment call, not a confirmed product spec —
+// easy to retune if a different granularity feels more natural.
 function roundDistanceM(m: number): number {
-  const step = m < 3000 ? 50 : 100;
+  const step = m < 3000 ? 50 : m < 10000 ? 100 : m < 15000 ? 250 : 500;
   return Math.round(m / step) * step;
 }
 
@@ -537,4 +540,157 @@ export function summarizeDraftSteps(steps: DraftStep[]): string {
       return `${repsPrefix}${amount}${targetSuffix(s)}`;
     })
     .join(" + ");
+}
+
+// ============================================================================
+// Checkbox-driven progression builder — week-by-week volume/reps/recovery,
+// plus a recurring deload overlay. Additive to everything above: none of
+// the existing ProgressionRule/WeekOverride/scaleStep/resolveEffectiveRules
+// machinery changes shape, so Copy Period Forward (the other feature built
+// on this same file) is untouched. This section only adds new ways to
+// GENERATE inputs those existing functions already know how to consume, or
+// new standalone helpers for the two axes (reps, recovery) that had no
+// week-aware mechanism at all before now.
+// ============================================================================
+
+export type DeloadConfig = { everyNWeeks: number; cutbackPct: number };
+
+// True when `weekNumber` (1-indexed, relative to the assignment's own week
+// 1 — same convention WeekOverride already uses) falls on the recurring
+// deload cadence. Week N is a deload week when N is an exact multiple of
+// the configured interval — so "every 4 weeks" means weeks 4, 8, 12, not
+// week 1.
+export function isDeloadWeek(weekNumber: number, deload: DeloadConfig | null | undefined): boolean {
+  if (!deload || !deload.everyNWeeks || deload.everyNWeeks < 1) return false;
+  return weekNumber % deload.everyNWeeks === 0;
+}
+
+/**
+ * Generates one WeekOverride per week across the assignment, from a
+ * starting volume % and a per-week increment — this is what actually
+ * makes "Build +X%" a real week-over-week climb instead of the same flat
+ * bump repeated on every week (see header note on why this reuses
+ * WeekOverride rather than changing ProgressionRule's shape). A deload
+ * week's override is replaced with the deload's own cutback %, regardless
+ * of where the underlying climb would otherwise be that week — the
+ * deload always wins.
+ *
+ * One override per week (not merged ranges) — resolveEffectiveRules just
+ * takes the first range containing a given week, so one-per-week is
+ * simplest and correct; nothing depends on overrides being range-merged.
+ */
+export function generateVolumeProgressionOverrides(
+  startPct: number,
+  incrementPctPerWeek: number,
+  weekCount: number,
+  deload?: DeloadConfig | null,
+): WeekOverride[] {
+  const overrides: WeekOverride[] = [];
+  for (let week = 1; week <= weekCount; week++) {
+    const climbPct = startPct + incrementPctPerWeek * (week - 1);
+    const pct = isDeloadWeek(week, deload) ? deload!.cutbackPct : climbPct;
+    overrides.push({ id: `auto-vol-${week}`, fromWeek: week, toWeek: week, volumePct: pct });
+  }
+  return overrides;
+}
+
+/**
+ * Stepped rep count for a given week — holds the same rep count for
+ * `holdWeeks` weeks, then jumps by `stepSize`, repeating. A deload week
+ * never advances the step — it's held at whatever the immediately
+ * preceding (non-deload) week resolved to, and the week after a deload
+ * picks the sequence back up as though the deload week had been invisible
+ * to the hold-length counter. Returns `baseReps` unchanged if stepSize or
+ * holdWeeks isn't set (progression off).
+ */
+export function repCountForWeek(
+  baseReps: number,
+  stepSize: number | undefined,
+  holdWeeks: number | undefined,
+  weekNumber: number,
+  deload?: DeloadConfig | null,
+): number {
+  if (!stepSize || !holdWeeks || holdWeeks < 1) return baseReps;
+
+  // Count non-deload weeks up to (and including, unless this week IS a
+  // deload week) the target week — this is the "effective" week used for
+  // the step calculation, so deload weeks don't consume hold-length.
+  const effectiveWeek = isDeloadWeek(weekNumber, deload) ? weekNumber - 1 : weekNumber;
+  let nonDeloadCount = 0;
+  for (let w = 1; w <= effectiveWeek; w++) {
+    if (!isDeloadWeek(w, deload)) nonDeloadCount++;
+  }
+  if (nonDeloadCount < 1) nonDeloadCount = 1;
+
+  const stepIndex = Math.floor((nonDeloadCount - 1) / holdWeeks);
+  return Math.max(1, baseReps + stepIndex * stepSize);
+}
+
+/**
+ * Linear recovery delta (seconds) for a given week, relative to a step's
+ * own base recovery value — direction-aware ("shorten" reduces recovery
+ * as weeks progress, "lengthen" increases it).
+ */
+function recoveryDeltaSecondsForWeek(ratePctPerWeek: number, direction: "shorten" | "lengthen", baseSeconds: number, weekNumber: number): number {
+  const cumulativePct = ratePctPerWeek * (weekNumber - 1);
+  const magnitude = baseSeconds * (cumulativePct / 100);
+  return direction === "shorten" ? -magnitude : magnitude;
+}
+
+/**
+ * Applies stepped rep-count progression to one bucket's drafts, in place
+ * of a flat delta — each draft's OWN original rep count (per step) is the
+ * baseline the stepping formula grows from, since different sessions in
+ * the same bucket can start from different rep counts. Needs each draft's
+ * `week_number` (present on PlanAssignDraft, not on the narrower
+ * DraftSession — this is why it's a new function rather than an overload
+ * of applyRepDelta, which only ever needed a single flat delta and no
+ * week awareness at all).
+ */
+export function applyRepProgression<T extends { bucket: CopyBucket | null; week_number: number; steps: DraftStep[] }>(
+  drafts: T[],
+  bucket: CopyBucket,
+  stepSize: number,
+  holdWeeks: number,
+  deload?: DeloadConfig | null,
+): T[] {
+  return drafts.map((d) => {
+    if (d.bucket !== bucket) return d;
+    const steps = d.steps.map((s) => {
+      if (s.kind !== "work" && s.kind !== "strides") return s;
+      const nextReps = repCountForWeek(s.reps, stepSize, holdWeeks, d.week_number, deload);
+      return { ...s, reps: nextReps };
+    });
+    return { ...d, steps };
+  });
+}
+
+/**
+ * Applies linear recovery progression (shorten/lengthen) across every
+ * draft, week-aware — same reasoning as applyRepProgression above for why
+ * this is new rather than reusing applyRecoveryDelta's flat-delta shape.
+ * Each step's OWN original recovery values are the baseline the % rate
+ * grows from. Floored at 0 seconds either direction, same convention as
+ * the existing flat applyRecoveryDelta.
+ */
+export function applyRecoveryProgression<T extends { week_number: number; steps: DraftStep[] }>(
+  drafts: T[],
+  ratePctPerWeek: number,
+  direction: "shorten" | "lengthen",
+): T[] {
+  return drafts.map((d) => {
+    const steps = d.steps.map((s) => {
+      const next = { ...s };
+      if (next.recovery_between_reps_seconds != null) {
+        const delta = recoveryDeltaSecondsForWeek(ratePctPerWeek, direction, next.recovery_between_reps_seconds, d.week_number);
+        next.recovery_between_reps_seconds = Math.max(0, Math.round(next.recovery_between_reps_seconds + delta));
+      }
+      if (next.recovery_between_sets_seconds != null) {
+        const delta = recoveryDeltaSecondsForWeek(ratePctPerWeek, direction, next.recovery_between_sets_seconds, d.week_number);
+        next.recovery_between_sets_seconds = Math.max(0, Math.round(next.recovery_between_sets_seconds + delta));
+      }
+      return next;
+    });
+    return { ...d, steps };
+  });
 }
