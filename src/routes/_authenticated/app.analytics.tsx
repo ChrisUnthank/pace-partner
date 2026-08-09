@@ -259,10 +259,11 @@ function CoachRoster({
     queryFn: async () => {
       const { data } = await supabase
         .from("sessions")
-        .select("id, athlete_id, title, session_date")
+        .select("id, athlete_id, title, session_date, time_of_day")
         .in("athlete_id", athleteIds)
         .not("completed_at", "is", null)
         .order("session_date", { ascending: false })
+        .order("time_of_day", { ascending: false })
         .limit(athleteIds.length * 5);
       return data ?? [];
     },
@@ -643,11 +644,12 @@ function AthleteAnalytics({
     queryFn: async () => {
       const { data } = await supabase
         .from("sessions")
-        .select("id, session_date, title, completed_at")
+        .select("id, session_date, title, completed_at, time_of_day")
         .eq("athlete_id", athleteId)
         .eq("day_type", "race")
         .gte("session_date", since)
-        .order("session_date", { ascending: true });
+        .order("session_date", { ascending: true })
+        .order("time_of_day", { ascending: true });
       return data ?? [];
     },
   });
