@@ -141,11 +141,12 @@ export function DeliverProgramDialog({
     queryFn: async () => {
       const { data: sessions, error } = await supabase
         .from("sessions")
-        .select("id, athlete_id, session_date, title, day_type, intent, is_long_run")
+        .select("id, athlete_id, session_date, title, day_type, intent, is_long_run, time_of_day")
         .in("athlete_id", scopeAthleteIds)
         .gte("session_date", rangeStart)
         .lte("session_date", rangeEnd)
-        .order("session_date");
+        .order("session_date")
+        .order("time_of_day");
       if (error) throw error;
 
       const sessionIds = (sessions ?? []).map((s: any) => s.id);
