@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -36,6 +36,9 @@ import {
   applyPaceNudgeSecPerKm,
   applyRepDelta,
   applyRecoveryDelta,
+  generateVolumeProgressionOverrides,
+  applyRepProgression,
+  applyRecoveryProgression,
   type ProgressionRules,
   type CopyBucket,
   type WeekOverride,
@@ -159,6 +162,13 @@ function estimateSessionDistanceM(effortType: string, steps: StepLike[] | null):
   const paceSecPerKm = ASSUMED_PACE_SEC_PER_KM[effortType] ?? 300;
 
   return steps.reduce((sum, s) => {
+    // Bug fix: this had no kind filter at all, so recovery/warmup/cooldown
+    // steps with their own explicit distance/time (e.g. a 90s jog between
+    // reps) were being counted toward the session's estimated distance —
+    // inflating the weekly-volume figure shown when browsing templates.
+    // plan-progression.ts's copy of this same estimate already excludes
+    // non-work/strides steps; this now matches it.
+    if (s.kind !== "work" && s.kind !== "strides") return sum;
     const reps = Number(s.reps ?? 1);
     if (s.target_kind === "distance") {
       return sum + Number(s.target_distance_m ?? 0) * reps;
@@ -265,6 +275,7 @@ function BuildOptionRow({
 function PlansPage() {
   const { user } = useAuthUser();
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [view, setView] = useState<"landing" | "browse" | "builder">("landing");
   // Where "Back" from the Plan Builder should return to — landing when
   // entered directly from "Build from scratch", browse when entered by
@@ -557,9 +568,13 @@ function PlansPage() {
                   <p className="text-xs text-muted-foreground">
                     Set up training groups and manage roster membership.
                   </p>
-                  {/* TODO(Chris): confirm the route this should link to — see note below */}
-                  <Button size="sm" variant="outline" className="w-full" disabled>
-                    Coming soon
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => navigate({ to: "/app/training-schedule" })}
+                  >
+                    Open <ChevronRight className="h-3.5 w-3.5 ml-1" />
                   </Button>
                 </CardContent>
               </Card>
@@ -977,6 +992,31 @@ function AssignPlanDialog({
   const [overrideFromWeek, setOverrideFromWeek] = useState(1);
   const [overrideToWeek, setOverrideToWeek] = useState(1);
   const [overridePct, setOverridePct] = useState(-20);
+
+  // "What do you want this block to do?" — checkbox-driven axes, each
+  // independent and composable (see calendar-copy.ts's checkbox-driven
+  // progression builder section for the underlying week-by-week math).
+  // Unlike the static per-bucket grid above (which is one flat value
+  // applied to every week), these generate a genuine week-over-week trend.
+  // When volume progression is off, week-specific overrides above still
+  // work exactly as before — this is additive, not a replacement.
+  const [enableVolumeProgression, setEnableVolumeProgression] = useState(false);
+  const [volumeStartPct, setVolumeStartPct] = useState(0);
+  const [volumeIncrementPct, setVolumeIncrementPct] = useState(5);
+
+  const [enableRepProgression, setEnableRepProgression] = useState(false);
+  const [repProgressionBucket, setRepProgressionBucket] = useState<CopyBucket>(REP_BUCKETS[0]);
+  const [repStepSize, setRepStepSize] = useState(1);
+  const [repHoldWeeks, setRepHoldWeeks] = useState(2);
+
+  const [enableRecoveryProgression, setEnableRecoveryProgression] = useState(false);
+  const [recoveryDirection, setRecoveryDirection] = useState<"shorten" | "lengthen">("shorten");
+  const [recoveryRatePct, setRecoveryRatePct] = useState(5);
+
+  const [enableDeload, setEnableDeload] = useState(false);
+  const [deloadEveryNWeeks, setDeloadEveryNWeeks] = useState(4);
+  const [deloadCutbackPct, setDeloadCutbackPct] = useState(-20);
+
   const [previewing, setPreviewing] = useState(false);
   const [assigning, setAssigning] = useState(false);
   const [drafts, setDrafts] = useState<PlanAssignDraft[]>([]);
@@ -1135,13 +1175,36 @@ function AssignPlanDialog({
 
     setPreviewing(true);
     try {
+      // Auto-generated weekly climb (+ optional deload overlay) takes over
+      // from the manual week-specific overrides list when either checkbox
+      // is on — this is what actually makes "Build +X%" a real week-over-
+      // week trend instead of the same flat bump on every week. With both
+      // checkboxes off, behavior is unchanged from before: the manual
+      // weekOverrides list (if any) still applies exactly as it always has.
+      const deloadConfig = enableDeload ? { everyNWeeks: deloadEveryNWeeks, cutbackPct: deloadCutbackPct } : null;
+      const effectiveWeekOverrides =
+        enableVolumeProgression || enableDeload
+          ? generateVolumeProgressionOverrides(
+              enableVolumeProgression ? volumeStartPct : 0,
+              enableVolumeProgression ? volumeIncrementPct : 0,
+              template.duration_weeks,
+              deloadConfig,
+            )
+          : weekOverrides;
+
       const result = await previewPlanAssignment({
-        data: { planTemplateId: template.id, startDate, progressionRules: rules, weekOverrides },
+        data: { planTemplateId: template.id, startDate, progressionRules: rules, weekOverrides: effectiveWeekOverrides },
       });
       let finalDrafts = result.drafts;
       for (const bucket of Object.keys(pendingRepDeltas) as CopyBucket[]) {
         const delta = pendingRepDeltas[bucket];
         if (delta) finalDrafts = applyRepDelta(finalDrafts, bucket, delta) as PlanAssignDraft[];
+      }
+      if (enableRepProgression) {
+        finalDrafts = applyRepProgression(finalDrafts, repProgressionBucket, repStepSize, repHoldWeeks, deloadConfig) as PlanAssignDraft[];
+      }
+      if (enableRecoveryProgression) {
+        finalDrafts = applyRecoveryProgression(finalDrafts, recoveryRatePct, recoveryDirection) as PlanAssignDraft[];
       }
       setDrafts(finalDrafts);
       setStepUi("review");
@@ -1421,6 +1484,180 @@ function AssignPlanDialog({
               )}
             </div>
 
+            <div className="rounded-lg border p-3 space-y-3 bg-accent/20">
+              <div>
+                <Label className="text-xs font-semibold">What do you want this block to do?</Label>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Pick any combination — each generates a real week-over-week trend across the assignment, not a flat
+                  bump repeated on every week. Leave everything unchecked to use the static Volume %/Intensity %
+                  grid below exactly as before.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input type="checkbox" className="h-4 w-4" checked={enableVolumeProgression} onChange={(e) => setEnableVolumeProgression(e.target.checked)} />
+                  Increase volume over time
+                </label>
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input type="checkbox" className="h-4 w-4" checked={enableRepProgression} onChange={(e) => setEnableRepProgression(e.target.checked)} />
+                  Increase rep count over time
+                </label>
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input type="checkbox" className="h-4 w-4" checked={enableRecoveryProgression} onChange={(e) => setEnableRecoveryProgression(e.target.checked)} />
+                  Progress recovery duration
+                </label>
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input type="checkbox" className="h-4 w-4" checked={enableDeload} onChange={(e) => setEnableDeload(e.target.checked)} />
+                  Include a recurring deload week
+                </label>
+              </div>
+
+              {enableVolumeProgression && (
+                <div className="pl-6 space-y-2 border-l-2 border-primary/30">
+                  <p className="text-xs font-medium">Volume climb</p>
+                  <div className="flex items-center gap-3">
+                    <div>
+                      <Label className="text-[11px] text-muted-foreground">Start %</Label>
+                      <Input
+                        type="number"
+                        className="w-20 h-8"
+                        value={volumeStartPct}
+                        onChange={(e) => setVolumeStartPct(Number(e.target.value))}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-[11px] text-muted-foreground">+%/week</Label>
+                      <Input
+                        type="number"
+                        className="w-20 h-8"
+                        value={volumeIncrementPct}
+                        onChange={(e) => setVolumeIncrementPct(Number(e.target.value))}
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Week 1 at {volumeStartPct >= 0 ? "+" : ""}
+                    {volumeStartPct}%, climbing by {volumeIncrementPct}% each week — applies uniformly across every
+                    bucket (the static grid below still sets each bucket's own starting point, this sets the shared
+                    rate of climb). Replaces the manual week-specific overrides below while this is checked.
+                  </p>
+                </div>
+              )}
+
+              {enableRepProgression && (
+                <div className="pl-6 space-y-2 border-l-2 border-primary/30">
+                  <p className="text-xs font-medium">Rep count step-up</p>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <div>
+                      <Label className="text-[11px] text-muted-foreground">Bucket</Label>
+                      <Select value={repProgressionBucket} onValueChange={(v) => setRepProgressionBucket(v as CopyBucket)}>
+                        <SelectTrigger className="w-32 h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {REP_BUCKETS.map((b) => (
+                            <SelectItem key={b} value={b}>
+                              {COPY_BUCKET_LABELS[b]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-[11px] text-muted-foreground">+reps per jump</Label>
+                      <Input
+                        type="number"
+                        className="w-20 h-8"
+                        value={repStepSize}
+                        onChange={(e) => setRepStepSize(Number(e.target.value))}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-[11px] text-muted-foreground">Hold (weeks)</Label>
+                      <Input
+                        type="number"
+                        className="w-20 h-8"
+                        value={repHoldWeeks}
+                        onChange={(e) => setRepHoldWeeks(Number(e.target.value))}
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Holds each rep count for {repHoldWeeks} week{repHoldWeeks === 1 ? "" : "s"}, then jumps by{" "}
+                    {repStepSize} rep{repStepSize === 1 ? "" : "s"} — starting from whatever this template's{" "}
+                    {COPY_BUCKET_LABELS[repProgressionBucket]} sessions already prescribe. A deload week (if enabled)
+                    holds at the current step rather than jumping that week.
+                  </p>
+                </div>
+              )}
+
+              {enableRecoveryProgression && (
+                <div className="pl-6 space-y-2 border-l-2 border-primary/30">
+                  <p className="text-xs font-medium">Recovery progression</p>
+                  <div className="flex items-center gap-3">
+                    <div>
+                      <Label className="text-[11px] text-muted-foreground">Direction</Label>
+                      <Select value={recoveryDirection} onValueChange={(v) => setRecoveryDirection(v as "shorten" | "lengthen")}>
+                        <SelectTrigger className="w-32 h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="shorten">Shorten over time</SelectItem>
+                          <SelectItem value="lengthen">Lengthen over time</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-[11px] text-muted-foreground">%/week</Label>
+                      <Input
+                        type="number"
+                        className="w-20 h-8"
+                        value={recoveryRatePct}
+                        onChange={(e) => setRecoveryRatePct(Number(e.target.value))}
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Applies to recovery between reps and between sets, {recoveryRatePct}% per week, cumulative from
+                    week 1. Standalone recovery/cooldown sessions are left untouched.
+                  </p>
+                </div>
+              )}
+
+              {enableDeload && (
+                <div className="pl-6 space-y-2 border-l-2 border-primary/30">
+                  <p className="text-xs font-medium">Recurring deload</p>
+                  <div className="flex items-center gap-3">
+                    <div>
+                      <Label className="text-[11px] text-muted-foreground">Every N weeks</Label>
+                      <Input
+                        type="number"
+                        className="w-20 h-8"
+                        value={deloadEveryNWeeks}
+                        onChange={(e) => setDeloadEveryNWeeks(Number(e.target.value))}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-[11px] text-muted-foreground">Cutback %</Label>
+                      <Input
+                        type="number"
+                        className="w-20 h-8"
+                        value={deloadCutbackPct}
+                        onChange={(e) => setDeloadCutbackPct(Number(e.target.value))}
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Every {deloadEveryNWeeks}
+                    {deloadEveryNWeeks === 1 ? "st" : deloadEveryNWeeks === 2 ? "nd" : deloadEveryNWeeks === 3 ? "rd" : "th"} week,
+                    volume drops to {deloadCutbackPct}% regardless of the climb above, and rep progression holds
+                    rather than stepping up that week. Recovery progression (if enabled) isn't affected by deload
+                    weeks.
+                  </p>
+                </div>
+              )}
+            </div>
+
             <div>
               <Label className="text-xs">
                 Quick nudge — %/bucket (optional; adapts this template to this athlete/group, leave at 0 to assign
@@ -1487,6 +1724,13 @@ function AssignPlanDialog({
                 <p className="text-xs text-muted-foreground mt-1">
                   E.g. taper weeks 11–12 of a 12-week template at −30% for this athlete, regardless of the volume
                   set above. Week numbers are the template's own week numbers.
+                  {enableVolumeProgression && (
+                    <span className="text-amber-600">
+                      {" "}
+                      Not used while "Increase volume over time" above is checked — the generated weekly climb takes
+                      over instead. Uncheck it to use these manual overrides again.
+                    </span>
+                  )}
                 </p>
 
                 {weekOverrides.length > 0 && (
