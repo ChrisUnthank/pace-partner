@@ -88,11 +88,12 @@ export function PostRaceAnalysisCard({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sessions")
-        .select("id, title, session_date, total_distance_m, total_time_seconds")
+        .select("id, title, session_date, total_distance_m, total_time_seconds, time_of_day")
         .eq("athlete_id", athleteId)
         .eq("day_type", "race")
         .not("completed_at", "is", null)
         .order("session_date", { ascending: false })
+        .order("time_of_day", { ascending: false })
         .limit(50);
       if (error) throw error;
       return data ?? [];
