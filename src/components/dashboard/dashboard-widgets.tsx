@@ -626,7 +626,7 @@ export function UpcomingRacesWidget() {
       twoWeeksOut.setDate(twoWeeksOut.getDate() + 14);
       const { data, error } = await supabase
         .from("sessions")
-        .select("id, title, session_date, athlete_id")
+        .select("id, title, session_date, athlete_id, time_of_day")
         .in(
           "athlete_id",
           roster!.map((r) => r.athlete_id),
@@ -635,6 +635,7 @@ export function UpcomingRacesWidget() {
         .gte("session_date", today)
         .lte("session_date", twoWeeksOut.toISOString().slice(0, 10))
         .order("session_date", { ascending: true })
+        .order("time_of_day", { ascending: true })
         .limit(6);
       if (error) throw error;
       return data ?? [];
@@ -922,11 +923,12 @@ export function AthleteNextSessionWidget({ athleteId }: { athleteId: string }) {
     queryFn: async () => {
       const { data } = await supabase
         .from("sessions")
-        .select("id, title, session_date, day_type, intent, activity_type")
+        .select("id, title, session_date, day_type, intent, activity_type, time_of_day")
         .eq("athlete_id", athleteId)
         .gte("session_date", today)
         .is("completed_at", null)
         .order("session_date", { ascending: true })
+        .order("time_of_day", { ascending: true })
         .limit(1)
         .maybeSingle();
       return data;
@@ -976,17 +978,20 @@ export function AthleteNextSessionWidget({ athleteId }: { athleteId: string }) {
 export function AthleteLatestSessionWidget({ athleteId }: { athleteId: string }) {
   // "Latest" = most recently completed session, not most recently created —
   // a backdated manual entry shouldn't jump ahead of an actually-recent
-  // upload. Tiebreak on created_at so same-day sessions still resolve to
-  // whichever was actually logged last.
+  // upload. Tiebreaks on time_of_day first (genuine same-day chronological
+  // order — see the session-ordering fix), then created_at as a final
+  // fallback for the rare case two sessions share the same day AND the
+  // same coarse time-of-day bucket.
   const { data: latest } = useQuery({
     queryKey: ["home-latest-session", athleteId],
     queryFn: async () => {
       const { data } = await supabase
         .from("sessions")
-        .select("id, title, session_date, day_type, intent, activity_type, total_distance_m, total_time_seconds, total_moving_time_seconds, rpe")
+        .select("id, title, session_date, day_type, intent, activity_type, total_distance_m, total_time_seconds, total_moving_time_seconds, rpe, time_of_day")
         .eq("athlete_id", athleteId)
         .not("completed_at", "is", null)
         .order("session_date", { ascending: false })
+        .order("time_of_day", { ascending: false })
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
