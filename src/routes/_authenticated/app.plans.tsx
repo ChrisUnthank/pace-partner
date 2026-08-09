@@ -1003,6 +1003,18 @@ function AssignPlanDialog({
   const [enableVolumeProgression, setEnableVolumeProgression] = useState(false);
   const [volumeStartPct, setVolumeStartPct] = useState(0);
   const [volumeIncrementPct, setVolumeIncrementPct] = useState(5);
+  // Distance-based alternative to typing raw percentages directly — a
+  // coach thinking "build from 40km to 55km a week" shouldn't have to
+  // convert that to a %/week themselves. Both modes ultimately drive the
+  // exact same volumeStartPct/volumeIncrementPct → generateVolumeProgressionOverrides
+  // pipeline; this is a UI-level conversion, not a second engine. Computed
+  // live from whichever mode is active (see effectiveVolumeStartPct/
+  // effectiveVolumeIncrementPct below) rather than stored as a second copy
+  // of the percentages, so the two representations can never drift out of
+  // sync with each other.
+  const [volumeInputMode, setVolumeInputMode] = useState<"pct" | "distance">("pct");
+  const [volumeStartKm, setVolumeStartKm] = useState<string>("");
+  const [volumeEndKm, setVolumeEndKm] = useState<string>("");
 
   const [enableRepProgression, setEnableRepProgression] = useState(false);
   const [repProgressionBucket, setRepProgressionBucket] = useState<CopyBucket>(REP_BUCKETS[0]);
@@ -1063,6 +1075,37 @@ function AssignPlanDialog({
       if (totalReps > 0) kmPerRepByBucket[b] = totalM / 1000 / totalReps;
     }
   }
+
+  // Template's own current average weekly volume — the baseline both the
+  // existing Volume Target tool and the new distance-mode volume climb
+  // convert against. 0 (rather than throwing) when a template has no
+  // measurable distance yet, so distance mode can be cleanly disabled
+  // below instead of dividing by zero.
+  const baseWeeklyKm = Object.values(currentKmByBucket).reduce((a: number, b) => a + (b ?? 0), 0);
+
+  // Converts whichever volume-climb input mode is active into the
+  // startPct/incrementPct pair the underlying engine actually consumes —
+  // computed here, not stored as separate state, so switching modes can
+  // never leave the two representations out of sync with each other.
+  // Distance mode spreads the gap from start to end evenly across every
+  // week except the first (week 1 is the start value itself), matching
+  // how "start %, +%/week" already behaves.
+  const weeksForClimb = Math.max(1, template.duration_weeks - 1);
+  const startKmNum = Number(volumeStartKm);
+  const endKmNum = Number(volumeEndKm);
+  const distanceModeReady = volumeInputMode === "distance" && baseWeeklyKm > 0 && volumeStartKm !== "" && volumeEndKm !== "";
+  const effectiveVolumeStartPct =
+    volumeInputMode === "distance"
+      ? distanceModeReady
+        ? ((startKmNum - baseWeeklyKm) / baseWeeklyKm) * 100
+        : 0
+      : volumeStartPct;
+  const effectiveVolumeIncrementPct =
+    volumeInputMode === "distance"
+      ? distanceModeReady
+        ? (((endKmNum - baseWeeklyKm) / baseWeeklyKm) * 100 - effectiveVolumeStartPct) / weeksForClimb
+        : 0
+      : volumeIncrementPct;
 
   const { data: roster } = useQuery({
     queryKey: ["roster-for-plan-assign"],
@@ -1172,6 +1215,16 @@ function AssignPlanDialog({
       toast.error("Choose a start date");
       return;
     }
+    if (enableVolumeProgression && volumeInputMode === "distance") {
+      if (baseWeeklyKm <= 0) {
+        toast.error("This template has no measurable distance yet — switch volume climb to \"By %\" instead");
+        return;
+      }
+      if (!distanceModeReady) {
+        toast.error("Enter both a start and end weekly distance for the volume climb");
+        return;
+      }
+    }
 
     setPreviewing(true);
     try {
@@ -1185,8 +1238,8 @@ function AssignPlanDialog({
       const effectiveWeekOverrides =
         enableVolumeProgression || enableDeload
           ? generateVolumeProgressionOverrides(
-              enableVolumeProgression ? volumeStartPct : 0,
-              enableVolumeProgression ? volumeIncrementPct : 0,
+              enableVolumeProgression ? effectiveVolumeStartPct : 0,
+              enableVolumeProgression ? effectiveVolumeIncrementPct : 0,
               template.duration_weeks,
               deloadConfig,
             )
@@ -1515,31 +1568,101 @@ function AssignPlanDialog({
               {enableVolumeProgression && (
                 <div className="pl-6 space-y-2 border-l-2 border-primary/30">
                   <p className="text-xs font-medium">Volume climb</p>
-                  <div className="flex items-center gap-3">
-                    <div>
-                      <Label className="text-[11px] text-muted-foreground">Start %</Label>
-                      <Input
-                        type="number"
-                        className="w-20 h-8"
-                        value={volumeStartPct}
-                        onChange={(e) => setVolumeStartPct(Number(e.target.value))}
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-[11px] text-muted-foreground">+%/week</Label>
-                      <Input
-                        type="number"
-                        className="w-20 h-8"
-                        value={volumeIncrementPct}
-                        onChange={(e) => setVolumeIncrementPct(Number(e.target.value))}
-                      />
-                    </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant={volumeInputMode === "pct" ? "default" : "outline"} onClick={() => setVolumeInputMode("pct")}>
+                      By %
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={volumeInputMode === "distance" ? "default" : "outline"}
+                      onClick={() => setVolumeInputMode("distance")}
+                      disabled={baseWeeklyKm <= 0}
+                      title={baseWeeklyKm <= 0 ? "This template has no measurable distance yet" : undefined}
+                    >
+                      By distance
+                    </Button>
                   </div>
+
+                  {volumeInputMode === "pct" ? (
+                    <>
+                      <div className="flex items-center gap-3">
+                        <div>
+                          <Label className="text-[11px] text-muted-foreground">Start %</Label>
+                          <Input
+                            type="number"
+                            className="w-20 h-8"
+                            value={volumeStartPct}
+                            onChange={(e) => setVolumeStartPct(Number(e.target.value))}
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-[11px] text-muted-foreground">+%/week</Label>
+                          <Input
+                            type="number"
+                            className="w-20 h-8"
+                            value={volumeIncrementPct}
+                            onChange={(e) => setVolumeIncrementPct(Number(e.target.value))}
+                          />
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        Week 1 at {volumeStartPct >= 0 ? "+" : ""}
+                        {volumeStartPct}%, climbing by {volumeIncrementPct}% each week
+                        {baseWeeklyKm > 0 && (
+                          <>
+                            {" "}
+                            — roughly {((baseWeeklyKm * (1 + volumeStartPct / 100))).toFixed(1)}km in week 1, rising
+                            to ~
+                            {(baseWeeklyKm * (1 + (volumeStartPct + volumeIncrementPct * weeksForClimb) / 100)).toFixed(1)}km
+                            by the last week
+                          </>
+                        )}
+                        .
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-3">
+                        <div>
+                          <Label className="text-[11px] text-muted-foreground">Start (km/week)</Label>
+                          <Input
+                            type="number"
+                            className="w-24 h-8"
+                            placeholder={baseWeeklyKm > 0 ? baseWeeklyKm.toFixed(1) : undefined}
+                            value={volumeStartKm}
+                            onChange={(e) => setVolumeStartKm(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-[11px] text-muted-foreground">End (km/week)</Label>
+                          <Input
+                            type="number"
+                            className="w-24 h-8"
+                            value={volumeEndKm}
+                            onChange={(e) => setVolumeEndKm(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        This template's own base week averages ~{baseWeeklyKm.toFixed(1)}km. Spreads evenly from the
+                        start figure to the end figure across all {template.duration_weeks} weeks
+                        {distanceModeReady && (
+                          <>
+                            {" "}
+                            — that works out to {effectiveVolumeStartPct >= 0 ? "+" : ""}
+                            {effectiveVolumeStartPct.toFixed(1)}% in week 1, then{" "}
+                            {effectiveVolumeIncrementPct >= 0 ? "+" : ""}
+                            {effectiveVolumeIncrementPct.toFixed(1)}% more each week after that
+                          </>
+                        )}
+                        .
+                      </p>
+                    </>
+                  )}
                   <p className="text-[11px] text-muted-foreground">
-                    Week 1 at {volumeStartPct >= 0 ? "+" : ""}
-                    {volumeStartPct}%, climbing by {volumeIncrementPct}% each week — applies uniformly across every
-                    bucket (the static grid below still sets each bucket's own starting point, this sets the shared
-                    rate of climb). Replaces the manual week-specific overrides below while this is checked.
+                    Applies uniformly across every bucket (the static grid below still sets each bucket's own
+                    starting point, this sets the shared rate of climb). Replaces the manual week-specific overrides
+                    below while this is checked.
                   </p>
                 </div>
               )}
