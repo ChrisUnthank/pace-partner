@@ -221,7 +221,7 @@ function AthleteDetail() {
     queryFn: async () => {
       const since = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
       const { data } = await supabase.from("sessions").select("*")
-        .eq("athlete_id", athleteId).gte("session_date", since).order("session_date", { ascending: false });
+        .eq("athlete_id", athleteId).gte("session_date", since).order("session_date", { ascending: false }).order("time_of_day", { ascending: false });
       return data ?? [];
     },
   });
