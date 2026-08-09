@@ -212,18 +212,20 @@ function SessionAnalysis() {
       const [{ data: prevRows, error: prevErr }, { data: nextRows, error: nextErr }] = await Promise.all([
         supabase
           .from("sessions")
-          .select("id, session_date, title")
+          .select("id, session_date, title, time_of_day")
           .eq("athlete_id", athleteId)
           .or(`session_date.lt.${date},and(session_date.eq.${date},id.lt.${sessionId})`)
           .order("session_date", { ascending: false })
+          .order("time_of_day", { ascending: false })
           .order("id", { ascending: false })
           .limit(1),
         supabase
           .from("sessions")
-          .select("id, session_date, title")
+          .select("id, session_date, title, time_of_day")
           .eq("athlete_id", athleteId)
           .or(`session_date.gt.${date},and(session_date.eq.${date},id.gt.${sessionId})`)
           .order("session_date", { ascending: true })
+          .order("time_of_day", { ascending: true })
           .order("id", { ascending: true })
           .limit(1),
       ]);
