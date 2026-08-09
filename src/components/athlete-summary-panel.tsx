@@ -110,9 +110,10 @@ export function AthleteSummaryPanel({
     queryFn: async () => {
       const { data } = await supabase
         .from("sessions")
-        .select("id, session_date, title, completed_at")
+        .select("id, session_date, title, completed_at, time_of_day")
         .eq("athlete_id", athleteId!)
         .order("session_date", { ascending: false })
+        .order("time_of_day", { ascending: false })
         .limit(5);
       return data ?? [];
     },
