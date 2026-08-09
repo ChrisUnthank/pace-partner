@@ -164,11 +164,12 @@ function AthleteReportPage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("sessions")
-        .select("id, title, session_date, total_distance_m, total_time_seconds, total_moving_time_seconds, rpe, completed_at, day_type, intent, activity_type")
+        .select("id, title, session_date, total_distance_m, total_time_seconds, total_moving_time_seconds, rpe, completed_at, day_type, intent, activity_type, time_of_day")
         .eq("athlete_id", activeAthleteId)
         .gte("session_date", periodStart)
         .lte("session_date", periodEnd)
-        .order("session_date", { ascending: true });
+        .order("session_date", { ascending: true })
+        .order("time_of_day", { ascending: true });
       return data ?? [];
     },
   });
