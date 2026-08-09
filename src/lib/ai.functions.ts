@@ -105,7 +105,7 @@ export const buildAthletePayload = createServerFn({ method: "POST" })
     const since42 = new Date(Date.now() - 42 * 86400_000).toISOString().slice(0, 10);
     const [athlete, sessions, load, vitals, insights, physio, zones, dna, upcomingRace, recentRace] = await Promise.all([
       sb.from("athletes").select("name, sex, primary_event, hr_max, hr_rest, training_age_years, weight, dob").eq("id", data.athleteId).maybeSingle(),
-      sb.from("sessions").select("id, session_date, title, intent, day_type, rpe, completion_pct, total_distance_m, total_time_seconds, completed_at").eq("athlete_id", data.athleteId).gte("session_date", since28).order("session_date", { ascending: false }).limit(30),
+      sb.from("sessions").select("id, session_date, title, intent, day_type, rpe, completion_pct, total_distance_m, total_time_seconds, completed_at, time_of_day").eq("athlete_id", data.athleteId).gte("session_date", since28).order("session_date", { ascending: false }).order("time_of_day", { ascending: false }).limit(30),
       sb.from("athlete_load_daily").select("load_date, combined_load, ctl, atl, tsb, readiness_status, readiness_score").eq("athlete_id", data.athleteId).gte("load_date", since42).order("load_date", { ascending: false }),
       sb.from("daily_vitals").select("vitals_date, sleep_hours, resting_hr, weight_kg, hydration").eq("athlete_id", data.athleteId).gte("vitals_date", since14).order("vitals_date", { ascending: false }),
       sb.from("session_insights").select("created_at, feel_score, went_well, was_difficult, niggles").eq("athlete_id", data.athleteId).order("created_at", { ascending: false }).limit(5),
