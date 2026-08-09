@@ -24,7 +24,7 @@ import {
   sessionShortLabel,
 } from "@/components/calendar-day-cell";
 import { resolvedTargetShortLabel } from "@/lib/target-resolution";
-import { sessionClassificationLabel } from "@/lib/session-categories";
+import { sessionClassificationLabel, timeOfDayHintMs } from "@/lib/session-categories";
 import { metersFmt, secToClock } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/user-avatar";
@@ -271,7 +271,7 @@ function CalendarPage() {
         supabase
           .from("sessions")
           .select(
-            "id, title, session_date, day_type, intent, structure, is_long_run, completed_at, is_planned, activity_type, total_distance_m, total_time_seconds, total_moving_time_seconds",
+            "id, title, session_date, day_type, intent, structure, is_long_run, completed_at, is_planned, activity_type, total_distance_m, total_time_seconds, total_moving_time_seconds, time_of_day",
           )
           .eq("athlete_id", selectedAthleteId)
           .gte("session_date", rangeStart)
@@ -302,6 +302,30 @@ function CalendarPage() {
           .in("session_id", sIds);
         fatigue = fz ?? [];
       }
+      // Real recorded start time per session, for correctly ordering
+      // multiple sessions on the same day — session_date alone has no
+      // time component, and completed_at is set to whenever the upload
+      // was PROCESSED (not when the session actually happened), so
+      // neither is safe to sort same-day sessions by. session_files.
+      // started_at is the actual device/GPS-recorded start time; a
+      // multi-file session (e.g. separate warmup/work/cooldown files)
+      // uses the EARLIEST file, same "true start" convention already used
+      // by recompute_fit_import_session_dates for date correction.
+      // Sessions with no attached file (manually logged, e.g. a Gym
+      // session) fall back to their own time_of_day hint at render time.
+      const earliestStartMsBySession: Record<string, number> = {};
+      if (sIds.length) {
+        const { data: files } = await supabase
+          .from("session_files")
+          .select("session_id, started_at")
+          .in("session_id", sIds)
+          .not("started_at", "is", null);
+        for (const f of files ?? []) {
+          const ms = new Date(f.started_at as string).getTime();
+          const cur = earliestStartMsBySession[f.session_id as string];
+          if (cur == null || ms < cur) earliestStartMsBySession[f.session_id as string] = ms;
+        }
+      }
       // First work step's target fields for PLANNED sessions only —
       // completed pills show actuals, so no target lookup needed there.
       const plannedIds = (sessions ?? []).filter((s) => !s.completed_at).map((s) => s.id);
@@ -323,6 +347,7 @@ function CalendarPage() {
         fatigue,
         vitals: vitals ?? [],
         plannedWorkSteps,
+        earliestStartMsBySession,
       };
     },
   });
@@ -397,6 +422,27 @@ function CalendarPage() {
         day.sessions.push(targetLabel ? { ...s, targetLabel } : s);
         day.efficiencyBySession = day.efficiencyBySession ?? {};
         if (effBySession[s.id] != null) day.efficiencyBySession[s.id] = effBySession[s.id];
+      }
+      // Same-day ordering — real recorded start time wins when a session
+      // has an attached file, falling back to its own time_of_day hint
+      // (morning/afternoon/evening) for sessions with neither, and
+      // finally a stable index-based tiebreak so two genuinely
+      // time-unknown sessions don't jump around between renders. Without
+      // this, multiple sessions on one day fall back to whatever order
+      // the query happened to return them in — effectively upload order,
+      // not actual time of day.
+      for (const day of map.values()) {
+        const sortKey = (s: CalendarSession, idx: number): number => {
+          const real = bundle.earliestStartMsBySession[s.id];
+          if (real != null) return real;
+          const hint = timeOfDayHintMs(s);
+          if (hint != null) return hint;
+          return Number.MAX_SAFE_INTEGER - (day.sessions.length - idx); // stable, keeps original relative order last
+        };
+        day.sessions = day.sessions
+          .map((s, idx) => ({ s, key: sortKey(s, idx) }))
+          .sort((a, b) => a.key - b.key)
+          .map((x) => x.s);
       }
       for (const r of bundle.load) {
         const day = map.get(r.load_date);
@@ -590,7 +636,8 @@ function CalendarPage() {
         .eq("athlete_id", selectedAthleteId)
         .gte("session_date", srcStart)
         .lte("session_date", srcEnd)
-        .order("session_date");
+        .order("session_date")
+        .order("time_of_day");
       if (error) throw error;
 
       if (!sourceSessions || sourceSessions.length === 0) {
