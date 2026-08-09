@@ -518,9 +518,10 @@ function LinkSessionPicker({ gearId, athleteId }: { gearId: string; athleteId: s
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sessions")
-        .select("id, session_date, title")
+        .select("id, session_date, title, time_of_day")
         .eq("athlete_id", athleteId)
         .order("session_date", { ascending: false })
+        .order("time_of_day", { ascending: false })
         .limit(50);
       if (error) throw error;
       return (data ?? []) as any[];
