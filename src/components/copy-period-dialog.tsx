@@ -218,7 +218,8 @@ export function CopyPeriodDialog({
         .in("athlete_id", scopeAthleteIds)
         .gte("session_date", sourceStart)
         .lte("session_date", sourceEnd)
-        .order("session_date");
+        .order("session_date")
+        .order("time_of_day");
       if (error) throw error;
 
       const stepsBySession = new Map<string, any[]>();
