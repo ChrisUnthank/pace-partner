@@ -10,7 +10,7 @@ import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { metersFmt, secToClock } from "@/lib/format";
+import { metersFmt, secToClock, toLocalISODate } from "@/lib/format";
 import { sessionClassificationLabel, SESSION_INTENTS, INTENT_LABEL, DAY_TYPE_LABEL, timeOfDayHintMs } from "@/lib/session-categories";
 import { Plus, Upload, Users, Search, Eye, Trash2, Download, RefreshCw, X, CalendarDays, HeartPulse, Fingerprint } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -161,24 +161,40 @@ function SessionsList() {
   // "This week" quick stats + readiness, for the logged-in athlete's own view (a coach
   // browsing a roster of athletes doesn't have one single "current athlete" to summarize,
   // so this only renders when `athlete` — the logged-in user's own athlete profile — exists).
-  const weekStartISO = useMemo(() => {
+  //
+  // Two real bugs fixed here:
+  // 1. weekStartISO used to build the Monday Date correctly in local time,
+  //    then call .toISOString().slice(0, 10) on it — which converts to UTC
+  //    first, silently rolling the date back a day for anyone east of UTC
+  //    (Monday 00:00 AEDT becomes Sunday 13:00 UTC). Same bug already found
+  //    and fixed in app.analytics.tsx's own week/month/year boundaries —
+  //    this was the one place it got missed. Now uses toLocalISODate,
+  //    which builds the string from the Date's own local calendar fields
+  //    instead of round-tripping through UTC.
+  // 2. The query had no upper bound at all — .gte(weekStartISO) with no
+  //    .lte() meant "this week" actually meant "this week and every future
+  //    session forever," including planned races weeks away. Now bounded
+  //    to Sunday of the same week.
+  const { weekStartISO, weekEndISO } = useMemo(() => {
     const now = new Date();
     const day = now.getDay() || 7; // Mon=1 .. Sun=7
     const monday = new Date(now);
     monday.setDate(now.getDate() - day + 1);
-    monday.setHours(0, 0, 0, 0);
-    return monday.toISOString().slice(0, 10);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    return { weekStartISO: toLocalISODate(monday), weekEndISO: toLocalISODate(sunday) };
   }, []);
 
   const { data: weekSessions } = useQuery({
-    queryKey: ["sessions-week-summary", athlete?.id, weekStartISO],
+    queryKey: ["sessions-week-summary", athlete?.id, weekStartISO, weekEndISO],
     enabled: !!athlete,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sessions")
         .select("total_distance_m, total_time_seconds, completed_at")
         .eq("athlete_id", athlete!.id)
-        .gte("session_date", weekStartISO);
+        .gte("session_date", weekStartISO)
+        .lte("session_date", weekEndISO);
       if (error) throw error;
       return data ?? [];
     },
