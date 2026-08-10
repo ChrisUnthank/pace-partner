@@ -12,6 +12,7 @@ import { ReadinessBadge } from "@/components/readiness-badge";
 import { CoachAthletePicker } from "@/components/coach-athlete-picker";
 import { ChartInsightCard } from "@/components/chart-insight-card";
 import { TERRAIN_VALUES, TERRAIN_LABEL, type Terrain } from "@/lib/session-categories";
+import { terrainIconFor } from "@/lib/activity-icon";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   ResponsiveContainer,
@@ -1658,42 +1659,16 @@ function AthleteAnalytics({
             {terrainData.length === 0 ? (
               <p className="text-sm text-muted-foreground">No completed runs {volumePeriodLabel(granularity)}.</p>
             ) : (
-              <div className="h-[220px] w-full">
-                <ResponsiveContainer>
-                  <PieChart>
-                    <Pie
-                      data={terrainData}
-                      dataKey="minutes"
-                      nameKey="terrain"
-                      innerRadius={45}
-                      outerRadius={80}
-                      paddingAngle={2}
-                      label={({ value }: any) => {
-                        const pct = terrainTotalMinutes ? Math.round((Number(value) / terrainTotalMinutes) * 100) : 0;
-                        return `${pct}%`;
-                      }}
-                      labelLine={{ stroke: "hsl(var(--muted-foreground))", strokeWidth: 1 }}
-                    >
-                      {terrainData.map((d) => (
-                        <Cell key={d.key} fill={TERRAIN_PIE_COLORS[d.key] ?? "#8b5cf6"} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{
-                        background: "hsl(var(--background))",
-                        border: "1px solid hsl(var(--border))",
-                        fontSize: 12,
-                      }}
-                      itemStyle={{ color: "hsl(var(--foreground))" }}
-                      labelStyle={{ color: "hsl(var(--foreground))" }}
-                      formatter={(value: number, name: string) => {
-                        const pct = terrainTotalMinutes ? Math.round((value / terrainTotalMinutes) * 100) : 0;
-                        return [`${formatVolumeValue(value, "minutes")} (${pct}%)`, name];
-                      }}
-                    />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
-                  </PieChart>
-                </ResponsiveContainer>
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-8 gap-1.5">
+                {terrainData.map((d) => (
+                  <TerrainTile
+                    key={d.key}
+                    terrainKey={d.key}
+                    label={d.terrain}
+                    minutes={d.minutes}
+                    pct={terrainTotalMinutes ? Math.round((d.minutes / terrainTotalMinutes) * 100) : 0}
+                  />
+                ))}
               </div>
             )}
           </CardContent>
@@ -2006,6 +1981,58 @@ const TERRAIN_PIE_COLORS: Record<string, string> = {
   mixed: "#94a3b8", // slate-400
   not_specified: "#d6d3d1", // stone-300 — matches the "unset/other" convention used elsewhere on this page
 };
+
+// Same icon-tile-with-progress-ring pattern as training-volume-by-sport-
+// card.tsx's SportTile/ProgressRing, deliberately more compact — a smaller
+// ring (40px vs that card's 64px) and tighter text, since this row sits
+// lower on an already busy page rather than being the header metric.
+// Colocated here rather than shared with that file's local (unexported)
+// versions, matching this codebase's existing convention of each chart
+// card owning its own tile rendering.
+function TerrainProgressRing({ pct, color, size = 40, stroke = 3 }: { pct: number; color: string; size?: number; stroke?: number }) {
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference * (1 - Math.min(1, Math.max(0, pct / 100)));
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="absolute inset-0 -rotate-90">
+      <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="currentColor" strokeWidth={stroke} className="text-border" />
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
+        fill="none"
+        stroke={color}
+        strokeWidth={stroke}
+        strokeDasharray={circumference}
+        strokeDashoffset={offset}
+        strokeLinecap="round"
+        style={{ transition: "stroke-dashoffset 0.6s ease" }}
+      />
+    </svg>
+  );
+}
+
+function TerrainTile({ terrainKey, label, minutes, pct }: { terrainKey: string; label: string; minutes: number; pct: number }) {
+  const Icon = terrainIconFor(terrainKey === "not_specified" ? null : terrainKey);
+  const color = TERRAIN_PIE_COLORS[terrainKey] ?? "#8b5cf6";
+  return (
+    <div className="flex flex-col items-center text-center gap-1 py-1.5 px-1 rounded-lg hover:bg-accent/30 transition-colors">
+      <div className="relative h-10 w-10 shrink-0">
+        <TerrainProgressRing pct={pct} color={color} />
+        <div className="absolute inset-[4px] rounded-full grid place-items-center" style={{ background: `${color}1a` }}>
+          <Icon className="h-4 w-4" style={{ color }} />
+        </div>
+      </div>
+      <div>
+        <div className="text-sm font-bold tabular-nums leading-tight">{formatVolumeValue(minutes, "minutes")}</div>
+        <div className="text-[10px] text-muted-foreground leading-tight">{label}</div>
+        <div className="text-[10px] font-medium tabular-nums leading-tight" style={{ color }}>
+          {pct}%
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function formatVolumeValue(value: number, mode: "minutes" | "dist") {
   if (mode === "dist") {
