@@ -1546,7 +1546,7 @@ export function RepSplitAnalysisDialog({
             manually-logged rep (no FIT/GPX file uploaded) rather than a data issue.
           </div>
         ) : (
-          <div className="space-y-5">
+          <div className="space-y-5 min-w-0">
             {wasDistanceCalibrated && (
               <div className="text-[11px] text-muted-foreground bg-muted/30 border border-border rounded-md px-2.5 py-1.5">
                 GPS distance for this rep was rescaled to match its recorded total — a common GPS-on-track issue
