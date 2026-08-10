@@ -1659,7 +1659,7 @@ function AthleteAnalytics({
             {terrainData.length === 0 ? (
               <p className="text-sm text-muted-foreground">No completed runs {volumePeriodLabel(granularity)}.</p>
             ) : (
-              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-8 gap-1.5">
+              <div className="flex w-full gap-1.5">
                 {terrainData.map((d) => (
                   <TerrainTile
                     key={d.key}
@@ -2016,7 +2016,7 @@ function TerrainTile({ terrainKey, label, minutes, pct }: { terrainKey: string; 
   const Icon = terrainIconFor(terrainKey === "not_specified" ? null : terrainKey);
   const color = TERRAIN_PIE_COLORS[terrainKey] ?? "#8b5cf6";
   return (
-    <div className="flex flex-col items-center text-center gap-1 py-1.5 px-1 rounded-lg hover:bg-accent/30 transition-colors">
+    <div className="flex flex-1 min-w-0 flex-col items-center text-center gap-1 py-1.5 px-1 rounded-lg hover:bg-accent/30 transition-colors">
       <div className="relative h-10 w-10 shrink-0">
         <TerrainProgressRing pct={pct} color={color} />
         <div className="absolute inset-[4px] rounded-full grid place-items-center" style={{ background: `${color}1a` }}>
