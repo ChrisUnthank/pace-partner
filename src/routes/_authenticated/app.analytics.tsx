@@ -36,7 +36,7 @@ import { ArrowUpRight, ArrowDownRight, ArrowRight, AlertTriangle, LineChart } fr
 import { AthleteSubnav } from "@/components/athlete-subnav";
 import { YearlyLoadStrip } from "@/components/yearly-load-strip";
 import { TrainingVolumeBySportCard } from "@/components/training-volume-by-sport-card";
-import { isImperial } from "@/lib/format";
+import { isImperial, toLocalISODate } from "@/lib/format";
 
 const RANGES = {
   "4w": { days: 28, label: "4 weeks" },
@@ -60,21 +60,10 @@ export const Route = createFileRoute("/_authenticated/app/analytics")({
   component: AnalyticsPage,
 });
 
-// `.toISOString()` always converts to UTC before formatting, so calling it
-// on a Date built from local calendar fields (e.g. "midnight on this
-// Monday") silently rolls the date back by however many hours the local
-// timezone sits ahead of UTC — Monday 00:00 AEDT becomes Sunday 13:00 UTC,
-// so `.toISOString().slice(0, 10)` reads "Sunday". This was why "this
-// week" (and, less visibly, "this month"/"this year") boundaries below
-// were landing a day early for anyone east of UTC. Same technique as
-// todayISO() in lib/format.ts: build the string from the Date's own local
-// getFullYear/getMonth/getDate rather than round-tripping through UTC.
-function toLocalISODate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
+// toLocalISODate now lives in lib/format.ts (shared — app.sessions.index.tsx
+// needed the exact same fix for its own "this week" boundary, so this local
+// copy moved to a shared home rather than existing a third time). Comment
+// on the underlying bug kept there.
 
 function isoDaysAgo(days: number) {
   const d = new Date();
