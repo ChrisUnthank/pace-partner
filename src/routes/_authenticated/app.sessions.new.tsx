@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Slider } from "@/components/ui/slider";
 import { todayISO, clockToSec, secToClock } from "@/lib/format";
 import {
   SESSION_INTENTS,
@@ -219,6 +220,15 @@ function NewSession() {
   const [athleteId, setAthleteId] = useState<string>("");
   const [sessionDate, setSessionDate] = useState(search.date || todayISO());
   const [timeOfDay, setTimeOfDay] = useState<string>("");
+  // Every session created through this form used to default to "planned"
+  // unconditionally, with no way to say otherwise — a coach logging
+  // something that already happened (no GPS file, or backfilling old
+  // history) had to create it, then separately find and use the detail
+  // page's "Mark complete without reflection" button, or it would just sit
+  // as an undone plan indefinitely. This makes that an explicit, up-front
+  // choice instead.
+  const [wasCompleted, setWasCompleted] = useState<boolean>(false);
+  const [manualRpe, setManualRpe] = useState<number | null>(null);
   const [title, setTitle] = useState("");
   const [dayType, setDayType] = useState<string>(search.dayType || "training");
   const [intent, setIntent] = useState<string>("threshold");
@@ -475,14 +485,18 @@ function NewSession() {
         structure: dayType === "training" ? (structure as any) : null,
         is_long_run: dayType === "training" ? isLongRun : false,
         notes: notes || null,
-        is_planned: true,
+        is_planned: !wasCompleted,
+        ...(wasCompleted ? { completed_at: new Date().toISOString() } : {}),
         applied_from_template_id: appliedFromTemplateId,
         activity_type: dayType === "cross_training" ? activityType : null,
         gym_category: isGymPlan ? gymCategory || null : null,
         gym_subtype: isGymPlan && gymCategory === "strength_resistance" ? gymSubtype || null : null,
         gym_intensity: isGymPlan ? gymIntensity || null : null,
         total_time_seconds: isGymPlan && gymDuration > 0 ? gymDuration * 60 : null,
-        rpe: isGymPlan && gymIntensity ? GYM_INTENSITY_TO_RPE[gymIntensity] : null,
+        // Explicit RPE (from the "Already happened" slider above) wins over
+        // the gym-intensity-derived fallback if both are somehow present —
+        // it's the more direct, deliberate signal.
+        rpe: manualRpe ?? (isGymPlan && gymIntensity ? GYM_INTENSITY_TO_RPE[gymIntensity] : null),
       } as any)
       .select()
       .single();
@@ -653,6 +667,50 @@ function NewSession() {
                 className="mt-1"
               />
             </div>
+
+            <div>
+              <Label>Status</Label>
+              <div className="flex gap-2 mt-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={!wasCompleted ? "default" : "outline"}
+                  onClick={() => setWasCompleted(false)}
+                >
+                  Planned
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={wasCompleted ? "default" : "outline"}
+                  onClick={() => setWasCompleted(true)}
+                >
+                  Already happened
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {wasCompleted
+                  ? "Logs straight to the calendar as done — for a session with no GPS file, or backfilling old training history. Counts toward training load and readiness right away."
+                  : "Shows up as a plan for this date — the normal choice when scheduling ahead."}
+              </p>
+            </div>
+
+            {wasCompleted && (
+              <div>
+                <Label>RPE — how hard did it feel? (optional)</Label>
+                <Slider
+                  min={1}
+                  max={10}
+                  step={1}
+                  value={[manualRpe ?? 5]}
+                  onValueChange={(v) => setManualRpe(v[0])}
+                  className="mt-2"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  {manualRpe != null ? `${manualRpe}/10` : "Not set — drag to log it now, or leave blank and add it later"}
+                </p>
+              </div>
+            )}
 
             <div>
               <Label>Approx. time (optional)</Label>
