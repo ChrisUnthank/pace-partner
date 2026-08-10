@@ -63,7 +63,15 @@ const DialogContent = React.forwardRef<
 DialogContent.displayName = DialogPrimitive.Content.displayName;
 
 const DialogHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
-  <div className={cn("flex flex-col space-y-1.5 text-center sm:text-left", className)} {...props} />
+  // min-w-0: DialogHeader is a direct child of DialogContent's grid — a grid
+  // item defaults to min-width:auto (min-content sizing) unless overridden.
+  // Without this, a long unbreakable run anywhere inside the header (e.g. an
+  // inline-flex badge, or just a long line of text) can force the header —
+  // and therefore the whole dialog — wider than max-w-3xl/max-w-lg intends,
+  // instead of wrapping to fit. Same root cause as every other min-w-0 fix
+  // in this app; here specifically because it's the shared dialog primitive,
+  // so this protects every dialog in the app, not just one.
+  <div className={cn("flex flex-col space-y-1.5 text-center sm:text-left min-w-0", className)} {...props} />
 );
 DialogHeader.displayName = "DialogHeader";
 
