@@ -1,50 +1,49 @@
 -- ============================================================================
--- Session ordering — Phase 3: time_of_day becomes a real enum
+-- Session ordering — Phase 3 (v3): time_of_day enum, via new-column swap
 -- ============================================================================
 --
--- THE BUG: sessions.time_of_day has been a plain text column this whole
--- time. Every .order("time_of_day", ...) added across the ~20-file
--- session-ordering sweep (and the biomechanics trend function) assumed
--- ascending/descending would sort by actual time-of-day meaning — it
--- doesn't. Postgres/PostgREST sorts a text column lexicographically:
---   ascending:  afternoon, evening, morning   (a < e < m)
---   descending: morning, evening, afternoon
--- Neither of those is chronological order. The descending case (used on
--- most-recent-first lists) happened to put morning before evening — which
--- looked plausibly right in a lot of real usage — but afternoon always
--- lands in the wrong place, and the "most recent time of day first" intent
--- was never actually achieved anywhere.
+-- Replaces v2. v2 tried to DETECT whether the column was already the enum
+-- type before deciding whether to run the ALTER — and that detection was
+-- apparently unreliable (the ALTER still ran and failed with
+-- 'session_time_of_day = text', which can only happen if the column
+-- actually WAS already the enum at that point — meaning the check
+-- incorrectly concluded otherwise). Rather than debug catalog
+-- introspection further, this sidesteps the whole "what state is it in"
+-- question entirely.
 --
--- THE FIX: convert the column to a genuine Postgres ENUM, with values
--- declared in real chronological order. Enums sort by DECLARATION order,
--- not alphabetically — so plain ascending/descending on this column
--- becomes correct everywhere it's already used, with no changes needed to
--- any of the ~20 already-swept files. This is why an enum is the right
--- fix here rather than patching every consumer's sort logic individually.
---
--- Confirmed safe to convert: every current write site for sessions.
--- time_of_day only ever writes 'morning', 'afternoon', 'evening', or null
--- (session-files.functions.ts's upload/rebuild paths, the manual pickers
--- on the session detail page and manual-entry form). A separate table,
--- squad_training_sessions.time_of_day, already uses its own distinct
--- 'am'/'pm' enum (training_time_of_day) — untouched by this migration,
--- no naming collision.
---
--- SAFE TO RE-RUN.
+-- APPROACH: add a genuinely NEW column of the enum type, populate it via
+-- a ::text cast first — which works identically whether the OLD column is
+-- currently text or already the enum, since both types support a safe
+-- ::text cast — then drop the old column and rename the new one into its
+-- place. No detection logic, no assumption about starting state. Works
+-- correctly no matter what happened in any previous attempt.
 -- ============================================================================
 
 DO $$
 BEGIN
   CREATE TYPE public.session_time_of_day AS ENUM ('morning', 'afternoon', 'evening');
 EXCEPTION WHEN duplicate_object THEN
-  NULL; -- already exists from a prior run of this migration
+  NULL; -- already exists
 END $$;
 
 ALTER TABLE public.sessions
-  ALTER COLUMN time_of_day TYPE public.session_time_of_day
-  USING NULLIF(time_of_day, '')::public.session_time_of_day;
+  ADD COLUMN IF NOT EXISTS time_of_day_new public.session_time_of_day;
+
+UPDATE public.sessions
+   SET time_of_day_new = NULLIF(time_of_day::text, '')::public.session_time_of_day
+ WHERE time_of_day_new IS NULL
+   AND time_of_day IS NOT NULL;
+
+ALTER TABLE public.sessions DROP COLUMN time_of_day;
+ALTER TABLE public.sessions RENAME COLUMN time_of_day_new TO time_of_day;
 
 COMMENT ON COLUMN public.sessions.time_of_day IS
-  'Coarse same-day ordering signal (morning/afternoon/evening) — a real Postgres enum specifically so plain ORDER BY sorts chronologically, not alphabetically. See migration header for the bug this fixes.';
+  'Coarse same-day ordering signal (morning/afternoon/evening) — a real Postgres enum specifically so plain ORDER BY sorts chronologically, not alphabetically.';
 
 NOTIFY pgrst, 'reload schema';
+
+-- Sanity check — should return 'session_time_of_day':
+-- SELECT format_type(a.atttypid, a.atttypmod)
+--   FROM pg_attribute a
+--   JOIN pg_class c ON c.oid = a.attrelid
+--  WHERE c.relname = 'sessions' AND a.attname = 'time_of_day';
