@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { ReadinessBadge } from "@/components/readiness-badge";
 import { CoachAthletePicker } from "@/components/coach-athlete-picker";
 import { ChartInsightCard } from "@/components/chart-insight-card";
+import { TERRAIN_VALUES, TERRAIN_LABEL, type Terrain } from "@/lib/session-categories";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   ResponsiveContainer,
@@ -625,7 +626,7 @@ function AthleteAnalytics({
       const { data } = await supabase
         .from("sessions")
         .select(
-          "id, session_date, steps!steps_session_id_fkey(id, kind, reps, set_count, target_distance_m, target_time_seconds, interval_results(actual_time_seconds, actual_distance_m))",
+          "id, session_date, day_type, activity_type, steps!steps_session_id_fkey(id, kind, terrain, reps, set_count, target_distance_m, target_time_seconds, interval_results(actual_time_seconds, actual_distance_m))",
         )
         .eq("athlete_id", athleteId)
         .not("completed_at", "is", null)
@@ -909,44 +910,51 @@ function AthleteAnalytics({
 
   const intentTotalMinutes = useMemo(() => intentData.reduce((a, d) => a + d.minutes, 0), [intentData]);
 
-  // Runs by terrain — same period/granularity pattern as intentData above,
-  // reusing the same intentRollup query (now also carrying terrain) rather
-  // than firing a second network request. Scoped specifically to running
-  // sessions — day_type training AND activity_type null/"run"/"track",
-  // the same "is this actually a run" convention used everywhere else in
-  // this app (get_athlete_biomechanics_trend's all_runs CTE, the training
-  // volume by sport card's sportKey helper) — a treadmill/trail/road run
-  // all count here, a gym or ride session doesn't. Sessions with no
-  // terrain set at all (most historical data, before the terrain field
-  // existed) get their own "Not specified" bucket rather than being
-  // silently dropped — otherwise this chart would quietly under-represent
-  // total running time for anyone whose watch/import predates terrain
-  // tracking.
+  // Runs by terrain — step-level, not session-level. A session-level
+  // terrain value (the original version of this chart) would count a
+  // track session's warmup/cooldown as "track" time too, even though
+  // those are almost always run on the grass/road/path around the track,
+  // not the track itself — inflating track time and hiding whatever the
+  // warmup/cooldown genuinely was. Reuses stepVolumeSessions (now also
+  // carrying step.terrain and the parent session's day_type/activity_type)
+  // rather than firing a third query. Actual duration per step comes from
+  // summing that step's own interval_results.actual_time_seconds rows —
+  // real recorded time, not the step's planned target — which warmup and
+  // cooldown steps get too (one row each, rep_number 1), not just
+  // multi-rep work/recovery steps. Scoped to genuine running sessions,
+  // same "day_type training AND activity_type null/run/track" convention
+  // used everywhere else in this app. Steps with no terrain set (older
+  // data, or a session never matched to a location) fall into their own
+  // "Not specified" bucket rather than being silently dropped, so this
+  // never quietly under-represents total running time.
   const terrainData = useMemo(() => {
     const periodStartISO = periodStartForGranularity(granularity);
     const buckets = new Map<string, number>();
-    for (const r of (intentRollup as any[]) ?? []) {
-      if (!r.session_date || r.session_date < periodStartISO) continue;
+    for (const s of (stepVolumeSessions as any[]) ?? []) {
+      if (!s.session_date || s.session_date < periodStartISO) continue;
       const isRun =
-        (r.day_type ?? "training") === "training" &&
-        (r.activity_type == null || r.activity_type === "run" || r.activity_type === "track");
+        (s.day_type ?? "training") === "training" &&
+        (s.activity_type == null || s.activity_type === "run" || s.activity_type === "track");
       if (!isRun) continue;
-      const key = r.terrain || "not_specified";
-      buckets.set(key, (buckets.get(key) ?? 0) + Number(r.total_time_seconds ?? 0));
+      for (const step of s.steps ?? []) {
+        const stepSeconds = (step.interval_results ?? []).reduce(
+          (sum: number, ir: any) => sum + Number(ir.actual_time_seconds ?? 0),
+          0,
+        );
+        if (stepSeconds <= 0) continue;
+        const key = step.terrain || "not_specified";
+        buckets.set(key, (buckets.get(key) ?? 0) + stepSeconds);
+      }
     }
-    const order = ["track", "road", "trail", "path", "grass", "treadmill", "mixed", "not_specified"];
-    const LABELS: Record<string, string> = {
-      track: "Track", road: "Road", trail: "Trail", path: "Path", grass: "Grass",
-      treadmill: "Treadmill", mixed: "Mixed", not_specified: "Not specified",
-    };
+    const order = [...TERRAIN_VALUES, "not_specified"] as const;
     return order
       .filter((k) => buckets.has(k))
       .map((key) => ({
         key,
-        terrain: LABELS[key] ?? key,
+        terrain: key === "not_specified" ? "Not specified" : TERRAIN_LABEL[key as Terrain],
         minutes: Math.round((buckets.get(key) ?? 0) / 60),
       }));
-  }, [intentRollup, granularity]);
+  }, [stepVolumeSessions, granularity]);
 
   const terrainTotalMinutes = useMemo(() => terrainData.reduce((a, d) => a + d.minutes, 0), [terrainData]);
 
