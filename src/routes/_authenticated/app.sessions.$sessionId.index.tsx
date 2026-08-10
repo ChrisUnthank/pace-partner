@@ -80,7 +80,7 @@ import {
   mergeSessionIntoAnother,
   rebuildSessionClassification,
 } from "@/lib/session-files.functions";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from "@/components/ui/select";
 import { computeStrideLengthM, formatStride } from "@/lib/session-metrics";
 import { resolveStepTarget, resolvedTargetShortLabel } from "@/lib/target-resolution";
 import { WorkTargetEditor } from "@/components/work-target-editor";
@@ -180,6 +180,23 @@ function SessionDetail() {
         .in("created_by", coachIds)
         .order("name");
       return data ?? [];
+    },
+  });
+
+  // Saved routes for the same picker, alongside locations — RLS-scoped the
+  // same simple way the Maps page itself queries training_routes (select
+  // all, let RLS determine visibility), rather than manually replicating
+  // coach_athletes filtering a second way that could drift from whatever
+  // RLS actually enforces.
+  const { data: savedRoutes } = useQuery({
+    queryKey: ["saved-routes-for-session", session?.athlete_id],
+    enabled: !!session?.athlete_id,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("training_routes" as any)
+        .select("id, name, location_id")
+        .order("name");
+      return (data ?? []) as any[];
     },
   });
 
@@ -988,36 +1005,70 @@ function SessionDetail() {
                       </SelectContent>
                     </Select>
 
-                    {/* Location — auto-matched at upload from the athlete's
-                        coach's saved training_locations (GPS proximity, see
-                        findMatchingLocation in session-files.functions.ts),
-                        with manual override here for when the match is
-                        wrong or missing entirely (no GPS file, or a spot
-                        that's never been saved). Changing this only updates
-                        the link itself — it doesn't retroactively rewrite
+                    {/* Location/Route — auto-matched at upload from the
+                        athlete's coach's saved training_locations (GPS
+                        proximity, see findMatchingLocation in
+                        session-files.functions.ts), with manual override
+                        here for when the match is wrong, missing, or the
+                        coach wants to pick a saved ROUTE instead of a
+                        single-point location. Picking a route also
+                        resolves location_id from that route's own
+                        location_id (if it has one) so terrain
+                        auto-population keeps working either way — the
+                        route's own identity (route_id) is kept separately,
+                        not just collapsed into whichever location it
+                        happens to sit near. Changing this only updates the
+                        link itself — it doesn't retroactively rewrite
                         step-level terrain that was already auto-populated
                         at upload time, so a correction here is safe and
-                        can't silently overwrite an existing per-step value. */}
+                        can't silently overwrite an existing per-step
+                        value. */}
                     <Select
-                      value={(session as any).location_id || "none"}
+                      value={
+                        (session as any).route_id
+                          ? `route:${(session as any).route_id}`
+                          : (session as any).location_id
+                            ? `loc:${(session as any).location_id}`
+                            : "none"
+                      }
                       onValueChange={async (value) => {
-                        await supabase
-                          .from("sessions")
-                          .update({ location_id: value === "none" ? null : value } as any)
-                          .eq("id", session.id);
+                        let patch: any = { route_id: null, location_id: null };
+                        if (value.startsWith("loc:")) {
+                          patch = { route_id: null, location_id: value.slice(4) };
+                        } else if (value.startsWith("route:")) {
+                          const routeId = value.slice(6);
+                          const route = (savedRoutes ?? []).find((r: any) => r.id === routeId);
+                          patch = { route_id: routeId, location_id: route?.location_id ?? null };
+                        }
+                        await supabase.from("sessions").update(patch).eq("id", session.id);
                         qc.invalidateQueries({ queryKey: ["session", sessionId] });
                       }}
                     >
-                      <SelectTrigger className="w-[140px] h-7 text-xs">
+                      <SelectTrigger className="w-[150px] h-7 text-xs">
                         <SelectValue placeholder="Location" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="none">No location</SelectItem>
-                        {(savedLocations ?? []).map((l: any) => (
-                          <SelectItem key={l.id} value={l.id}>
-                            {l.name}
-                          </SelectItem>
-                        ))}
+                        {(savedLocations ?? []).length > 0 && (
+                          <SelectGroup>
+                            <SelectLabel>Locations</SelectLabel>
+                            {(savedLocations ?? []).map((l: any) => (
+                              <SelectItem key={`loc-${l.id}`} value={`loc:${l.id}`}>
+                                {l.name}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        )}
+                        {(savedRoutes ?? []).length > 0 && (
+                          <SelectGroup>
+                            <SelectLabel>Routes</SelectLabel>
+                            {(savedRoutes ?? []).map((r: any) => (
+                              <SelectItem key={`route-${r.id}`} value={`route:${r.id}`}>
+                                {r.name}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        )}
                       </SelectContent>
                     </Select>
 
