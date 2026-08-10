@@ -11,7 +11,7 @@ import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { secToClock, clockToSec, metersFmt, roundDistanceForDisplay, roundRecoverySeconds } from "@/lib/format";
-import { sessionClassificationLabel, TIME_OF_DAY_VALUES, TIME_OF_DAY_LABEL } from "@/lib/session-categories";
+import { sessionClassificationLabel, TIME_OF_DAY_VALUES, TIME_OF_DAY_LABEL, TERRAIN_VALUES, TERRAIN_LABEL } from "@/lib/session-categories";
 import { stepKindBarClass, stepKindTextClass } from "@/lib/step-kind-colors";
 import { saveSessionAsTemplate } from "@/lib/templates";
 import { useAuthUser, useMyRoles } from "@/lib/use-auth";
@@ -158,6 +158,29 @@ function SessionDetail() {
       return data;
     },
     retry: false,
+  });
+
+  // Saved locations for the location picker — scoped through the athlete's
+  // coach(es), same scoping findMatchingLocation uses server-side for
+  // auto-matching, so a coach only ever sees their own saved spots here,
+  // not some other coach's roster's locations.
+  const { data: savedLocations } = useQuery({
+    queryKey: ["saved-locations-for-session", session?.athlete_id],
+    enabled: !!session?.athlete_id,
+    queryFn: async () => {
+      const { data: coachLinks } = await supabase
+        .from("coach_athletes")
+        .select("coach_user_id")
+        .eq("athlete_id", session!.athlete_id);
+      const coachIds = (coachLinks ?? []).map((c: any) => c.coach_user_id).filter(Boolean);
+      if (coachIds.length === 0) return [];
+      const { data } = await supabase
+        .from("training_locations")
+        .select("id, name")
+        .in("created_by", coachIds)
+        .order("name");
+      return data ?? [];
+    },
   });
 
   const {
@@ -957,13 +980,44 @@ function SessionDetail() {
                       </SelectTrigger>
 
                       <SelectContent>
-                        <SelectItem value="track">Track</SelectItem>
-                        <SelectItem value="road">Road</SelectItem>
-                        <SelectItem value="trail">Trail</SelectItem>
-                        <SelectItem value="path">Path</SelectItem>
-                        <SelectItem value="grass">Grass</SelectItem>
-                        <SelectItem value="treadmill">Treadmill</SelectItem>
-                        <SelectItem value="mixed">Mixed</SelectItem>
+                        {TERRAIN_VALUES.map((t) => (
+                          <SelectItem key={t} value={t}>
+                            {TERRAIN_LABEL[t]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    {/* Location — auto-matched at upload from the athlete's
+                        coach's saved training_locations (GPS proximity, see
+                        findMatchingLocation in session-files.functions.ts),
+                        with manual override here for when the match is
+                        wrong or missing entirely (no GPS file, or a spot
+                        that's never been saved). Changing this only updates
+                        the link itself — it doesn't retroactively rewrite
+                        step-level terrain that was already auto-populated
+                        at upload time, so a correction here is safe and
+                        can't silently overwrite an existing per-step value. */}
+                    <Select
+                      value={(session as any).location_id || "none"}
+                      onValueChange={async (value) => {
+                        await supabase
+                          .from("sessions")
+                          .update({ location_id: value === "none" ? null : value } as any)
+                          .eq("id", session.id);
+                        qc.invalidateQueries({ queryKey: ["session", sessionId] });
+                      }}
+                    >
+                      <SelectTrigger className="w-[140px] h-7 text-xs">
+                        <SelectValue placeholder="Location" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No location</SelectItem>
+                        {(savedLocations ?? []).map((l: any) => (
+                          <SelectItem key={l.id} value={l.id}>
+                            {l.name}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
 
