@@ -115,3 +115,17 @@ export function todayISO(): string {
   const tz = d.getTimezoneOffset() * 60000;
   return new Date(d.getTime() - tz).toISOString().slice(0, 10);
 }
+
+// General-purpose version of the same fix todayISO() applies, for any
+// Date — not just "right now". Round-tripping an arbitrary local Date
+// through .toISOString() silently rolls it back a calendar day for
+// anyone east of UTC (Monday 00:00 AEDT becomes Sunday 13:00 UTC), which
+// is exactly what was producing wrong "this week" boundaries wherever a
+// Date other than "today" needed converting. Builds the string from the
+// Date's own local getFullYear/getMonth/getDate instead.
+export function toLocalISODate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
