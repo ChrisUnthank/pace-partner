@@ -34,7 +34,6 @@ import {
   LineChart,
   Sparkles,
   MapPin,
-  Mountain,
   Thermometer,
   Wind,
   GripVertical,
@@ -72,7 +71,7 @@ import ReactMarkdown from "react-markdown";
 import { markAttendance } from "@/lib/messages.functions";
 import { Switch } from "@/components/ui/switch";
 import { UserAvatar } from "@/components/user-avatar";
-import { ActivityIcon } from "@/lib/activity-icon";
+import { ActivityIcon, TerrainIcon } from "@/lib/activity-icon";
 import { reconstructTrack } from "@/lib/gps-reconstruction";
 import { invalidateSession } from "@/lib/session-invalidation";
 import {
@@ -1265,7 +1264,7 @@ function SessionDetail() {
                 )}
                 {session.terrain && (
                   <span className="flex items-center gap-1">
-                    <Mountain className="h-3.5 w-3.5 text-emerald-500" />
+                    <TerrainIcon terrain={session.terrain} className="h-3.5 w-3.5 text-emerald-500" />
                     {session.terrain.charAt(0).toUpperCase() + session.terrain.slice(1)}
                   </span>
                 )}
