@@ -11,7 +11,7 @@ import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { secToClock, clockToSec, metersFmt, roundDistanceForDisplay, roundRecoverySeconds } from "@/lib/format";
-import { sessionClassificationLabel } from "@/lib/session-categories";
+import { sessionClassificationLabel, TIME_OF_DAY_VALUES, TIME_OF_DAY_LABEL } from "@/lib/session-categories";
 import { stepKindBarClass, stepKindTextClass } from "@/lib/step-kind-colors";
 import { saveSessionAsTemplate } from "@/lib/templates";
 import { useAuthUser, useMyRoles } from "@/lib/use-auth";
@@ -965,6 +965,36 @@ function SessionDetail() {
                         <SelectItem value="grass">Grass</SelectItem>
                         <SelectItem value="treadmill">Treadmill</SelectItem>
                         <SelectItem value="mixed">Mixed</SelectItem>
+                      </SelectContent>
+                    </Select>
+
+                    {/* time_of_day — the coarse fallback used to order same-day
+                        sessions everywhere they're not already told apart by a
+                        real file timestamp (see the session-ordering fix).
+                        FIT-uploaded sessions already get this set/corrected
+                        automatically at upload time; this exists specifically
+                        for manually-created sessions, which have no file to
+                        derive a real time from, and previously had no way to
+                        set this at all after creation. Editable regardless of
+                        source, same as terrain above, in case a coach wants
+                        to correct an auto-computed value too. */}
+                    <Select
+                      value={(session as any).time_of_day || ""}
+                      onValueChange={async (value) => {
+                        await supabase.from("sessions").update({ time_of_day: value } as any).eq("id", session.id);
+                        qc.invalidateQueries({ queryKey: ["session", sessionId] });
+                      }}
+                    >
+                      <SelectTrigger className="w-[110px] h-7 text-xs">
+                        <SelectValue placeholder="Time of day" />
+                      </SelectTrigger>
+
+                      <SelectContent>
+                        {TIME_OF_DAY_VALUES.map((v) => (
+                          <SelectItem key={v} value={v}>
+                            {TIME_OF_DAY_LABEL[v]}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
