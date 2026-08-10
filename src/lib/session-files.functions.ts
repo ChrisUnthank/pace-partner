@@ -1941,23 +1941,42 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   const warmupLaps = classifiedLaps.filter((l) => l.kind === "warmup");
   const cooldownLaps = classifiedLaps.filter((l) => l.kind === "cooldown");
 
-  // Only ever fills in terrain when it's currently unset — never overrides
-  // a coach's own Track/Road/Trail/Path/Grass choice on the session page.
+  // detectedTrack still only fires from the distance-consistency check when
+  // terrain is genuinely unset (never overrides a coach's own choice by
+  // auto-detecting something different) — but a coach's own manually-set
+  // sess.terrain is now actually USED for step terrain below, not just
+  // treated as "don't touch this." Previously: setting terrain manually
+  // blocked auto-detection but had nowhere to flow to at the step level,
+  // so work/recovery steps stayed terrain: null even after a coach
+  // explicitly said what the session was.
   const detectedTrack = !sess.terrain && looksLikeTrackSession(workLaps);
 
-  // Location auto-match — foundation for step-level terrain below, and for
-  // sessions.location_id itself. Respects a coach's own manual pick the
-  // same way detectedTrack respects a manual terrain choice: only matches
-  // when location_id isn't already set. Uses the first point with real
-  // coordinates (mergedPoints is time-sorted, so this is genuinely the
-  // session's start) — a session with no GPS points at all (e.g. an
-  // indoor-only file) simply never matches, which is correct: there's
-  // nothing to match against.
+  // Effective location for step-terrain purposes — reuses sess.location_id
+  // if a coach already set one (manually or from an earlier auto-match)
+  // rather than treating "already set" as "nothing more to do here." The
+  // earlier version only ever fetched location surface/surrounding_terrain
+  // data when it ALSO performed a fresh auto-match, so a session with a
+  // manually-picked location never got its steps populated from that
+  // location at all. Auto-matching (only attempted when location_id isn't
+  // already set) still never overwrites a coach's own pick — only which
+  // location's DATA gets used for step terrain changes here, not which
+  // location the session is linked to.
   const startPoint = mergedPoints.find((p) => typeof p.lat === "number" && typeof p.lng === "number");
-  const matchedLocation =
-    !sess.location_id && startPoint
-      ? await findMatchingLocation(sb, sess.athlete_id, startPoint.lat as number, startPoint.lng as number)
-      : null;
+  let effectiveLocation: { id: string; surface: string | null; surrounding_terrain: string | null } | null = null;
+  if (sess.location_id) {
+    const { data: loc } = await sb
+      .from("training_locations")
+      .select("id, surface, surrounding_terrain")
+      .eq("id", sess.location_id)
+      .maybeSingle();
+    effectiveLocation = loc ?? null;
+  } else if (startPoint) {
+    effectiveLocation = await findMatchingLocation(sb, sess.athlete_id, startPoint.lat as number, startPoint.lng as number);
+  }
+  // Only used for the sessions.update() location_id write below — stays
+  // null (meaning "don't touch location_id") when the session already had
+  // one, so a coach's manual pick is never silently reassigned.
+  const matchedLocation = !sess.location_id ? effectiveLocation : null;
 
   // Computed once here (not inside the hasManualPlan branch below) so these
   // are in scope for the final sessions.update() — previously work_avg_pace_
@@ -2236,17 +2255,23 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
     // track's infield/lanes is still on the track), so they share the same
     // rule; warmup/cooldown use the location's surrounding_terrain instead
     // of its primary surface, since they're typically run to/from the
-    // facility rather than on it. Never overwrites a value already present
-    // on the step — none of these freshly-built entries have terrain set
-    // yet, but staying non-destructive here matches the same "don't
-    // override an existing choice" convention detectedTrack and
-    // matchedLocation themselves already follow.
+    // facility rather than on it. Priority for work/recovery: a coach's
+    // own manually-set sess.terrain wins first (if they said the session
+    // was "Track", work steps should say that too, not fall through to
+    // null just because detectedTrack was blocked by that same manual
+    // value) — then the auto-detector, then the effective location's own
+    // surface. Warmup/cooldown deliberately don't consider sess.terrain at
+    // all: a coach describing the whole session's main terrain isn't
+    // describing what warmup/cooldown actually ran on, which is a
+    // genuinely different, more granular question the location's
+    // surrounding_terrain answers better. Never overwrites a value already
+    // present on the step.
     for (const step of stepsToInsert) {
       if (step.terrain) continue;
       if (step.kind === "work" || step.kind === "recovery") {
-        step.terrain = detectedTrack ? "track" : matchedLocation?.surface ?? null;
+        step.terrain = sess.terrain || (detectedTrack ? "track" : null) || effectiveLocation?.surface || null;
       } else if (step.kind === "warmup" || step.kind === "cooldown") {
-        step.terrain = matchedLocation?.surrounding_terrain ?? matchedLocation?.surface ?? null;
+        step.terrain = effectiveLocation?.surrounding_terrain ?? effectiveLocation?.surface ?? null;
       }
     }
 
