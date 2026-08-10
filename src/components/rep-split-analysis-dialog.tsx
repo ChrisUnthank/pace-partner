@@ -1048,7 +1048,12 @@ function formatRepTraceAverage(key: RepTraceMetricKey, value: number, speedMode:
     case "hr":
       return `${Math.round(value)} bpm`;
     case "pace":
-      return speedMode === "speed" ? `${value.toFixed(1)} km/h` : `${paceFmt(value)}/km`;
+      // paceFmt() already appends the correct unit suffix itself (/km, or
+      // /mi for imperial users) — this used to also append "/km" on top of
+      // that, producing "3:19 /km/km" for metric users and, worse, the
+      // flat-out wrong "3:19 /mi/km" for imperial users (mixing units, not
+      // just duplicating).
+      return speedMode === "speed" ? `${value.toFixed(1)} km/h` : paceFmt(value);
     case "cadence":
       return `${Math.round(value)} spm`;
     case "elev":
@@ -1140,7 +1145,7 @@ function RepTraceChart({ repPoints }: { repPoints: RepPointLike[] }) {
             Rep Analysis
           </CardTitle>
           {hasMetric.pace && (
-            <div className="flex border rounded-md overflow-hidden text-xs">
+            <div className="flex border rounded-md overflow-hidden text-xs shrink-0">
               <button
                 type="button"
                 onClick={() => setSpeedMode("pace")}
@@ -1493,7 +1498,7 @@ export function RepSplitAnalysisDialog({
               </div>
             </div>
             {hasSplits && (
-              <div className="flex border rounded-md overflow-hidden text-xs mr-6">
+              <div className="flex border rounded-md overflow-hidden text-xs mr-6 shrink-0">
                 <button
                   type="button"
                   onClick={() => setUnit("sec100")}
@@ -1602,12 +1607,12 @@ export function RepSplitAnalysisDialog({
                         early in a rep and above-average HR late in it are both completely normal; for pace it
                         depends on what this rep was for.{" "}
                         {referenceIsTarget
-                          ? `Pace is measured against this rep's own target pace (${paceFmt(targetPaceSecPerKm)}/km).`
+                          ? `Pace is measured against this rep's own target pace (${paceFmt(targetPaceSecPerKm)}).`
                           : "No target pace set for this rep — pace is measured against this rep's own average instead."}
                       </p>
                     </InfoNote>
                   </CardTitle>
-                  <div className="flex border rounded-md overflow-hidden text-xs">
+                  <div className="flex border rounded-md overflow-hidden text-xs shrink-0">
                     <button
                       type="button"
                       onClick={() => setGridMode("pace")}
