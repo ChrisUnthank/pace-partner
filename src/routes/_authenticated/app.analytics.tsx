@@ -603,7 +603,7 @@ function AthleteAnalytics({
     queryFn: async () => {
       const { data } = await supabase
         .from("sessions")
-        .select("intent, total_time_seconds, day_type, activity_type, session_date")
+        .select("intent, total_time_seconds, day_type, activity_type, session_date, terrain")
         .eq("athlete_id", athleteId)
         .not("completed_at", "is", null)
         .gte("session_date", intentPeriodStart);
@@ -908,6 +908,47 @@ function AthleteAnalytics({
   }, [intentRollup, granularity]);
 
   const intentTotalMinutes = useMemo(() => intentData.reduce((a, d) => a + d.minutes, 0), [intentData]);
+
+  // Runs by terrain — same period/granularity pattern as intentData above,
+  // reusing the same intentRollup query (now also carrying terrain) rather
+  // than firing a second network request. Scoped specifically to running
+  // sessions — day_type training AND activity_type null/"run"/"track",
+  // the same "is this actually a run" convention used everywhere else in
+  // this app (get_athlete_biomechanics_trend's all_runs CTE, the training
+  // volume by sport card's sportKey helper) — a treadmill/trail/road run
+  // all count here, a gym or ride session doesn't. Sessions with no
+  // terrain set at all (most historical data, before the terrain field
+  // existed) get their own "Not specified" bucket rather than being
+  // silently dropped — otherwise this chart would quietly under-represent
+  // total running time for anyone whose watch/import predates terrain
+  // tracking.
+  const terrainData = useMemo(() => {
+    const periodStartISO = periodStartForGranularity(granularity);
+    const buckets = new Map<string, number>();
+    for (const r of (intentRollup as any[]) ?? []) {
+      if (!r.session_date || r.session_date < periodStartISO) continue;
+      const isRun =
+        (r.day_type ?? "training") === "training" &&
+        (r.activity_type == null || r.activity_type === "run" || r.activity_type === "track");
+      if (!isRun) continue;
+      const key = r.terrain || "not_specified";
+      buckets.set(key, (buckets.get(key) ?? 0) + Number(r.total_time_seconds ?? 0));
+    }
+    const order = ["track", "road", "trail", "path", "grass", "treadmill", "mixed", "not_specified"];
+    const LABELS: Record<string, string> = {
+      track: "Track", road: "Road", trail: "Trail", path: "Path", grass: "Grass",
+      treadmill: "Treadmill", mixed: "Mixed", not_specified: "Not specified",
+    };
+    return order
+      .filter((k) => buckets.has(k))
+      .map((key) => ({
+        key,
+        terrain: LABELS[key] ?? key,
+        minutes: Math.round((buckets.get(key) ?? 0) / 60),
+      }));
+  }, [intentRollup, granularity]);
+
+  const terrainTotalMinutes = useMemo(() => terrainData.reduce((a, d) => a + d.minutes, 0), [terrainData]);
 
   // Higher-level rollup than intentData above — that one breaks training
   // sessions down by intent (and now cross-training by gym/ride/swim).
@@ -1610,6 +1651,59 @@ function AthleteAnalytics({
 
         <Card>
           <CardHeader>
+            <CardTitle>Runs by Terrain</CardTitle>
+            <CardDescription>
+              Running time grouped by surface, {volumePeriodLabel(granularity)} — treadmill, track, road, trail,
+              path, and grass. Rides, swims, and gym sessions aren't included.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {terrainData.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No completed runs {volumePeriodLabel(granularity)}.</p>
+            ) : (
+              <div className="h-[220px] w-full">
+                <ResponsiveContainer>
+                  <PieChart>
+                    <Pie
+                      data={terrainData}
+                      dataKey="minutes"
+                      nameKey="terrain"
+                      innerRadius={45}
+                      outerRadius={80}
+                      paddingAngle={2}
+                      label={({ value }: any) => {
+                        const pct = terrainTotalMinutes ? Math.round((Number(value) / terrainTotalMinutes) * 100) : 0;
+                        return `${pct}%`;
+                      }}
+                      labelLine={{ stroke: "hsl(var(--muted-foreground))", strokeWidth: 1 }}
+                    >
+                      {terrainData.map((d) => (
+                        <Cell key={d.key} fill={TERRAIN_PIE_COLORS[d.key] ?? "#8b5cf6"} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{
+                        background: "hsl(var(--background))",
+                        border: "1px solid hsl(var(--border))",
+                        fontSize: 12,
+                      }}
+                      itemStyle={{ color: "hsl(var(--foreground))" }}
+                      labelStyle={{ color: "hsl(var(--foreground))" }}
+                      formatter={(value: number, name: string) => {
+                        const pct = terrainTotalMinutes ? Math.round((value / terrainTotalMinutes) * 100) : 0;
+                        return [`${formatVolumeValue(value, "minutes")} (${pct}%)`, name];
+                      }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle>Sessions by Type</CardTitle>
             <CardDescription>
               How many sessions — and how many hours — were Training vs Race vs Recovery vs Cross-training vs Rest,{" "}
@@ -1899,6 +1993,21 @@ const KIND_COLORS: Record<string, string> = {
   Strides: "#f59e0b",
   Recovery: "#64748b",
   Cooldown: "#10b981",
+};
+
+// Runs by terrain — a genuinely fresh palette, not reused from the two
+// palettes above, since track/road/trail/etc. is a different axis (surface,
+// not intent or day type) that could reasonably sit on screen alongside
+// either of them.
+const TERRAIN_PIE_COLORS: Record<string, string> = {
+  track: "#ef4444", // red-500
+  road: "#64748b", // slate-500
+  trail: "#a16207", // amber-700 — earthy, distinct from road's grey
+  path: "#84cc16", // lime-500
+  grass: "#22c55e", // green-500
+  treadmill: "#8b5cf6", // violet-500 — indoor/mechanical
+  mixed: "#94a3b8", // slate-400
+  not_specified: "#d6d3d1", // stone-300 — matches the "unset/other" convention used elsewhere on this page
 };
 
 function formatVolumeValue(value: number, mode: "minutes" | "dist") {
