@@ -985,25 +985,43 @@ function SessionDetail() {
                       </h1>
                     )}
 
-                    <Select
-                      value={session.terrain || ""}
-                      onValueChange={async (value) => {
-                        await supabase.from("sessions").update({ terrain: value }).eq("id", session.id);
-                        qc.invalidateQueries({ queryKey: ["session", sessionId] });
-                      }}
-                    >
-                      <SelectTrigger className="w-[110px] h-7 text-xs">
-                        <SelectValue placeholder="Surface" />
-                      </SelectTrigger>
+                    {/* Surface only applies to genuine running sessions —
+                        same day_type/activity_type rule used everywhere
+                        else terrain matters in this app (the Runs by
+                        Terrain analytics chart, the auto-population logic,
+                        activity icons). None of track/road/trail/path/
+                        grass/treadmill/mixed meaningfully describes a gym
+                        floor or a pool, so this simply doesn't show for
+                        cross-training sessions rather than forcing a
+                        value that doesn't apply. "Not set" is a real menu
+                        item here (it wasn't before) — previously, once any
+                        value was picked there was no way back to unset. */}
+                    {(session.day_type ?? "training") === "training" &&
+                      (session.activity_type == null || session.activity_type === "run" || session.activity_type === "track") && (
+                        <Select
+                          value={session.terrain || "unset"}
+                          onValueChange={async (value) => {
+                            await supabase
+                              .from("sessions")
+                              .update({ terrain: value === "unset" ? null : value })
+                              .eq("id", session.id);
+                            qc.invalidateQueries({ queryKey: ["session", sessionId] });
+                          }}
+                        >
+                          <SelectTrigger className="w-[110px] h-7 text-xs">
+                            <SelectValue placeholder="Surface" />
+                          </SelectTrigger>
 
-                      <SelectContent>
-                        {TERRAIN_VALUES.map((t) => (
-                          <SelectItem key={t} value={t}>
-                            {TERRAIN_LABEL[t]}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                          <SelectContent>
+                            <SelectItem value="unset">Not set</SelectItem>
+                            {TERRAIN_VALUES.map((t) => (
+                              <SelectItem key={t} value={t}>
+                                {TERRAIN_LABEL[t]}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
 
                     {/* Location/Route — auto-matched at upload from the
                         athlete's coach's saved training_locations (GPS
