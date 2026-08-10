@@ -6,6 +6,7 @@ import { MapContainer, TileLayer, CircleMarker } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import { useState } from "react";
 import { mapLink } from "@/lib/training-schedule-helpers";
+import { TERRAIN_LABEL, type Terrain } from "@/lib/session-categories";
 
 // Same tile source used on the Maps & Routes page and Session
 // Analysis — one small clean default street map, no satellite toggle.
@@ -20,9 +21,19 @@ type LocationRow = {
   lat: number | null;
   lng: number | null;
   surface: string | null;
+  surrounding_terrain: string | null;
   altitude_m: number | null;
   notes: string | null;
 };
+
+// Existing locations saved before surface became a controlled dropdown may
+// still hold old free text (e.g. "Synthetic track") rather than one of
+// TERRAIN_VALUES — falls back to showing that raw text rather than
+// silently hiding it or showing "undefined".
+function terrainDisplayLabel(value: string | null): string | null {
+  if (!value) return null;
+  return TERRAIN_LABEL[value as Terrain] ?? value;
+}
 
 // Small pill, not a full card — meant to sit inline in a post, a
 // schedule slot, a message, wherever a location is referenced.
@@ -58,7 +69,7 @@ export function LocationChip({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("training_locations")
-        .select("id, name, address, lat, lng, surface, altitude_m, notes")
+        .select("id, name, address, lat, lng, surface, surrounding_terrain, altitude_m, notes")
         .eq("id", locationId!)
         .maybeSingle();
       if (error) throw error;
@@ -114,7 +125,10 @@ function LocationDetailBody({
           {location?.address && <div className="text-muted-foreground">{location.address}</div>}
           {(location?.surface || location?.altitude_m != null) && (
             <div className="flex gap-3 text-xs text-muted-foreground">
-              {location?.surface && <span>{location.surface}</span>}
+              {location?.surface && <span>{terrainDisplayLabel(location.surface)}</span>}
+              {location?.surrounding_terrain && (
+                <span>Surrounds: {terrainDisplayLabel(location.surrounding_terrain)}</span>
+              )}
               {location?.altitude_m != null && <span>{Math.round(location.altitude_m)}m altitude</span>}
             </div>
           )}
