@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuthUser, useMyRoles } from "@/lib/use-auth";
 import { secToClock } from "@/lib/format";
+import { TERRAIN_VALUES, TERRAIN_LABEL } from "@/lib/session-categories";
 import { UserAvatar } from "@/components/user-avatar";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -58,6 +59,7 @@ type TrainingLocation = {
   lat: number | null;
   lng: number | null;
   surface: string | null;
+  surrounding_terrain: string | null;
   altitude_m: number | null;
   notes: string | null;
 };
@@ -104,7 +106,7 @@ function MapsRoutesPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("training_locations")
-        .select("id, name, address, lat, lng, surface, altitude_m, notes")
+        .select("id, name, address, lat, lng, surface, surrounding_terrain, altitude_m, notes")
         .order("name");
       if (error) throw error;
       return (data ?? []) as TrainingLocation[];
@@ -613,6 +615,7 @@ function LocationEditForm({
   const [name, setName] = useState(location?.name ?? "");
   const [address, setAddress] = useState(location?.address ?? "");
   const [surface, setSurface] = useState(location?.surface ?? "");
+  const [surroundingTerrain, setSurroundingTerrain] = useState(location?.surrounding_terrain ?? "");
   const [altitude, setAltitude] = useState(location?.altitude_m != null ? String(location.altitude_m) : "");
   const [notes, setNotes] = useState(location?.notes ?? "");
   const [lat, setLat] = useState<number | null>(location?.lat ?? null);
@@ -628,7 +631,8 @@ function LocationEditForm({
     const patch = {
       name: name.trim(),
       address: address.trim() || null,
-      surface: surface.trim() || null,
+      surface: surface || null,
+      surrounding_terrain: surroundingTerrain || null,
       altitude_m: altitude.trim() === "" ? null : Math.round(Number(altitude)),
       notes: notes.trim() || null,
       lat,
@@ -659,12 +663,46 @@ function LocationEditForm({
       <div className="grid grid-cols-2 gap-3">
         <div>
           <Label className="text-xs">Surface (optional)</Label>
-          <Input value={surface} onChange={(e) => setSurface(e.target.value)} placeholder="e.g. Synthetic track" />
+          <Select value={surface || "unset"} onValueChange={(v) => setSurface(v === "unset" ? "" : v)}>
+            <SelectTrigger className="mt-1">
+              <SelectValue placeholder="Not set" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="unset">Not set</SelectItem>
+              {TERRAIN_VALUES.map((t) => (
+                <SelectItem key={t} value={t}>
+                  {TERRAIN_LABEL[t]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div>
           <Label className="text-xs">Altitude (m, optional)</Label>
           <Input type="number" value={altitude} onChange={(e) => setAltitude(e.target.value)} />
         </div>
+      </div>
+
+      <div>
+        <Label className="text-xs">Surrounding terrain (optional)</Label>
+        <Select value={surroundingTerrain || "unset"} onValueChange={(v) => setSurroundingTerrain(v === "unset" ? "" : v)}>
+          <SelectTrigger className="mt-1">
+            <SelectValue placeholder="Not set" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="unset">Not set</SelectItem>
+            {TERRAIN_VALUES.map((t) => (
+              <SelectItem key={t} value={t}>
+                {TERRAIN_LABEL[t]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground mt-1">
+          What's actually around this spot — e.g. a track's own surface is "Track", but the area around it (where
+          warm-up and cool-down happen) might be "Grass" or "Path". Used to automatically fill in terrain for
+          warm-up/cool-down when a session is matched to this location.
+        </p>
       </div>
 
       <div>
