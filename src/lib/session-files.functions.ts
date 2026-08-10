@@ -1681,6 +1681,47 @@ function looksLikeTrackSession(workLaps: { total_distance: number }[]): boolean 
   return true;
 }
 
+// Auto-matches a session's start point against the athlete's coach's saved
+// training_locations — the foundation for auto-populating terrain from a
+// known repeated spot, without requiring a coach to manually pick a
+// location every single upload. Scoped through coach_athletes (locations
+// are a coach's shared library across their whole roster, not per-athlete)
+// so this never matches against an unrelated coach's saved locations.
+// 200m radius — wide enough to tolerate normal GPS drift and a location
+// pin that isn't pixel-perfect, tight enough that two genuinely different
+// nearby spots (e.g. a track and a park half a km away) don't collide.
+// Returns the single closest match within that radius, or null. Reuses
+// haversineMeters, already defined above for recovery spatial-extent
+// checks — not redefined here.
+const LOCATION_MATCH_RADIUS_M = 200;
+
+async function findMatchingLocation(
+  sb: any,
+  athleteId: string,
+  lat: number,
+  lng: number,
+): Promise<{ id: string; surface: string | null; surrounding_terrain: string | null } | null> {
+  const { data: coachLinks } = await sb.from("coach_athletes").select("coach_user_id").eq("athlete_id", athleteId);
+  const coachIds = (coachLinks ?? []).map((c: any) => c.coach_user_id).filter(Boolean);
+  if (coachIds.length === 0) return null;
+
+  const { data: locations } = await sb
+    .from("training_locations")
+    .select("id, lat, lng, surface, surrounding_terrain")
+    .in("created_by", coachIds)
+    .not("lat", "is", null)
+    .not("lng", "is", null);
+
+  let best: { id: string; surface: string | null; surrounding_terrain: string | null; dist: number } | null = null;
+  for (const loc of locations ?? []) {
+    const dist = haversineMeters(lat, lng, Number(loc.lat), Number(loc.lng));
+    if (dist <= LOCATION_MATCH_RADIUS_M && (!best || dist < best.dist)) {
+      best = { id: loc.id, surface: loc.surface, surrounding_terrain: loc.surrounding_terrain, dist };
+    }
+  }
+  return best ? { id: best.id, surface: best.surface, surrounding_terrain: best.surrounding_terrain } : null;
+}
+
 async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<void> {
   const { data: sess, error: sessErr } = await sb.from("sessions").select("*").eq("id", sessionId).single();
 
@@ -1903,6 +1944,20 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   // Only ever fills in terrain when it's currently unset — never overrides
   // a coach's own Track/Road/Trail/Path/Grass choice on the session page.
   const detectedTrack = !sess.terrain && looksLikeTrackSession(workLaps);
+
+  // Location auto-match — foundation for step-level terrain below, and for
+  // sessions.location_id itself. Respects a coach's own manual pick the
+  // same way detectedTrack respects a manual terrain choice: only matches
+  // when location_id isn't already set. Uses the first point with real
+  // coordinates (mergedPoints is time-sorted, so this is genuinely the
+  // session's start) — a session with no GPS points at all (e.g. an
+  // indoor-only file) simply never matches, which is correct: there's
+  // nothing to match against.
+  const startPoint = mergedPoints.find((p) => typeof p.lat === "number" && typeof p.lng === "number");
+  const matchedLocation =
+    !sess.location_id && startPoint
+      ? await findMatchingLocation(sb, sess.athlete_id, startPoint.lat as number, startPoint.lng as number)
+      : null;
 
   // Computed once here (not inside the hasManualPlan branch below) so these
   // are in scope for the final sessions.update() — previously work_avg_pace_
@@ -2173,6 +2228,26 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
 
     if (stepsToInsert.length === 0) {
       throw new Error("Rebuild produced no steps from attached files");
+    }
+
+    // Auto-populated terrain, per step kind — see findMatchingLocation and
+    // looksLikeTrackSession above for how each of these gets decided. Work
+    // and recovery reps happen in the same place (recovery jogging on a
+    // track's infield/lanes is still on the track), so they share the same
+    // rule; warmup/cooldown use the location's surrounding_terrain instead
+    // of its primary surface, since they're typically run to/from the
+    // facility rather than on it. Never overwrites a value already present
+    // on the step — none of these freshly-built entries have terrain set
+    // yet, but staying non-destructive here matches the same "don't
+    // override an existing choice" convention detectedTrack and
+    // matchedLocation themselves already follow.
+    for (const step of stepsToInsert) {
+      if (step.terrain) continue;
+      if (step.kind === "work" || step.kind === "recovery") {
+        step.terrain = detectedTrack ? "track" : matchedLocation?.surface ?? null;
+      } else if (step.kind === "warmup" || step.kind === "cooldown") {
+        step.terrain = matchedLocation?.surrounding_terrain ?? matchedLocation?.surface ?? null;
+      }
     }
 
     const { data: insertedSteps, error: stepsErr } = await sb
@@ -2804,6 +2879,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
       structure: isIntervals ? "intervals" : "continuous",
       needs_review: isIntervals,
       ...(detectedTrack ? { terrain: "track" } : {}),
+      ...(matchedLocation ? { location_id: matchedLocation.id } : {}),
       ...(shouldUpdateIntent ? { intent: derivedIntent } : {}),
       ...(recomputedTitle ? { title: recomputedTitle } : {}),
       ...(recomputedTimeOfDay ? { time_of_day: recomputedTimeOfDay } : {}),
