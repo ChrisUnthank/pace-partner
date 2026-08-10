@@ -345,119 +345,122 @@ async function fetchLocationName(lat: number, lon: number): Promise<{ location: 
 // upload-time start) + that point's own elapsed_s — the same reference
 // frame parseFIT used when it computed each point's absolute timestamp at
 // upload time, just rebuilt from what's actually persisted in the DB.
+//
+// Extracted from the fetchSessionWeather server function below so the same
+// logic can also run automatically at upload time (see its call inside
+// rebuildSessionFromAllFiles) without one calling the other — createServerFn
+// wraps a handler for client-to-server RPC, not for one server function to
+// call another directly. fetchSessionWeather's own handler is now a thin
+// wrapper around this.
+async function fetchAndSaveSessionWeather(
+  sb: any,
+  sessionId: string,
+): Promise<
+  | { ok: true; temp: number | null; wind: number | null; windDirection: number | null }
+  | { ok: false; reason: "query_failed" | "no_start_time" | "no_gps" | "provider_error" | "save_failed" }
+> {
+  const { data: earliestFile, error: fileErr } = await sb
+    .from("session_files")
+    .select("id, started_at")
+    .eq("session_id", sessionId)
+    .not("started_at", "is", null)
+    .order("started_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (fileErr) {
+    console.error("fetchAndSaveSessionWeather: session_files query failed", { sessionId, fileErr });
+    return { ok: false, reason: "query_failed" as const };
+  }
+
+  if (!earliestFile?.started_at) {
+    console.error("fetchAndSaveSessionWeather: no session_files row with a start time", { sessionId });
+    return { ok: false, reason: "no_start_time" as const };
+  }
+
+  const { data: points, error: pointsErr } = await sb
+    .from("raw_session_points")
+    .select("elapsed_s, lat, lng")
+    .eq("session_id", sessionId)
+    .eq("file_id", earliestFile.id)
+    .not("lat", "is", null)
+    .not("lng", "is", null)
+    .order("elapsed_s", { ascending: true })
+    .limit(200);
+
+  if (pointsErr) {
+    console.error("fetchAndSaveSessionWeather: raw_session_points query failed", {
+      sessionId,
+      fileId: earliestFile.id,
+      pointsErr,
+    });
+    return { ok: false, reason: "query_failed" as const };
+  }
+
+  const withGps = (points ?? []).filter(
+    (p: any) =>
+      p.lat != null &&
+      p.lng != null &&
+      Math.abs(Number(p.lat)) > 0.001 &&
+      Math.abs(Number(p.lng)) > 0.001 &&
+      Math.abs(Number(p.lat)) <= 90 &&
+      Math.abs(Number(p.lng)) <= 180,
+  );
+
+  if (withGps.length === 0) {
+    console.error("fetchAndSaveSessionWeather: no usable GPS fix on the earliest file's points", {
+      sessionId,
+      fileId: earliestFile.id,
+      rawPointCount: points?.length ?? 0,
+      samplePoint: points?.[0] ?? null,
+    });
+    return { ok: false, reason: "no_gps" as const };
+  }
+
+  const earlyWindow = withGps.filter((p: any) => Number(p.elapsed_s ?? 0) <= 300);
+  const candidates = earlyWindow.length > 0 ? earlyWindow : withGps;
+  const fixPoint = candidates[Math.floor(candidates.length / 2)];
+
+  const fixTimestamp = new Date(
+    new Date(earliestFile.started_at).getTime() + Number(fixPoint.elapsed_s ?? 0) * 1000,
+  ).toISOString();
+
+  const weather = await fetchWeather(Number(fixPoint.lat), Number(fixPoint.lng), fixTimestamp);
+
+  if (weather.temp == null && weather.wind == null && weather.windDirection == null) {
+    console.error("fetchAndSaveSessionWeather: fetchWeather returned nothing usable", {
+      sessionId,
+      lat: fixPoint.lat,
+      lng: fixPoint.lng,
+      fixTimestamp,
+    });
+    return { ok: false, reason: "provider_error" as const };
+  }
+
+  const { error: updErr } = await sb
+    .from("sessions")
+    .update({
+      average_temp_c: weather.temp,
+      wind_kph: weather.wind,
+      wind_direction_deg: weather.windDirection,
+    } as any)
+    .eq("id", sessionId);
+
+  if (updErr) {
+    console.error("fetchAndSaveSessionWeather: sessions update failed", { sessionId, updErr });
+    return { ok: false, reason: "save_failed" as const };
+  }
+
+  return { ok: true as const, temp: weather.temp, wind: weather.wind, windDirection: weather.windDirection };
+}
+
 export const fetchSessionWeather = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { sessionId: string }) => d)
   .handler(async ({ data, context }) => {
-    const sb = context.supabase;
-
-    const { data: earliestFile, error: fileErr } = await sb
-      .from("session_files")
-      .select("id, started_at")
-      .eq("session_id", data.sessionId)
-      .not("started_at", "is", null)
-      .order("started_at", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    if (fileErr) {
-      console.error("fetchSessionWeather: session_files query failed", { sessionId: data.sessionId, fileErr });
-      return { ok: false, reason: "query_failed" as const };
-    }
-
-    if (!earliestFile?.started_at) {
-      console.error("fetchSessionWeather: no session_files row with a start time", { sessionId: data.sessionId });
-      return { ok: false, reason: "no_start_time" as const };
-    }
-
-    const { data: points, error: pointsErr } = await sb
-      .from("raw_session_points")
-      .select("elapsed_s, lat, lng")
-      .eq("session_id", data.sessionId)
-      .eq("file_id", earliestFile.id)
-      .not("lat", "is", null)
-      .not("lng", "is", null)
-      .order("elapsed_s", { ascending: true })
-      .limit(200);
-
-    if (pointsErr) {
-      console.error("fetchSessionWeather: raw_session_points query failed", {
-        sessionId: data.sessionId,
-        fileId: earliestFile.id,
-        pointsErr,
-      });
-      return { ok: false, reason: "query_failed" as const };
-    }
-
-    const withGps = (points ?? []).filter(
-      (p) =>
-        p.lat != null &&
-        p.lng != null &&
-        Math.abs(Number(p.lat)) > 0.001 &&
-        Math.abs(Number(p.lng)) > 0.001 &&
-        Math.abs(Number(p.lat)) <= 90 &&
-        Math.abs(Number(p.lng)) <= 180,
-    );
-
-    if (withGps.length === 0) {
-      // Logged with the raw count vs. GPS-filtered count so a genuine "this
-      // file has no GPS at all" (manually-logged session, indoor
-      // treadmill) can be told apart from "points exist but something about
-      // the lat/lng values didn't pass the filter" from server logs alone.
-      console.error("fetchSessionWeather: no usable GPS fix on the earliest file's points", {
-        sessionId: data.sessionId,
-        fileId: earliestFile.id,
-        rawPointCount: points?.length ?? 0,
-        samplePoint: points?.[0] ?? null,
-      });
-      return { ok: false, reason: "no_gps" as const };
-    }
-
-    const earlyWindow = withGps.filter((p) => Number(p.elapsed_s ?? 0) <= 300);
-    const candidates = earlyWindow.length > 0 ? earlyWindow : withGps;
-    const fixPoint = candidates[Math.floor(candidates.length / 2)];
-
-    const fixTimestamp = new Date(
-      new Date(earliestFile.started_at).getTime() + Number(fixPoint.elapsed_s ?? 0) * 1000,
-    ).toISOString();
-
-    const weather = await fetchWeather(Number(fixPoint.lat), Number(fixPoint.lng), fixTimestamp);
-
-    if (weather.temp == null && weather.wind == null && weather.windDirection == null) {
-      // fetchWeather() itself already logs the specific provider-side
-      // failure (bad response, network error, etc.) — this just confirms
-      // at the call-site level that nothing usable came back at all, with
-      // the exact inputs that were sent to it.
-      console.error("fetchSessionWeather: fetchWeather returned nothing usable", {
-        sessionId: data.sessionId,
-        lat: fixPoint.lat,
-        lng: fixPoint.lng,
-        fixTimestamp,
-      });
-      return { ok: false, reason: "provider_error" as const };
-    }
-
-    const { error: updErr } = await sb
-      .from("sessions")
-      .update({
-        average_temp_c: weather.temp,
-        wind_kph: weather.wind,
-        wind_direction_deg: weather.windDirection,
-      } as any)
-      .eq("id", data.sessionId);
-
-    if (updErr) {
-      console.error("fetchSessionWeather: sessions update failed", { sessionId: data.sessionId, updErr });
-      return { ok: false, reason: "save_failed" as const };
-    }
-
-    return {
-      ok: true as const,
-      temp: weather.temp,
-      wind: weather.wind,
-      windDirection: weather.windDirection,
-    };
+    return fetchAndSaveSessionWeather(context.supabase, data.sessionId);
   });
+
 
 function mapFitSport(sport: string | null | undefined): string {
   const s = (sport ?? "").toLowerCase();
