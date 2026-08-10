@@ -24,6 +24,10 @@ export type CalendarSession = {
   // file-derived start time to sort by instead — see timeOfDayHintMs in
   // session-categories.ts.
   time_of_day?: string | null;
+  // Drives the trail/treadmill icon distinction in activity-icon.tsx —
+  // optional and additive, falls back to the generic running icon when
+  // absent, same as before this was added.
+  terrain?: string | null;
   // Resolved workout target for PLANNED sessions (Phase 3), e.g.
   // "95% thr · 4:07–4:20/km" — computed by the calendar page from the
   // session's first work step + the athlete's zone profile. Null/absent
