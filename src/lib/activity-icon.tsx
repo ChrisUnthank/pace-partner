@@ -1,5 +1,6 @@
 import {
   Footprints,
+  SportShoe,
   Bike,
   Waves,
   Dumbbell,
@@ -31,9 +32,14 @@ export function activityIconFor(s: {
     case "gym":
       return Dumbbell;
     case "walk":
+      return Footprints;
+    // Run/track previously shared Footprints with Walk — same icon for two
+    // visually distinct activities on the calendar/session list. SportShoe
+    // reads unambiguously as running gear at a glance; Footprints (bare
+    // feet, walking gait) stays with Walk and the generic fallback below.
     case "run":
     case "track":
-      return Footprints;
+      return SportShoe;
   }
   if (dt === "cross_training") return Activity;
   return Footprints;
