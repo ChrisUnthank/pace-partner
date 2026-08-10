@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { metersFmt, secToClock } from "@/lib/format";
 import { sessionClassificationLabel, SESSION_INTENTS, INTENT_LABEL, DAY_TYPE_LABEL, timeOfDayHintMs } from "@/lib/session-categories";
-import { Plus, Upload, Users, Search, Eye, Trash2, Download, RefreshCw, X, CalendarDays, HeartPulse, Flag } from "lucide-react";
+import { Plus, Upload, Users, Search, Eye, Trash2, Download, RefreshCw, X, CalendarDays, HeartPulse, Gauge } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ActivityIcon } from "@/lib/activity-icon";
@@ -926,7 +926,7 @@ function SessionsList() {
                                       />
                                     </span>
                                     <span title={rpeLogged ? "RPE logged" : "RPE not logged"}>
-                                      <Flag
+                                      <Gauge
                                         className={cn(
                                           "h-3.5 w-3.5",
                                           rpeLogged ? "text-emerald-600" : "text-muted-foreground/30",
