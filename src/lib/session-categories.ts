@@ -40,6 +40,18 @@ const TIME_OF_DAY_HOUR: Record<TimeOfDay, number> = {
   morning: 8, afternoon: 13, evening: 18,
 };
 
+// Same controlled vocabulary sessions.terrain, training_locations.surface,
+// and training_locations.surrounding_terrain all share — one list, reused
+// everywhere a terrain/surface value gets chosen, so "surface" on a saved
+// location and "terrain" on a session can never quietly drift into
+// different wording for the same thing.
+export const TERRAIN_VALUES = ["track", "road", "trail", "path", "grass", "treadmill", "mixed"] as const;
+export type Terrain = (typeof TERRAIN_VALUES)[number];
+export const TERRAIN_LABEL: Record<Terrain, string> = {
+  track: "Track", road: "Road", trail: "Trail", path: "Path",
+  grass: "Grass", treadmill: "Treadmill", mixed: "Mixed",
+};
+
 /**
  * A comparable same-day timestamp (ms) derived from a session's explicit
  * time_of_day, or null if it's unset / the session has no date yet.
