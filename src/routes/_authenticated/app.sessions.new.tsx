@@ -488,7 +488,19 @@ function NewSession() {
         is_planned: !wasCompleted,
         ...(wasCompleted ? { completed_at: new Date().toISOString() } : {}),
         applied_from_template_id: appliedFromTemplateId,
-        activity_type: dayType === "cross_training" ? activityType : null,
+        // Was hardcoded null for anything other than cross_training — a
+        // standard training-day session is always running in this app's
+        // data model (cross_training is the separate path for ride/swim/
+        // gym), so leaving it null here meant a manually-created run could
+        // never be told apart from "no data at all" by anything that reads
+        // activity_type — including the activity icon (fell through to the
+        // generic Footprints fallback instead of the running-specific
+        // icon) and get_athlete_biomechanics_trend's own defensive
+        // `activity_type IS NULL OR IN ('run','track')` workaround, which
+        // only existed because this was never set at the source. Applies
+        // to every day_type except cross_training (the coach's own choice
+        // of sport) and rest (nothing happened, nothing to name).
+        activity_type: dayType === "cross_training" ? activityType : dayType === "rest" ? null : "run",
         gym_category: isGymPlan ? gymCategory || null : null,
         gym_subtype: isGymPlan && gymCategory === "strength_resistance" ? gymSubtype || null : null,
         gym_intensity: isGymPlan ? gymIntensity || null : null,
