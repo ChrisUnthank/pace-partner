@@ -174,7 +174,7 @@ function InfoNote({ children }: { children: ReactNode }) {
 
 function StatBox({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-center">
+    <div className="min-w-0 rounded-lg border border-border bg-muted/30 px-3 py-2 text-center">
       <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
       <div className="text-lg font-semibold tabular-nums">{value}</div>
       {sub && <div className="text-[11px] text-muted-foreground">{sub}</div>}
@@ -1717,8 +1717,18 @@ export function RepSplitAnalysisDialog({
             </Card>
 
             {/* HR drift + Running dynamics drift */}
+            {/* min-w-0 on both Cards: grid items default to min-width:auto
+                (their content's natural size) same as flex items — without
+                this, a wide row inside either card (the Beginning/End/
+                Change stats here, or a long label in the sibling card)
+                could force its grid track past 50%, pushing the pair wider
+                than the dialog. overflow-x-hidden on DialogContent then
+                clips the excess instead of showing it — this was the "last
+                1/4-1/5 cut off" report. Same root cause as the min-w-0 fix
+                on the header row above, just a different element that
+                never got the same treatment. */}
             <div className="grid sm:grid-cols-2 gap-4">
-              <Card>
+              <Card className="min-w-0">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm flex items-center gap-1.5">
                     <HeartPulse className="h-4 w-4 text-muted-foreground" />
@@ -1727,7 +1737,7 @@ export function RepSplitAnalysisDialog({
                 </CardHeader>
                 <CardContent>
                   {hasHrData && hrDrift ? (
-                    <div className="flex items-center justify-around text-center">
+                    <div className="flex items-center justify-around text-center flex-wrap gap-2">
                       <div>
                         <div className="text-[11px] uppercase text-muted-foreground">Beginning</div>
                         <div className="text-xl font-semibold tabular-nums">{hrDrift.beginningHr}</div>
@@ -1753,7 +1763,7 @@ export function RepSplitAnalysisDialog({
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="min-w-0">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm flex items-center gap-1.5">
                     <Gauge className="h-4 w-4 text-muted-foreground" />
@@ -1820,7 +1830,7 @@ export function RepSplitAnalysisDialog({
 
             {/* Best section + Pace distribution */}
             <div className="grid sm:grid-cols-2 gap-4">
-              <Card>
+              <Card className="min-w-0">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm flex items-center gap-1.5">
                     <Trophy className="h-4 w-4 text-muted-foreground" />
@@ -1860,7 +1870,7 @@ export function RepSplitAnalysisDialog({
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="min-w-0">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm">Time spent by {unit === "pace" ? "pace" : "split time"}</CardTitle>
                 </CardHeader>
@@ -1870,13 +1880,13 @@ export function RepSplitAnalysisDialog({
                       {paceDistribution.map((band) => (
                         <div key={band.label} className="flex items-center gap-2 text-xs">
                           <div className="w-20 shrink-0 text-muted-foreground tabular-nums">{formatSplitTime(band.loSecPerKm, unit)}</div>
-                          <div className="flex-1 h-3 rounded-full bg-muted overflow-hidden">
+                          <div className="flex-1 min-w-0 h-3 rounded-full bg-muted overflow-hidden">
                             <div
                               className="h-full bg-primary/60 rounded-full"
                               style={{ width: `${Math.min(100, band.pctOfTime)}%` }}
                             />
                           </div>
-                          <div className="w-10 text-right tabular-nums">{band.pctOfTime}%</div>
+                          <div className="w-10 shrink-0 text-right tabular-nums">{band.pctOfTime}%</div>
                         </div>
                       ))}
                     </div>
