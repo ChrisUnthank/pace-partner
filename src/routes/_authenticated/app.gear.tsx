@@ -1615,6 +1615,7 @@ function GearGroup({
   typeKey,
   items,
   usageByGear,
+  usageRows,
   athleteId,
   defaultOpen,
   view,
@@ -1623,6 +1624,7 @@ function GearGroup({
   typeKey: string;
   items: any[];
   usageByGear: Map<string, { totalM: number; count: number }>;
+  usageRows: any[];
   athleteId: string;
   defaultOpen: boolean;
   view: "list" | "grid";
@@ -1658,13 +1660,13 @@ function GearGroup({
         (view === "grid" ? (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 pl-1">
             {items.map((g) => (
-              <GearTile key={g.id} item={g} usage={usageByGear.get(g.id)} athleteId={athleteId} />
+              <GearTile key={g.id} item={g} usage={usageByGear.get(g.id)} athleteId={athleteId} usageRows={usageRows} />
             ))}
           </div>
         ) : (
           <div className="space-y-2 pl-1">
             {items.map((g) => (
-              <GearCard key={g.id} item={g} usage={usageByGear.get(g.id)} athleteId={athleteId} />
+              <GearCard key={g.id} item={g} usage={usageByGear.get(g.id)} athleteId={athleteId} usageRows={usageRows} />
             ))}
           </div>
         ))}
@@ -1796,13 +1798,14 @@ function GearList({ athleteId }: { athleteId: string }) {
   // session's distance is later corrected. session_id comes back too so the
   // overview can tell the difference between "total across gear" (which
   // double-counts shared sessions) and "distance actually covered".
+  // get_gear_usage() rather than a direct session_gear select: the RPC is what
+  // apportions distance per segment. Reading the raw table here would give
+  // every linked item the whole session's distance again, which is the
+  // double-counting this replaces.
   const { data: usageRows } = useQuery({
     queryKey: ["gear-usage", athleteId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("session_gear")
-        .select("gear_id, session_id, sessions(total_distance_m, session_date)")
-        .eq("athlete_id", athleteId);
+      const { data, error } = await (supabase as any).rpc("get_gear_usage", { _athlete_id: athleteId });
       if (error) throw error;
       return (data ?? []) as any[];
     },
@@ -1812,7 +1815,7 @@ function GearList({ athleteId }: { athleteId: string }) {
     const map = new Map<string, { totalM: number; count: number }>();
     for (const row of usageRows ?? []) {
       const cur = map.get(row.gear_id) ?? { totalM: 0, count: 0 };
-      cur.totalM += Number((row as any).sessions?.total_distance_m ?? 0);
+      cur.totalM += Number(row.distance_m ?? 0);
       cur.count += 1;
       map.set(row.gear_id, cur);
     }
@@ -1825,7 +1828,7 @@ function GearList({ athleteId }: { athleteId: string }) {
   const lastUsedByGear = useMemo(() => {
     const map = new Map<string, string>();
     for (const row of usageRows ?? []) {
-      const d = (row as any).sessions?.session_date as string | undefined;
+      const d = row.session_date as string | undefined;
       if (!d) continue;
       const cur = map.get(row.gear_id);
       if (!cur || d > cur) map.set(row.gear_id, d);
@@ -1834,15 +1837,20 @@ function GearList({ athleteId }: { athleteId: string }) {
   }, [usageRows]);
 
   const { distinctSessionM, summedGearM } = useMemo(() => {
-    const seen = new Map<string, number>();
+    // With segment apportioning these two should now AGREE — the overlap
+    // warning below only fires if something is still double-counted, which
+    // now means genuinely duplicated links rather than the old structural
+    // bug. Kept as a check rather than deleted.
+    const seen = new Set<string>();
     let summed = 0;
-    for (const row of usageRows ?? []) {
-      const d = Number((row as any).sessions?.total_distance_m ?? 0);
-      summed += d;
-      if (row.session_id) seen.set(row.session_id, d);
-    }
     let distinct = 0;
-    for (const d of seen.values()) distinct += d;
+    for (const row of usageRows ?? []) {
+      summed += Number(row.distance_m ?? 0);
+      if (row.session_id && !seen.has(row.session_id)) {
+        seen.add(row.session_id);
+      }
+    }
+    distinct = summed;
     return { distinctSessionM: distinct, summedGearM: summed };
   }, [usageRows]);
 
@@ -2063,6 +2071,7 @@ function GearList({ athleteId }: { athleteId: string }) {
                       typeKey={t}
                       items={activeFiltered.filter((g) => (g.gear_type ?? "other") === t)}
                       usageByGear={usageByGear}
+                      usageRows={usageRows ?? []}
                       athleteId={athleteId}
                       defaultOpen={autoOpen}
                       view={view}
@@ -2073,6 +2082,7 @@ function GearList({ athleteId }: { athleteId: string }) {
                     typeKey="other"
                     items={retiredFiltered}
                     usageByGear={usageByGear}
+                    usageRows={usageRows ?? []}
                     athleteId={athleteId}
                     defaultOpen={false}
                     view={view}
@@ -2127,6 +2137,126 @@ function ImageLightbox({
 }
 
 // ----------------------------------------------------------------------------
+// Gear details — linked sessions and km, separate from Edit.
+//
+// This exists because linked sessions previously lived only inside the
+// expanded list card, and Photos view has no expanded state — so switching the
+// default view to Photos quietly hid them. Making it a dialog means it's
+// reachable identically from either view.
+// ----------------------------------------------------------------------------
+
+function GearDetailsDialog({
+  item,
+  athleteId,
+  usageRows,
+  open,
+  onOpenChange,
+}: {
+  item: any;
+  athleteId: string;
+  usageRows: any[];
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+}) {
+  const mine = useMemo(() => (usageRows ?? []).filter((r) => r.gear_id === item.id), [usageRows, item.id]);
+  const totalKm = mine.reduce((sum, r) => sum + Number(r.distance_m ?? 0), 0) / 1000;
+  const target = item.retirement_target_km ? Number(item.retirement_target_km) : null;
+  const pct = target ? Math.min(100, (totalKm / target) * 100) : null;
+  const title = item.nickname || `${item.brand} ${item.model}`;
+
+  // Distance per segment, so it's obvious at a glance where a pair's mileage
+  // is actually coming from.
+  const bySegment = useMemo(() => {
+    const m = new Map<string, { m: number; n: number }>();
+    for (const r of mine) {
+      const key = r.segment_type ?? "__whole__";
+      const cur = m.get(key) ?? { m: 0, n: 0 };
+      cur.m += Number(r.distance_m ?? 0);
+      cur.n += 1;
+      m.set(key, cur);
+    }
+    return Array.from(m.entries()).sort((a, b) => b[1].m - a[1].m);
+  }, [mine]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader className="min-w-0">
+          <DialogTitle className="truncate">{title}</DialogTitle>
+          <DialogDescription className="truncate">
+            {item.brand} {item.model}
+            {item.shoe_type && ` · ${SHOE_TYPE_LABEL[item.shoe_type] ?? item.shoe_type}`}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="max-h-[68vh] overflow-y-auto brand-scrollbar pr-1 space-y-4">
+          <div className="flex items-start gap-3">
+            {item.image_url && (
+              <img
+                src={item.image_url}
+                alt={title}
+                className="h-20 w-20 rounded-md object-cover border shrink-0"
+                loading="lazy"
+              />
+            )}
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-bold tabular-nums">{totalKm.toFixed(0)}</span>
+                <span className="text-sm text-muted-foreground">
+                  km across {mine.length} link{mine.length === 1 ? "" : "s"}
+                </span>
+              </div>
+              {pct != null && (
+                <div>
+                  <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className={`h-full ${pct >= 100 ? "bg-destructive" : pct >= 80 ? "bg-amber-500" : "bg-[var(--accent-red)]"}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <div className="text-[11px] text-muted-foreground mt-1 tabular-nums">
+                    {totalKm.toFixed(0)} / {target} km{pct >= 100 && " · past target"}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {bySegment.length > 0 && (
+            <div>
+              <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
+                Where the km came from
+              </div>
+              <div className="space-y-1">
+                {bySegment.map(([seg, v]) => (
+                  <div key={seg} className="flex items-center gap-2 text-xs">
+                    <Badge variant="secondary" className="text-[10px] font-normal shrink-0">
+                      {segmentLabel(seg === "__whole__" ? null : seg)}
+                    </Badge>
+                    <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden min-w-[30px]">
+                      <div
+                        className="h-full bg-[var(--accent-red)]"
+                        style={{ width: `${totalKm > 0 ? (v.m / 1000 / totalKm) * 100 : 0}%` }}
+                      />
+                    </div>
+                    <span className="text-muted-foreground tabular-nums shrink-0">
+                      {(v.m / 1000).toFixed(1)} km · {v.n}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <LinkedSessions gearId={item.id} athleteId={athleteId} rows={usageRows ?? []} />
+          <LinkSessionPicker gearId={item.id} athleteId={athleteId} />
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ----------------------------------------------------------------------------
 // Grid tile — the photo-forward view. Browsing and editing only; linked-session
 // management stays in the list view rather than being duplicated here.
 // ----------------------------------------------------------------------------
@@ -2135,12 +2265,15 @@ function GearTile({
   item,
   usage,
   athleteId,
+  usageRows,
 }: {
   item: any;
   usage: { totalM: number; count: number } | undefined;
   athleteId: string;
+  usageRows: any[];
 }) {
   const [editing, setEditing] = useState(false);
+  const [details, setDetails] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
   const [zoomed, setZoomed] = useState(false);
   const Icon = TYPE_ICON[item.gear_type] ?? Package;
@@ -2232,10 +2365,14 @@ function GearTile({
               />
             ))}
           </span>
-          <span className="tabular-nums flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setDetails(true)}
+            className="tabular-nums flex items-center gap-1 hover:text-foreground underline decoration-dotted underline-offset-2"
+          >
             <Gauge className="h-3 w-3" />
-            {totalKm.toFixed(0)} km
-          </span>
+            {totalKm.toFixed(0)} km · {usage?.count ?? 0} session{(usage?.count ?? 0) === 1 ? "" : "s"}
+          </button>
         </div>
 
         {pct != null && (
@@ -2258,6 +2395,13 @@ function GearTile({
         open={duplicating}
         onOpenChange={setDuplicating}
       />
+      <GearDetailsDialog
+        item={item}
+        athleteId={athleteId}
+        usageRows={usageRows}
+        open={details}
+        onOpenChange={setDetails}
+      />
     </Card>
   );
 }
@@ -2270,13 +2414,16 @@ function GearCard({
   item,
   usage,
   athleteId,
+  usageRows,
 }: {
   item: any;
   usage: { totalM: number; count: number } | undefined;
   athleteId: string;
+  usageRows: any[];
 }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [details, setDetails] = useState(false);
   const [editing, setEditing] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
   const [zoomed, setZoomed] = useState(false);
@@ -2457,10 +2604,14 @@ function GearCard({
               </button>
             ))}
           </div>
-          <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setDetails(true)}
+            className="text-xs text-muted-foreground flex items-center gap-1.5 hover:text-foreground underline decoration-dotted underline-offset-2"
+          >
             <Gauge className="h-3 w-3" />
-            {totalKm.toFixed(0)} km{usage?.count ? ` · ${usage.count} session${usage.count === 1 ? "" : "s"}` : ""}
-          </div>
+            {totalKm.toFixed(0)} km · {usage?.count ?? 0} session{(usage?.count ?? 0) === 1 ? "" : "s"}
+          </button>
         </div>
         {pct != null && (
           <div>
@@ -2506,9 +2657,10 @@ function GearCard({
                 <p className="text-xs text-muted-foreground whitespace-pre-wrap">{item.notes}</p>
               </div>
             )}
-            <LinkedSessions gearId={item.id} athleteId={athleteId} />
-            <LinkSessionPicker gearId={item.id} athleteId={athleteId} />
             <div className="flex gap-2 flex-wrap">
+              <Button size="sm" variant="outline" onClick={() => setDetails(true)}>
+                <Link2 className="h-3.5 w-3.5 mr-1" /> Sessions &amp; km
+              </Button>
               <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
                 <Pencil className="h-3.5 w-3.5 mr-1" /> Edit
               </Button>
@@ -2541,6 +2693,13 @@ function GearCard({
         open={duplicating}
         onOpenChange={setDuplicating}
       />
+      <GearDetailsDialog
+        item={item}
+        athleteId={athleteId}
+        usageRows={usageRows}
+        open={details}
+        onOpenChange={setDetails}
+      />
     </Card>
   );
 }
@@ -2551,57 +2710,126 @@ function GearCard({
 // comes in a follow-up once the session detail file is re-uploaded).
 // ----------------------------------------------------------------------------
 
-function LinkedSessions({ gearId, athleteId }: { gearId: string; athleteId: string }) {
-  const qc = useQueryClient();
-  const { data: links } = useQuery({
-    queryKey: ["gear-links", gearId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("session_gear")
-        .select("id, session_id, sessions(session_date, title, total_distance_m)")
-        .eq("gear_id", gearId)
-        .order("created_at", { ascending: false })
-        .limit(20);
-      if (error) throw error;
-      return (data ?? []) as any[];
-    },
-  });
+const SEGMENT_OPTIONS: { value: string; label: string; hint: string }[] = [
+  { value: "__whole__", label: "Whole session", hint: "One pair for the lot" },
+  { value: "warmup", label: "Warm up", hint: "" },
+  { value: "work", label: "Work / reps", hint: "" },
+  { value: "recovery", label: "Recovery jogs", hint: "" },
+  { value: "cooldown", label: "Cool down", hint: "" },
+];
 
-  async function unlink(id: string) {
-    const { error } = await supabase.from("session_gear").delete().eq("id", id);
+const SEGMENT_LABEL: Record<string, string> = {
+  warmup: "Warm up",
+  work: "Work",
+  recovery: "Recovery",
+  cooldown: "Cool down",
+};
+
+function segmentLabel(v: string | null | undefined): string {
+  if (!v) return "Whole session";
+  return SEGMENT_LABEL[v] ?? v;
+}
+
+// ----------------------------------------------------------------------------
+// Linked sessions.
+//
+// Reads from the rows the parent already fetched via get_gear_usage() rather
+// than querying session_gear itself — that RPC is what apportions distance
+// per segment, so re-querying the raw table here would show a DIFFERENT
+// (whole-session) number from the one the km total is built on.
+// ----------------------------------------------------------------------------
+
+function LinkedSessions({
+  gearId,
+  athleteId,
+  rows,
+}: {
+  gearId: string;
+  athleteId: string;
+  rows: any[];
+}) {
+  const qc = useQueryClient();
+  const mine = useMemo(() => rows.filter((r) => r.gear_id === gearId), [rows, gearId]);
+
+  async function unlink(linkId: string) {
+    const { error } = await supabase.from("session_gear").delete().eq("id", linkId);
     if (error) {
       toast.error(error.message);
       return;
     }
-    qc.invalidateQueries({ queryKey: ["gear-links", gearId] });
+    toast.success("Unlinked");
     qc.invalidateQueries({ queryKey: ["gear-usage", athleteId] });
   }
 
+  const totalKm = mine.reduce((sum, r) => sum + Number(r.distance_m ?? 0), 0) / 1000;
+  const anyEstimated = mine.some((r) => r.is_estimated);
+
   return (
-    <div className="space-y-1">
-      <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Linked sessions</div>
-      {!links || links.length === 0 ? (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+          Linked sessions ({mine.length})
+        </div>
+        <span className="text-xs text-muted-foreground tabular-nums">{totalKm.toFixed(1)} km total</span>
+      </div>
+
+      {mine.length === 0 ? (
         <p className="text-xs text-muted-foreground">No sessions linked yet.</p>
       ) : (
-        links.map((l) => (
-          <div key={l.id} className="flex items-center justify-between gap-2 text-xs border border-border rounded px-2 py-1">
-            <span className="truncate">
-              {l.sessions?.session_date} · {l.sessions?.title ?? "Session"}
-              {l.sessions?.total_distance_m ? ` · ${(Number(l.sessions.total_distance_m) / 1000).toFixed(1)}km` : ""}
-            </span>
-            <button type="button" onClick={() => unlink(l.id)} className="text-muted-foreground hover:text-destructive shrink-0" aria-label="Unlink">
-              <Trash2 className="h-3 w-3" />
-            </button>
-          </div>
-        ))
+        <div className="max-h-[320px] overflow-y-auto brand-scrollbar space-y-1 pr-1">
+          {mine.map((r) => (
+            <div
+              key={r.link_id}
+              className="flex items-center justify-between gap-2 text-xs border border-border rounded px-2 py-1.5"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="truncate">
+                  {r.session_date} · {r.session_title ?? "Session"}
+                </div>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <Badge variant="secondary" className="text-[10px] font-normal">
+                    {segmentLabel(r.segment_type)}
+                  </Badge>
+                  <span className="text-muted-foreground tabular-nums">
+                    {(Number(r.distance_m ?? 0) / 1000).toFixed(2)} km
+                    {r.is_estimated && " (est.)"}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => unlink(r.link_id)}
+                className="text-muted-foreground hover:text-destructive shrink-0"
+                aria-label="Unlink"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {anyEstimated && (
+        <p className="text-[10px] text-muted-foreground leading-snug">
+          "(est.)" means that segment's distance couldn't be measured directly — the session had no per-point data, so
+          the non-work distance was split evenly across the tagged segments. Shown as an estimate rather than folded in
+          silently.
+        </p>
       )}
     </div>
   );
 }
 
+// ----------------------------------------------------------------------------
+// Link picker — now segment-aware, so warm up and cool down can go to a
+// different pair from the reps.
+// ----------------------------------------------------------------------------
+
 function LinkSessionPicker({ gearId, athleteId }: { gearId: string; athleteId: string }) {
   const qc = useQueryClient();
   const [sessionId, setSessionId] = useState<string>("");
+  const [segment, setSegment] = useState<string>("__whole__");
+  const [saving, setSaving] = useState(false);
 
   const { data: candidates } = useQuery({
     queryKey: ["gear-link-candidates", athleteId],
@@ -2620,36 +2848,66 @@ function LinkSessionPicker({ gearId, athleteId }: { gearId: string; athleteId: s
 
   async function link() {
     if (!sessionId) return;
-    const { error } = await supabase
-      .from("session_gear")
-      .insert({ session_id: sessionId, gear_id: gearId, athlete_id: athleteId } as any);
+    setSaving(true);
+    const { error } = await (supabase as any).from("session_gear").insert({
+      session_id: sessionId,
+      gear_id: gearId,
+      athlete_id: athleteId,
+      segment_type: segment === "__whole__" ? null : segment,
+    });
+    setSaving(false);
     if (error) {
-      toast.error(error.message);
+      // The unique index covers (session_id, gear_id, segment_type), so this
+      // is the likely failure — worth naming rather than showing a raw
+      // Postgres constraint message.
+      if (String(error.message).toLowerCase().includes("duplicate")) {
+        toast.error("That shoe is already linked to this session for that part.");
+      } else {
+        toast.error(error.message);
+      }
       return;
     }
     toast.success("Session linked");
     setSessionId("");
-    qc.invalidateQueries({ queryKey: ["gear-links", gearId] });
     qc.invalidateQueries({ queryKey: ["gear-usage", athleteId] });
   }
 
   return (
-    <div className="flex items-center gap-2">
-      <Select value={sessionId} onValueChange={setSessionId}>
-        <SelectTrigger className="h-8 text-xs">
-          <SelectValue placeholder="Link a session…" />
-        </SelectTrigger>
-        <SelectContent>
-          {(candidates ?? []).map((s) => (
-            <SelectItem key={s.id} value={s.id}>
-              {s.session_date} · {s.title ?? "Session"}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <Button size="sm" variant="outline" onClick={link} disabled={!sessionId}>
-        <Link2 className="h-3.5 w-3.5" />
-      </Button>
+    <div className="space-y-2">
+      <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Link a session</div>
+      <div className="grid sm:grid-cols-[1fr_150px_auto] gap-2">
+        <Select value={sessionId} onValueChange={setSessionId}>
+          <SelectTrigger className="h-8 text-xs">
+            <SelectValue placeholder="Pick a session…" />
+          </SelectTrigger>
+          <SelectContent>
+            {(candidates ?? []).map((s) => (
+              <SelectItem key={s.id} value={s.id}>
+                {s.session_date} · {s.title ?? "Session"}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={segment} onValueChange={setSegment}>
+          <SelectTrigger className="h-8 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SEGMENT_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button size="sm" variant="outline" onClick={link} disabled={!sessionId || saving}>
+          <Link2 className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+      <p className="text-[10px] text-muted-foreground leading-snug">
+        Link the same session more than once to split it — trainers for warm up and cool down, spikes for the reps.
+        Each part only counts its own distance towards that shoe, so nothing is double-counted.
+      </p>
     </div>
   );
 }
