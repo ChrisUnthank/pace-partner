@@ -45,6 +45,7 @@ import {
   Layers,
   ImagePlus,
   X,
+  Copy,
   List,
   Maximize2,
   Flame,
@@ -391,6 +392,36 @@ function draftFromItem(item: any): GearDraft {
     notes: item.notes ?? "",
     used_for: Array.isArray(item.used_for) ? item.used_for : [],
   };
+}
+
+// Seeds the add form from an existing item — the "second pair" case.
+//
+// Kept, because they describe the MODEL: type, surface, traits, specs,
+// description, brand, model, purposes, retirement target, photo.
+//
+// Cleared, because they describe THAT PAIR rather than the model:
+//   purchase_date — a second pair was bought on a different day, and
+//     silently inheriting the first pair's date would quietly skew any
+//     age-based reasoning later.
+//   notes — these are wear/feel observations about the pair that's already
+//     been run in, so carrying them onto a box-fresh pair would be wrong.
+function duplicateDraftFrom(item: any): GearDraft {
+  const base = draftFromItem(item);
+  const currentName = item.nickname || `${item.brand} ${item.model}`;
+  return {
+    ...base,
+    nickname: nextCopyName(currentName),
+    purchase_date: "",
+    notes: "",
+  };
+}
+
+// "Race day" -> "Race day (2)" -> "Race day (3)". Only a starting suggestion;
+// the whole point of the flow is that you rename it before saving.
+function nextCopyName(name: string): string {
+  const m = name.match(/^(.*)\((\d+)\)\s*$/);
+  if (m) return `${m[1]}(${Number(m[2]) + 1})`;
+  return `${name} (2)`;
 }
 
 function draftToPayload(d: GearDraft, athleteId: string) {
@@ -871,10 +902,13 @@ function GearAddDialog({
   athleteId,
   open,
   onOpenChange,
+  duplicateOf = null,
 }: {
   athleteId: string;
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  /** When set, the form opens pre-filled from this item instead of blank. */
+  duplicateOf?: any | null;
 }) {
   const qc = useQueryClient();
   const [draft, setDraft] = useState<GearDraft>(emptyDraft());
@@ -890,8 +924,14 @@ function GearAddDialog({
   // reset living in that handler would silently never run — which is exactly
   // the bug this replaces.
   useEffect(() => {
-    if (open) setDraft(emptyDraft());
-  }, [open]);
+    if (!open) return;
+    setDraft(duplicateOf ? duplicateDraftFrom(duplicateOf) : emptyDraft());
+    // Keyed on the item's ID rather than the object itself: the gear list
+    // hands back a fresh object on every cache invalidation, and depending on
+    // its identity would re-seed the form on every render — wiping whatever
+    // was being typed, in a loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, duplicateOf?.id]);
 
   async function save() {
     if (!draft.model.trim()) {
@@ -908,7 +948,7 @@ function GearAddDialog({
       toast.error(error.message);
       return;
     }
-    toast.success("Gear added");
+    toast.success(duplicateOf ? "Duplicate saved" : "Gear added");
     qc.invalidateQueries({ queryKey: ["gear-list", athleteId] });
     onOpenChange(false);
   }
@@ -918,9 +958,14 @@ function GearAddDialog({
       <DialogContent className="max-w-3xl">
         <DialogHeader className="min-w-0">
           <DialogTitle className="flex items-center gap-2">
-            <Plus className="h-4 w-4" /> Add gear
+            {duplicateOf ? <Copy className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+            {duplicateOf ? "Duplicate gear" : "Add gear"}
           </DialogTitle>
-          <DialogDescription>Shoes, bike, treadmill or anything else worth tracking mileage on.</DialogDescription>
+          <DialogDescription>
+            {duplicateOf
+              ? "Everything about the model has been copied across. Purchase date and notes are blank, since those belong to the original pair — give it a name and save."
+              : "Shoes, bike, treadmill or anything else worth tracking mileage on."}
+          </DialogDescription>
         </DialogHeader>
         <div className="max-h-[68vh] overflow-y-auto brand-scrollbar pr-1">
           <GearFormFields draft={draft} setDraft={setDraft} athleteId={athleteId} />
@@ -930,7 +975,7 @@ function GearAddDialog({
             Cancel
           </Button>
           <Button onClick={save} disabled={saving}>
-            {saving ? "Saving…" : "Save gear"}
+            {saving ? "Saving…" : duplicateOf ? "Save as new" : "Save gear"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1962,6 +2007,7 @@ function GearTile({
   athleteId: string;
 }) {
   const [editing, setEditing] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
   const [zoomed, setZoomed] = useState(false);
   const Icon = TYPE_ICON[item.gear_type] ?? Package;
   const typeColour = SHOE_TYPE_COLOUR[item.shoe_type ?? ""] ?? "#94a3b8";
@@ -2020,9 +2066,14 @@ function GearTile({
               {item.brand} {item.model}
             </div>
           </div>
-          <button type="button" onClick={() => setEditing(true)} aria-label="Edit gear" className="shrink-0 pt-0.5">
-            <Pencil className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
-          </button>
+          <div className="flex items-center gap-2 shrink-0 pt-0.5">
+            <button type="button" onClick={() => setDuplicating(true)} aria-label="Duplicate gear">
+              <Copy className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
+            </button>
+            <button type="button" onClick={() => setEditing(true)} aria-label="Edit gear">
+              <Pencil className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
+            </button>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-1">
@@ -2067,6 +2118,12 @@ function GearTile({
         <ImageLightbox url={item.image_url} alt={title} open={zoomed} onOpenChange={setZoomed} />
       )}
       <GearEditDialog item={item} athleteId={athleteId} open={editing} onOpenChange={setEditing} />
+      <GearAddDialog
+        athleteId={athleteId}
+        duplicateOf={item}
+        open={duplicating}
+        onOpenChange={setDuplicating}
+      />
     </Card>
   );
 }
@@ -2087,6 +2144,7 @@ function GearCard({
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
   const [zoomed, setZoomed] = useState(false);
   const Icon = TYPE_ICON[item.gear_type] ?? Package;
   const totalKm = usage ? usage.totalM / 1000 : 0;
@@ -2195,6 +2253,9 @@ function GearCard({
                 Retired
               </Badge>
             )}
+            <button type="button" onClick={() => setDuplicating(true)} aria-label="Duplicate gear">
+              <Copy className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
+            </button>
             <button type="button" onClick={() => setEditing(true)} aria-label="Edit gear">
               <Pencil className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
             </button>
@@ -2317,6 +2378,9 @@ function GearCard({
               <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
                 <Pencil className="h-3.5 w-3.5 mr-1" /> Edit
               </Button>
+              <Button size="sm" variant="outline" onClick={() => setDuplicating(true)}>
+                <Copy className="h-3.5 w-3.5 mr-1" /> Duplicate
+              </Button>
               <Button size="sm" variant="outline" onClick={toggleRetired}>
                 {item.is_retired ? "Mark active" : "Mark retired"}
               </Button>
@@ -2337,6 +2401,12 @@ function GearCard({
         />
       )}
       <GearEditDialog item={item} athleteId={athleteId} open={editing} onOpenChange={setEditing} />
+      <GearAddDialog
+        athleteId={athleteId}
+        duplicateOf={item}
+        open={duplicating}
+        onOpenChange={setDuplicating}
+      />
     </Card>
   );
 }
