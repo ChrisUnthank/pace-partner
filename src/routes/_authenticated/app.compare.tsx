@@ -10,27 +10,62 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CoachAthletePicker } from "@/components/coach-athlete-picker";
-import { GitCompare, ArrowLeftRight, TrendingUp, TrendingDown, Minus, Search, AlertTriangle } from "lucide-react";
+import {
+  GitCompare,
+  ArrowLeftRight,
+  TrendingUp,
+  TrendingDown,
+  Minus,
+  Search,
+  AlertTriangle,
+  Target,
+  Info,
+} from "lucide-react";
 import { secToClock, paceFmt } from "@/lib/format";
-import { predictTime, predictTimeWithExponent, personalizedExponent, REFERENCE_DISTANCES } from "@/lib/race-predict";
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
+import { REFERENCE_DISTANCES } from "@/lib/race-predict";
+import {
+  resolveReferencePace,
+  repMetrics,
+  metresPerBeat,
+  buildVerdict,
+  type ComparePerformance,
+  type CompareRep,
+  type CompareSide,
+  type RepMetrics,
+  type VerdictTone,
+} from "@/lib/compare-metrics";
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 
 export const Route = createFileRoute("/_authenticated/app/compare")({
   component: ComparePage,
 });
 
+/* ------------------------------------------------------------------ */
+/* Types                                                               */
+/* ------------------------------------------------------------------ */
+
 type CompSession = {
   id: string;
   title: string;
   session_date: string;
+  time_of_day: string | null;
   intent: string | null;
   structure: string | null;
   work_distance_m: number | null;
   work_time_s: number | null;
   work_avg_pace_sec_per_km: number | null;
   work_avg_hr: number | null;
+  work_avg_cadence: number | null;
+  rpe: number | null;
+  average_temp_c: number | null;
+  wind_kph: number | null;
+  weather: string | null;
+  terrain: string | null;
+  altitude_m: number | null;
 };
 
 type WorkStep = {
@@ -45,8 +80,16 @@ type WorkStep = {
   target_time_seconds: number | null;
 };
 
-// Human-readable workout shape, e.g. "8 x 1km w/ 60s recovery" — the exact
-// detail requested instead of just showing "Threshold · intervals".
+/* ------------------------------------------------------------------ */
+/* Small display helpers                                               */
+/* ------------------------------------------------------------------ */
+
+// The six events a middle-distance squad actually toggles between day to
+// day. Everything else in REFERENCE_DISTANCES stays reachable through the
+// "Other distance" dropdown beside them — this row exists purely so the
+// common case is one visible click rather than a hidden select.
+const QUICK_EVENTS = ["800m", "1500m", "1 Mile", "3000m", "5000m", "10K"];
+
 function describeStep(s: WorkStep): string {
   const amt =
     s.target_kind === "distance"
@@ -70,10 +113,9 @@ function workoutLabel(work: WorkStep[], recovery: WorkStep[]): string {
   return `${workDesc} w/ ${recDesc} recovery`;
 }
 
-// Builds a fingerprint for a session's work steps so two sessions with the
-// same workout shape (e.g. "6x800m") group together even with small GPS/
-// manual-entry variance — distances round to the nearest 50m, times to the
-// nearest 15s, so 798m and 812m both bucket as "800m".
+// Fingerprint so two sessions with the same workout shape (e.g. "6x800m")
+// group together even with small GPS/manual-entry variance — distances
+// round to the nearest 50m, times to the nearest 15s.
 function workFingerprint(steps: WorkStep[]): string {
   return steps
     .slice()
@@ -93,6 +135,87 @@ function intentLabel(v: string | null) {
   return v.charAt(0).toUpperCase() + v.slice(1);
 }
 
+function num(v: unknown): number | null {
+  if (v == null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function toneClass(tone: VerdictTone) {
+  if (tone === "positive") return "text-emerald-600";
+  if (tone === "caution") return "text-amber-600";
+  return "text-muted-foreground";
+}
+
+function toneDot(tone: VerdictTone) {
+  if (tone === "positive") return "bg-emerald-500";
+  if (tone === "caution") return "bg-amber-500";
+  return "bg-muted-foreground/40";
+}
+
+/* ------------------------------------------------------------------ */
+/* Diff row                                                            */
+/* ------------------------------------------------------------------ */
+
+function DiffRow({
+  label,
+  hint,
+  a,
+  b,
+  format,
+  betterIsLower,
+  flatThreshold = 0,
+  deltaFormat,
+}: {
+  label: string;
+  hint?: string;
+  a: number | null;
+  b: number | null;
+  format: (v: number) => string;
+  /** null = neither direction is inherently better (e.g. cadence, temperature). */
+  betterIsLower: boolean | null;
+  flatThreshold?: number;
+  deltaFormat?: (v: number) => string;
+}) {
+  const delta = a != null && b != null ? b - a : null;
+  const flat = delta != null && Math.abs(delta) <= flatThreshold;
+  const tone: "good" | "bad" | "flat" | "none" =
+    delta == null || betterIsLower == null ? "none" : flat ? "flat" : betterIsLower === delta < 0 ? "good" : "bad";
+
+  const deltaText =
+    delta == null
+      ? "—"
+      : flat
+        ? "no change"
+        : `${delta > 0 ? "+" : "−"}${(deltaFormat ?? format)(Math.abs(delta))}`;
+
+  return (
+    <div className="grid grid-cols-[1.4fr_1fr_1fr_1fr] items-center gap-2 px-3 py-2 text-sm">
+      <div className="min-w-0">
+        <div className="font-medium truncate">{label}</div>
+        {hint && <div className="text-[11px] text-muted-foreground leading-tight">{hint}</div>}
+      </div>
+      <div className="text-right tabular-nums">{a == null ? "—" : format(a)}</div>
+      <div className="text-right tabular-nums font-medium">{b == null ? "—" : format(b)}</div>
+      <div
+        className={`text-right tabular-nums text-xs ${
+          tone === "good"
+            ? "text-emerald-600 font-medium"
+            : tone === "bad"
+              ? "text-amber-600 font-medium"
+              : "text-muted-foreground"
+        }`}
+      >
+        {deltaText}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Page                                                                */
+/* ------------------------------------------------------------------ */
+
 function ComparePage() {
   const { user } = useAuthUser();
   const { data: roles = [] } = useMyRoles();
@@ -102,7 +225,7 @@ function ComparePage() {
   const isManager = rawRoles.includes("manager");
 
   const { data: roster } = useQuery({
-    queryKey: ["compare-roster", user?.id, isCoach, isManager],
+    queryKey: ["compare-v2-roster", user?.id, isCoach, isManager],
     enabled: !!user && isCoach,
     queryFn: async () => {
       if (isManager) {
@@ -121,13 +244,13 @@ function ComparePage() {
   const athleteId = isCoach ? selectedAthleteId : (myAthlete?.id ?? "");
 
   const { data: sessions = [] } = useQuery({
-    queryKey: ["compare-sessions", athleteId],
+    queryKey: ["compare-v2-sessions", athleteId],
     enabled: !!athleteId,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sessions")
         .select(
-          "id, title, session_date, intent, structure, work_distance_m, work_time_s, work_avg_pace_sec_per_km, work_avg_hr, time_of_day",
+          "id, title, session_date, time_of_day, intent, structure, work_distance_m, work_time_s, work_avg_pace_sec_per_km, work_avg_hr, work_avg_cadence, rpe, average_temp_c, wind_kph, weather, terrain, altitude_m",
         )
         .eq("athlete_id", athleteId)
         .not("completed_at", "is", null)
@@ -136,14 +259,14 @@ function ComparePage() {
         .order("session_date", { ascending: false })
         .order("time_of_day", { ascending: false });
       if (error) throw error;
-      return (data ?? []) as CompSession[];
+      return (data ?? []) as unknown as CompSession[];
     },
   });
 
   const sessionIds = useMemo(() => sessions.map((s) => s.id), [sessions]);
 
   const { data: workSteps = [] } = useQuery({
-    queryKey: ["compare-worksteps", sessionIds.join(",")],
+    queryKey: ["compare-v2-worksteps", sessionIds.join(",")],
     enabled: sessionIds.length > 0,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -154,20 +277,21 @@ function ComparePage() {
         .in("session_id", sessionIds)
         .in("kind", ["work", "recovery"]);
       if (error) throw error;
-      return (data ?? []) as WorkStep[];
+      return (data ?? []) as unknown as WorkStep[];
     },
   });
 
-  // Fitness (CTL) trend for the athlete — pulled once the athlete's picked,
-  // used later to check whether a pace improvement lines up with genuine
-  // rising fitness or looks more like an isolated good day.
+  // Training-load history. The DB columns are still named ctl/tsb (that's
+  // the schema), but nothing user-facing on this page says "CTL", "ATL",
+  // "TSB" or "TSS" any more — they're surfaced as Fitness and Form, the
+  // plain-language names used everywhere else in Strider.
   const { data: loadHistory = [] } = useQuery({
-    queryKey: ["compare-load", athleteId],
+    queryKey: ["compare-v2-load", athleteId],
     enabled: !!athleteId,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("athlete_load_daily")
-        .select("load_date, ctl")
+        .select("load_date, ctl, tsb")
         .eq("athlete_id", athleteId)
         .order("load_date", { ascending: true });
       if (error) throw error;
@@ -175,23 +299,20 @@ function ComparePage() {
     },
   });
 
-  function ctlNear(dateStr: string): number | null {
-    // Latest CTL row on or before the given date — a session's date won't
-    // always have its own load row (e.g. rest-day gaps), so this finds the
-    // closest real reading at or before it.
-    let best: { load_date: string; ctl: number | null } | null = null;
-    for (const row of loadHistory) {
+  function loadNear(dateStr: string): { fitness: number | null; form: number | null } {
+    let best: { load_date: string; ctl: number | null; tsb: number | null } | null = null;
+    for (const row of loadHistory as any[]) {
       if (row.load_date <= dateStr) best = row;
       else break;
     }
-    return best?.ctl != null ? Math.round(Number(best.ctl)) : null;
+    return {
+      fitness: best?.ctl != null ? Math.round(Number(best.ctl)) : null,
+      form: best?.tsb != null ? Math.round(Number(best.tsb)) : null,
+    };
   }
 
-  // Efficiency score — same field already shown on the session Analysis
-  // page's "Overall run fatigue" card, averaged per session here (a session
-  // can have several fatigue rows, e.g. one per rep for intervals).
   const { data: fatigueRows = [] } = useQuery({
-    queryKey: ["compare-fatigue", sessionIds.join(",")],
+    queryKey: ["compare-v2-fatigue", sessionIds.join(",")],
     enabled: sessionIds.length > 0,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -206,7 +327,7 @@ function ComparePage() {
 
   const efficiencyBySession = useMemo(() => {
     const m = new Map<string, number[]>();
-    for (const r of fatigueRows) {
+    for (const r of fatigueRows as any[]) {
       const arr = m.get(r.session_id) ?? [];
       arr.push(Number(r.efficiency_score));
       m.set(r.session_id, arr);
@@ -216,85 +337,57 @@ function ComparePage() {
     return out;
   }, [fatigueRows]);
 
-  // Per-rep results for the work steps — used to check two things a raw
-  // average pace can't tell you: whether the athlete faded across reps
-  // (last rep meaningfully slower than the first), and whether recovery
-  // between reps looked genuinely good (a real HR drop, not just a pause).
   const workStepIds = useMemo(() => workSteps.filter((s) => s.kind === "work").map((s) => s.id), [workSteps]);
+
   const { data: repResults = [] } = useQuery({
-    queryKey: ["compare-reps", workStepIds.join(",")],
+    queryKey: ["compare-v2-reps", workStepIds.join(",")],
     enabled: workStepIds.length > 0,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("interval_results")
-        .select("step_id, set_number, rep_number, actual_pace_sec_per_km, hr_end, hr_end_recovery")
+        .select(
+          "step_id, set_number, rep_number, actual_distance_m, actual_time_seconds, actual_pace_sec_per_km, hr_avg, hr_end, hr_end_recovery, cadence",
+        )
         .in("step_id", workStepIds)
         .order("set_number", { ascending: true })
         .order("rep_number", { ascending: true });
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []) as unknown as CompareRep[];
     },
   });
 
-  const repsBySession = useMemo(() => {
+  const repMetricsBySession = useMemo(() => {
     const stepToSession = new Map(workSteps.filter((s) => s.kind === "work").map((s) => [s.id, s.session_id]));
-    const m = new Map<string, typeof repResults>();
+    const grouped = new Map<string, CompareRep[]>();
     for (const r of repResults) {
       const sid = stepToSession.get(r.step_id);
       if (!sid) continue;
-      const arr = m.get(sid) ?? [];
+      const arr = grouped.get(sid) ?? [];
       arr.push(r);
-      m.set(sid, arr);
+      grouped.set(sid, arr);
     }
-    return m;
+    const out = new Map<string, RepMetrics>();
+    for (const [sid, reps] of grouped) out.set(sid, repMetrics(reps));
+    return out;
   }, [repResults, workSteps]);
 
-  // Reads as: has this session's reps held together (no fade), and did
-  // recovery between them look genuinely good?
-  function repQualitySignals(sessionId: string): { noFade: boolean; goodRecovery: boolean } {
-    const reps = (repsBySession.get(sessionId) ?? [])
-      .filter((r) => r.actual_pace_sec_per_km != null)
-      .slice()
-      .sort((a, b) => a.set_number - b.set_number || a.rep_number - b.rep_number);
-
-    let noFade = false;
-    if (reps.length >= 2) {
-      const firstPace = Number(reps[0].actual_pace_sec_per_km);
-      const lastPace = Number(reps[reps.length - 1].actual_pace_sec_per_km);
-      const fadePct = ((lastPace - firstPace) / firstPace) * 100;
-      noFade = fadePct <= 2; // flat or negative split counts as "held together"
-    }
-
-    const drops = reps
-      .filter((r) => r.hr_end != null && r.hr_end_recovery != null)
-      .map((r) => Number(r.hr_end) - Number(r.hr_end_recovery));
-    const goodRecovery = drops.length > 0 && drops.reduce((a, b) => a + b, 0) / drops.length >= 15;
-
-    return { noFade, goodRecovery };
-  }
-
-  // Real race results — ground truth to cross-check the workout-based
-  // projection against. Pulled from `performances`, not session-level GPS
-  // fields: `performances.distance_m`/`time_seconds` is the "Official
-  // Distance" a coach can hand-correct when the raw GPS/reconstructed
-  // distance disagrees with the actual measured course (e.g. GPS reads
-  // 7.2km on a course that's really 7.4km) — the same authoritative values
-  // that already feed the PB list, so this stays consistent with what's
-  // shown there rather than trusting GPS-derived session totals a second,
-  // possibly-disagreeing way.
-  const { data: raceSessions = [] } = useQuery({
-    queryKey: ["compare-races", athleteId],
+  // Real race results — the only legitimate anchor for anything expressed
+  // in race terms on this page.
+  const { data: performances = [] } = useQuery({
+    queryKey: ["compare-v2-performances", athleteId],
     enabled: !!athleteId,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("performances")
-        .select("id, event_name, performance_date, distance_m, time_seconds, session_id")
+        .select(
+          "id, event_name, performance_date, distance_m, time_seconds, race_type, context, excluded_from_pb",
+        )
         .eq("athlete_id", athleteId)
         .not("distance_m", "is", null)
         .not("time_seconds", "is", null)
-        .order("performance_date", { ascending: true });
+        .order("performance_date", { ascending: false });
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []) as unknown as ComparePerformance[];
     },
   });
 
@@ -331,7 +424,7 @@ function ComparePage() {
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
-  const [targetKm, setTargetKm] = useState(5); // default 5000m — middle-distance-friendly default
+  const [targetKm, setTargetKm] = useState(5);
 
   function selectGroup(group: CompSession[]) {
     setSelectedIds(new Set(group.map((s) => s.id)));
@@ -345,248 +438,147 @@ function ComparePage() {
     });
   }
 
-  const selectedSessions = useMemo(() => {
-    return sessions
-      .filter((s) => selectedIds.has(s.id))
-      .slice()
-      .sort((a, b) => a.session_date.localeCompare(b.session_date));
-  }, [sessions, selectedIds]);
+  const selectedSessions = useMemo(
+    () =>
+      sessions
+        .filter((s) => selectedIds.has(s.id))
+        .slice()
+        .sort((a, b) => a.session_date.localeCompare(b.session_date)),
+    [sessions, selectedIds],
+  );
 
   const targetLabel = REFERENCE_DISTANCES.find((r) => Math.abs(r.km - targetKm) < 0.001)?.label ?? `${targetKm}km`;
 
-  const comparison = useMemo(() => {
-    if (selectedSessions.length < 2) return null;
-    // Find the best available real race to calibrate against, before
-    // computing any projections. Picked by DISTANCE-proximity to the target
-    // being projected (via log-ratio, since pace-distance relationships are
-    // multiplicative, not linear — the "gap" between 800m and 1500m matters
-    // as much as the gap between 5K and ~9.4K, same ratio) rather than
-    // proximity in time. This matters a lot for a genuine short-distance
-    // specialist (800m/1500m/3000m): their pace-vs-distance curve has a
-    // measurably different shape than a 5K-marathon-oriented runner's (a
-    // flatter drop-off at the short end, from a stronger speed reserve), and
-    // a single exponent fit from one calibration pair can't capture that —
-    // the best available protection is keeping the extrapolation as short
-    // as possible, which means calibrating from whichever real result sits
-    // closest to the actual target distance, not whichever happened most
-    // recently.
-    const nearbyRace =
-      raceSessions.length > 0
-        ? raceSessions.reduce((best, r) => {
-            const d = Math.abs(Math.log(Number(r.distance_m) / 1000 / targetKm));
-            const bd = Math.abs(Math.log(Number(best.distance_m) / 1000 / targetKm));
-            return d < bd ? r : best;
-          })
-        : undefined;
+  /* ---------------- reference pace (real results only) -------------- */
 
-    let exponent = 1.06; // only used if calibrated flips true below
-    let calibrated = false;
-    if (nearbyRace) {
-      const raceKm = Number(nearbyRace.distance_m) / 1000;
-      const raceTime = Number(nearbyRace.time_seconds);
-      const closestSession = selectedSessions.reduce((best, s) => {
-        const d = Math.abs(new Date(s.session_date).getTime() - new Date(nearbyRace.performance_date).getTime());
-        const bd = Math.abs(new Date(best.session_date).getTime() - new Date(nearbyRace.performance_date).getTime());
-        return d < bd ? s : best;
-      }, selectedSessions[0]);
-      const closestKm = Number(closestSession.work_distance_m) / 1000;
-      if (closestKm > 0 && raceKm > 0 && closestKm !== raceKm) {
-        const k = personalizedExponent(Number(closestSession.work_time_s), closestKm, raceTime, raceKm);
-        if (k != null) {
-          exponent = k;
-          calibrated = true;
-        }
-      }
-    }
+  const referencePace = useMemo(() => resolveReferencePace(performances, targetKm), [performances, targetKm]);
 
-    // Bug fix: a personalized exponent is only ever fitted from ONE (session,
-    // race) pair, then was being applied blindly to every row's projection —
-    // including a session whose own distance is nowhere near the calibration
-    // pair's range (e.g. a 400m-rep session projected with an exponent
-    // calibrated from a 7.4km race). Extrapolating a validly-bounded exponent
-    // far outside the range it was fitted on can still produce an impossible
-    // result (a "4-minute 5K"), even though the exponent itself passed its
-    // own sanity bounds. This checks the *resulting pace*, per call, and
-    // silently falls back to the generic formula for that specific
-    // projection when the calibrated result isn't physically plausible,
-    // rather than trusting the exponent everywhere it's used.
-    const MIN_PLAUSIBLE_PACE_S_PER_KM = 120; // 2:00/km — faster than this is not realistic for 5K+
-    const MAX_PLAUSIBLE_PACE_S_PER_KM = 900; // 15:00/km — slower than this isn't a meaningful projection
+  /* ---------------- enriched rows ----------------------------------- */
 
-    // Second, separate guard: the check above only protects against a BAD
-    // EXPONENT — it does nothing if the session's own recorded work pace
-    // (t1/d1, before any exponent is even applied) is itself implausible,
-    // e.g. from corrupted/duplicated work_distance_m or work_time_s data.
-    // Garbage in still means garbage out even with a perfectly reasonable
-    // exponent, so this checks the RAW input pace and refuses to project
-    // from it at all if it's not physically plausible.
-    const isPlausibleInput = (t1: number, d1: number) => {
-      if (d1 <= 0) return false;
-      const rawPace = t1 / d1;
-      return rawPace >= MIN_PLAUSIBLE_PACE_S_PER_KM && rawPace <= MAX_PLAUSIBLE_PACE_S_PER_KM;
-    };
+  const rows = useMemo(() => {
+    return selectedSessions.map((s) => {
+      const distanceM = num(s.work_distance_m);
+      const timeS = num(s.work_time_s);
+      const reps = repMetricsBySession.get(s.id) ?? null;
+      const { fitness, form } = loadNear(s.session_date);
 
-    const project = (t1: number, d1: number, d2: number) => {
-      if (!isPlausibleInput(t1, d1)) return null;
-      if (calibrated) {
-        const calibratedResult = predictTimeWithExponent(t1, d1, d2, exponent);
-        const impliedPace = calibratedResult / d2;
-        if (impliedPace >= MIN_PLAUSIBLE_PACE_S_PER_KM && impliedPace <= MAX_PLAUSIBLE_PACE_S_PER_KM) {
-          return calibratedResult;
-        }
-      }
-      return predictTime(t1, d1, d2);
-    };
+      // Prefer the session-level work pace, but fall back to distance/time
+      // so a session without the derived column still charts.
+      const pace =
+        num(s.work_avg_pace_sec_per_km) ?? (distanceM != null && timeS != null && distanceM > 0 ? timeS / (distanceM / 1000) : null);
 
-    const rows = selectedSessions.map((s) => {
-      const km = Number(s.work_distance_m) / 1000;
-      const predicted = km > 0 ? project(Number(s.work_time_s), km, targetKm) : null;
+      const mpb = metresPerBeat(distanceM, timeS, num(s.work_avg_hr));
+      const relPct = referencePace != null && pace != null && pace > 0 ? (referencePace.paceSecPerKm / pace) * 100 : null;
+
       return {
-        ...s,
-        km,
-        predicted,
-        ctl: ctlNear(s.session_date),
+        session: s,
+        distanceM,
+        timeS,
+        pace,
+        avgHr: num(s.work_avg_hr),
+        cadence: num(s.work_avg_cadence) ?? reps?.avgCadence ?? null,
+        rpe: num(s.rpe),
         efficiency: efficiencyBySession.get(s.id) ?? null,
+        fitness,
+        form,
+        reps,
+        mpb,
+        relPct,
+        shape: workoutLabel(workBySession.get(s.id) ?? [], recoveryBySession.get(s.id) ?? []),
       };
     });
-    const first = rows[0];
-    const last = rows[rows.length - 1];
-    const chartData = rows.map((r) => ({
-      date: r.session_date,
-      predicted: r.predicted != null ? Math.round(r.predicted) : null,
-      pace: r.work_avg_pace_sec_per_km,
-      hr: r.work_avg_hr,
+  }, [
+    selectedSessions,
+    repMetricsBySession,
+    efficiencyBySession,
+    loadHistory,
+    referencePace,
+    workBySession,
+    recoveryBySession,
+  ]);
+
+  type Row = (typeof rows)[number];
+
+  // Which two sessions are the headline pair. Defaults to earliest vs
+  // latest of the selection; a coach can pin either side explicitly when
+  // more than two are selected.
+  const [pinnedAId, setPinnedAId] = useState<string | null>(null);
+  const [pinnedBId, setPinnedBId] = useState<string | null>(null);
+
+  const pair = useMemo(() => {
+    if (rows.length < 2) return null;
+    const a = rows.find((r) => r.session.id === pinnedAId) ?? rows[0];
+    let b = rows.find((r) => r.session.id === pinnedBId) ?? rows[rows.length - 1];
+    if (b.session.id === a.session.id) b = rows[rows.length - 1].session.id === a.session.id ? rows[0] : rows[rows.length - 1];
+    if (b.session.id === a.session.id) return null;
+    return { a, b };
+  }, [rows, pinnedAId, pinnedBId]);
+
+  function toSide(r: Row): CompareSide {
+    return {
+      dateLabel: r.session.session_date,
+      paceSecPerKm: r.pace,
+      avgHr: r.avgHr,
+      distanceM: r.distanceM,
+      timeSeconds: r.timeS,
+      metresPerBeat: r.mpb,
+      fadePct: r.reps?.fadePct ?? null,
+      spreadPct: r.reps?.spreadPct ?? null,
+      hrDropBpm: r.reps?.avgHrDrop ?? null,
       efficiency: r.efficiency,
+      cadence: r.cadence,
+      rpe: r.rpe,
+      fitness: r.fitness,
+      form: r.form,
+      tempC: num(r.session.average_temp_c),
+      windKph: num(r.session.wind_kph),
+      weather: r.session.weather,
+      terrain: r.session.terrain,
+      altitudeM: num(r.session.altitude_m),
+      relPctOfRacePace: r.relPct,
+    };
+  }
+
+  const verdict = useMemo(() => (pair ? buildVerdict(toSide(pair.a), toSide(pair.b)) : null), [pair]);
+
+  /* ---------------- chart data -------------------------------------- */
+
+  const trendData = useMemo(
+    () =>
+      rows.map((r) => ({
+        date: r.session.session_date,
+        pace: r.pace,
+        hr: r.avgHr,
+        mpb: r.mpb,
+        relPct: r.relPct,
+      })),
+    [rows],
+  );
+
+  const repChartData = useMemo(() => {
+    if (!pair) return [];
+    const aPaces = pair.a.reps?.paces ?? [];
+    const bPaces = pair.b.reps?.paces ?? [];
+    const n = Math.max(aPaces.length, bPaces.length);
+    if (n === 0) return [];
+    return Array.from({ length: n }, (_, i) => ({
+      rep: `Rep ${i + 1}`,
+      a: aPaces[i] ?? null,
+      b: bPaces[i] ?? null,
     }));
+  }, [pair]);
 
-    // Rep-length variance caveat: if the selected sessions don't all share
-    // the same work-step shape, part of any pace difference between them
-    // may reflect rep length rather than fitness — e.g. longer threshold
-    // reps are typically run slightly slower than shorter ones even at
-    // equivalent effort. Only relevant for "Similar" or manual selections;
-    // Direct matches are exact-shape repeats by definition, so this never
-    // fires for those.
+  const shapesDiffer = useMemo(() => {
     const shapes = new Set(selectedSessions.map((s) => workFingerprint(workBySession.get(s.id) ?? [])));
-    const repLengthVaries = shapes.size > 1;
-    const shapeExamples = selectedSessions
-      .map((s) => workoutLabel(workBySession.get(s.id) ?? [], recoveryBySession.get(s.id) ?? []))
-      .filter((v, i, arr) => arr.indexOf(v) === i);
+    return shapes.size > 1;
+  }, [selectedSessions, workBySession]);
 
-    let raceCheck: {
-      title: string;
-      date: string;
-      actualTime: number;
-      km: number;
-      projectedAtSameDistance: number;
-    } | null = null;
-    if (nearbyRace) {
-      const raceKm = Number(nearbyRace.distance_m) / 1000;
-      const raceTime = Number(nearbyRace.time_seconds);
-      const closest = rows.reduce((best, r) => {
-        const d = Math.abs(new Date(r.session_date).getTime() - new Date(nearbyRace.performance_date).getTime());
-        const bd = Math.abs(new Date(best.session_date).getTime() - new Date(nearbyRace.performance_date).getTime());
-        return d < bd ? r : best;
-      }, rows[0]);
-      if (closest.km > 0) {
-        // Deliberately uses the generic formula here, not the personalized
-        // one calibrated *from* this same race — otherwise the cross-check
-        // would just trivially agree with itself.
-        const projectedAtSameDistance = predictTime(Number(closest.work_time_s), closest.km, raceKm);
-        raceCheck = {
-          title: nearbyRace.event_name ?? "Race",
-          date: nearbyRace.performance_date,
-          actualTime: raceTime,
-          km: raceKm,
-          projectedAtSameDistance,
-        };
-      }
-    }
+  const shapeExamples = useMemo(
+    () => Array.from(new Set(rows.map((r) => r.shape))),
+    [rows],
+  );
 
-    return { rows, first, last, chartData, repLengthVaries, shapeExamples, raceCheck, calibrated };
-  }, [selectedSessions, loadHistory, targetKm, efficiencyBySession, raceSessions, workBySession, recoveryBySession]);
-
-  // Upper/Middle/Lower range for the most recent compared session — Low is
-  // the raw rep-based projection (already computed above, no adjustment).
-  // Upper applies a small, capped bonus only for signals that are actually
-  // true for that session/window: no fade across reps, good recovery
-  // between reps (a real HR drop, not just a pause), fitness (CTL) rising
-  // over the window, and a real race outperforming its own projection.
-  // Each signal is worth a modest 1.5%, capped at 4 signals (6% max) —
-  // deliberately conservative rather than wildly optimistic. Middle is a
-  // plain average of the two, not a separately-modeled estimate.
-  const predictionRange = useMemo(() => {
-    if (!comparison || comparison.last.predicted == null) return null;
-    let low = comparison.last.predicted;
-
-    // Hard floor: a real result at (or very near) this exact target distance
-    // outranks any model output, calibrated or not. "Conservative" claiming
-    // a time slower than a PB the athlete has already run isn't conservative
-    // — it's just wrong, and should never be shown as if it were a genuine
-    // estimate.
-    const pbAtTarget = raceSessions
-      .filter((r) => Math.abs(Math.log(Number(r.distance_m) / 1000 / targetKm)) < 0.15) // within ~15% distance
-      .reduce(
-        (best: any, r: any) => (best == null || Number(r.time_seconds) < Number(best.time_seconds) ? r : best),
-        null,
-      );
-    const pbFloorApplied = pbAtTarget != null && Number(pbAtTarget.time_seconds) < low;
-    if (pbFloorApplied) low = Number(pbAtTarget.time_seconds);
-
-    const { noFade, goodRecovery } = repQualitySignals(comparison.last.id);
-    const ctlDelta =
-      comparison.last.ctl != null && comparison.first.ctl != null ? comparison.last.ctl - comparison.first.ctl : null;
-    const fitnessRising = ctlDelta != null && ctlDelta > 0;
-    const raceOutperformed = comparison.raceCheck
-      ? comparison.raceCheck.actualTime < comparison.raceCheck.projectedAtSameDistance
-      : false;
-
-    const signals = [
-      { label: "No fade across reps", met: noFade },
-      { label: "Good recovery between reps", met: goodRecovery },
-      { label: "Fitness (CTL) rising", met: fitnessRising },
-      { label: "Recent race outperformed projection", met: raceOutperformed },
-    ];
-    const metCount = signals.filter((s) => s.met).length;
-    const bonusPct = metCount * 1.5;
-    const upper = low * (1 - bonusPct / 100);
-    const middle = (low + upper) / 2;
-
-    return { low, middle, upper, signals, metCount, pbFloorApplied, pbAtTarget };
-  }, [comparison, raceSessions, targetKm]);
-
-  const narrative = useMemo(() => {
-    if (!comparison) return null;
-    const { first, last } = comparison;
-    if (first.predicted == null || last.predicted == null) return null;
-
-    const deltaSec = first.predicted - last.predicted; // positive = faster/improved
-    const pct = (deltaSec / first.predicted) * 100;
-    const ctlDelta = last.ctl != null && first.ctl != null ? last.ctl - first.ctl : null;
-
-    const direction = deltaSec > 5 ? "improved" : deltaSec < -5 ? "declined" : "held steady";
-    const paceLine = `Predicted ${targetLabel} equivalent for this session type ${direction} from ${secToClock(first.predicted)} to ${secToClock(last.predicted)} between ${first.session_date} and ${last.session_date}${
-      Math.abs(deltaSec) > 5
-        ? ` (${deltaSec > 0 ? "-" : "+"}${secToClock(Math.abs(deltaSec))}, ${Math.abs(pct).toFixed(1)}% ${deltaSec > 0 ? "faster" : "slower"})`
-        : ""
-    }.`;
-
-    let fitnessLine = "";
-    if (ctlDelta == null) {
-      fitnessLine = "No Fitness (CTL) history available over this window to cross-check against.";
-    } else if (deltaSec > 5 && ctlDelta > 0) {
-      fitnessLine = `Fitness (CTL) also rose over the same window (${first.ctl} → ${last.ctl}), consistent with this being a genuine fitness gain rather than a one-off good day.`;
-    } else if (deltaSec > 5 && ctlDelta <= 0) {
-      fitnessLine = `Fitness (CTL) didn't rise correspondingly over this window (${first.ctl} → ${last.ctl}) — this improvement may reflect better pacing/efficiency, favourable conditions, or a particularly sharp day more than a broad fitness shift. Worth confirming with another comparable session before reading too much into it.`;
-    } else if (deltaSec < -5 && ctlDelta < 0) {
-      fitnessLine = `Fitness (CTL) also fell over this window (${first.ctl} → ${last.ctl}) — consistent with reduced training load, a taper, illness, or a recovery block, rather than a fitness concern on its own.`;
-    } else if (deltaSec < -5 && ctlDelta >= 0) {
-      fitnessLine = `Fitness (CTL) didn't fall over this window (${first.ctl} → ${last.ctl}) despite the slower result — worth checking conditions, fatigue, or readiness around the later session rather than assuming a fitness decline.`;
-    } else {
-      fitnessLine = `Fitness (CTL) moved from ${first.ctl} to ${last.ctl} over the same window.`;
-    }
-
-    return { paceLine, fitnessLine, deltaSec, pct };
-  }, [comparison, targetLabel]);
+  /* ---------------- render ------------------------------------------ */
 
   return (
     <AppShell fullWidth>
@@ -602,8 +594,8 @@ function ComparePage() {
             <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Metrics</div>
             <h1 className="text-2xl font-bold leading-tight">Compare Sessions</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              See how a repeated or similar session type has changed over time — and what that actually means for fitness
-              and likely race performance, not just a pace number.
+              Put two sessions side by side and see what actually changed — pace, cost, durability across the set, and
+              the conditions they were run in.
             </p>
           </div>
         </div>
@@ -632,451 +624,811 @@ function ComparePage() {
           </p>
         ) : (
           <>
-            {predictionRange && (
-              <Card>
-                <CardHeader className="pb-2">
-                  <div className="flex items-start justify-between gap-2 flex-wrap">
-                    <CardTitle className="text-base">Predicted {targetLabel} — range, most recent session</CardTitle>
-                    <Badge variant={comparison?.calibrated ? "default" : "outline"} className="text-[10px]">
-                      {comparison?.calibrated ? "Calibrated to a real race" : "Generic formula"}
-                    </Badge>
-                  </div>
-                  <CardDescription>
-                    Low is the raw rep-based projection, no adjustment. Upper adds a small, capped bonus only for
-                    signals that actually held true below. Middle is a plain average of the two.
-                    {comparison?.calibrated && (
-                      <>
-                        {" "}
-                        The exponent behind these numbers is solved from an actual logged race, not the generic
-                        population-average formula — more accurate for an athlete whose speed/endurance balance differs
-                        from average.
-                      </>
-                    )}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="grid grid-cols-3 gap-2 text-center">
-                    <div className="border rounded-md py-2">
-                      <p className="text-xs text-muted-foreground">Conservative</p>
-                      <p className="text-lg font-bold tabular-nums">{secToClock(predictionRange.low)}</p>
-                    </div>
-                    <div className="border rounded-md py-2 bg-accent/40">
-                      <p className="text-xs text-muted-foreground">Likely</p>
-                      <p className="text-lg font-bold tabular-nums">{secToClock(predictionRange.middle)}</p>
-                    </div>
-                    <div className="border rounded-md py-2">
-                      <p className="text-xs text-muted-foreground">Best case</p>
-                      <p className="text-lg font-bold tabular-nums">{secToClock(predictionRange.upper)}</p>
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    {predictionRange.signals.map((s) => (
-                      <div key={s.label} className="flex items-center gap-2 text-xs">
-                        <span
-                          className={`h-1.5 w-1.5 rounded-full shrink-0 ${s.met ? "bg-emerald-500" : "bg-muted-foreground/30"}`}
-                        />
-                        <span className={s.met ? "text-foreground" : "text-muted-foreground"}>{s.label}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <p className="text-[11px] text-muted-foreground">
-                    {predictionRange.metCount} of 4 signals met — Best case is{" "}
-                    {(predictionRange.metCount * 1.5).toFixed(1)}% faster than Conservative.
-                  </p>
-                  {predictionRange.pbFloorApplied && predictionRange.pbAtTarget && (
-                    <p className="text-[11px] text-emerald-600">
-                      Conservative floored to a real result already run at this distance (
-                      {secToClock(Number(predictionRange.pbAtTarget.time_seconds))}) — the model's own raw estimate was
-                      slower than a proven PB, so the real result takes priority.
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-
-            {comparison && narrative && (
-              <Card className="border-primary/30 bg-primary/5">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    {narrative.deltaSec > 5 ? (
-                      <TrendingUp className="h-4 w-4 text-emerald-600" />
-                    ) : narrative.deltaSec < -5 ? (
-                      <TrendingDown className="h-4 w-4 text-red-500" />
-                    ) : (
-                      <Minus className="h-4 w-4 text-muted-foreground" />
-                    )}
-                    What this means
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="text-sm space-y-2">
-                  <p>{narrative.paceLine}</p>
-                  <p className="text-muted-foreground">{narrative.fitnessLine}</p>
-                </CardContent>
-              </Card>
-            )}
-
-            {comparison?.repLengthVaries && (
-              <Card className="border-amber-500/40 bg-amber-500/5">
-                <CardContent className="pt-4 text-sm flex items-start gap-2">
-                  <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-medium">These sessions aren't all the same rep length</p>
-                    <p className="text-muted-foreground mt-0.5">
-                      {comparison.shapeExamples.join(" · ")} — longer reps are typically run slightly slower than
-                      shorter ones even at equivalent effort, so part of any pace difference above may reflect rep
-                      length rather than a fitness change. Worth keeping in mind, especially for Threshold/Tempo work
-                      where rep duration varies a lot by design.
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {comparison?.raceCheck && (
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base">Cross-check against a real race result</CardTitle>
-                  <CardDescription>
-                    An actual race result outranks any workout-based projection — shown here for comparison, not as a
-                    replacement for the chart above.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="text-sm space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">
-                      {comparison.raceCheck.title} ({comparison.raceCheck.date}), {comparison.raceCheck.km.toFixed(2)}{" "}
-                      km
-                    </span>
-                    <span className="font-medium tabular-nums">
-                      Actual: {secToClock(comparison.raceCheck.actualTime)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">
-                      Projected from nearest compared session, same distance
-                    </span>
-                    <span className="font-medium tabular-nums">
-                      {secToClock(comparison.raceCheck.projectedAtSameDistance)}
-                    </span>
-                  </div>
-                  <p className="text-muted-foreground pt-1">
-                    {Math.abs(comparison.raceCheck.actualTime - comparison.raceCheck.projectedAtSameDistance) <= 15
-                      ? "Actual result and projection line up closely — good sign the workout-based prediction is tracking real fitness."
-                      : comparison.raceCheck.actualTime < comparison.raceCheck.projectedAtSameDistance
-                        ? "The athlete actually raced faster than the workout-based projection expected — race-day execution, taper, or competition effect likely outweighs what training paces alone predict."
-                        : "The athlete actually raced slower than the workout-based projection expected — worth considering race-day conditions, pacing, or whether training paces overstate current race fitness."}
-                  </p>
-                </CardContent>
-              </Card>
-            )}
-
-            {comparison && (
-              <Card>
-                <CardHeader className="pb-2">
-                  <div className="flex items-start justify-between gap-2 flex-wrap">
-                    <div>
-                      <CardTitle className="text-base">Predicted {targetLabel} equivalent, over time</CardTitle>
-                      <CardDescription>
-                        Each selected session's work pace/distance projected onto the chosen distance via Riegel's
-                        formula — the same baseline engine behind the Performance Predictor calculator.
-                      </CardDescription>
-                    </div>
-                    <div className="w-[140px] shrink-0">
-                      <Label className="text-xs">Project onto</Label>
-                      <Select value={String(targetKm)} onValueChange={(v) => setTargetKm(Number(v))}>
-                        <SelectTrigger className="mt-1 h-8 text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {REFERENCE_DISTANCES.map((r) => (
-                            <SelectItem key={r.label} value={String(r.km)}>
-                              {r.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="h-[220px] w-full">
-                    <ResponsiveContainer>
-                      <LineChart data={comparison.chartData} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
-                        <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={24} />
-                        <YAxis
-                          tick={{ fontSize: 11 }}
-                          tickFormatter={(v) => secToClock(v)}
-                          domain={["dataMin - 30", "dataMax + 30"]}
-                        />
-                        <Tooltip
-                          contentStyle={{
-                            background: "hsl(var(--background))",
-                            border: "1px solid hsl(var(--border))",
-                            fontSize: 12,
-                          }}
-                          formatter={(v: any) => [secToClock(Number(v)), `Predicted ${targetLabel}`]}
-                        />
-                        <Line type="monotone" dataKey="predicted" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {comparison && (
-              <div className="grid sm:grid-cols-3 gap-4">
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">Work pace</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="h-[140px] w-full">
-                      <ResponsiveContainer>
-                        <LineChart data={comparison.chartData} margin={{ top: 6, right: 4, left: 0, bottom: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
-                          <XAxis dataKey="date" tick={{ fontSize: 9 }} minTickGap={30} />
-                          <YAxis tick={{ fontSize: 9 }} tickFormatter={(v) => paceFmt(v)} width={40} />
-                          <Tooltip
-                            contentStyle={{
-                              background: "hsl(var(--background))",
-                              border: "1px solid hsl(var(--border))",
-                              fontSize: 11,
-                            }}
-                            formatter={(v: any) => [paceFmt(Number(v)), "Pace"]}
-                          />
-                          <Line
-                            type="monotone"
-                            dataKey="pace"
-                            stroke="#10b981"
-                            strokeWidth={2}
-                            dot={{ r: 2 }}
-                            connectNulls
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">Avg HR</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="h-[140px] w-full">
-                      <ResponsiveContainer>
-                        <LineChart data={comparison.chartData} margin={{ top: 6, right: 4, left: 0, bottom: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
-                          <XAxis dataKey="date" tick={{ fontSize: 9 }} minTickGap={30} />
-                          <YAxis tick={{ fontSize: 9 }} width={30} />
-                          <Tooltip
-                            contentStyle={{
-                              background: "hsl(var(--background))",
-                              border: "1px solid hsl(var(--border))",
-                              fontSize: 11,
-                            }}
-                            formatter={(v: any) => [`${Math.round(Number(v))} bpm`, "HR"]}
-                          />
-                          <Line
-                            type="monotone"
-                            dataKey="hr"
-                            stroke="#ef4444"
-                            strokeWidth={2}
-                            dot={{ r: 2 }}
-                            connectNulls
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">Efficiency</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="h-[140px] w-full">
-                      <ResponsiveContainer>
-                        <LineChart data={comparison.chartData} margin={{ top: 6, right: 4, left: 0, bottom: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
-                          <XAxis dataKey="date" tick={{ fontSize: 9 }} minTickGap={30} />
-                          <YAxis tick={{ fontSize: 9 }} width={30} domain={[0, 100]} />
-                          <Tooltip
-                            contentStyle={{
-                              background: "hsl(var(--background))",
-                              border: "1px solid hsl(var(--border))",
-                              fontSize: 11,
-                            }}
-                            formatter={(v: any) => [`${Math.round(Number(v))}/100`, "Efficiency"]}
-                          />
-                          <Line
-                            type="monotone"
-                            dataKey="efficiency"
-                            stroke="#8b5cf6"
-                            strokeWidth={2}
-                            dot={{ r: 2 }}
-                            connectNulls
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            )}
-
-            {comparison && (
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base">Sessions compared</CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <div className="divide-y">
-                    {comparison.rows.map((r) => (
-                      <div key={r.id} className="flex items-center justify-between px-4 py-2.5 text-sm gap-2 flex-wrap">
-                        <div className="min-w-0">
-                          <div className="font-medium truncate">{r.title}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {r.session_date} ·{" "}
-                            {workoutLabel(workBySession.get(r.id) ?? [], recoveryBySession.get(r.id) ?? [])}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3 text-xs tabular-nums text-muted-foreground">
-                          <span>{r.km.toFixed(2)} km</span>
-                          <span>{secToClock(Number(r.work_time_s))}</span>
-                          <span>{paceFmt(r.work_avg_pace_sec_per_km)}</span>
-                          {r.work_avg_hr != null && <span>{Math.round(r.work_avg_hr)} bpm</span>}
-                          {r.efficiency != null && <Badge variant="outline">Eff {r.efficiency}</Badge>}
-                          <Badge variant="outline">CTL {r.ctl ?? "—"}</Badge>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            <div className="grid md:grid-cols-2 gap-4">
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base">Direct matches</CardTitle>
-                  <CardDescription>
-                    Same intent, structure, and work-step shape — the closest apples-to-apples comparisons.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {sameGroups.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No repeated sessions detected yet.</p>
-                  ) : (
-                    sameGroups.map((g) => (
-                      <button
-                        key={g.key}
-                        onClick={() => selectGroup(g.sessions)}
-                        className="w-full text-left border rounded-md px-3 py-2 hover:bg-accent/40 transition-colors"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-sm font-medium">
-                            {intentLabel(g.sessions[0].intent)} ·{" "}
-                            {workoutLabel(
-                              workBySession.get(g.sessions[0].id) ?? [],
-                              recoveryBySession.get(g.sessions[0].id) ?? [],
-                            )}
-                          </span>
-                          <Badge variant="outline">{g.sessions.length} sessions</Badge>
-                        </div>
-                        <div className="text-xs text-muted-foreground mt-0.5">
-                          {g.sessions[g.sessions.length - 1].session_date} → {g.sessions[0].session_date}
-                        </div>
-                      </button>
-                    ))
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base">Similar sessions</CardTitle>
-                  <CardDescription>
-                    Same intent and structure type, but not an exact repeat — normalized via predicted equivalent, not
-                    raw pace.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {similarGroups.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No comparable session types detected yet.</p>
-                  ) : (
-                    similarGroups.map((g) => (
-                      <button
-                        key={g.key}
-                        onClick={() => selectGroup(g.sessions)}
-                        className="w-full text-left border rounded-md px-3 py-2 hover:bg-accent/40 transition-colors"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-sm font-medium">
-                            {intentLabel(g.sessions[0].intent)} · e.g.{" "}
-                            {workoutLabel(
-                              workBySession.get(g.sessions[0].id) ?? [],
-                              recoveryBySession.get(g.sessions[0].id) ?? [],
-                            )}
-                          </span>
-                          <Badge variant="outline">{g.sessions.length} sessions</Badge>
-                        </div>
-                        <div className="text-xs text-muted-foreground mt-0.5">
-                          {g.sessions[g.sessions.length - 1].session_date} → {g.sessions[0].session_date}
-                        </div>
-                      </button>
-                    ))
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-
+            {/* ---------- Reference event ---------- */}
             <Card>
-              <CardHeader className="pb-2">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Target className="h-4 w-4" /> Reference event
+                </CardTitle>
+                <CardDescription>
+                  Pick the event you're coaching towards. Session paces below are shown as a percentage of the
+                  athlete's <strong>real race pace</strong> at this distance, so a threshold session and a VO2 session
+                  can be read on the same scale. This is a normalisation against a result they've actually run — it is
+                  deliberately <em>not</em> a race prediction.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="flex flex-wrap gap-1.5">
+                    {QUICK_EVENTS.map((label) => {
+                      const ref = REFERENCE_DISTANCES.find((r) => r.label === label);
+                      if (!ref) return null;
+                      const active = Math.abs(ref.km - targetKm) < 0.001;
+                      return (
+                        <Button
+                          key={label}
+                          type="button"
+                          size="sm"
+                          variant={active ? "default" : "outline"}
+                          className="h-9 px-3.5 text-sm font-semibold"
+                          onClick={() => setTargetKm(ref.km)}
+                        >
+                          {label}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                  <div className="w-[190px]">
+                    <Label className="text-[11px] text-muted-foreground">Other distance</Label>
+                    <Select value={String(targetKm)} onValueChange={(v) => setTargetKm(Number(v))}>
+                      <SelectTrigger className="mt-1 h-9">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {REFERENCE_DISTANCES.map((r) => (
+                          <SelectItem key={r.label} value={String(r.km)}>
+                            {r.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <Separator />
+
+                {referencePace == null ? (
+                  <div className="flex items-start gap-2 text-sm">
+                    <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-medium">No usable race result to anchor {targetLabel} against</p>
+                      <p className="text-muted-foreground mt-0.5">
+                        Relative-to-race-pace figures are hidden rather than estimated. Log a race result at (or near)
+                        this distance under Performances and it will appear here. Everything else on this page —
+                        session-vs-session pace, heart rate, durability, conditions — works without it.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+                    <div>
+                      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                        {targetLabel} race pace
+                      </div>
+                      <div className="text-lg font-bold tabular-nums">{paceFmt(referencePace.paceSecPerKm)}</div>
+                    </div>
+                    <div>
+                      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                        Equivalent {targetLabel}
+                      </div>
+                      <div className="text-lg font-bold tabular-nums">
+                        {secToClock(referencePace.equivalentTimeSeconds)}
+                      </div>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <Badge variant={referencePace.source === "exact" ? "default" : "outline"} className="text-[10px]">
+                          {referencePace.source === "exact" ? "Real result at this distance" : "Converted from a real result"}
+                        </Badge>
+                        {referencePace.stale && (
+                          <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-500/50">
+                            {Math.round(referencePace.monthsOld)} months old
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Based on {referencePace.basis.event_name ?? "a logged result"} —{" "}
+                        {referencePace.basisKm >= 1
+                          ? `${referencePace.basisKm.toFixed(referencePace.basisKm % 1 === 0 ? 0 : 2)}km`
+                          : `${Math.round(referencePace.basisKm * 1000)}m`}{" "}
+                        in {secToClock(Number(referencePace.basis.time_seconds))} on{" "}
+                        {referencePace.basis.performance_date}.
+                        {referencePace.source === "converted" && (
+                          <>
+                            {" "}
+                            Converted race-to-race using{" "}
+                            {referencePace.exponentSource === "personal"
+                              ? `an exponent fitted from this athlete's own results (${referencePace.exponent.toFixed(3)})`
+                              : "the standard equivalency exponent (1.06)"}
+                            .
+                          </>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* ---------- Session picker ---------- */}
+            <Card>
+              <CardHeader className="pb-3">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <CardTitle className="text-base flex items-center gap-2">
-                    <ArrowLeftRight className="h-4 w-4" /> Compare specific sessions
+                    <ArrowLeftRight className="h-4 w-4" /> Choose sessions to compare
                   </CardTitle>
                   {selectedIds.size > 0 && (
-                    <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setSelectedIds(new Set());
+                        setPinnedAId(null);
+                        setPinnedBId(null);
+                      }}
+                    >
                       Clear ({selectedIds.size})
                     </Button>
                   )}
                 </div>
-                <CardDescription>Pick any two or more sessions directly, regardless of auto-grouping.</CardDescription>
-                <div className="relative mt-2">
-                  <Search className="h-3.5 w-3.5 absolute left-2.5 top-2.5 text-muted-foreground" />
-                  <Input
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Filter by title…"
-                    className="pl-8 h-9"
-                  />
-                </div>
+                <CardDescription>
+                  Start from an auto-detected repeat, or pick any sessions by hand. Two or more.
+                </CardDescription>
               </CardHeader>
-              <CardContent className="p-0 max-h-[360px] overflow-y-auto">
-                <div className="divide-y">
-                  {sessions
-                    .filter((s) => s.title.toLowerCase().includes(search.toLowerCase()))
-                    .map((s) => (
-                      <label
-                        key={s.id}
-                        className="flex items-center gap-3 px-4 py-2 text-sm hover:bg-accent/30 cursor-pointer"
-                      >
-                        <Checkbox checked={selectedIds.has(s.id)} onCheckedChange={() => toggleSession(s.id)} />
-                        <span className="flex-1 min-w-0 truncate">{s.title}</span>
-                        <span className="text-xs text-muted-foreground shrink-0">{s.session_date}</span>
-                        <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
-                          {paceFmt(s.work_avg_pace_sec_per_km)}
-                        </span>
-                      </label>
-                    ))}
-                </div>
+              <CardContent>
+                <Tabs defaultValue="direct">
+                  <TabsList>
+                    <TabsTrigger value="direct">Direct repeats ({sameGroups.length})</TabsTrigger>
+                    <TabsTrigger value="similar">Similar type ({similarGroups.length})</TabsTrigger>
+                    <TabsTrigger value="all">All sessions</TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="direct" className="mt-3 space-y-2">
+                    <p className="text-xs text-muted-foreground">
+                      Same intent, structure and work-step shape — the closest apples-to-apples comparisons.
+                    </p>
+                    {sameGroups.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No repeated sessions detected yet.</p>
+                    ) : (
+                      <div className="space-y-2 max-h-[300px] overflow-y-auto brand-scrollbar pr-1">
+                        {sameGroups.map((g) => (
+                          <button
+                            key={g.key}
+                            onClick={() => selectGroup(g.sessions)}
+                            className="w-full text-left border rounded-md px-3 py-2 hover:bg-accent/40 transition-colors"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-medium">
+                                {intentLabel(g.sessions[0].intent)} ·{" "}
+                                {workoutLabel(
+                                  workBySession.get(g.sessions[0].id) ?? [],
+                                  recoveryBySession.get(g.sessions[0].id) ?? [],
+                                )}
+                              </span>
+                              <Badge variant="outline">{g.sessions.length} sessions</Badge>
+                            </div>
+                            <div className="text-xs text-muted-foreground mt-0.5">
+                              {g.sessions[g.sessions.length - 1].session_date} → {g.sessions[0].session_date}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value="similar" className="mt-3 space-y-2">
+                    <p className="text-xs text-muted-foreground">
+                      Same intent and structure, but not an exact repeat — rep length may differ, which is flagged in
+                      the results.
+                    </p>
+                    {similarGroups.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No comparable session types detected yet.</p>
+                    ) : (
+                      <div className="space-y-2 max-h-[300px] overflow-y-auto brand-scrollbar pr-1">
+                        {similarGroups.map((g) => (
+                          <button
+                            key={g.key}
+                            onClick={() => selectGroup(g.sessions)}
+                            className="w-full text-left border rounded-md px-3 py-2 hover:bg-accent/40 transition-colors"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-medium">
+                                {intentLabel(g.sessions[0].intent)} · e.g.{" "}
+                                {workoutLabel(
+                                  workBySession.get(g.sessions[0].id) ?? [],
+                                  recoveryBySession.get(g.sessions[0].id) ?? [],
+                                )}
+                              </span>
+                              <Badge variant="outline">{g.sessions.length} sessions</Badge>
+                            </div>
+                            <div className="text-xs text-muted-foreground mt-0.5">
+                              {g.sessions[g.sessions.length - 1].session_date} → {g.sessions[0].session_date}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value="all" className="mt-3">
+                    <div className="relative mb-2">
+                      <Search className="h-3.5 w-3.5 absolute left-2.5 top-2.5 text-muted-foreground" />
+                      <Input
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder="Filter by title…"
+                        className="pl-8 h-9"
+                      />
+                    </div>
+                    <div className="max-h-[340px] overflow-y-auto brand-scrollbar border rounded-md">
+                      <div className="divide-y">
+                        {sessions
+                          .filter((s) => s.title.toLowerCase().includes(search.toLowerCase()))
+                          .map((s) => (
+                            <label
+                              key={s.id}
+                              className="flex items-center gap-3 px-3 py-2 text-sm hover:bg-accent/30 cursor-pointer"
+                            >
+                              <Checkbox checked={selectedIds.has(s.id)} onCheckedChange={() => toggleSession(s.id)} />
+                              <span className="flex-1 min-w-0">
+                                <span className="block truncate">{s.title}</span>
+                                <span className="block text-xs text-muted-foreground truncate">
+                                  {workoutLabel(workBySession.get(s.id) ?? [], recoveryBySession.get(s.id) ?? [])}
+                                </span>
+                              </span>
+                              <span className="text-xs text-muted-foreground shrink-0">{s.session_date}</span>
+                              <span className="text-xs text-muted-foreground shrink-0 tabular-nums w-16 text-right">
+                                {paceFmt(s.work_avg_pace_sec_per_km)}
+                              </span>
+                            </label>
+                          ))}
+                      </div>
+                    </div>
+                  </TabsContent>
+                </Tabs>
               </CardContent>
             </Card>
+
+            {rows.length < 2 ? (
+              <p className="text-sm text-muted-foreground">Select at least two sessions above to see a comparison.</p>
+            ) : (
+              <>
+                {/* ---------- Verdict ---------- */}
+                {pair && verdict && (
+                  <Card className="border-primary/30 bg-primary/5">
+                    <CardHeader className="pb-2">
+                      <div className="flex items-start justify-between gap-2 flex-wrap">
+                        <CardTitle className="text-base flex items-center gap-2">
+                          {verdict.headline.tone === "positive" ? (
+                            <TrendingUp className="h-4 w-4 text-emerald-600" />
+                          ) : verdict.headline.tone === "caution" ? (
+                            <TrendingDown className="h-4 w-4 text-amber-600" />
+                          ) : (
+                            <Minus className="h-4 w-4 text-muted-foreground" />
+                          )}
+                          {verdict.headline.label}
+                        </CardTitle>
+                        <span className="text-xs text-muted-foreground tabular-nums">
+                          {pair.a.session.session_date} → {pair.b.session.session_date}
+                        </span>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-3 text-sm">
+                      <p>{verdict.headline.text}</p>
+                      {verdict.lines.length > 0 && (
+                        <div className="space-y-1.5 pt-1">
+                          {verdict.lines.map((l) => (
+                            <div key={l.label} className="flex items-start gap-2">
+                              <span className={`h-1.5 w-1.5 rounded-full shrink-0 mt-1.5 ${toneDot(l.tone)}`} />
+                              <p className="text-[13px] leading-snug">
+                                <span className={`font-medium ${toneClass(l.tone)}`}>{l.label}:</span>{" "}
+                                <span className="text-muted-foreground">{l.text}</span>
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {shapesDiffer && (
+                  <Card className="border-amber-500/40 bg-amber-500/5">
+                    <CardContent className="pt-4 text-sm flex items-start gap-2">
+                      <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-medium">These sessions aren't all the same shape</p>
+                        <p className="text-muted-foreground mt-0.5">
+                          {shapeExamples.join(" · ")} — longer reps are typically run slightly slower than shorter ones
+                          at equivalent effort, so part of any pace difference below reflects rep length rather than a
+                          fitness change.
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* ---------- Side-by-side diff ---------- */}
+                {pair && (
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base">Side by side</CardTitle>
+                      <CardDescription>
+                        Every metric both sessions have in common. Green means the change is in the direction a coach
+                        would want; amber means it isn't. Metrics with no inherent "better" direction (cadence,
+                        conditions) are left neutral.
+                      </CardDescription>
+                      {rows.length > 2 && (
+                        <div className="flex flex-wrap gap-2 pt-2">
+                          <div className="flex items-center gap-1.5">
+                            <Label className="text-[11px] text-muted-foreground">Session A</Label>
+                            <Select
+                              value={pair.a.session.id}
+                              onValueChange={(v) => setPinnedAId(v)}
+                            >
+                              <SelectTrigger className="h-8 w-[210px] text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {rows.map((r) => (
+                                  <SelectItem key={r.session.id} value={r.session.id}>
+                                    {r.session.session_date} — {r.session.title}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <Label className="text-[11px] text-muted-foreground">Session B</Label>
+                            <Select
+                              value={pair.b.session.id}
+                              onValueChange={(v) => setPinnedBId(v)}
+                            >
+                              <SelectTrigger className="h-8 w-[210px] text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {rows.map((r) => (
+                                  <SelectItem key={r.session.id} value={r.session.id}>
+                                    {r.session.session_date} — {r.session.title}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                      )}
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      <div className="grid grid-cols-[1.4fr_1fr_1fr_1fr] gap-2 px-3 py-2 text-[11px] uppercase tracking-wide text-muted-foreground border-b">
+                        <div>Metric</div>
+                        <div className="text-right truncate">A · {pair.a.session.session_date}</div>
+                        <div className="text-right truncate">B · {pair.b.session.session_date}</div>
+                        <div className="text-right">Change</div>
+                      </div>
+
+                      <div className="px-3 py-2 text-xs text-muted-foreground border-b grid grid-cols-[1.4fr_1fr_1fr_1fr] gap-2">
+                        <div>Workout</div>
+                        <div className="text-right truncate">{pair.a.shape}</div>
+                        <div className="text-right truncate">{pair.b.shape}</div>
+                        <div />
+                      </div>
+
+                      <div className="divide-y">
+                        <DiffRow
+                          label="Work pace"
+                          hint="Average pace across the work portion only"
+                          a={pair.a.pace}
+                          b={pair.b.pace}
+                          format={(v) => paceFmt(v)}
+                          deltaFormat={(v) => `${v.toFixed(0)}s/km`}
+                          betterIsLower
+                          flatThreshold={1}
+                        />
+                        {referencePace && (
+                          <DiffRow
+                            label={`% of ${targetLabel} race pace`}
+                            hint="Higher = closer to the athlete's real race pace at this event"
+                            a={pair.a.relPct}
+                            b={pair.b.relPct}
+                            format={(v) => `${v.toFixed(1)}%`}
+                            deltaFormat={(v) => `${v.toFixed(1)} pts`}
+                            betterIsLower={false}
+                            flatThreshold={0.3}
+                          />
+                        )}
+                        <DiffRow
+                          label="Work distance"
+                          a={pair.a.distanceM}
+                          b={pair.b.distanceM}
+                          format={(v) => `${(v / 1000).toFixed(2)} km`}
+                          deltaFormat={(v) => `${(v / 1000).toFixed(2)} km`}
+                          betterIsLower={null}
+                          flatThreshold={50}
+                        />
+                        <DiffRow
+                          label="Work time"
+                          a={pair.a.timeS}
+                          b={pair.b.timeS}
+                          format={(v) => secToClock(v)}
+                          betterIsLower={null}
+                          flatThreshold={5}
+                        />
+                        <DiffRow
+                          label="Average heart rate"
+                          hint="Lower for the same pace means the work cost less"
+                          a={pair.a.avgHr}
+                          b={pair.b.avgHr}
+                          format={(v) => `${v.toFixed(0)} bpm`}
+                          betterIsLower
+                          flatThreshold={2}
+                        />
+                        <DiffRow
+                          label="Metres per heartbeat"
+                          hint="Distance covered per beat — a simple aerobic-efficiency readout"
+                          a={pair.a.mpb}
+                          b={pair.b.mpb}
+                          format={(v) => `${v.toFixed(2)} m`}
+                          betterIsLower={false}
+                          flatThreshold={0.02}
+                        />
+                        <DiffRow
+                          label="Fade across the set"
+                          hint="Second half vs first half — lower is better held together"
+                          a={pair.a.reps?.fadePct ?? null}
+                          b={pair.b.reps?.fadePct ?? null}
+                          format={(v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`}
+                          deltaFormat={(v) => `${v.toFixed(1)} pts`}
+                          betterIsLower
+                          flatThreshold={0.5}
+                        />
+                        <DiffRow
+                          label="Fastest to slowest rep"
+                          hint="How tightly the set held together"
+                          a={pair.a.reps?.spreadPct ?? null}
+                          b={pair.b.reps?.spreadPct ?? null}
+                          format={(v) => `${v.toFixed(1)}%`}
+                          deltaFormat={(v) => `${v.toFixed(1)} pts`}
+                          betterIsLower
+                          flatThreshold={0.5}
+                        />
+                        <DiffRow
+                          label="Best rep"
+                          a={pair.a.reps?.bestPace ?? null}
+                          b={pair.b.reps?.bestPace ?? null}
+                          format={(v) => paceFmt(v)}
+                          deltaFormat={(v) => `${v.toFixed(0)}s/km`}
+                          betterIsLower
+                          flatThreshold={1}
+                        />
+                        <DiffRow
+                          label="Recovery heart-rate drop"
+                          hint="Average bpm fall between end of rep and end of recovery"
+                          a={pair.a.reps?.avgHrDrop ?? null}
+                          b={pair.b.reps?.avgHrDrop ?? null}
+                          format={(v) => `${v.toFixed(0)} bpm`}
+                          betterIsLower={false}
+                          flatThreshold={2}
+                        />
+                        <DiffRow
+                          label="Cadence"
+                          a={pair.a.cadence}
+                          b={pair.b.cadence}
+                          format={(v) => `${v.toFixed(0)} spm`}
+                          betterIsLower={null}
+                          flatThreshold={1}
+                        />
+                        <DiffRow
+                          label="Efficiency score"
+                          hint="Strider's in-session efficiency rating, 0–100"
+                          a={pair.a.efficiency}
+                          b={pair.b.efficiency}
+                          format={(v) => `${v.toFixed(0)}/100`}
+                          deltaFormat={(v) => `${v.toFixed(0)} pts`}
+                          betterIsLower={false}
+                          flatThreshold={1}
+                        />
+                        <DiffRow
+                          label="Perceived effort (RPE)"
+                          a={pair.a.rpe}
+                          b={pair.b.rpe}
+                          format={(v) => `${v.toFixed(0)}/10`}
+                          betterIsLower
+                          flatThreshold={0}
+                        />
+                        <DiffRow
+                          label="Fitness"
+                          hint="Strider's rolling long-term training load on the day of the session"
+                          a={pair.a.fitness}
+                          b={pair.b.fitness}
+                          format={(v) => v.toFixed(0)}
+                          betterIsLower={false}
+                          flatThreshold={1}
+                        />
+                        <DiffRow
+                          label="Form"
+                          hint="Freshness going into the session — higher means more rested"
+                          a={pair.a.form}
+                          b={pair.b.form}
+                          format={(v) => `${v > 0 ? "+" : ""}${v.toFixed(0)}`}
+                          deltaFormat={(v) => v.toFixed(0)}
+                          betterIsLower={null}
+                          flatThreshold={2}
+                        />
+                        <DiffRow
+                          label="Temperature"
+                          hint="Heat above roughly 15°C costs about 1–2s/km"
+                          a={num(pair.a.session.average_temp_c)}
+                          b={num(pair.b.session.average_temp_c)}
+                          format={(v) => `${v.toFixed(0)}°C`}
+                          betterIsLower={null}
+                          flatThreshold={1}
+                        />
+                        <DiffRow
+                          label="Wind"
+                          a={num(pair.a.session.wind_kph)}
+                          b={num(pair.b.session.wind_kph)}
+                          format={(v) => `${v.toFixed(0)} kph`}
+                          betterIsLower={null}
+                          flatThreshold={2}
+                        />
+                      </div>
+
+                      {(pair.a.session.terrain || pair.b.session.terrain || pair.a.session.weather || pair.b.session.weather) && (
+                        <div className="grid grid-cols-[1.4fr_1fr_1fr_1fr] gap-2 px-3 py-2 text-xs text-muted-foreground border-t">
+                          <div>Surface / conditions</div>
+                          <div className="text-right truncate">
+                            {[pair.a.session.terrain, pair.a.session.weather].filter(Boolean).join(" · ") || "—"}
+                          </div>
+                          <div className="text-right truncate">
+                            {[pair.b.session.terrain, pair.b.session.weather].filter(Boolean).join(" · ") || "—"}
+                          </div>
+                          <div />
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* ---------- Rep by rep ---------- */}
+                {repChartData.length > 0 && pair && (
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base">Rep by rep</CardTitle>
+                      <CardDescription>
+                        Actual pace of each rep in both sessions, in the order they were run. A flatter line held
+                        together better; a line that rises towards the right faded.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-[240px] w-full">
+                        <ResponsiveContainer>
+                          <LineChart data={repChartData} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
+                            <XAxis dataKey="rep" tick={{ fontSize: 11 }} />
+                            <YAxis
+                              tick={{ fontSize: 11 }}
+                              tickFormatter={(v) => paceFmt(v)}
+                              width={54}
+                              reversed
+                              domain={["dataMin - 5", "dataMax + 5"]}
+                            />
+                            <Tooltip
+                              contentStyle={{
+                                background: "hsl(var(--background))",
+                                border: "1px solid hsl(var(--border))",
+                                fontSize: 12,
+                              }}
+                              formatter={(v: any, name: any) => [paceFmt(Number(v)), name]}
+                            />
+                            <Legend wrapperStyle={{ fontSize: 11 }} />
+                            <Line
+                              type="monotone"
+                              dataKey="a"
+                              name={`A · ${pair.a.session.session_date}`}
+                              stroke="#94a3b8"
+                              strokeWidth={2}
+                              dot={{ r: 3 }}
+                              connectNulls
+                            />
+                            <Line
+                              type="monotone"
+                              dataKey="b"
+                              name={`B · ${pair.b.session.session_date}`}
+                              stroke="#10b981"
+                              strokeWidth={2}
+                              dot={{ r: 3 }}
+                              connectNulls
+                            />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground mt-2 flex items-start gap-1.5">
+                        <Info className="h-3.5 w-3.5 shrink-0 mt-px" />
+                        The pace axis is inverted — higher on the chart is faster. Reps are matched by position, so if
+                        the two sessions had different rep counts the later reps only appear on one line.
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* ---------- Trends across the whole selection ---------- */}
+                <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">Work pace</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-[140px] w-full">
+                        <ResponsiveContainer>
+                          <LineChart data={trendData} margin={{ top: 6, right: 4, left: 0, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
+                            <XAxis dataKey="date" tick={{ fontSize: 9 }} minTickGap={30} />
+                            <YAxis tick={{ fontSize: 9 }} tickFormatter={(v) => paceFmt(v)} width={44} reversed />
+                            <Tooltip
+                              contentStyle={{
+                                background: "hsl(var(--background))",
+                                border: "1px solid hsl(var(--border))",
+                                fontSize: 11,
+                              }}
+                              formatter={(v: any) => [paceFmt(Number(v)), "Pace"]}
+                            />
+                            <Line
+                              type="monotone"
+                              dataKey="pace"
+                              stroke="#10b981"
+                              strokeWidth={2}
+                              dot={{ r: 2 }}
+                              connectNulls
+                            />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">Average heart rate</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-[140px] w-full">
+                        <ResponsiveContainer>
+                          <LineChart data={trendData} margin={{ top: 6, right: 4, left: 0, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
+                            <XAxis dataKey="date" tick={{ fontSize: 9 }} minTickGap={30} />
+                            <YAxis tick={{ fontSize: 9 }} width={30} domain={["dataMin - 5", "dataMax + 5"]} />
+                            <Tooltip
+                              contentStyle={{
+                                background: "hsl(var(--background))",
+                                border: "1px solid hsl(var(--border))",
+                                fontSize: 11,
+                              }}
+                              formatter={(v: any) => [`${Math.round(Number(v))} bpm`, "HR"]}
+                            />
+                            <Line
+                              type="monotone"
+                              dataKey="hr"
+                              stroke="#ef4444"
+                              strokeWidth={2}
+                              dot={{ r: 2 }}
+                              connectNulls
+                            />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">Metres per heartbeat</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-[140px] w-full">
+                        <ResponsiveContainer>
+                          <LineChart data={trendData} margin={{ top: 6, right: 4, left: 0, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
+                            <XAxis dataKey="date" tick={{ fontSize: 9 }} minTickGap={30} />
+                            <YAxis
+                              tick={{ fontSize: 9 }}
+                              width={34}
+                              domain={["dataMin - 0.1", "dataMax + 0.1"]}
+                              tickFormatter={(v) => Number(v).toFixed(2)}
+                            />
+                            <Tooltip
+                              contentStyle={{
+                                background: "hsl(var(--background))",
+                                border: "1px solid hsl(var(--border))",
+                                fontSize: 11,
+                              }}
+                              formatter={(v: any) => [`${Number(v).toFixed(2)} m/beat`, "Efficiency"]}
+                            />
+                            <Line
+                              type="monotone"
+                              dataKey="mpb"
+                              stroke="#8b5cf6"
+                              strokeWidth={2}
+                              dot={{ r: 2 }}
+                              connectNulls
+                            />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">% of {targetLabel} race pace</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {referencePace == null ? (
+                        <p className="text-xs text-muted-foreground h-[140px] grid place-items-center text-center px-2">
+                          No real race result to anchor {targetLabel} against, so nothing is shown here rather than an
+                          estimate.
+                        </p>
+                      ) : (
+                        <div className="h-[140px] w-full">
+                          <ResponsiveContainer>
+                            <LineChart data={trendData} margin={{ top: 6, right: 4, left: 0, bottom: 0 }}>
+                              <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
+                              <XAxis dataKey="date" tick={{ fontSize: 9 }} minTickGap={30} />
+                              <YAxis
+                                tick={{ fontSize: 9 }}
+                                width={38}
+                                domain={["dataMin - 1", "dataMax + 1"]}
+                                tickFormatter={(v) => `${Number(v).toFixed(0)}%`}
+                              />
+                              <Tooltip
+                                contentStyle={{
+                                  background: "hsl(var(--background))",
+                                  border: "1px solid hsl(var(--border))",
+                                  fontSize: 11,
+                                }}
+                                formatter={(v: any) => [`${Number(v).toFixed(1)}%`, `of ${targetLabel} race pace`]}
+                              />
+                              <Line
+                                type="monotone"
+                                dataKey="relPct"
+                                stroke="#3b82f6"
+                                strokeWidth={2}
+                                dot={{ r: 2 }}
+                                connectNulls
+                              />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* ---------- All selected sessions ---------- */}
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">All selected sessions</CardTitle>
+                    <CardDescription>Oldest first. {rows.length} sessions selected.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <div className="divide-y">
+                      {rows.map((r) => (
+                        <div
+                          key={r.session.id}
+                          className="flex items-center justify-between px-4 py-2.5 text-sm gap-2 flex-wrap"
+                        >
+                          <div className="min-w-0">
+                            <div className="font-medium truncate">{r.session.title}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {r.session.session_date} · {r.shape}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3 text-xs tabular-nums text-muted-foreground flex-wrap justify-end">
+                            {r.distanceM != null && <span>{(r.distanceM / 1000).toFixed(2)} km</span>}
+                            {r.timeS != null && <span>{secToClock(r.timeS)}</span>}
+                            <span>{paceFmt(r.pace)}</span>
+                            {r.avgHr != null && <span>{r.avgHr.toFixed(0)} bpm</span>}
+                            {r.relPct != null && <Badge variant="outline">{r.relPct.toFixed(1)}% race pace</Badge>}
+                            {r.efficiency != null && <Badge variant="outline">Eff {r.efficiency}</Badge>}
+                            <Badge variant="outline">Fitness {r.fitness ?? "—"}</Badge>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </>
+            )}
           </>
         )}
       </div>
