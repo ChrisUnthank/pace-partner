@@ -24,8 +24,10 @@ import {
   AlertTriangle,
   Target,
   Info,
+  Layers,
 } from "lucide-react";
 import { secToClock, paceFmt } from "@/lib/format";
+import { TERRAIN_VALUES, TERRAIN_LABEL, type Terrain } from "@/lib/session-categories";
 import { REFERENCE_DISTANCES } from "@/lib/race-predict";
 import {
   resolveReferencePace,
@@ -133,6 +135,22 @@ function workFingerprint(steps: WorkStep[]): string {
 function intentLabel(v: string | null) {
   if (!v) return "—";
   return v.charAt(0).toUpperCase() + v.slice(1);
+}
+
+// Surface handling. sessions.terrain uses the shared controlled vocabulary
+// in session-categories.ts (track/road/trail/path/grass/treadmill/mixed),
+// but plenty of older or auto-imported sessions have it unset — those get
+// bucketed under a single explicit "Not set" key rather than being silently
+// dropped from the filter, so a coach can still find them.
+const UNSET_SURFACE = "__unset__";
+
+function surfaceKey(v: string | null | undefined): string {
+  return v && v.length > 0 ? v : UNSET_SURFACE;
+}
+
+function surfaceLabel(v: string | null | undefined): string {
+  if (!v || v.length === 0) return "Not set";
+  return TERRAIN_LABEL[v as Terrain] ?? v;
 }
 
 function num(v: unknown): number | null {
@@ -403,24 +421,80 @@ function ComparePage() {
     return { workBySession: work, recoveryBySession: recovery };
   }, [workSteps]);
 
+  /* ---------------- surface (terrain) filtering --------------------- */
+
+  // Empty set = no filter applied (all surfaces). Kept as an explicit set
+  // rather than a single value so a coach can, say, pool Track + Grass
+  // while excluding Treadmill.
+  const [surfaceFilter, setSurfaceFilter] = useState<Set<string>>(new Set());
+  // When on, surface becomes part of the auto-grouping key, so "6 x 1km on
+  // the track" and "6 x 1km on the road" are offered as two separate
+  // repeats instead of one mixed group. This is the whole point of the
+  // feature, so it defaults on.
+  const [groupBySurface, setGroupBySurface] = useState(true);
+
+  // Only offer surfaces this athlete actually has sessions on — ordered by
+  // the shared vocabulary so the buttons don't reshuffle as data changes.
+  const availableSurfaces = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const s of sessions) {
+      const k = surfaceKey(s.terrain);
+      counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
+    const ordered: { key: string; count: number }[] = [];
+    for (const t of TERRAIN_VALUES) {
+      const c = counts.get(t);
+      if (c) ordered.push({ key: t, count: c });
+    }
+    // Anything in the column that isn't in the controlled vocabulary
+    // (legacy free-text) still gets a button rather than disappearing.
+    for (const [k, c] of counts) {
+      if (k === UNSET_SURFACE) continue;
+      if (!(TERRAIN_VALUES as readonly string[]).includes(k)) ordered.push({ key: k, count: c });
+    }
+    const unset = counts.get(UNSET_SURFACE);
+    if (unset) ordered.push({ key: UNSET_SURFACE, count: unset });
+    return ordered;
+  }, [sessions]);
+
+  function toggleSurface(key: string) {
+    setSurfaceFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  // Filtering only affects what's OFFERED for selection — it deliberately
+  // does not silently drop sessions a coach has already picked, which would
+  // make the results change under them. Anything already selected that
+  // spans surfaces is flagged in the results instead.
+  const filteredSessions = useMemo(
+    () => (surfaceFilter.size === 0 ? sessions : sessions.filter((s) => surfaceFilter.has(surfaceKey(s.terrain)))),
+    [sessions, surfaceFilter],
+  );
+
   const { sameGroups, similarGroups } = useMemo(() => {
     const same = new Map<string, CompSession[]>();
     const similar = new Map<string, CompSession[]>();
-    for (const s of sessions) {
+    for (const s of filteredSessions) {
       const fp = workFingerprint(workBySession.get(s.id) ?? []);
-      const sameKey = `${s.intent}|${s.structure}|${fp}`;
-      const simKey = `${s.intent}|${s.structure}`;
+      const surf = groupBySurface ? surfaceKey(s.terrain) : "any";
+      const sameKey = `${s.intent}|${s.structure}|${fp}|${surf}`;
+      const simKey = `${s.intent}|${s.structure}|${surf}`;
       (same.get(sameKey) ?? same.set(sameKey, []).get(sameKey)!).push(s);
       (similar.get(simKey) ?? similar.set(simKey, []).get(simKey)!).push(s);
     }
-    const sameArr = Array.from(same.entries())
-      .filter(([, v]) => v.length >= 2)
-      .map(([key, v]) => ({ key, sessions: v }));
-    const similarArr = Array.from(similar.entries())
-      .filter(([, v]) => v.length >= 2)
-      .map(([key, v]) => ({ key, sessions: v }));
-    return { sameGroups: sameArr, similarGroups: similarArr };
-  }, [sessions, workBySession]);
+    const build = (m: Map<string, CompSession[]>) =>
+      Array.from(m.entries())
+        .filter(([, v]) => v.length >= 2)
+        .map(([key, v]) => {
+          const surfaces = Array.from(new Set(v.map((x) => surfaceKey(x.terrain))));
+          return { key, sessions: v, surfaces };
+        });
+    return { sameGroups: build(same), similarGroups: build(similar) };
+  }, [filteredSessions, workBySession, groupBySurface]);
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
@@ -578,6 +652,18 @@ function ComparePage() {
     [rows],
   );
 
+  // Surfaces present in the CURRENT SELECTION (not the filter) — a coach can
+  // still hand-pick a track session against a road session, so this warns
+  // rather than prevents. Treadmill vs track vs trail can easily be worth
+  // 10–20s/km on identical effort, which would otherwise read as a fitness
+  // change in the verdict above.
+  const selectionSurfaces = useMemo(
+    () => Array.from(new Set(rows.map((r) => surfaceKey(r.session.terrain)))),
+    [rows],
+  );
+  const surfacesDiffer = selectionSurfaces.length > 1;
+  const surfacesUnknown = selectionSurfaces.length === 1 && selectionSurfaces[0] === UNSET_SURFACE;
+
   /* ---------------- render ------------------------------------------ */
 
   return (
@@ -595,7 +681,7 @@ function ComparePage() {
             <h1 className="text-2xl font-bold leading-tight">Compare Sessions</h1>
             <p className="text-sm text-muted-foreground mt-1">
               Put two sessions side by side and see what actually changed — pace, cost, durability across the set, and
-              the conditions they were run in.
+              the surface and conditions they were run on.
             </p>
           </div>
         </div>
@@ -762,10 +848,60 @@ function ComparePage() {
                   )}
                 </div>
                 <CardDescription>
-                  Start from an auto-detected repeat, or pick any sessions by hand. Two or more.
+                  Filter to one surface for a true like-for-like read, then start from an auto-detected repeat or pick
+                  sessions by hand. Two or more.
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-3">
+                {availableSurfaces.length > 0 && (
+                  <div className="rounded-md border bg-muted/30 px-3 py-2.5 space-y-2">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-1.5 text-xs font-semibold">
+                        <Layers className="h-3.5 w-3.5" />
+                        Surface
+                      </div>
+                      <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+                        <Checkbox
+                          checked={groupBySurface}
+                          onCheckedChange={(v) => setGroupBySurface(v === true)}
+                        />
+                        Keep surfaces in separate groups
+                      </label>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={surfaceFilter.size === 0 ? "default" : "outline"}
+                        className="h-7 px-2.5 text-xs"
+                        onClick={() => setSurfaceFilter(new Set())}
+                      >
+                        All surfaces
+                      </Button>
+                      {availableSurfaces.map((s2) => (
+                        <Button
+                          key={s2.key}
+                          type="button"
+                          size="sm"
+                          variant={surfaceFilter.has(s2.key) ? "default" : "outline"}
+                          className="h-7 px-2.5 text-xs"
+                          onClick={() => toggleSurface(s2.key)}
+                        >
+                          {surfaceLabel(s2.key === UNSET_SURFACE ? null : s2.key)}
+                          <span className="ml-1.5 opacity-60 tabular-nums">{s2.count}</span>
+                        </Button>
+                      ))}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-snug">
+                      {surfaceFilter.size === 0
+                        ? groupBySurface
+                          ? "All surfaces shown. Repeats are grouped per surface, so track 1km reps are offered separately from road 1km reps."
+                          : "All surfaces shown, and pooled together into the same groups — a group may mix track and road."
+                        : `Showing ${Array.from(surfaceFilter).map((k) => surfaceLabel(k === UNSET_SURFACE ? null : k)).join(", ")} only. Sessions you've already selected stay selected.`}
+                    </p>
+                  </div>
+                )}
+
                 <Tabs defaultValue="direct">
                   <TabsList>
                     <TabsTrigger value="direct">Direct repeats ({sameGroups.length})</TabsTrigger>
@@ -795,7 +931,14 @@ function ComparePage() {
                                   recoveryBySession.get(g.sessions[0].id) ?? [],
                                 )}
                               </span>
-                              <Badge variant="outline">{g.sessions.length} sessions</Badge>
+                              <span className="flex items-center gap-1.5 shrink-0">
+                                <Badge variant="secondary" className="text-[10px]">
+                                  {g.surfaces.length === 1
+                                    ? surfaceLabel(g.surfaces[0] === UNSET_SURFACE ? null : g.surfaces[0])
+                                    : `${g.surfaces.length} surfaces`}
+                                </Badge>
+                                <Badge variant="outline">{g.sessions.length} sessions</Badge>
+                              </span>
                             </div>
                             <div className="text-xs text-muted-foreground mt-0.5">
                               {g.sessions[g.sessions.length - 1].session_date} → {g.sessions[0].session_date}
@@ -829,7 +972,14 @@ function ComparePage() {
                                   recoveryBySession.get(g.sessions[0].id) ?? [],
                                 )}
                               </span>
-                              <Badge variant="outline">{g.sessions.length} sessions</Badge>
+                              <span className="flex items-center gap-1.5 shrink-0">
+                                <Badge variant="secondary" className="text-[10px]">
+                                  {g.surfaces.length === 1
+                                    ? surfaceLabel(g.surfaces[0] === UNSET_SURFACE ? null : g.surfaces[0])
+                                    : `${g.surfaces.length} surfaces`}
+                                </Badge>
+                                <Badge variant="outline">{g.sessions.length} sessions</Badge>
+                              </span>
                             </div>
                             <div className="text-xs text-muted-foreground mt-0.5">
                               {g.sessions[g.sessions.length - 1].session_date} → {g.sessions[0].session_date}
@@ -852,7 +1002,7 @@ function ComparePage() {
                     </div>
                     <div className="max-h-[340px] overflow-y-auto brand-scrollbar border rounded-md">
                       <div className="divide-y">
-                        {sessions
+                        {filteredSessions
                           .filter((s) => s.title.toLowerCase().includes(search.toLowerCase()))
                           .map((s) => (
                             <label
@@ -866,6 +1016,9 @@ function ComparePage() {
                                   {workoutLabel(workBySession.get(s.id) ?? [], recoveryBySession.get(s.id) ?? [])}
                                 </span>
                               </span>
+                              <Badge variant="secondary" className="text-[10px] shrink-0 hidden sm:inline-flex">
+                                {surfaceLabel(s.terrain)}
+                              </Badge>
                               <span className="text-xs text-muted-foreground shrink-0">{s.session_date}</span>
                               <span className="text-xs text-muted-foreground shrink-0 tabular-nums w-16 text-right">
                                 {paceFmt(s.work_avg_pace_sec_per_km)}
@@ -873,6 +1026,12 @@ function ComparePage() {
                             </label>
                           ))}
                       </div>
+                      {filteredSessions.filter((s) => s.title.toLowerCase().includes(search.toLowerCase())).length ===
+                        0 && (
+                        <p className="text-sm text-muted-foreground px-3 py-6 text-center">
+                          No sessions match that surface filter and search.
+                        </p>
+                      )}
                     </div>
                   </TabsContent>
                 </Tabs>
@@ -918,6 +1077,41 @@ function ComparePage() {
                           ))}
                         </div>
                       )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {surfacesDiffer && (
+                  <Card className="border-amber-500/40 bg-amber-500/5">
+                    <CardContent className="pt-4 text-sm flex items-start gap-2">
+                      <Layers className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        <p className="font-medium">These sessions weren't all run on the same surface</p>
+                        <p className="text-muted-foreground mt-0.5">
+                          {selectionSurfaces
+                            .map((k) => surfaceLabel(k === UNSET_SURFACE ? null : k))
+                            .join(" · ")}
+                          . Surface alone is worth a lot on identical effort — grass and trail typically cost several
+                          seconds per kilometre against a track, and a treadmill can read faster or slower than the
+                          road depending on calibration. Treat the pace difference below as indicative rather than a
+                          like-for-like read, or use the Surface filter above to compare within one surface.
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {surfacesUnknown && (
+                  <Card className="border-muted-foreground/25 bg-muted/30">
+                    <CardContent className="pt-4 text-sm flex items-start gap-2">
+                      <Info className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        <p className="font-medium">Surface isn't recorded on these sessions</p>
+                        <p className="text-muted-foreground mt-0.5">
+                          They may or may not have been run on the same surface — there's no way to tell from the data.
+                          Setting the surface on each session makes this comparison meaningfully more trustworthy.
+                        </p>
+                      </div>
                     </CardContent>
                   </Card>
                 )}
@@ -1027,6 +1221,22 @@ function ComparePage() {
                             flatThreshold={0.3}
                           />
                         )}
+                        <div className="grid grid-cols-[1.4fr_1fr_1fr_1fr] items-center gap-2 px-3 py-2 text-sm">
+                          <div className="font-medium">Surface</div>
+                          <div className="text-right">{surfaceLabel(pair.a.session.terrain)}</div>
+                          <div className="text-right font-medium">{surfaceLabel(pair.b.session.terrain)}</div>
+                          <div
+                            className={`text-right text-xs ${
+                              surfaceKey(pair.a.session.terrain) === surfaceKey(pair.b.session.terrain)
+                                ? "text-muted-foreground"
+                                : "text-amber-600 font-medium"
+                            }`}
+                          >
+                            {surfaceKey(pair.a.session.terrain) === surfaceKey(pair.b.session.terrain)
+                              ? "same"
+                              : "different"}
+                          </div>
+                        </div>
                         <DiffRow
                           label="Work distance"
                           a={pair.a.distanceM}
@@ -1164,15 +1374,11 @@ function ComparePage() {
                         />
                       </div>
 
-                      {(pair.a.session.terrain || pair.b.session.terrain || pair.a.session.weather || pair.b.session.weather) && (
+                      {(pair.a.session.weather || pair.b.session.weather) && (
                         <div className="grid grid-cols-[1.4fr_1fr_1fr_1fr] gap-2 px-3 py-2 text-xs text-muted-foreground border-t">
-                          <div>Surface / conditions</div>
-                          <div className="text-right truncate">
-                            {[pair.a.session.terrain, pair.a.session.weather].filter(Boolean).join(" · ") || "—"}
-                          </div>
-                          <div className="text-right truncate">
-                            {[pair.b.session.terrain, pair.b.session.weather].filter(Boolean).join(" · ") || "—"}
-                          </div>
+                          <div>Conditions</div>
+                          <div className="text-right truncate">{pair.a.session.weather || "—"}</div>
+                          <div className="text-right truncate">{pair.b.session.weather || "—"}</div>
                           <div />
                         </div>
                       )}
@@ -1410,7 +1616,7 @@ function ComparePage() {
                           <div className="min-w-0">
                             <div className="font-medium truncate">{r.session.title}</div>
                             <div className="text-xs text-muted-foreground">
-                              {r.session.session_date} · {r.shape}
+                              {r.session.session_date} · {r.shape} · {surfaceLabel(r.session.terrain)}
                             </div>
                           </div>
                           <div className="flex items-center gap-3 text-xs tabular-nums text-muted-foreground flex-wrap justify-end">
