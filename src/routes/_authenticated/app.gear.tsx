@@ -25,8 +25,6 @@ import { toast } from "sonner";
 import {
   Star,
   Trash2,
-  Search,
-  AlertTriangle,
   ChevronDown,
   ChevronUp,
   Link2,
@@ -35,6 +33,17 @@ import {
   Activity,
   Package,
   Pencil,
+  Search,
+  AlertTriangle,
+  Plus,
+  TrendingUp,
+  Zap,
+  Trophy,
+  Dumbbell,
+  LayoutGrid,
+  ListFilter,
+  Flame,
+  Gauge,
 } from "lucide-react";
 import { BucketTabStrip, LOCKER_TABS } from "@/components/bucket-tab-strip";
 import { ResponsiveContainer, BarChart, Bar, Cell, XAxis, YAxis, Tooltip } from "recharts";
@@ -56,11 +65,22 @@ const SHOE_CATEGORIES = ["track", "road", "everyday", "off_road"] as const;
 // snake_case keys; the labels below are the only thing anyone sees, so a
 // label can be reworded without touching stored data.
 //
-// Grouped purely for the picker's readability — the groups aren't stored
-// and carry no meaning beyond layout.
-const PURPOSE_GROUPS: { group: string; options: { value: string; label: string }[] }[] = [
+// Each group carries its own colour and icon, used consistently everywhere a
+// purpose appears — the badges on a gear card, the purpose buckets panel,
+// and the summary chart — so a colour always means the same kind of running
+// rather than being decoration.
+const PURPOSE_GROUPS: {
+  key: string;
+  group: string;
+  colour: string;
+  icon: any;
+  options: { value: string; label: string }[];
+}[] = [
   {
+    key: "everyday",
     group: "Everyday running",
+    colour: "#10b981",
+    icon: Footprints,
     options: [
       { value: "easy_runs", label: "Easy runs" },
       { value: "long_runs", label: "Long runs" },
@@ -69,7 +89,10 @@ const PURPOSE_GROUPS: { group: string; options: { value: string; label: string }
     ],
   },
   {
+    key: "continuous",
     group: "Continuous efforts",
+    colour: "#f59e0b",
+    icon: TrendingUp,
     options: [
       { value: "tempo_runs", label: "Tempo runs" },
       { value: "threshold_runs", label: "Threshold runs" },
@@ -77,7 +100,10 @@ const PURPOSE_GROUPS: { group: string; options: { value: string; label: string }
     ],
   },
   {
+    key: "structured",
     group: "Structured sessions",
+    colour: "#ef4444",
+    icon: Zap,
     options: [
       { value: "threshold_session_road", label: "Threshold sessions (road)" },
       { value: "threshold_session_track", label: "Threshold sessions (track)" },
@@ -88,7 +114,10 @@ const PURPOSE_GROUPS: { group: string; options: { value: string; label: string }
     ],
   },
   {
+    key: "racing",
     group: "Racing",
+    colour: "#8b5cf6",
+    icon: Trophy,
     options: [
       { value: "race_track", label: "Racing (track)" },
       { value: "race_road", label: "Racing (road)" },
@@ -96,7 +125,10 @@ const PURPOSE_GROUPS: { group: string; options: { value: string; label: string }
     ],
   },
   {
+    key: "other",
     group: "Other",
+    colour: "#3b82f6",
+    icon: Dumbbell,
     options: [
       { value: "gym", label: "Gym" },
       { value: "treadmill", label: "Treadmill" },
@@ -107,12 +139,26 @@ const PURPOSE_GROUPS: { group: string; options: { value: string; label: string }
 
 const ALL_PURPOSES = PURPOSE_GROUPS.flatMap((g) => g.options);
 const PURPOSE_LABEL: Record<string, string> = Object.fromEntries(ALL_PURPOSES.map((o) => [o.value, o.label]));
+const PURPOSE_COLOUR: Record<string, string> = Object.fromEntries(
+  PURPOSE_GROUPS.flatMap((g) => g.options.map((o) => [o.value, g.colour])),
+);
 
 function purposeLabel(v: string): string {
   // Falls back to the raw value rather than hiding it, so a purpose removed
   // from the vocabulary later still shows something rather than vanishing
   // silently off a gear card.
   return PURPOSE_LABEL[v] ?? v.replace(/_/g, " ");
+}
+
+function purposeColour(v: string): string {
+  return PURPOSE_COLOUR[v] ?? "#94a3b8";
+}
+
+// Tinted badge styling from a group colour. Inline styles rather than
+// Tailwind classes because the colours come from data, and Tailwind can't
+// generate classes it never sees in source at build time.
+function tintStyle(colour: string) {
+  return { color: colour, borderColor: `${colour}59`, background: `${colour}14` };
 }
 
 // Curated per-type dropdown + "Other" for anything not listed — the
@@ -142,9 +188,35 @@ const BRANDS_BY_TYPE: Record<string, string[]> = {
 
 const TYPE_ICON: Record<string, any> = { shoe: Footprints, bike: BikeIcon, treadmill: Activity, other: Package };
 
+const TYPE_LABEL: Record<string, string> = {
+  shoe: "Shoes",
+  bike: "Bikes",
+  treadmill: "Treadmills",
+  other: "Other gear",
+};
+
+const CATEGORY_LABEL: Record<string, string> = {
+  track: "Track",
+  road: "Road",
+  everyday: "Everyday",
+  off_road: "Off-road",
+};
+
+const CATEGORY_COLOUR: Record<string, string> = {
+  track: "#ef4444",
+  road: "#3b82f6",
+  everyday: "#10b981",
+  off_road: "#a16207",
+  unset: "#94a3b8",
+};
+
+function km(m: number): number {
+  return m / 1000;
+}
+
 // ----------------------------------------------------------------------------
-// Shared form shape — used by BOTH "Add gear" and the edit dialog, so the two
-// can't drift apart the way they would as two hand-maintained copies.
+// Shared form shape — used by BOTH the add dialog and the edit dialog, so the
+// two can't drift apart the way they would as two hand-maintained copies.
 // ----------------------------------------------------------------------------
 
 type GearDraft = {
@@ -219,16 +291,10 @@ function draftToPayload(d: GearDraft, athleteId: string) {
 }
 
 // ----------------------------------------------------------------------------
-// Purpose picker — multi-select checkboxes, grouped.
+// Purpose picker — multi-select checkboxes, grouped and colour-coded.
 // ----------------------------------------------------------------------------
 
-function PurposePicker({
-  value,
-  onChange,
-}: {
-  value: string[];
-  onChange: (next: string[]) => void;
-}) {
+function PurposePicker({ value, onChange }: { value: string[]; onChange: (next: string[]) => void }) {
   function toggle(v: string) {
     onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
   }
@@ -236,11 +302,11 @@ function PurposePicker({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <Label className="text-xs">Used for</Label>
+        <Label className="text-xs flex items-center gap-1.5">
+          <ListFilter className="h-3.5 w-3.5" /> Used for
+        </Label>
         <div className="flex items-center gap-3">
-          <span className="text-[11px] text-muted-foreground tabular-nums">
-            {value.length} selected
-          </span>
+          <span className="text-[11px] text-muted-foreground tabular-nums">{value.length} selected</span>
           {value.length > 0 && (
             <button
               type="button"
@@ -252,26 +318,31 @@ function PurposePicker({
           )}
         </div>
       </div>
-      <div className="rounded-md border max-h-[260px] overflow-y-auto brand-scrollbar divide-y">
-        {PURPOSE_GROUPS.map((g) => (
-          <div key={g.group} className="p-2.5">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
-              {g.group}
+      <div className="rounded-md border max-h-[300px] overflow-y-auto brand-scrollbar divide-y">
+        {PURPOSE_GROUPS.map((g) => {
+          const Icon = g.icon;
+          return (
+            <div key={g.key} className="p-2.5">
+              <div
+                className="text-[10px] font-bold uppercase tracking-wider mb-1.5 flex items-center gap-1.5"
+                style={{ color: g.colour }}
+              >
+                <Icon className="h-3 w-3" /> {g.group}
+              </div>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-x-3 gap-y-1.5">
+                {g.options.map((o) => (
+                  <label key={o.value} className="flex items-center gap-2 text-sm cursor-pointer">
+                    <Checkbox checked={value.includes(o.value)} onCheckedChange={() => toggle(o.value)} />
+                    <span className="min-w-0 truncate">{o.label}</span>
+                  </label>
+                ))}
+              </div>
             </div>
-            <div className="grid sm:grid-cols-2 gap-x-3 gap-y-1.5">
-              {g.options.map((o) => (
-                <label key={o.value} className="flex items-center gap-2 text-sm cursor-pointer">
-                  <Checkbox checked={value.includes(o.value)} onCheckedChange={() => toggle(o.value)} />
-                  <span className="min-w-0 truncate">{o.label}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
       <p className="text-[11px] text-muted-foreground leading-snug">
-        Tick everything the shoe genuinely comes out for — most shoes cover more than one. This drives which shoes get
-        suggested when logging a session, and keeps mechanics comparisons like-for-like.
+        Tick everything the shoe genuinely comes out for — most shoes cover more than one.
       </p>
     </div>
   );
@@ -281,13 +352,7 @@ function PurposePicker({
 // Shared field set
 // ----------------------------------------------------------------------------
 
-function GearFormFields({
-  draft,
-  setDraft,
-}: {
-  draft: GearDraft;
-  setDraft: (next: GearDraft) => void;
-}) {
+function GearFormFields({ draft, setDraft }: { draft: GearDraft; setDraft: (next: GearDraft) => void }) {
   function set<K extends keyof GearDraft>(key: K, val: GearDraft[K]) {
     setDraft({ ...draft, [key]: val });
   }
@@ -302,8 +367,8 @@ function GearFormFields({
   }
 
   return (
-    <div className="space-y-3">
-      <div className="grid sm:grid-cols-2 gap-3">
+    <div className="space-y-4">
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
         <div>
           <Label className="text-xs">Type</Label>
           <Select value={draft.gear_type} onValueChange={changeType}>
@@ -353,11 +418,7 @@ function GearFormFields({
         {draft.brand === "Other" && (
           <div>
             <Label className="text-xs">Brand name</Label>
-            <Input
-              value={draft.customBrand}
-              onChange={(e) => set("customBrand", e.target.value)}
-              placeholder="Brand"
-            />
+            <Input value={draft.customBrand} onChange={(e) => set("customBrand", e.target.value)} placeholder="Brand" />
           </div>
         )}
         <div>
@@ -366,11 +427,7 @@ function GearFormFields({
         </div>
         <div>
           <Label className="text-xs">Nickname (optional)</Label>
-          <Input
-            value={draft.nickname}
-            onChange={(e) => set("nickname", e.target.value)}
-            placeholder="e.g. Race day"
-          />
+          <Input value={draft.nickname} onChange={(e) => set("nickname", e.target.value)} placeholder="e.g. Race day" />
         </div>
         <div>
           <Label className="text-xs">Purchase date (optional)</Label>
@@ -393,11 +450,11 @@ function GearFormFields({
         {draft.gear_type === "shoe" && (
           <div className="flex items-center gap-2 pt-5">
             <Checkbox
-              id={`spike-${draft.gear_type}`}
+              id="gear-spike"
               checked={draft.is_spike}
               onCheckedChange={(v) => set("is_spike", v === true)}
             />
-            <Label htmlFor={`spike-${draft.gear_type}`} className="text-xs cursor-pointer">
+            <Label htmlFor="gear-spike" className="text-xs cursor-pointer">
               Spikes
             </Label>
           </div>
@@ -419,54 +476,29 @@ function GearFormFields({
   );
 }
 
-function GearPage() {
-  const { data: athlete, isLoading } = useMyAthlete();
-
-  if (isLoading) return <AppShell fullWidth><p>Loading…</p></AppShell>;
-  if (!athlete)
-    return (
-      <AppShell fullWidth>
-        <p className="text-sm">
-          No athlete profile linked. Visit <Link to="/app/account" className="underline">Account</Link>.
-        </p>
-      </AppShell>
-    );
-
-  return (
-    <AppShell fullWidth>
-      <div className="space-y-6 max-w-3xl">
-        <div className="flex items-center gap-3">
-          <div
-            className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
-            style={{ background: "var(--accent-red)" }}
-          >
-            <Footprints className="h-5 w-5 text-white" strokeWidth={2} />
-          </div>
-          <div>
-            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Locker</div>
-            <h1 className="text-2xl font-bold leading-tight">Gear</h1>
-            <p className="text-sm text-muted-foreground">
-              Track shoes, bike, and other kit — say what each pair is for, rate them, mark favourites, and see how far
-              each one's actually gone.
-            </p>
-          </div>
-        </div>
-        <BucketTabStrip items={LOCKER_TABS} active="/app/gear" />
-        <NewGearForm athleteId={athlete.id} />
-        <GearList athleteId={athlete.id} />
-      </div>
-    </AppShell>
-  );
-}
-
 // ----------------------------------------------------------------------------
-// Add gear
+// Add / edit dialogs — same field set, same component, different verb.
 // ----------------------------------------------------------------------------
 
-function NewGearForm({ athleteId }: { athleteId: string }) {
+function GearAddDialog({
+  athleteId,
+  open,
+  onOpenChange,
+}: {
+  athleteId: string;
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+}) {
   const qc = useQueryClient();
   const [draft, setDraft] = useState<GearDraft>(emptyDraft());
   const [saving, setSaving] = useState(false);
+
+  function handleOpenChange(v: boolean) {
+    // Fresh form every time it opens, so a half-filled abandoned entry
+    // doesn't reappear next time.
+    if (v) setDraft(emptyDraft());
+    onOpenChange(v);
+  }
 
   async function save() {
     if (!draft.model.trim()) {
@@ -484,31 +516,34 @@ function NewGearForm({ athleteId }: { athleteId: string }) {
       return;
     }
     toast.success("Gear added");
-    setDraft(emptyDraft());
     qc.invalidateQueries({ queryKey: ["gear-list", athleteId] });
+    onOpenChange(false);
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Add gear</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <GearFormFields draft={draft} setDraft={setDraft} />
-        <Button onClick={save} className="w-full" disabled={saving}>
-          {saving ? "Saving…" : "Save gear"}
-        </Button>
-      </CardContent>
-    </Card>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="max-w-3xl">
+        <DialogHeader className="min-w-0">
+          <DialogTitle className="flex items-center gap-2">
+            <Plus className="h-4 w-4" /> Add gear
+          </DialogTitle>
+          <DialogDescription>Shoes, bike, treadmill or anything else worth tracking mileage on.</DialogDescription>
+        </DialogHeader>
+        <div className="max-h-[68vh] overflow-y-auto brand-scrollbar pr-1">
+          <GearFormFields draft={draft} setDraft={setDraft} />
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={save} disabled={saving}>
+            {saving ? "Saving…" : "Save gear"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
-
-// ----------------------------------------------------------------------------
-// Edit gear — everything the add form captures, reopened against an existing
-// item. Previously the only editable fields anywhere were rating, favourite
-// and retired, so a typo'd model or a wrong retirement target meant deleting
-// the item and losing its linked-session history with it.
-// ----------------------------------------------------------------------------
 
 function GearEditDialog({
   item,
@@ -555,14 +590,14 @@ function GearEditDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-3xl">
         <DialogHeader className="min-w-0">
-          <DialogTitle>Edit gear</DialogTitle>
-          <DialogDescription>
-            Changes here don't affect linked sessions or accumulated distance.
-          </DialogDescription>
+          <DialogTitle className="flex items-center gap-2">
+            <Pencil className="h-4 w-4" /> Edit gear
+          </DialogTitle>
+          <DialogDescription>Changes here don't affect linked sessions or accumulated distance.</DialogDescription>
         </DialogHeader>
-        <div className="max-h-[65vh] overflow-y-auto brand-scrollbar pr-1">
+        <div className="max-h-[68vh] overflow-y-auto brand-scrollbar pr-1">
           <GearFormFields draft={draft} setDraft={setDraft} />
         </div>
         <DialogFooter>
@@ -579,8 +614,67 @@ function GearEditDialog({
 }
 
 // ----------------------------------------------------------------------------
-// List — one card per item, usage computed from linked sessions
+// Page
 // ----------------------------------------------------------------------------
+
+function GearPage() {
+  const { data: athlete, isLoading } = useMyAthlete();
+  const [adding, setAdding] = useState(false);
+
+  if (isLoading)
+    return (
+      <AppShell fullWidth>
+        <p>Loading…</p>
+      </AppShell>
+    );
+  if (!athlete)
+    return (
+      <AppShell fullWidth>
+        <p className="text-sm">
+          No athlete profile linked. Visit{" "}
+          <Link to="/app/account" className="underline">
+            Account
+          </Link>
+          .
+        </p>
+      </AppShell>
+    );
+
+  return (
+    <AppShell fullWidth>
+      <div className="space-y-6">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div
+              className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+              style={{ background: "var(--accent-red)" }}
+            >
+              <Footprints className="h-5 w-5 text-white" strokeWidth={2} />
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Locker</div>
+              <h1 className="text-2xl font-bold leading-tight">Gear</h1>
+              <p className="text-sm text-muted-foreground">
+                Track shoes, bike, and other kit — say what each pair is for, rate them, mark favourites, and see how
+                far each one's actually gone.
+              </p>
+            </div>
+          </div>
+          <Button
+            size="lg"
+            onClick={() => setAdding(true)}
+            className="h-12 px-6 text-base font-semibold w-full sm:w-auto shrink-0"
+          >
+            <Plus className="h-5 w-5 mr-2" /> Add gear
+          </Button>
+        </div>
+        <BucketTabStrip items={LOCKER_TABS} active="/app/gear" />
+        <GearList athleteId={athlete.id} />
+        <GearAddDialog athleteId={athlete.id} open={adding} onOpenChange={setAdding} />
+      </div>
+    </AppShell>
+  );
+}
 
 // ----------------------------------------------------------------------------
 // Locker overview — headline numbers, breakdowns, and things needing attention.
@@ -589,26 +683,6 @@ function GearEditDialog({
 // view, and the category/purpose breakdowns below it are shoe-specific
 // simply because those two fields only exist on shoes.
 // ----------------------------------------------------------------------------
-
-const TYPE_LABEL: Record<string, string> = {
-  shoe: "Shoes",
-  bike: "Bikes",
-  treadmill: "Treadmills",
-  other: "Other gear",
-};
-
-const CATEGORY_LABEL: Record<string, string> = {
-  track: "Track",
-  road: "Road",
-  everyday: "Everyday",
-  off_road: "Off-road",
-};
-
-const CHART_COLOURS = ["#ef4444", "#f97316", "#3b82f6", "#10b981", "#8b5cf6", "#eab308", "#14b8a6"];
-
-function km(m: number): number {
-  return m / 1000;
-}
 
 function GearSummary({
   items,
@@ -622,10 +696,8 @@ function GearSummary({
   summedGearM: number;
 }) {
   const stats = useMemo(() => {
-    const active = items.filter((g) => !g.is_retired);
     const retired = items.filter((g) => g.is_retired);
 
-    // By gear type — every type, shoes included.
     const byType = new Map<string, { count: number; active: number; totalM: number }>();
     for (const g of items) {
       const t = g.gear_type ?? "other";
@@ -649,13 +721,18 @@ function GearSummary({
       byCategory.set(c, cur);
     }
 
-    // By purpose — COUNT of shoes only, deliberately not distance. A shoe
-    // tagged for four purposes would contribute its full mileage to all
-    // four, which would produce a chart whose bars sum to several times the
-    // real distance. Counting shoes is the honest version of this question.
-    const byPurpose = new Map<string, number>();
+    // By purpose GROUP — COUNT of shoes only, deliberately not distance. A
+    // shoe tagged across several groups would contribute its full mileage to
+    // each, producing a chart whose bars sum to several times the real
+    // distance. Counting pairs is the honest version of this question.
+    const byGroup = new Map<string, number>();
     for (const g of shoes) {
-      for (const p of (g.used_for ?? []) as string[]) byPurpose.set(p, (byPurpose.get(p) ?? 0) + 1);
+      const groups = new Set<string>();
+      for (const p of (g.used_for ?? []) as string[]) {
+        const grp = PURPOSE_GROUPS.find((x) => x.options.some((o) => o.value === p));
+        if (grp) groups.add(grp.key);
+      }
+      for (const k of groups) byGroup.set(k, (byGroup.get(k) ?? 0) + 1);
     }
 
     const withTarget = shoes
@@ -671,50 +748,43 @@ function GearSummary({
       pct: number;
     }[];
 
-    const pastTarget = withTarget.filter((x) => x.pct >= 100).sort((a, b) => b.pct - a.pct);
-    const nearingTarget = withTarget.filter((x) => x.pct >= 80 && x.pct < 100).sort((a, b) => b.pct - a.pct);
-    const noPurpose = shoes.filter((g) => !g.is_retired && ((g.used_for ?? []) as string[]).length === 0);
-    const neverUsed = items.filter((g) => !g.is_retired && (usageByGear.get(g.id)?.count ?? 0) === 0);
-
-    const mostUsed = items
-      .map((g) => ({ g, totalM: usageByGear.get(g.id)?.totalM ?? 0 }))
-      .sort((a, b) => b.totalM - a.totalM)
-      .filter((x) => x.totalM > 0)
-      .slice(0, 3);
-
     return {
       total: items.length,
-      active: active.length,
+      active: items.length - retired.length,
       retired: retired.length,
       byType: Array.from(byType.entries()).sort((a, b) => b[1].totalM - a[1].totalM),
       byCategory: Array.from(byCategory.entries()).sort((a, b) => b[1].totalM - a[1].totalM),
-      byPurpose: Array.from(byPurpose.entries()).sort((a, b) => b[1] - a[1]),
-      pastTarget,
-      nearingTarget,
-      noPurpose,
-      neverUsed,
-      mostUsed,
+      byGroup,
+      pastTarget: withTarget.filter((x) => x.pct >= 100).sort((a, b) => b.pct - a.pct),
+      nearingTarget: withTarget.filter((x) => x.pct >= 80 && x.pct < 100).sort((a, b) => b.pct - a.pct),
+      noPurpose: shoes.filter((g) => !g.is_retired && ((g.used_for ?? []) as string[]).length === 0),
+      neverUsed: items.filter((g) => !g.is_retired && (usageByGear.get(g.id)?.count ?? 0) === 0),
+      mostUsed: items
+        .map((g) => ({ g, totalM: usageByGear.get(g.id)?.totalM ?? 0 }))
+        .sort((a, b) => b.totalM - a.totalM)
+        .filter((x) => x.totalM > 0)
+        .slice(0, 4),
       shoeCount: shoes.length,
     };
   }, [items, usageByGear]);
 
-  const categoryChart = stats.byCategory.map(([c, v], i) => ({
+  const categoryChart = stats.byCategory.map(([c, v]) => ({
     name: CATEGORY_LABEL[c] ?? (c === "unset" ? "Not set" : c),
     km: Math.round(km(v.totalM)),
     count: v.count,
-    fill: CHART_COLOURS[i % CHART_COLOURS.length],
+    fill: CATEGORY_COLOUR[c] ?? "#94a3b8",
   }));
 
-  const purposeChart = stats.byPurpose.map(([p, n], i) => ({
-    name: purposeLabel(p),
-    shoes: n,
-    fill: CHART_COLOURS[i % CHART_COLOURS.length],
+  const groupChart = PURPOSE_GROUPS.filter((g) => (stats.byGroup.get(g.key) ?? 0) > 0).map((g) => ({
+    name: g.group,
+    shoes: stats.byGroup.get(g.key) ?? 0,
+    fill: g.colour,
   }));
 
   // If the same session is tagged to more than one item, every one of them is
-  // credited the session's full distance — so the per-gear totals can add up
-  // to more than the athlete has actually covered. Surfaced rather than
-  // quietly papered over, because it also inflates retirement progress.
+  // credited the session's full distance — so per-gear totals can add up to
+  // more than the athlete has actually covered. Surfaced rather than quietly
+  // papered over, because it also inflates retirement progress.
   const overlapM = Math.max(0, summedGearM - distinctSessionM);
   const hasOverlap = distinctSessionM > 0 && overlapM / distinctSessionM > 0.02;
 
@@ -724,31 +794,44 @@ function GearSummary({
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base">Locker overview</CardTitle>
+        <CardTitle className="text-base flex items-center gap-2">
+          <LayoutGrid className="h-4 w-4 text-[var(--accent-red)]" /> Locker overview
+        </CardTitle>
         <CardDescription>Everything in the locker at a glance — all gear types, not just shoes.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
-        {/* Headline tiles */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
           <div className="border rounded-lg p-3">
+            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <Package className="h-3 w-3" /> items
+            </div>
             <div className="text-2xl font-bold tabular-nums">{stats.total}</div>
             <div className="text-[11px] text-muted-foreground">
-              items{stats.retired > 0 ? ` · ${stats.retired} retired` : ""}
+              {stats.retired > 0 ? `${stats.retired} retired` : "none retired"}
             </div>
           </div>
           <div className="border rounded-lg p-3">
+            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <Activity className="h-3 w-3" /> in rotation
+            </div>
             <div className="text-2xl font-bold tabular-nums">{stats.active}</div>
-            <div className="text-[11px] text-muted-foreground">in rotation</div>
+            <div className="text-[11px] text-muted-foreground">active items</div>
           </div>
           <div className="border rounded-lg p-3">
+            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <Gauge className="h-3 w-3" /> distance
+            </div>
             <div className="text-2xl font-bold tabular-nums">{Math.round(km(distinctSessionM)).toLocaleString()}</div>
             <div className="text-[11px] text-muted-foreground">km across tagged sessions</div>
           </div>
           <div className="border rounded-lg p-3">
-            <div className="text-2xl font-bold tabular-nums">
-              {stats.shoeCount > 0 ? Math.round(km(summedGearM) / Math.max(1, stats.shoeCount)) : 0}
+            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <Footprints className="h-3 w-3" /> per shoe
             </div>
-            <div className="text-[11px] text-muted-foreground">avg km per shoe</div>
+            <div className="text-2xl font-bold tabular-nums">
+              {stats.shoeCount > 0 ? Math.round(km(summedGearM) / stats.shoeCount).toLocaleString() : 0}
+            </div>
+            <div className="text-[11px] text-muted-foreground">average km</div>
           </div>
         </div>
 
@@ -764,163 +847,282 @@ function GearSummary({
           </div>
         )}
 
-        {/* By gear type */}
-        {stats.byType.length > 0 && (
-          <div>
-            <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
-              By gear type
-            </div>
-            <div className="space-y-1.5">
-              {stats.byType.map(([t, v]) => {
-                const share = summedGearM > 0 ? (v.totalM / summedGearM) * 100 : 0;
-                return (
-                  <div key={t} className="flex items-center gap-3 text-sm">
-                    <span className="w-28 shrink-0 truncate">{TYPE_LABEL[t] ?? t}</span>
-                    <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
-                      <div className="h-full bg-[var(--accent-red)]" style={{ width: `${share}%` }} />
+        <div className="grid lg:grid-cols-3 gap-5">
+          {stats.byType.length > 0 && (
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
+                <Package className="h-3 w-3" /> By gear type
+              </div>
+              <div className="space-y-1.5">
+                {stats.byType.map(([t, v]) => {
+                  const share = summedGearM > 0 ? (v.totalM / summedGearM) * 100 : 0;
+                  const Icon = TYPE_ICON[t] ?? Package;
+                  return (
+                    <div key={t} className="flex items-center gap-2 text-sm">
+                      <Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      <span className="w-20 shrink-0 truncate text-xs">{TYPE_LABEL[t] ?? t}</span>
+                      <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden min-w-[30px]">
+                        <div className="h-full bg-[var(--accent-red)]" style={{ width: `${share}%` }} />
+                      </div>
+                      <span className="text-[11px] text-muted-foreground tabular-nums shrink-0 text-right">
+                        {v.count} · {Math.round(km(v.totalM)).toLocaleString()}km
+                      </span>
                     </div>
-                    <span className="text-xs text-muted-foreground tabular-nums shrink-0 w-32 text-right">
-                      {v.count} item{v.count === 1 ? "" : "s"} · {Math.round(km(v.totalM)).toLocaleString()} km
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {categoryChart.length > 0 && (
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
+                <Footprints className="h-3 w-3" /> Shoes by category — km
+              </div>
+              <div style={{ height: Math.max(110, categoryChart.length * 32) }} className="w-full">
+                <ResponsiveContainer>
+                  <BarChart data={categoryChart} layout="vertical" margin={{ top: 0, right: 12, left: 0, bottom: 0 }}>
+                    <XAxis type="number" tick={{ fontSize: 10 }} />
+                    <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={74} />
+                    <Tooltip
+                      cursor={{ fill: "hsl(var(--muted))", opacity: 0.4 }}
+                      contentStyle={{
+                        background: "hsl(var(--background))",
+                        border: "1px solid hsl(var(--border))",
+                        fontSize: 11,
+                      }}
+                      formatter={(v: any, _n: any, p: any) => [
+                        `${Number(v).toLocaleString()} km · ${p?.payload?.count} pair(s)`,
+                        "Total",
+                      ]}
+                    />
+                    <Bar dataKey="km" radius={[0, 4, 4, 0]}>
+                      {categoryChart.map((d) => (
+                        <Cell key={d.name} fill={d.fill} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {groupChart.length > 0 && (
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
+                <ListFilter className="h-3 w-3" /> Shoes by purpose group — pairs
+              </div>
+              <div style={{ height: Math.max(110, groupChart.length * 32) }} className="w-full">
+                <ResponsiveContainer>
+                  <BarChart data={groupChart} layout="vertical" margin={{ top: 0, right: 12, left: 0, bottom: 0 }}>
+                    <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
+                    <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={112} />
+                    <Tooltip
+                      cursor={{ fill: "hsl(var(--muted))", opacity: 0.4 }}
+                      contentStyle={{
+                        background: "hsl(var(--background))",
+                        border: "1px solid hsl(var(--border))",
+                        fontSize: 11,
+                      }}
+                      formatter={(v: any) => [`${v} pair(s)`, "Covered by"]}
+                    />
+                    <Bar dataKey="shoes" radius={[0, 4, 4, 0]}>
+                      {groupChart.map((d) => (
+                        <Cell key={d.name} fill={d.fill} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-1 leading-snug">
+                Counts pairs, not distance — a shoe covering several groups would otherwise add its full mileage to
+                each.
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="grid lg:grid-cols-2 gap-5">
+          {stats.mostUsed.length > 0 && (
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
+                <Flame className="h-3 w-3" /> Most used
+              </div>
+              <div className="space-y-1">
+                {stats.mostUsed.map(({ g, totalM }) => {
+                  const Icon = TYPE_ICON[g.gear_type] ?? Package;
+                  return (
+                    <div key={g.id} className="flex items-center gap-2 text-sm">
+                      <Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      <span className="truncate flex-1">{g.nickname || `${g.brand} ${g.model}`}</span>
+                      <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+                        {Math.round(km(totalM)).toLocaleString()} km
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {attention > 0 && (
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
+                <AlertTriangle className="h-3 w-3" /> Worth a look
+              </div>
+              <div className="space-y-1 text-sm">
+                {stats.pastTarget.map((x) => (
+                  <div key={x.g.id} className="flex items-center gap-2">
+                    <span className="h-1.5 w-1.5 rounded-full bg-destructive shrink-0" />
+                    <span className="truncate">
+                      {x.g.nickname || `${x.g.brand} ${x.g.model}`} is past its {x.target} km target (
+                      {Math.round(x.totalKm).toLocaleString()} km)
                     </span>
                   </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Shoe charts */}
-        {(categoryChart.length > 0 || purposeChart.length > 0) && (
-          <div className="grid lg:grid-cols-2 gap-4">
-            {categoryChart.length > 0 && (
-              <div>
-                <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
-                  Shoes by category — km
-                </div>
-                <div style={{ height: Math.max(110, categoryChart.length * 34) }} className="w-full">
-                  <ResponsiveContainer>
-                    <BarChart data={categoryChart} layout="vertical" margin={{ top: 0, right: 12, left: 0, bottom: 0 }}>
-                      <XAxis type="number" tick={{ fontSize: 10 }} />
-                      <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={78} />
-                      <Tooltip
-                        cursor={{ fill: "hsl(var(--muted))", opacity: 0.4 }}
-                        contentStyle={{
-                          background: "hsl(var(--background))",
-                          border: "1px solid hsl(var(--border))",
-                          fontSize: 11,
-                        }}
-                        formatter={(v: any, _n: any, p: any) => [
-                          `${Number(v).toLocaleString()} km · ${p?.payload?.count} pair(s)`,
-                          "Total",
-                        ]}
-                      />
-                      <Bar dataKey="km" radius={[0, 4, 4, 0]}>
-                        {categoryChart.map((d) => (
-                          <Cell key={d.name} fill={d.fill} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
+                ))}
+                {stats.nearingTarget.map((x) => (
+                  <div key={x.g.id} className="flex items-center gap-2">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
+                    <span className="truncate">
+                      {x.g.nickname || `${x.g.brand} ${x.g.model}`} is at {Math.round(x.pct)}% of its {x.target} km
+                      target
+                    </span>
+                  </div>
+                ))}
+                {stats.noPurpose.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50 shrink-0" />
+                    <span>
+                      {stats.noPurpose.length} shoe{stats.noPurpose.length === 1 ? " has" : "s have"} no purpose set yet
+                    </span>
+                  </div>
+                )}
+                {stats.neverUsed.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50 shrink-0" />
+                    <span>
+                      {stats.neverUsed.length} item{stats.neverUsed.length === 1 ? " has" : "s have"} no linked sessions
+                    </span>
+                  </div>
+                )}
               </div>
-            )}
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
-            {purposeChart.length > 0 && (
-              <div>
-                <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
-                  Shoes by purpose — how many pairs cover each
-                </div>
-                <div style={{ height: Math.max(110, purposeChart.length * 26) }} className="w-full">
-                  <ResponsiveContainer>
-                    <BarChart data={purposeChart} layout="vertical" margin={{ top: 0, right: 12, left: 0, bottom: 0 }}>
-                      <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
-                      <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={140} />
-                      <Tooltip
-                        cursor={{ fill: "hsl(var(--muted))", opacity: 0.4 }}
-                        contentStyle={{
-                          background: "hsl(var(--background))",
-                          border: "1px solid hsl(var(--border))",
-                          fontSize: 11,
-                        }}
-                        formatter={(v: any) => [`${v} pair(s)`, "Covered by"]}
-                      />
-                      <Bar dataKey="shoes" radius={[0, 4, 4, 0]}>
-                        {purposeChart.map((d) => (
-                          <Cell key={d.name} fill={d.fill} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-                <p className="text-[10px] text-muted-foreground mt-1 leading-snug">
-                  Counts pairs, not distance — a shoe tagged for four purposes would otherwise contribute its full
-                  mileage to all four and the bars would add up to several times the real total.
-                </p>
+// ----------------------------------------------------------------------------
+// Purpose buckets — the same shoes, organised by what they're FOR rather than
+// what they are. Sits alongside the main list rather than replacing it: the
+// list answers "what do I own", this answers "what have I got for VO2 reps",
+// which is the question you have when planning a session.
+//
+// A shoe appears under every purpose it's tagged for — that's the point, not
+// a bug, so nothing here sums distance (see the note on the summary chart).
+// ----------------------------------------------------------------------------
+
+function PurposeBuckets({
+  shoes,
+  usageByGear,
+  onPickPurpose,
+  activePurpose,
+}: {
+  shoes: any[];
+  usageByGear: Map<string, { totalM: number; count: number }>;
+  onPickPurpose: (v: string) => void;
+  activePurpose: string;
+}) {
+  const byPurpose = useMemo(() => {
+    const m = new Map<string, any[]>();
+    for (const g of shoes) {
+      for (const p of (g.used_for ?? []) as string[]) {
+        const arr = m.get(p) ?? [];
+        arr.push(g);
+        m.set(p, arr);
+      }
+    }
+    return m;
+  }, [shoes]);
+
+  const anyTagged = byPurpose.size > 0;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <ListFilter className="h-4 w-4 text-[var(--accent-red)]" /> By purpose
+        </CardTitle>
+        <CardDescription>
+          What's available for each kind of session. Tap a purpose to filter the list.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!anyTagged && (
+          <p className="text-sm text-muted-foreground">
+            No shoes have a purpose set yet. Edit a shoe and tick what it's used for.
+          </p>
+        )}
+        {PURPOSE_GROUPS.map((grp) => {
+          const Icon = grp.icon;
+          const rows = grp.options
+            .map((o) => ({ o, list: byPurpose.get(o.value) ?? [] }))
+            .filter((r) => r.list.length > 0);
+          const pairCount = new Set(rows.flatMap((r) => r.list.map((g: any) => g.id))).size;
+          return (
+            <div key={grp.key} className="rounded-lg border overflow-hidden">
+              <div
+                className="px-3 py-2 flex items-center gap-2 border-b"
+                style={{ background: `${grp.colour}14`, borderColor: `${grp.colour}33` }}
+              >
+                <Icon className="h-3.5 w-3.5 shrink-0" style={{ color: grp.colour }} />
+                <span className="text-xs font-bold uppercase tracking-wide" style={{ color: grp.colour }}>
+                  {grp.group}
+                </span>
+                <Badge variant="outline" className="ml-auto text-[10px]" style={tintStyle(grp.colour)}>
+                  {pairCount} pair{pairCount === 1 ? "" : "s"}
+                </Badge>
               </div>
-            )}
-          </div>
-        )}
-
-        {/* Most used */}
-        {stats.mostUsed.length > 0 && (
-          <div>
-            <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Most used</div>
-            <div className="space-y-1">
-              {stats.mostUsed.map(({ g, totalM }) => (
-                <div key={g.id} className="flex items-center justify-between gap-2 text-sm">
-                  <span className="truncate">{g.nickname || `${g.brand} ${g.model}`}</span>
-                  <span className="text-xs text-muted-foreground tabular-nums shrink-0">
-                    {Math.round(km(totalM)).toLocaleString()} km
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Attention */}
-        {attention > 0 && (
-          <div>
-            <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
-              Worth a look
-            </div>
-            <div className="space-y-1 text-sm">
-              {stats.pastTarget.map((x) => (
-                <div key={x.g.id} className="flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-destructive shrink-0" />
-                  <span className="truncate">
-                    {x.g.nickname || `${x.g.brand} ${x.g.model}`} is past its {x.target} km target (
-                    {Math.round(x.totalKm).toLocaleString()} km)
-                  </span>
-                </div>
-              ))}
-              {stats.nearingTarget.map((x) => (
-                <div key={x.g.id} className="flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
-                  <span className="truncate">
-                    {x.g.nickname || `${x.g.brand} ${x.g.model}`} is at {Math.round(x.pct)}% of its {x.target} km target
-                  </span>
-                </div>
-              ))}
-              {stats.noPurpose.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50 shrink-0" />
-                  <span>
-                    {stats.noPurpose.length} shoe{stats.noPurpose.length === 1 ? " has" : "s have"} no purpose set yet
-                  </span>
+              {rows.length === 0 ? (
+                <div className="px-3 py-2 text-[11px] text-muted-foreground">Nothing tagged for this yet.</div>
+              ) : (
+                <div className="divide-y">
+                  {rows.map(({ o, list }) => (
+                    <button
+                      key={o.value}
+                      type="button"
+                      onClick={() => onPickPurpose(activePurpose === o.value ? "all" : o.value)}
+                      className={`w-full text-left px-3 py-2 hover:bg-accent/40 transition-colors ${
+                        activePurpose === o.value ? "bg-accent/50" : ""
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-medium flex-1 min-w-0 truncate">{o.label}</span>
+                        <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">{list.length}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {list.map((g: any) => (
+                          <span
+                            key={g.id}
+                            className={`text-[10px] rounded px-1.5 py-0.5 border ${g.is_retired ? "opacity-50" : ""}`}
+                            style={tintStyle(grp.colour)}
+                          >
+                            {g.nickname || `${g.brand} ${g.model}`}
+                            <span className="opacity-60 ml-1 tabular-nums">
+                              {Math.round(km(usageByGear.get(g.id)?.totalM ?? 0))}km
+                            </span>
+                          </span>
+                        ))}
+                      </div>
+                    </button>
+                  ))}
                 </div>
               )}
-              {stats.neverUsed.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50 shrink-0" />
-                  <span>
-                    {stats.neverUsed.length} item{stats.neverUsed.length === 1 ? " has" : "s have"} no linked sessions
-                  </span>
-                </div>
-              )}
             </div>
-          </div>
-        )}
+          );
+        })}
       </CardContent>
     </Card>
   );
@@ -932,12 +1134,14 @@ function GearSummary({
 
 function GearGroup({
   title,
+  typeKey,
   items,
   usageByGear,
   athleteId,
   defaultOpen,
 }: {
   title: string;
+  typeKey: string;
   items: any[];
   usageByGear: Map<string, { totalM: number; count: number }>;
   athleteId: string;
@@ -947,20 +1151,22 @@ function GearGroup({
   if (items.length === 0) return null;
 
   const totalM = items.reduce((sum, g) => sum + (usageByGear.get(g.id)?.totalM ?? 0), 0);
+  const Icon = TYPE_ICON[typeKey] ?? Package;
 
   return (
     <div className="space-y-2">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center gap-2 text-left px-1 py-1.5 hover:bg-accent/30 rounded transition-colors"
+        className="w-full flex items-center gap-2 text-left px-2 py-2 hover:bg-accent/30 rounded transition-colors border"
       >
         {open ? (
           <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" />
         ) : (
           <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
         )}
-        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</span>
+        <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
+        <span className="text-xs font-semibold uppercase tracking-wide">{title}</span>
         <Badge variant="outline" className="text-[10px]">
           {items.length}
         </Badge>
@@ -969,7 +1175,7 @@ function GearGroup({
         </span>
       </button>
       {open && (
-        <div className="space-y-2">
+        <div className="space-y-2 pl-1">
           {items.map((g) => (
             <GearCard key={g.id} item={g} usage={usageByGear.get(g.id)} athleteId={athleteId} />
           ))}
@@ -980,7 +1186,7 @@ function GearGroup({
 }
 
 // ----------------------------------------------------------------------------
-// List — summary, filters, then collapsible groups
+// List — summary, then the full list beside the purpose buckets
 // ----------------------------------------------------------------------------
 
 function GearList({ athleteId }: { athleteId: string }) {
@@ -1068,18 +1274,16 @@ function GearList({ athleteId }: { athleteId: string }) {
       out = out.filter((g) => ((g.used_for ?? []) as string[]).includes(purposeFilter));
     }
     const q = search.trim().toLowerCase();
-    if (q) {
-      out = out.filter((g) =>
-        `${g.brand ?? ""} ${g.model ?? ""} ${g.nickname ?? ""}`.toLowerCase().includes(q),
-      );
-    }
+    if (q) out = out.filter((g) => `${g.brand ?? ""} ${g.model ?? ""} ${g.nickname ?? ""}`.toLowerCase().includes(q));
     return out;
   }, [gearItems, purposeFilter, typeFilter, search]);
 
   if (!gearItems || gearItems.length === 0) {
     return (
       <Card>
-        <CardContent className="p-6 text-sm text-muted-foreground text-center">No gear added yet.</CardContent>
+        <CardContent className="p-8 text-sm text-muted-foreground text-center">
+          No gear added yet — use Add gear above to start tracking a pair.
+        </CardContent>
       </Card>
     );
   }
@@ -1092,6 +1296,7 @@ function GearList({ athleteId }: { athleteId: string }) {
   // once it isn't — but a filter or search always opens them, since the
   // person has already narrowed to what they're looking for.
   const autoOpen = filtersOn || activeFiltered.length <= 8;
+  const shoes = gearItems.filter((g) => g.gear_type === "shoe");
 
   return (
     <div className="space-y-4">
@@ -1102,97 +1307,118 @@ function GearList({ athleteId }: { athleteId: string }) {
         summedGearM={summedGearM}
       />
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Gear</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="grid sm:grid-cols-3 gap-2">
-            <div className="relative">
-              <Search className="h-3.5 w-3.5 absolute left-2.5 top-2.5 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search brand, model, nickname…"
-                className="pl-8 h-9 text-xs"
-              />
-            </div>
-            <Select value={typeFilter} onValueChange={setTypeFilter}>
-              <SelectTrigger className="h-9 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All gear types</SelectItem>
-                {typesInUse.map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {TYPE_LABEL[t] ?? t}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={purposeFilter} onValueChange={setPurposeFilter}>
-              <SelectTrigger className="h-9 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Any purpose</SelectItem>
-                {purposesInUse.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>
-                    {o.label}
-                  </SelectItem>
-                ))}
-                <SelectItem value="__none__">Shoes with nothing set</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+      <div className="grid xl:grid-cols-3 gap-4 items-start">
+        <div className="xl:col-span-2 space-y-3">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Package className="h-4 w-4 text-[var(--accent-red)]" /> All gear
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid sm:grid-cols-3 gap-2">
+                <div className="relative">
+                  <Search className="h-3.5 w-3.5 absolute left-2.5 top-2.5 text-muted-foreground" />
+                  <Input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search brand, model, nickname…"
+                    className="pl-8 h-9 text-xs"
+                  />
+                </div>
+                <Select value={typeFilter} onValueChange={setTypeFilter}>
+                  <SelectTrigger className="h-9 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All gear types</SelectItem>
+                    {typesInUse.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {TYPE_LABEL[t] ?? t}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={purposeFilter} onValueChange={setPurposeFilter}>
+                  <SelectTrigger className="h-9 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Any purpose</SelectItem>
+                    {purposesInUse.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="__none__">Shoes with nothing set</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-          {filtersOn && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="tabular-nums">
-                {filtered.length} of {gearItems.length} shown
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setSearch("");
-                  setTypeFilter("all");
-                  setPurposeFilter("all");
-                }}
-                className="underline hover:text-foreground"
-              >
-                Clear filters
-              </button>
-            </div>
-          )}
+              {filtersOn && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span className="tabular-nums">
+                    {filtered.length} of {gearItems.length} shown
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearch("");
+                      setTypeFilter("all");
+                      setPurposeFilter("all");
+                    }}
+                    className="underline hover:text-foreground"
+                  >
+                    Clear filters
+                  </button>
+                </div>
+              )}
 
-          {filtered.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">No gear matches those filters.</p>
-          ) : (
-            <div className="space-y-4">
-              {["shoe", "bike", "treadmill", "other"].map((t) => (
-                <GearGroup
-                  key={t}
-                  title={TYPE_LABEL[t] ?? t}
-                  items={activeFiltered.filter((g) => (g.gear_type ?? "other") === t)}
-                  usageByGear={usageByGear}
-                  athleteId={athleteId}
-                  defaultOpen={autoOpen}
-                />
-              ))}
-              <GearGroup
-                title="Retired"
-                items={retiredFiltered}
-                usageByGear={usageByGear}
-                athleteId={athleteId}
-                defaultOpen={false}
-              />
-            </div>
-          )}
-        </CardContent>
-      </Card>
+              {filtered.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">No gear matches those filters.</p>
+              ) : (
+                <div className="space-y-4">
+                  {["shoe", "bike", "treadmill", "other"].map((t) => (
+                    <GearGroup
+                      key={t}
+                      title={TYPE_LABEL[t] ?? t}
+                      typeKey={t}
+                      items={activeFiltered.filter((g) => (g.gear_type ?? "other") === t)}
+                      usageByGear={usageByGear}
+                      athleteId={athleteId}
+                      defaultOpen={autoOpen}
+                    />
+                  ))}
+                  <GearGroup
+                    title="Retired"
+                    typeKey="other"
+                    items={retiredFiltered}
+                    usageByGear={usageByGear}
+                    athleteId={athleteId}
+                    defaultOpen={false}
+                  />
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="xl:sticky xl:top-4">
+          <PurposeBuckets
+            shoes={shoes}
+            usageByGear={usageByGear}
+            onPickPurpose={setPurposeFilter}
+            activePurpose={purposeFilter}
+          />
+        </div>
+      </div>
     </div>
   );
 }
+
+// ----------------------------------------------------------------------------
+// Gear card
+// ----------------------------------------------------------------------------
 
 function GearCard({
   item,
@@ -1249,6 +1475,8 @@ function GearCard({
     invalidateAll();
   }
 
+  const categoryColour = CATEGORY_COLOUR[item.shoe_category ?? "unset"] ?? "#94a3b8";
+
   return (
     <Card className={item.is_retired ? "opacity-60" : undefined}>
       <CardHeader className="pb-2">
@@ -1259,7 +1487,12 @@ function GearCard({
             ) : (
               <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
             )}
-            <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
+            <span
+              className="h-8 w-8 shrink-0 rounded-md grid place-items-center"
+              style={{ background: `${categoryColour}1f` }}
+            >
+              <Icon className="h-4 w-4 shrink-0" style={{ color: categoryColour }} />
+            </span>
             <div className="min-w-0">
               <CardTitle className="text-base truncate">{item.nickname || `${item.brand} ${item.model}`}</CardTitle>
               <CardDescription className="truncate">
@@ -1279,7 +1512,9 @@ function GearCard({
               <Pencil className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
             </button>
             <button type="button" onClick={toggleFavourite} aria-label="Favourite">
-              <Star className={`h-4 w-4 ${item.is_favourite ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground"}`} />
+              <Star
+                className={`h-4 w-4 ${item.is_favourite ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground"}`}
+              />
             </button>
           </div>
         </div>
@@ -1297,7 +1532,7 @@ function GearCard({
               </button>
             ) : (
               purposes.map((p) => (
-                <Badge key={p} variant="secondary" className="text-[10px] font-normal">
+                <Badge key={p} variant="outline" className="text-[10px] font-normal" style={tintStyle(purposeColour(p))}>
                   {purposeLabel(p)}
                 </Badge>
               ))
@@ -1308,11 +1543,14 @@ function GearCard({
           <div className="flex items-center gap-0.5">
             {[1, 2, 3, 4, 5].map((r) => (
               <button key={r} type="button" onClick={() => setRating(r)} aria-label={`Rate ${r}`}>
-                <Star className={`h-3.5 w-3.5 ${(item.rating ?? 0) >= r ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground"}`} />
+                <Star
+                  className={`h-3.5 w-3.5 ${(item.rating ?? 0) >= r ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground"}`}
+                />
               </button>
             ))}
           </div>
-          <div className="text-xs text-muted-foreground">
+          <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+            <Gauge className="h-3 w-3" />
             {totalKm.toFixed(0)} km{usage?.count ? ` · ${usage.count} session${usage.count === 1 ? "" : "s"}` : ""}
           </div>
         </div>
