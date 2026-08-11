@@ -42,6 +42,7 @@ import {
   Dumbbell,
   LayoutGrid,
   ListFilter,
+  Layers,
   Flame,
   Gauge,
 } from "lucide-react";
@@ -52,11 +53,125 @@ export const Route = createFileRoute("/_authenticated/app/gear")({
   component: GearPage,
 });
 
-const SHOE_CATEGORIES = ["track", "road", "everyday", "off_road"] as const;
+// ---------------------------------------------------------------------------
+// Shoe profile vocabulary — three independent axes.
+//
+//   SHOE_TYPES   what the shoe IS
+//   SHOE_SURFACES where it's FOR
+//   TRAIT_GROUPS what it's BUILT WITH
+//
+// (PURPOSE_GROUPS, further down, is the fourth and separate question: what
+// the athlete chooses to use it for.)
+//
+// The legacy shoe_category / is_spike columns are still written on save,
+// derived from these, because the session detail page still reads them.
+// ---------------------------------------------------------------------------
+
+const SHOE_TYPES: { value: string; label: string; colour: string; hint: string }[] = [
+  { value: "spike", label: "Spike", colour: "#ef4444", hint: "Track spikes — reps, races" },
+  { value: "super_racer", label: "Super racer", colour: "#a855f7", hint: "Plated race shoe, superfoam" },
+  { value: "racing_flat", label: "Racing flat", colour: "#f97316", hint: "Light, unplated racer" },
+  { value: "super_trainer", label: "Super trainer", colour: "#ec4899", hint: "Plated tempo/threshold trainer" },
+  { value: "tempo_trainer", label: "Tempo trainer", colour: "#f59e0b", hint: "Light, firm, unplated" },
+  { value: "daily_trainer", label: "Daily trainer", colour: "#10b981", hint: "Everyday mileage" },
+  { value: "max_cushion", label: "Max cushion / recovery", colour: "#06b6d4", hint: "Soft, high stack, easy days" },
+  { value: "trail", label: "Trail", colour: "#a16207", hint: "Off-road grip and protection" },
+  { value: "gym", label: "Gym / cross-training", colour: "#3b82f6", hint: "Flat, stable, non-running" },
+];
+
+const SHOE_TYPE_LABEL: Record<string, string> = Object.fromEntries(SHOE_TYPES.map((t) => [t.value, t.label]));
+const SHOE_TYPE_COLOUR: Record<string, string> = Object.fromEntries(SHOE_TYPES.map((t) => [t.value, t.colour]));
+
+const SHOE_SURFACES: { value: string; label: string }[] = [
+  { value: "track", label: "Track" },
+  { value: "road", label: "Road" },
+  { value: "trail", label: "Trail" },
+  { value: "treadmill", label: "Treadmill" },
+  { value: "gym", label: "Gym" },
+  { value: "mixed", label: "Mixed" },
+];
+
+const SURFACE_LABEL: Record<string, string> = Object.fromEntries(SHOE_SURFACES.map((s) => [s.value, s.label]));
+
+const TRAIT_GROUPS: { group: string; options: { value: string; label: string }[] }[] = [
+  {
+    group: "Plate",
+    options: [
+      { value: "carbon_plate", label: "Carbon plate" },
+      { value: "nylon_plate", label: "Nylon / TPU plate" },
+      { value: "midfoot_shank", label: "Midfoot shank" },
+      { value: "no_plate", label: "No plate" },
+    ],
+  },
+  {
+    group: "Foam",
+    options: [
+      { value: "superfoam_peba", label: "Superfoam (PEBA)" },
+      { value: "tpu_foam", label: "TPU foam" },
+      { value: "eva_foam", label: "Standard EVA" },
+    ],
+  },
+  {
+    group: "Geometry",
+    options: [
+      { value: "max_cushion", label: "Max cushion" },
+      { value: "low_stack", label: "Low stack" },
+      { value: "rocker", label: "Rocker geometry" },
+      { value: "lightweight", label: "Lightweight" },
+    ],
+  },
+  {
+    group: "Fit & support",
+    options: [
+      { value: "stability", label: "High stability" },
+      { value: "neutral", label: "Neutral" },
+      { value: "wide_fit", label: "Wide fit" },
+      { value: "narrow_fit", label: "Narrow fit" },
+    ],
+  },
+  {
+    group: "Other",
+    options: [
+      { value: "durable_outsole", label: "Durable outsole" },
+      { value: "breathable_upper", label: "Breathable upper" },
+      { value: "waterproof", label: "Waterproof" },
+    ],
+  },
+];
+
+const ALL_TRAITS = TRAIT_GROUPS.flatMap((g) => g.options);
+const TRAIT_LABEL: Record<string, string> = Object.fromEntries(ALL_TRAITS.map((o) => [o.value, o.label]));
+
+function traitLabel(v: string): string {
+  return TRAIT_LABEL[v] ?? v.replace(/_/g, " ");
+}
+
+// Supershoe status is DERIVED, never stored. A super_racer or super_trainer
+// is one by definition; anything else qualifies if it has a plate AND
+// superfoam, which is the construction that actually produces the effect.
+// Deriving it means it can't drift out of step with the fields it summarises
+// the way a manually-ticked boolean would.
+function isSuperShoe(item: { shoe_type?: string | null; shoe_traits?: string[] | null }): boolean {
+  if (item.shoe_type === "super_racer" || item.shoe_type === "super_trainer") return true;
+  const traits = item.shoe_traits ?? [];
+  const plated = traits.includes("carbon_plate") || traits.includes("nylon_plate");
+  return plated && traits.includes("superfoam_peba");
+}
+
+// The legacy columns the session detail page still reads, derived on save so
+// that page keeps working untouched.
+function legacyCategoryFor(surface: string | null): string | null {
+  if (!surface) return null;
+  if (surface === "track") return "track";
+  if (surface === "road") return "road";
+  if (surface === "trail") return "off_road";
+  return "everyday";
+}
+
 
 // What a piece of gear is actually FOR, as opposed to what kind of thing it
-// is. shoe_category (track/road/everyday/off_road) answers "what sort of
-// shoe"; this answers "which sessions does it come out for", which is a
+// is. shoe_type and shoe_surface answer what sort of shoe it is; this
+// answers "which sessions does it come out for", which is a
 // different question and rarely has a single answer — a pair of road
 // threshold shoes might also cover tempo runs and long-run pickups.
 //
@@ -195,21 +310,6 @@ const TYPE_LABEL: Record<string, string> = {
   other: "Other gear",
 };
 
-const CATEGORY_LABEL: Record<string, string> = {
-  track: "Track",
-  road: "Road",
-  everyday: "Everyday",
-  off_road: "Off-road",
-};
-
-const CATEGORY_COLOUR: Record<string, string> = {
-  track: "#ef4444",
-  road: "#3b82f6",
-  everyday: "#10b981",
-  off_road: "#a16207",
-  unset: "#94a3b8",
-};
-
 function km(m: number): number {
   return m / 1000;
 }
@@ -221,8 +321,13 @@ function km(m: number): number {
 
 type GearDraft = {
   gear_type: string;
-  shoe_category: string;
-  is_spike: boolean;
+  shoe_type: string;
+  shoe_surface: string;
+  shoe_traits: string[];
+  stack_height_mm: string;
+  drop_mm: string;
+  weight_g: string;
+  description: string;
   brand: string;
   customBrand: string;
   model: string;
@@ -236,8 +341,13 @@ type GearDraft = {
 function emptyDraft(): GearDraft {
   return {
     gear_type: "shoe",
-    shoe_category: "everyday",
-    is_spike: false,
+    shoe_type: "",
+    shoe_surface: "",
+    shoe_traits: [],
+    stack_height_mm: "",
+    drop_mm: "",
+    weight_g: "",
+    description: "",
     brand: BRANDS_BY_TYPE.shoe[0],
     customBrand: "",
     model: "",
@@ -258,8 +368,13 @@ function draftFromItem(item: any): GearDraft {
   const brandIsKnown = known.includes(item.brand);
   return {
     gear_type: type,
-    shoe_category: item.shoe_category ?? "everyday",
-    is_spike: !!item.is_spike,
+    shoe_type: item.shoe_type ?? "",
+    shoe_surface: item.shoe_surface ?? "",
+    shoe_traits: Array.isArray(item.shoe_traits) ? item.shoe_traits : [],
+    stack_height_mm: item.stack_height_mm == null ? "" : String(item.stack_height_mm),
+    drop_mm: item.drop_mm == null ? "" : String(item.drop_mm),
+    weight_g: item.weight_g == null ? "" : String(item.weight_g),
+    description: item.description ?? "",
     brand: brandIsKnown ? item.brand : "Other",
     customBrand: brandIsKnown ? "" : (item.brand ?? ""),
     model: item.model ?? "",
@@ -273,11 +388,21 @@ function draftFromItem(item: any): GearDraft {
 
 function draftToPayload(d: GearDraft, athleteId: string) {
   const finalBrand = d.brand === "Other" ? d.customBrand.trim() || "Other" : d.brand;
+  const isShoe = d.gear_type === "shoe";
+  const num = (v: string) => (v.trim() === "" ? null : Number(v));
   return {
     athlete_id: athleteId,
     gear_type: d.gear_type,
-    shoe_category: d.gear_type === "shoe" ? d.shoe_category : null,
-    is_spike: d.gear_type === "shoe" ? d.is_spike : false,
+    shoe_type: isShoe ? d.shoe_type || null : null,
+    shoe_surface: isShoe ? d.shoe_surface || null : null,
+    shoe_traits: isShoe ? d.shoe_traits : [],
+    stack_height_mm: isShoe ? num(d.stack_height_mm) : null,
+    drop_mm: isShoe ? num(d.drop_mm) : null,
+    weight_g: isShoe ? num(d.weight_g) : null,
+    description: d.description || null,
+    // Legacy columns, derived — the session detail page still reads them.
+    shoe_category: isShoe ? legacyCategoryFor(d.shoe_surface || null) : null,
+    is_spike: isShoe && d.shoe_type === "spike",
     brand: finalBrand,
     model: d.model.trim(),
     nickname: d.nickname || null,
@@ -348,6 +473,69 @@ function PurposePicker({ value, onChange }: { value: string[]; onChange: (next: 
   );
 }
 
+// Sensible starting purposes for each shoe type. Applied ONLY when nothing
+// has been ticked yet — it's a head start, never an override of a choice the
+// athlete has already made.
+const DEFAULT_PURPOSES_BY_TYPE: Record<string, string[]> = {
+  spike: ["track_sessions", "vo2_sessions", "speed_strides", "race_track"],
+  super_racer: ["race_road", "race_track"],
+  racing_flat: ["race_road", "race_xc", "threshold_session_road"],
+  super_trainer: ["tempo_runs", "threshold_runs", "threshold_session_road", "progression_runs"],
+  tempo_trainer: ["tempo_runs", "threshold_runs", "progression_runs"],
+  daily_trainer: ["easy_runs", "long_runs", "warmup_cooldown"],
+  max_cushion: ["recovery_runs", "easy_runs", "long_runs"],
+  trail: ["trail_offroad", "easy_runs"],
+  gym: ["gym"],
+};
+
+// ----------------------------------------------------------------------------
+// Trait picker — grouped checkboxes, same shape as the purpose picker.
+// ----------------------------------------------------------------------------
+
+function TraitPicker({ value, onChange }: { value: string[]; onChange: (next: string[]) => void }) {
+  function toggle(v: string) {
+    onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
+  }
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <Label className="text-xs flex items-center gap-1.5">
+          <Layers className="h-3.5 w-3.5" /> Features
+        </Label>
+        <div className="flex items-center gap-3">
+          <span className="text-[11px] text-muted-foreground tabular-nums">{value.length} selected</span>
+          {value.length > 0 && (
+            <button
+              type="button"
+              onClick={() => onChange([])}
+              className="text-[11px] text-muted-foreground hover:text-foreground underline"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="rounded-md border divide-y">
+        {TRAIT_GROUPS.map((g) => (
+          <div key={g.group} className="p-2.5">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
+              {g.group}
+            </div>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-x-3 gap-y-1.5">
+              {g.options.map((o) => (
+                <label key={o.value} className="flex items-center gap-2 text-sm cursor-pointer">
+                  <Checkbox checked={value.includes(o.value)} onCheckedChange={() => toggle(o.value)} />
+                  <span className="min-w-0 truncate">{o.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ----------------------------------------------------------------------------
 // Shared field set
 // ----------------------------------------------------------------------------
@@ -365,6 +553,20 @@ function GearFormFields({ draft, setDraft }: { draft: GearDraft; setDraft: (next
       customBrand: "",
     });
   }
+
+  // Picking a shoe type pre-ticks a sensible set of purposes, but only when
+  // nothing has been ticked yet — switching type later never wipes choices
+  // already made.
+  function changeShoeType(t: string) {
+    const suggested = DEFAULT_PURPOSES_BY_TYPE[t] ?? [];
+    setDraft({
+      ...draft,
+      shoe_type: t,
+      used_for: draft.used_for.length === 0 ? suggested : draft.used_for,
+    });
+  }
+
+  const superShoe = draft.gear_type === "shoe" && isSuperShoe({ shoe_type: draft.shoe_type, shoe_traits: draft.shoe_traits });
 
   return (
     <div className="space-y-4">
@@ -384,21 +586,42 @@ function GearFormFields({ draft, setDraft }: { draft: GearDraft; setDraft: (next
           </Select>
         </div>
         {draft.gear_type === "shoe" && (
-          <div>
-            <Label className="text-xs">Category</Label>
-            <Select value={draft.shoe_category} onValueChange={(v) => set("shoe_category", v)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {SHOE_CATEGORIES.map((c) => (
-                  <SelectItem key={c} value={c} className="capitalize">
-                    {c.replace("_", " ")}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <>
+            <div>
+              <Label className="text-xs">Shoe type</Label>
+              <Select value={draft.shoe_type} onValueChange={changeShoeType}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Pick a type…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {SHOE_TYPES.map((t) => (
+                    <SelectItem key={t.value} value={t.value}>
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="h-2 w-2 rounded-full inline-block" style={{ background: t.colour }} />
+                        {t.label}
+                        <span className="text-muted-foreground text-[11px]">— {t.hint}</span>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Surface</Label>
+              <Select value={draft.shoe_surface} onValueChange={(v) => set("shoe_surface", v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Pick a surface…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {SHOE_SURFACES.map((c) => (
+                    <SelectItem key={c.value} value={c.value}>
+                      {c.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </>
         )}
         <div>
           <Label className="text-xs">Brand</Label>
@@ -448,26 +671,67 @@ function GearFormFields({ draft, setDraft }: { draft: GearDraft; setDraft: (next
           />
         </div>
         {draft.gear_type === "shoe" && (
-          <div className="flex items-center gap-2 pt-5">
-            <Checkbox
-              id="gear-spike"
-              checked={draft.is_spike}
-              onCheckedChange={(v) => set("is_spike", v === true)}
-            />
-            <Label htmlFor="gear-spike" className="text-xs cursor-pointer">
-              Spikes
-            </Label>
-          </div>
+          <>
+            <div>
+              <Label className="text-xs">Stack height — mm (optional)</Label>
+              <Input
+                type="number"
+                value={draft.stack_height_mm}
+                onChange={(e) => set("stack_height_mm", e.target.value)}
+                placeholder="40"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Drop — mm (optional)</Label>
+              <Input
+                type="number"
+                value={draft.drop_mm}
+                onChange={(e) => set("drop_mm", e.target.value)}
+                placeholder="8"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Weight — g (optional)</Label>
+              <Input
+                type="number"
+                value={draft.weight_g}
+                onChange={(e) => set("weight_g", e.target.value)}
+                placeholder="215"
+              />
+            </div>
+          </>
         )}
       </div>
+
+      {superShoe && (
+        <div className="flex items-center gap-2 text-xs rounded-md border px-3 py-2" style={tintStyle("#a855f7")}>
+          <Zap className="h-3.5 w-3.5 shrink-0" />
+          <span>
+            Counts as a <strong>supershoe</strong> — plated with superfoam. Worked out from the type and features
+            above rather than set separately, so it can't end up disagreeing with them.
+          </span>
+        </div>
+      )}
+
+      {draft.gear_type === "shoe" && <TraitPicker value={draft.shoe_traits} onChange={(v) => set("shoe_traits", v)} />}
 
       {draft.gear_type === "shoe" && <PurposePicker value={draft.used_for} onChange={(v) => set("used_for", v)} />}
 
       <div>
-        <Label className="text-xs">Notes</Label>
+        <Label className="text-xs">What it's designed for (optional)</Label>
         <Textarea
           className="mt-1"
-          placeholder="Notes"
+          placeholder="e.g. Plated road racer for 10k to marathon — very light, aggressive rocker, not much use below tempo pace."
+          value={draft.description}
+          onChange={(e) => set("description", e.target.value)}
+        />
+      </div>
+
+      <div>
+        <Label className="text-xs">Your notes (optional)</Label>
+        <Textarea
+          className="mt-1"
+          placeholder="How they've felt, any niggles, when you'd reach for them"
           value={draft.notes}
           onChange={(e) => set("notes", e.target.value)}
         />
@@ -710,16 +974,19 @@ function GearSummary({
 
     const shoes = items.filter((g) => g.gear_type === "shoe");
 
-    // By shoe category — distance is meaningful here because a shoe has
-    // exactly one category, so nothing is counted twice.
-    const byCategory = new Map<string, { count: number; totalM: number }>();
+    // By shoe TYPE — distance is meaningful here because a shoe has exactly
+    // one type, so nothing is counted twice (unlike purposes).
+    const byType2 = new Map<string, { count: number; totalM: number }>();
     for (const g of shoes) {
-      const c = g.shoe_category ?? "unset";
-      const cur = byCategory.get(c) ?? { count: 0, totalM: 0 };
+      const c = g.shoe_type ?? "unset";
+      const cur = byType2.get(c) ?? { count: 0, totalM: 0 };
       cur.count += 1;
       cur.totalM += usageByGear.get(g.id)?.totalM ?? 0;
-      byCategory.set(c, cur);
+      byType2.set(c, cur);
     }
+
+    const superShoes = shoes.filter((g) => isSuperShoe(g));
+    const superM = superShoes.reduce((sum, g) => sum + (usageByGear.get(g.id)?.totalM ?? 0), 0);
 
     // By purpose GROUP — COUNT of shoes only, deliberately not distance. A
     // shoe tagged across several groups would contribute its full mileage to
@@ -753,7 +1020,10 @@ function GearSummary({
       active: items.length - retired.length,
       retired: retired.length,
       byType: Array.from(byType.entries()).sort((a, b) => b[1].totalM - a[1].totalM),
-      byCategory: Array.from(byCategory.entries()).sort((a, b) => b[1].totalM - a[1].totalM),
+      byShoeType: Array.from(byType2.entries()).sort((a, b) => b[1].totalM - a[1].totalM),
+      superShoeCount: superShoes.length,
+      superShoeM: superM,
+      noType: shoes.filter((g) => !g.is_retired && !g.shoe_type),
       byGroup,
       pastTarget: withTarget.filter((x) => x.pct >= 100).sort((a, b) => b.pct - a.pct),
       nearingTarget: withTarget.filter((x) => x.pct >= 80 && x.pct < 100).sort((a, b) => b.pct - a.pct),
@@ -768,11 +1038,11 @@ function GearSummary({
     };
   }, [items, usageByGear]);
 
-  const categoryChart = stats.byCategory.map(([c, v]) => ({
-    name: CATEGORY_LABEL[c] ?? (c === "unset" ? "Not set" : c),
+  const typeChart = stats.byShoeType.map(([c, v]) => ({
+    name: SHOE_TYPE_LABEL[c] ?? (c === "unset" ? "Not set" : c),
     km: Math.round(km(v.totalM)),
     count: v.count,
-    fill: CATEGORY_COLOUR[c] ?? "#94a3b8",
+    fill: SHOE_TYPE_COLOUR[c] ?? "#94a3b8",
   }));
 
   const groupChart = PURPOSE_GROUPS.filter((g) => (stats.byGroup.get(g.key) ?? 0) > 0).map((g) => ({
@@ -826,12 +1096,14 @@ function GearSummary({
           </div>
           <div className="border rounded-lg p-3">
             <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              <Footprints className="h-3 w-3" /> per shoe
+              <Zap className="h-3 w-3" /> supershoes
             </div>
-            <div className="text-2xl font-bold tabular-nums">
-              {stats.shoeCount > 0 ? Math.round(km(summedGearM) / stats.shoeCount).toLocaleString() : 0}
+            <div className="text-2xl font-bold tabular-nums">{stats.superShoeCount}</div>
+            <div className="text-[11px] text-muted-foreground">
+              {stats.superShoeCount > 0
+                ? `${Math.round(km(stats.superShoeM)).toLocaleString()} km in plated foam`
+                : "none in the locker"}
             </div>
-            <div className="text-[11px] text-muted-foreground">average km</div>
           </div>
         </div>
 
@@ -874,16 +1146,16 @@ function GearSummary({
             </div>
           )}
 
-          {categoryChart.length > 0 && (
+          {typeChart.length > 0 && (
             <div>
               <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
-                <Footprints className="h-3 w-3" /> Shoes by category — km
+                <Footprints className="h-3 w-3" /> Shoes by type — km
               </div>
-              <div style={{ height: Math.max(110, categoryChart.length * 32) }} className="w-full">
+              <div style={{ height: Math.max(110, typeChart.length * 32) }} className="w-full">
                 <ResponsiveContainer>
-                  <BarChart data={categoryChart} layout="vertical" margin={{ top: 0, right: 12, left: 0, bottom: 0 }}>
+                  <BarChart data={typeChart} layout="vertical" margin={{ top: 0, right: 12, left: 0, bottom: 0 }}>
                     <XAxis type="number" tick={{ fontSize: 10 }} />
-                    <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={74} />
+                    <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={112} />
                     <Tooltip
                       cursor={{ fill: "hsl(var(--muted))", opacity: 0.4 }}
                       contentStyle={{
@@ -897,7 +1169,7 @@ function GearSummary({
                       ]}
                     />
                     <Bar dataKey="km" radius={[0, 4, 4, 0]}>
-                      {categoryChart.map((d) => (
+                      {typeChart.map((d) => (
                         <Cell key={d.name} fill={d.fill} />
                       ))}
                     </Bar>
@@ -989,6 +1261,14 @@ function GearSummary({
                     </span>
                   </div>
                 ))}
+                {stats.noType.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50 shrink-0" />
+                    <span>
+                      {stats.noType.length} shoe{stats.noType.length === 1 ? " has" : "s have"} no type set yet
+                    </span>
+                  </div>
+                )}
                 {stats.noPurpose.length > 0 && (
                   <div className="flex items-center gap-2">
                     <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50 shrink-0" />
@@ -1192,6 +1472,7 @@ function GearGroup({
 function GearList({ athleteId }: { athleteId: string }) {
   const [purposeFilter, setPurposeFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [shoeTypeFilter, setShoeTypeFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
 
   const { data: gearItems } = useQuery({
@@ -1265,9 +1546,18 @@ function GearList({ athleteId }: { athleteId: string }) {
     return Array.from(set);
   }, [gearItems]);
 
+  const shoeTypesInUse = useMemo(() => {
+    const set = new Set<string>();
+    for (const g of gearItems ?? []) if (g.shoe_type) set.add(g.shoe_type);
+    return SHOE_TYPES.filter((t) => set.has(t.value));
+  }, [gearItems]);
+
   const filtered = useMemo(() => {
     let out = gearItems ?? [];
     if (typeFilter !== "all") out = out.filter((g) => (g.gear_type ?? "other") === typeFilter);
+    if (shoeTypeFilter === "__super__") out = out.filter((g) => g.gear_type === "shoe" && isSuperShoe(g));
+    else if (shoeTypeFilter === "__none__") out = out.filter((g) => g.gear_type === "shoe" && !g.shoe_type);
+    else if (shoeTypeFilter !== "all") out = out.filter((g) => g.shoe_type === shoeTypeFilter);
     if (purposeFilter === "__none__") {
       out = out.filter((g) => g.gear_type === "shoe" && ((g.used_for ?? []) as string[]).length === 0);
     } else if (purposeFilter !== "all") {
@@ -1276,7 +1566,7 @@ function GearList({ athleteId }: { athleteId: string }) {
     const q = search.trim().toLowerCase();
     if (q) out = out.filter((g) => `${g.brand ?? ""} ${g.model ?? ""} ${g.nickname ?? ""}`.toLowerCase().includes(q));
     return out;
-  }, [gearItems, purposeFilter, typeFilter, search]);
+  }, [gearItems, purposeFilter, typeFilter, shoeTypeFilter, search]);
 
   if (!gearItems || gearItems.length === 0) {
     return (
@@ -1290,7 +1580,8 @@ function GearList({ athleteId }: { athleteId: string }) {
 
   const activeFiltered = filtered.filter((g) => !g.is_retired);
   const retiredFiltered = filtered.filter((g) => g.is_retired);
-  const filtersOn = typeFilter !== "all" || purposeFilter !== "all" || search.trim() !== "";
+  const filtersOn =
+    typeFilter !== "all" || purposeFilter !== "all" || shoeTypeFilter !== "all" || search.trim() !== "";
 
   // Groups start open when the locker is small enough to scan, and closed
   // once it isn't — but a filter or search always opens them, since the
@@ -1316,7 +1607,7 @@ function GearList({ athleteId }: { athleteId: string }) {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="grid sm:grid-cols-3 gap-2">
+              <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-2">
                 <div className="relative">
                   <Search className="h-3.5 w-3.5 absolute left-2.5 top-2.5 text-muted-foreground" />
                   <Input
@@ -1337,6 +1628,24 @@ function GearList({ athleteId }: { athleteId: string }) {
                         {TYPE_LABEL[t] ?? t}
                       </SelectItem>
                     ))}
+                  </SelectContent>
+                </Select>
+                <Select value={shoeTypeFilter} onValueChange={setShoeTypeFilter}>
+                  <SelectTrigger className="h-9 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Any shoe type</SelectItem>
+                    <SelectItem value="__super__">Supershoes only</SelectItem>
+                    {shoeTypesInUse.map((t) => (
+                      <SelectItem key={t.value} value={t.value}>
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="h-2 w-2 rounded-full inline-block" style={{ background: t.colour }} />
+                          {t.label}
+                        </span>
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="__none__">Shoes with no type set</SelectItem>
                   </SelectContent>
                 </Select>
                 <Select value={purposeFilter} onValueChange={setPurposeFilter}>
@@ -1365,6 +1674,7 @@ function GearList({ athleteId }: { athleteId: string }) {
                     onClick={() => {
                       setSearch("");
                       setTypeFilter("all");
+                      setShoeTypeFilter("all");
                       setPurposeFilter("all");
                     }}
                     className="underline hover:text-foreground"
@@ -1475,7 +1785,14 @@ function GearCard({
     invalidateAll();
   }
 
-  const categoryColour = CATEGORY_COLOUR[item.shoe_category ?? "unset"] ?? "#94a3b8";
+  const typeColour = SHOE_TYPE_COLOUR[item.shoe_type ?? ""] ?? "#94a3b8";
+  const traits: string[] = Array.isArray(item.shoe_traits) ? item.shoe_traits : [];
+  const superShoe = item.gear_type === "shoe" && isSuperShoe(item);
+  const specBits = [
+    item.stack_height_mm != null ? `${item.stack_height_mm}mm stack` : null,
+    item.drop_mm != null ? `${item.drop_mm}mm drop` : null,
+    item.weight_g != null ? `${item.weight_g}g` : null,
+  ].filter(Boolean) as string[];
 
   return (
     <Card className={item.is_retired ? "opacity-60" : undefined}>
@@ -1489,16 +1806,16 @@ function GearCard({
             )}
             <span
               className="h-8 w-8 shrink-0 rounded-md grid place-items-center"
-              style={{ background: `${categoryColour}1f` }}
+              style={{ background: `${typeColour}1f` }}
             >
-              <Icon className="h-4 w-4 shrink-0" style={{ color: categoryColour }} />
+              <Icon className="h-4 w-4 shrink-0" style={{ color: typeColour }} />
             </span>
             <div className="min-w-0">
               <CardTitle className="text-base truncate">{item.nickname || `${item.brand} ${item.model}`}</CardTitle>
               <CardDescription className="truncate">
                 {item.brand} {item.model}
-                {item.shoe_category && ` · ${String(item.shoe_category).replace("_", " ")}`}
-                {item.is_spike && " · spikes"}
+                {item.shoe_type && ` · ${SHOE_TYPE_LABEL[item.shoe_type] ?? item.shoe_type}`}
+                {item.shoe_surface && ` · ${SURFACE_LABEL[item.shoe_surface] ?? item.shoe_surface}`}
               </CardDescription>
             </div>
           </button>
@@ -1520,6 +1837,32 @@ function GearCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
+        {item.gear_type === "shoe" && (superShoe || traits.length > 0 || specBits.length > 0) && (
+          <div className="flex flex-wrap items-center gap-1">
+            {superShoe && (
+              <Badge variant="outline" className="text-[10px] font-semibold" style={tintStyle("#a855f7")}>
+                <Zap className="h-2.5 w-2.5 mr-1" /> Supershoe
+              </Badge>
+            )}
+            {traits.map((t) => (
+              <Badge key={t} variant="secondary" className="text-[10px] font-normal">
+                {traitLabel(t)}
+              </Badge>
+            ))}
+            {specBits.length > 0 && (
+              <span className="text-[10px] text-muted-foreground tabular-nums">{specBits.join(" · ")}</span>
+            )}
+          </div>
+        )}
+        {item.gear_type === "shoe" && !item.shoe_type && (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="text-[11px] text-muted-foreground underline hover:text-foreground block"
+          >
+            No shoe type set — say whether this is a spike, racer, trainer…
+          </button>
+        )}
         {item.gear_type === "shoe" && (
           <div className="flex flex-wrap gap-1">
             {purposes.length === 0 ? (
@@ -1570,7 +1913,20 @@ function GearCard({
         )}
         {open && (
           <div className="border-t pt-3 space-y-3">
-            {item.notes && <p className="text-xs text-muted-foreground whitespace-pre-wrap">{item.notes}</p>}
+            {item.description && (
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
+                  Designed for
+                </div>
+                <p className="text-xs text-muted-foreground whitespace-pre-wrap">{item.description}</p>
+              </div>
+            )}
+            {item.notes && (
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">Notes</div>
+                <p className="text-xs text-muted-foreground whitespace-pre-wrap">{item.notes}</p>
+              </div>
+            )}
             <LinkedSessions gearId={item.id} athleteId={athleteId} />
             <LinkSessionPicker gearId={item.id} athleteId={athleteId} />
             <div className="flex gap-2 flex-wrap">
