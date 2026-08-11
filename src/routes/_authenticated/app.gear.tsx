@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyAthlete } from "@/lib/use-auth";
@@ -43,6 +43,10 @@ import {
   LayoutGrid,
   ListFilter,
   Layers,
+  ImagePlus,
+  X,
+  List,
+  Maximize2,
   Flame,
   Gauge,
 } from "lucide-react";
@@ -328,6 +332,7 @@ type GearDraft = {
   drop_mm: string;
   weight_g: string;
   description: string;
+  image_url: string;
   brand: string;
   customBrand: string;
   model: string;
@@ -348,6 +353,7 @@ function emptyDraft(): GearDraft {
     drop_mm: "",
     weight_g: "",
     description: "",
+    image_url: "",
     brand: BRANDS_BY_TYPE.shoe[0],
     customBrand: "",
     model: "",
@@ -375,6 +381,7 @@ function draftFromItem(item: any): GearDraft {
     drop_mm: item.drop_mm == null ? "" : String(item.drop_mm),
     weight_g: item.weight_g == null ? "" : String(item.weight_g),
     description: item.description ?? "",
+    image_url: item.image_url ?? "",
     brand: brandIsKnown ? item.brand : "Other",
     customBrand: brandIsKnown ? "" : (item.brand ?? ""),
     model: item.model ?? "",
@@ -400,6 +407,7 @@ function draftToPayload(d: GearDraft, athleteId: string) {
     drop_mm: isShoe ? num(d.drop_mm) : null,
     weight_g: isShoe ? num(d.weight_g) : null,
     description: d.description || null,
+    image_url: d.image_url || null,
     // Legacy columns, derived — the session detail page still reads them.
     shoe_category: isShoe ? legacyCategoryFor(d.shoe_surface || null) : null,
     is_spike: isShoe && d.shoe_type === "spike",
@@ -489,6 +497,111 @@ const DEFAULT_PURPOSES_BY_TYPE: Record<string, string[]> = {
 };
 
 // ----------------------------------------------------------------------------
+// Photo upload.
+//
+// Path convention is <athlete_id>/<timestamp>-<random>.<ext>, which the
+// storage policies in 20260811110000_gear-photos.sql rely on — the first
+// folder segment IS the athlete id and is what write access is checked
+// against. Changing the shape of this path will silently break uploads.
+// ----------------------------------------------------------------------------
+
+const GEAR_BUCKET = "gear-media";
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+async function uploadGearImage(athleteId: string, file: File): Promise<string> {
+  const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+  const path = `${athleteId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+  const { error } = await supabase.storage.from(GEAR_BUCKET).upload(path, file, { upsert: true });
+  if (error) throw error;
+  return supabase.storage.from(GEAR_BUCKET).getPublicUrl(path).data.publicUrl;
+}
+
+function GearImageUpload({
+  athleteId,
+  value,
+  onChange,
+}: {
+  athleteId: string;
+  value: string;
+  onChange: (url: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function handleFile(file: File) {
+    // Checked client-side as well as by the bucket's file_size_limit, purely
+    // so an oversized file fails instantly with a clear message rather than
+    // after a slow upload that the server then rejects.
+    if (file.size > MAX_IMAGE_BYTES) {
+      toast.error("That image is over 5 MB — try a smaller one.");
+      return;
+    }
+    setBusy(true);
+    try {
+      onChange(await uploadGearImage(athleteId, file));
+    } catch (e: any) {
+      toast.error(e?.message ?? "Upload failed");
+    } finally {
+      setBusy(false);
+      // Reset so re-picking the SAME file still fires onChange.
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <Label className="text-xs flex items-center gap-1.5">
+        <ImagePlus className="h-3.5 w-3.5" /> Photo
+      </Label>
+      {value ? (
+        <div className="relative w-full max-w-[240px] aspect-[4/3] overflow-hidden rounded-md border bg-muted">
+          <img src={value} alt="Gear" className="h-full w-full object-cover" />
+          <button
+            type="button"
+            onClick={() => onChange("")}
+            className="absolute right-1 top-1 rounded-full bg-black/60 p-1 text-white hover:bg-black/80"
+            aria-label="Remove photo"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={busy}
+          className="w-full max-w-[240px] aspect-[4/3] rounded-md border border-dashed grid place-items-center text-xs text-muted-foreground hover:bg-accent/30 transition-colors"
+        >
+          {busy ? (
+            "Uploading…"
+          ) : (
+            <span className="flex flex-col items-center gap-1">
+              <ImagePlus className="h-5 w-5" />
+              Add a photo
+            </span>
+          )}
+        </button>
+      )}
+      {value && (
+        <Button type="button" size="sm" variant="outline" onClick={() => inputRef.current?.click()} disabled={busy}>
+          {busy ? "Uploading…" : "Replace photo"}
+        </Button>
+      )}
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) handleFile(f);
+        }}
+      />
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------
 // Trait picker — grouped checkboxes, same shape as the purpose picker.
 // ----------------------------------------------------------------------------
 
@@ -540,7 +653,15 @@ function TraitPicker({ value, onChange }: { value: string[]; onChange: (next: st
 // Shared field set
 // ----------------------------------------------------------------------------
 
-function GearFormFields({ draft, setDraft }: { draft: GearDraft; setDraft: (next: GearDraft) => void }) {
+function GearFormFields({
+  draft,
+  setDraft,
+  athleteId,
+}: {
+  draft: GearDraft;
+  setDraft: (next: GearDraft) => void;
+  athleteId: string;
+}) {
   function set<K extends keyof GearDraft>(key: K, val: GearDraft[K]) {
     setDraft({ ...draft, [key]: val });
   }
@@ -570,6 +691,8 @@ function GearFormFields({ draft, setDraft }: { draft: GearDraft; setDraft: (next
 
   return (
     <div className="space-y-4">
+      <GearImageUpload athleteId={athleteId} value={draft.image_url} onChange={(v) => set("image_url", v)} />
+
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
         <div>
           <Label className="text-xs">Type</Label>
@@ -757,12 +880,18 @@ function GearAddDialog({
   const [draft, setDraft] = useState<GearDraft>(emptyDraft());
   const [saving, setSaving] = useState(false);
 
-  function handleOpenChange(v: boolean) {
-    // Fresh form every time it opens, so a half-filled abandoned entry
-    // doesn't reappear next time.
-    if (v) setDraft(emptyDraft());
-    onOpenChange(v);
-  }
+  // Fresh form every time it opens, so the shoe you just saved (or a
+  // half-filled abandoned entry) doesn't reappear in the next one.
+  //
+  // This has to be an effect keyed on `open`, NOT a wrapper around
+  // onOpenChange: Radix only calls onOpenChange when the dialog closes
+  // itself (escape, overlay click, close button). When the parent flips
+  // `open` to true from the Add gear button, onOpenChange never fires, so a
+  // reset living in that handler would silently never run — which is exactly
+  // the bug this replaces.
+  useEffect(() => {
+    if (open) setDraft(emptyDraft());
+  }, [open]);
 
   async function save() {
     if (!draft.model.trim()) {
@@ -785,7 +914,7 @@ function GearAddDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl">
         <DialogHeader className="min-w-0">
           <DialogTitle className="flex items-center gap-2">
@@ -794,7 +923,7 @@ function GearAddDialog({
           <DialogDescription>Shoes, bike, treadmill or anything else worth tracking mileage on.</DialogDescription>
         </DialogHeader>
         <div className="max-h-[68vh] overflow-y-auto brand-scrollbar pr-1">
-          <GearFormFields draft={draft} setDraft={setDraft} />
+          <GearFormFields draft={draft} setDraft={setDraft} athleteId={athleteId} />
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
@@ -824,12 +953,18 @@ function GearEditDialog({
   const [draft, setDraft] = useState<GearDraft>(() => draftFromItem(item));
   const [saving, setSaving] = useState(false);
 
-  // Re-seed from the item every time the dialog is opened, so reopening
-  // after a cancel shows the saved values rather than the abandoned edit.
-  function handleOpenChange(v: boolean) {
-    if (v) setDraft(draftFromItem(item));
-    onOpenChange(v);
-  }
+  // Re-seed from the item every time the dialog is opened, so reopening after
+  // a cancel shows the saved values rather than the abandoned edit. Same
+  // reasoning as the add dialog above — this must be an effect on `open`,
+  // since opening from the parent never triggers onOpenChange.
+  //
+  // Keyed on item.id rather than `item` deliberately: the gear list refetches
+  // and hands back a new object on every invalidation, and depending on the
+  // object identity would wipe an edit in progress mid-typing.
+  useEffect(() => {
+    if (open) setDraft(draftFromItem(item));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, item.id]);
 
   async function save() {
     if (!draft.model.trim()) {
@@ -853,7 +988,7 @@ function GearEditDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl">
         <DialogHeader className="min-w-0">
           <DialogTitle className="flex items-center gap-2">
@@ -862,7 +997,7 @@ function GearEditDialog({
           <DialogDescription>Changes here don't affect linked sessions or accumulated distance.</DialogDescription>
         </DialogHeader>
         <div className="max-h-[68vh] overflow-y-auto brand-scrollbar pr-1">
-          <GearFormFields draft={draft} setDraft={setDraft} />
+          <GearFormFields draft={draft} setDraft={setDraft} athleteId={athleteId} />
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
@@ -1225,7 +1360,16 @@ function GearSummary({
                   const Icon = TYPE_ICON[g.gear_type] ?? Package;
                   return (
                     <div key={g.id} className="flex items-center gap-2 text-sm">
-                      <Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      {g.image_url ? (
+                        <img
+                          src={g.image_url}
+                          alt=""
+                          className="h-5 w-5 rounded-sm object-cover shrink-0 border"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      )}
                       <span className="truncate flex-1">{g.nickname || `${g.brand} ${g.model}`}</span>
                       <span className="text-xs text-muted-foreground tabular-nums shrink-0">
                         {Math.round(km(totalM)).toLocaleString()} km
@@ -1386,9 +1530,17 @@ function PurposeBuckets({
                         {list.map((g: any) => (
                           <span
                             key={g.id}
-                            className={`text-[10px] rounded px-1.5 py-0.5 border ${g.is_retired ? "opacity-50" : ""}`}
+                            className={`text-[10px] rounded px-1.5 py-0.5 border inline-flex items-center gap-1 ${g.is_retired ? "opacity-50" : ""}`}
                             style={tintStyle(grp.colour)}
                           >
+                            {g.image_url && (
+                              <img
+                                src={g.image_url}
+                                alt=""
+                                className="h-3.5 w-3.5 rounded-sm object-cover shrink-0"
+                                loading="lazy"
+                              />
+                            )}
                             {g.nickname || `${g.brand} ${g.model}`}
                             <span className="opacity-60 ml-1 tabular-nums">
                               {Math.round(km(usageByGear.get(g.id)?.totalM ?? 0))}km
@@ -1419,6 +1571,7 @@ function GearGroup({
   usageByGear,
   athleteId,
   defaultOpen,
+  view,
 }: {
   title: string;
   typeKey: string;
@@ -1426,6 +1579,7 @@ function GearGroup({
   usageByGear: Map<string, { totalM: number; count: number }>;
   athleteId: string;
   defaultOpen: boolean;
+  view: "list" | "grid";
 }) {
   const [open, setOpen] = useState(defaultOpen);
   if (items.length === 0) return null;
@@ -1454,13 +1608,20 @@ function GearGroup({
           {Math.round(km(totalM)).toLocaleString()} km
         </span>
       </button>
-      {open && (
-        <div className="space-y-2 pl-1">
-          {items.map((g) => (
-            <GearCard key={g.id} item={g} usage={usageByGear.get(g.id)} athleteId={athleteId} />
-          ))}
-        </div>
-      )}
+      {open &&
+        (view === "grid" ? (
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 pl-1">
+            {items.map((g) => (
+              <GearTile key={g.id} item={g} usage={usageByGear.get(g.id)} athleteId={athleteId} />
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-2 pl-1">
+            {items.map((g) => (
+              <GearCard key={g.id} item={g} usage={usageByGear.get(g.id)} athleteId={athleteId} />
+            ))}
+          </div>
+        ))}
     </div>
   );
 }
@@ -1474,6 +1635,7 @@ function GearList({ athleteId }: { athleteId: string }) {
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [shoeTypeFilter, setShoeTypeFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
+  const [view, setView] = useState<"list" | "grid">("grid");
 
   const { data: gearItems } = useQuery({
     queryKey: ["gear-list", athleteId],
@@ -1602,9 +1764,36 @@ function GearList({ athleteId }: { athleteId: string }) {
         <div className="xl:col-span-2 space-y-3">
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Package className="h-4 w-4 text-[var(--accent-red)]" /> All gear
-              </CardTitle>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Package className="h-4 w-4 text-[var(--accent-red)]" /> All gear
+                </CardTitle>
+                <div className="flex items-center gap-1 rounded-md border p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setView("grid")}
+                    className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs transition-colors ${
+                      view === "grid" ? "bg-accent font-medium" : "text-muted-foreground hover:bg-accent/50"
+                    }`}
+                  >
+                    <LayoutGrid className="h-3.5 w-3.5" /> Photos
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setView("list")}
+                    className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs transition-colors ${
+                      view === "list" ? "bg-accent font-medium" : "text-muted-foreground hover:bg-accent/50"
+                    }`}
+                  >
+                    <List className="h-3.5 w-3.5" /> List
+                  </button>
+                </div>
+              </div>
+              <CardDescription>
+                {view === "grid"
+                  ? "Photo view — browse and edit. Switch to List to link sessions or retire something."
+                  : "List view — full detail, linked sessions, and retire/delete."}
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-2">
@@ -1697,6 +1886,7 @@ function GearList({ athleteId }: { athleteId: string }) {
                       usageByGear={usageByGear}
                       athleteId={athleteId}
                       defaultOpen={autoOpen}
+                      view={view}
                     />
                   ))}
                   <GearGroup
@@ -1706,6 +1896,7 @@ function GearList({ athleteId }: { athleteId: string }) {
                     usageByGear={usageByGear}
                     athleteId={athleteId}
                     defaultOpen={false}
+                    view={view}
                   />
                 </div>
               )}
@@ -1727,6 +1918,160 @@ function GearList({ athleteId }: { athleteId: string }) {
 }
 
 // ----------------------------------------------------------------------------
+// Full-size photo viewer. The thumbnails everywhere else are deliberately
+// small so lists stay dense — this is where you actually look at the shoe.
+// ----------------------------------------------------------------------------
+
+function ImageLightbox({
+  url,
+  alt,
+  open,
+  onOpenChange,
+}: {
+  url: string;
+  alt: string;
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl">
+        <DialogHeader className="min-w-0">
+          <DialogTitle className="truncate">{alt}</DialogTitle>
+        </DialogHeader>
+        {/* object-contain, not cover — a photo opened at full size shouldn't
+            be cropped, even though the thumbnails crop to keep rows tidy. */}
+        <img src={url} alt={alt} className="w-full max-h-[70vh] object-contain rounded-md bg-muted" />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// Grid tile — the photo-forward view. Browsing and editing only; linked-session
+// management stays in the list view rather than being duplicated here.
+// ----------------------------------------------------------------------------
+
+function GearTile({
+  item,
+  usage,
+  athleteId,
+}: {
+  item: any;
+  usage: { totalM: number; count: number } | undefined;
+  athleteId: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [zoomed, setZoomed] = useState(false);
+  const Icon = TYPE_ICON[item.gear_type] ?? Package;
+  const typeColour = SHOE_TYPE_COLOUR[item.shoe_type ?? ""] ?? "#94a3b8";
+  const totalKm = usage ? usage.totalM / 1000 : 0;
+  const pct = item.retirement_target_km ? Math.min(100, (totalKm / Number(item.retirement_target_km)) * 100) : null;
+  const superShoe = item.gear_type === "shoe" && isSuperShoe(item);
+  const title = item.nickname || `${item.brand} ${item.model}`;
+
+  return (
+    <Card className={`overflow-hidden ${item.is_retired ? "opacity-60" : ""}`}>
+      <div className="relative aspect-[4/3] bg-muted">
+        {item.image_url ? (
+          <>
+            <img src={item.image_url} alt={title} className="h-full w-full object-cover" loading="lazy" />
+            <button
+              type="button"
+              onClick={() => setZoomed(true)}
+              className="absolute right-1.5 bottom-1.5 rounded-full bg-black/55 p-1.5 text-white hover:bg-black/75"
+              aria-label="View full size"
+            >
+              <Maximize2 className="h-3.5 w-3.5" />
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="h-full w-full grid place-items-center gap-1 text-xs text-muted-foreground hover:bg-accent/30 transition-colors"
+            style={{ background: `${typeColour}0f` }}
+          >
+            <Icon className="h-8 w-8" style={{ color: typeColour }} />
+            <span className="flex items-center gap-1">
+              <ImagePlus className="h-3 w-3" /> Add a photo
+            </span>
+          </button>
+        )}
+        <div className="absolute left-1.5 top-1.5 flex flex-wrap gap-1">
+          {superShoe && (
+            <Badge className="text-[10px] font-semibold border-0" style={{ background: "#a855f7", color: "white" }}>
+              <Zap className="h-2.5 w-2.5 mr-1" /> Supershoe
+            </Badge>
+          )}
+          {item.is_retired && (
+            <Badge variant="secondary" className="text-[10px]">
+              Retired
+            </Badge>
+          )}
+        </div>
+      </div>
+
+      <CardContent className="p-3 space-y-2">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="font-semibold text-sm truncate">{title}</div>
+            <div className="text-[11px] text-muted-foreground truncate">
+              {item.brand} {item.model}
+            </div>
+          </div>
+          <button type="button" onClick={() => setEditing(true)} aria-label="Edit gear" className="shrink-0 pt-0.5">
+            <Pencil className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1">
+          {item.shoe_type && (
+            <Badge variant="outline" className="text-[10px]" style={tintStyle(typeColour)}>
+              {SHOE_TYPE_LABEL[item.shoe_type] ?? item.shoe_type}
+            </Badge>
+          )}
+          {item.shoe_surface && (
+            <Badge variant="secondary" className="text-[10px] font-normal">
+              {SURFACE_LABEL[item.shoe_surface] ?? item.shoe_surface}
+            </Badge>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+          <span className="flex items-center gap-0.5">
+            {[1, 2, 3, 4, 5].map((r) => (
+              <Star
+                key={r}
+                className={`h-3 w-3 ${(item.rating ?? 0) >= r ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground/40"}`}
+              />
+            ))}
+          </span>
+          <span className="tabular-nums flex items-center gap-1">
+            <Gauge className="h-3 w-3" />
+            {totalKm.toFixed(0)} km
+          </span>
+        </div>
+
+        {pct != null && (
+          <div className="h-1 rounded-full bg-muted overflow-hidden">
+            <div
+              className={`h-full ${pct >= 100 ? "bg-destructive" : pct >= 80 ? "bg-amber-500" : "bg-[var(--accent-red)]"}`}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+        )}
+      </CardContent>
+
+      {item.image_url && (
+        <ImageLightbox url={item.image_url} alt={title} open={zoomed} onOpenChange={setZoomed} />
+      )}
+      <GearEditDialog item={item} athleteId={athleteId} open={editing} onOpenChange={setEditing} />
+    </Card>
+  );
+}
+
+// ----------------------------------------------------------------------------
 // Gear card
 // ----------------------------------------------------------------------------
 
@@ -1742,6 +2087,7 @@ function GearCard({
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [zoomed, setZoomed] = useState(false);
   const Icon = TYPE_ICON[item.gear_type] ?? Package;
   const totalKm = usage ? usage.totalM / 1000 : 0;
   const pct = item.retirement_target_km ? Math.min(100, (totalKm / Number(item.retirement_target_km)) * 100) : null;
@@ -1798,27 +2144,51 @@ function GearCard({
     <Card className={item.is_retired ? "opacity-60" : undefined}>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <button type="button" onClick={() => setOpen((v) => !v)} className="flex items-center gap-2 text-left min-w-0">
-            {open ? (
-              <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" />
+          <div className="flex items-center gap-2 min-w-0">
+            <button type="button" onClick={() => setOpen((v) => !v)} aria-label="Expand" className="shrink-0">
+              {open ? (
+                <ChevronUp className="h-4 w-4 text-muted-foreground" />
+              ) : (
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              )}
+            </button>
+            {item.image_url ? (
+              <button
+                type="button"
+                onClick={() => setZoomed(true)}
+                className="h-14 w-14 shrink-0 rounded-md overflow-hidden border bg-muted relative group"
+                aria-label="View photo"
+              >
+                <img
+                  src={item.image_url}
+                  alt={item.nickname || `${item.brand} ${item.model}`}
+                  className="h-full w-full object-cover"
+                  loading="lazy"
+                />
+                <span className="absolute inset-0 bg-black/0 group-hover:bg-black/35 grid place-items-center transition-colors">
+                  <Maximize2 className="h-4 w-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                </span>
+              </button>
             ) : (
-              <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                className="h-14 w-14 shrink-0 rounded-md grid place-items-center hover:opacity-80 transition-opacity"
+                style={{ background: `${typeColour}1f` }}
+                aria-label="Add a photo"
+              >
+                <Icon className="h-5 w-5" style={{ color: typeColour }} />
+              </button>
             )}
-            <span
-              className="h-8 w-8 shrink-0 rounded-md grid place-items-center"
-              style={{ background: `${typeColour}1f` }}
-            >
-              <Icon className="h-4 w-4 shrink-0" style={{ color: typeColour }} />
-            </span>
-            <div className="min-w-0">
+            <button type="button" onClick={() => setOpen((v) => !v)} className="text-left min-w-0">
               <CardTitle className="text-base truncate">{item.nickname || `${item.brand} ${item.model}`}</CardTitle>
               <CardDescription className="truncate">
                 {item.brand} {item.model}
                 {item.shoe_type && ` · ${SHOE_TYPE_LABEL[item.shoe_type] ?? item.shoe_type}`}
                 {item.shoe_surface && ` · ${SURFACE_LABEL[item.shoe_surface] ?? item.shoe_surface}`}
               </CardDescription>
-            </div>
-          </button>
+            </button>
+          </div>
           <div className="flex items-center gap-2 shrink-0">
             {item.is_retired && (
               <Badge variant="outline" className="text-[10px]">
@@ -1913,6 +2283,20 @@ function GearCard({
         )}
         {open && (
           <div className="border-t pt-3 space-y-3">
+            {item.image_url && (
+              <button
+                type="button"
+                onClick={() => setZoomed(true)}
+                className="block w-full max-w-[420px] aspect-[4/3] overflow-hidden rounded-md border bg-muted"
+              >
+                <img
+                  src={item.image_url}
+                  alt={item.nickname || `${item.brand} ${item.model}`}
+                  className="h-full w-full object-cover"
+                  loading="lazy"
+                />
+              </button>
+            )}
             {item.description && (
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
@@ -1944,6 +2328,14 @@ function GearCard({
         )}
       </CardContent>
 
+      {item.image_url && (
+        <ImageLightbox
+          url={item.image_url}
+          alt={item.nickname || `${item.brand} ${item.model}`}
+          open={zoomed}
+          onOpenChange={setZoomed}
+        />
+      )}
       <GearEditDialog item={item} athleteId={athleteId} open={editing} onOpenChange={setEditing} />
     </Card>
   );
