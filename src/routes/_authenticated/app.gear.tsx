@@ -46,6 +46,7 @@ import {
   ImagePlus,
   X,
   Copy,
+  ArrowDownUp,
   List,
   Maximize2,
   Flame,
@@ -1672,6 +1673,97 @@ function GearGroup({
 }
 
 // ----------------------------------------------------------------------------
+// Sorting.
+//
+// Applied WITHIN each gear-type group rather than across the whole locker —
+// the groups are the primary organisation, so flattening them to sort would
+// throw away more than the sort adds.
+// ----------------------------------------------------------------------------
+
+const SORT_OPTIONS: { value: string; label: string }[] = [
+  { value: "added_desc", label: "Recently added" },
+  { value: "name_asc", label: "Name A–Z" },
+  { value: "name_desc", label: "Name Z–A" },
+  { value: "km_desc", label: "Most km" },
+  { value: "km_asc", label: "Least km" },
+  { value: "wear_desc", label: "Closest to retirement" },
+  { value: "last_used_desc", label: "Recently used" },
+  { value: "last_used_asc", label: "Longest unused" },
+  { value: "rating_desc", label: "Highest rated" },
+  { value: "purchase_desc", label: "Newest purchase" },
+  { value: "purchase_asc", label: "Oldest purchase" },
+  { value: "favourites", label: "Favourites first" },
+];
+
+function gearDisplayName(g: any): string {
+  return (g.nickname || `${g.brand ?? ""} ${g.model ?? ""}`).trim().toLowerCase();
+}
+
+function sortGear(
+  items: any[],
+  sortBy: string,
+  usageByGear: Map<string, { totalM: number; count: number }>,
+  lastUsedByGear: Map<string, string>,
+): any[] {
+  const kmOf = (g: any) => (usageByGear.get(g.id)?.totalM ?? 0) / 1000;
+
+  // Percent of retirement target. Items with no target sort LAST rather than
+  // as 0% — "closest to retirement" is a question about shoes that have a
+  // target, and a shoe without one isn't the furthest away, it's not in the
+  // running at all.
+  const wearOf = (g: any) => (g.retirement_target_km ? (kmOf(g) / Number(g.retirement_target_km)) * 100 : -1);
+
+  // Empty-string dates sort to the end for descending and the start for
+  // ascending, which is the sensible reading of "never used" either way.
+  const lastUsedOf = (g: any) => lastUsedByGear.get(g.id) ?? "";
+
+  const out = items.slice();
+  switch (sortBy) {
+    case "name_asc":
+      return out.sort((a, b) => gearDisplayName(a).localeCompare(gearDisplayName(b)));
+    case "name_desc":
+      return out.sort((a, b) => gearDisplayName(b).localeCompare(gearDisplayName(a)));
+    case "km_desc":
+      return out.sort((a, b) => kmOf(b) - kmOf(a));
+    case "km_asc":
+      return out.sort((a, b) => kmOf(a) - kmOf(b));
+    case "wear_desc":
+      return out.sort((a, b) => wearOf(b) - wearOf(a));
+    case "last_used_desc":
+      return out.sort((a, b) => lastUsedOf(b).localeCompare(lastUsedOf(a)));
+    case "last_used_asc":
+      return out.sort((a, b) => {
+        const av = lastUsedOf(a);
+        const bv = lastUsedOf(b);
+        // Never-used first — that's the thing you'd actually be looking for.
+        if (av === "" && bv !== "") return -1;
+        if (bv === "" && av !== "") return 1;
+        return av.localeCompare(bv);
+      });
+    case "rating_desc":
+      return out.sort((a, b) => (Number(b.rating) || 0) - (Number(a.rating) || 0));
+    case "purchase_desc":
+      return out.sort((a, b) => String(b.purchase_date ?? "").localeCompare(String(a.purchase_date ?? "")));
+    case "purchase_asc":
+      return out.sort((a, b) => {
+        const av = String(a.purchase_date ?? "");
+        const bv = String(b.purchase_date ?? "");
+        if (av === "" && bv !== "") return 1;
+        if (bv === "" && av !== "") return -1;
+        return av.localeCompare(bv);
+      });
+    case "favourites":
+      return out.sort(
+        (a, b) => Number(!!b.is_favourite) - Number(!!a.is_favourite) || gearDisplayName(a).localeCompare(gearDisplayName(b)),
+      );
+    default:
+      // "added_desc" — the query already returns created_at descending, so
+      // this is deliberately a no-op rather than a re-sort.
+      return out;
+  }
+}
+
+// ----------------------------------------------------------------------------
 // List — summary, then the full list beside the purpose buckets
 // ----------------------------------------------------------------------------
 
@@ -1681,6 +1773,7 @@ function GearList({ athleteId }: { athleteId: string }) {
   const [shoeTypeFilter, setShoeTypeFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"list" | "grid">("grid");
+  const [sortBy, setSortBy] = useState<string>("added_desc");
 
   const { data: gearItems } = useQuery({
     queryKey: ["gear-list", athleteId],
@@ -1708,7 +1801,7 @@ function GearList({ athleteId }: { athleteId: string }) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("session_gear")
-        .select("gear_id, session_id, sessions(total_distance_m)")
+        .select("gear_id, session_id, sessions(total_distance_m, session_date)")
         .eq("athlete_id", athleteId);
       if (error) throw error;
       return (data ?? []) as any[];
@@ -1722,6 +1815,20 @@ function GearList({ athleteId }: { athleteId: string }) {
       cur.totalM += Number((row as any).sessions?.total_distance_m ?? 0);
       cur.count += 1;
       map.set(row.gear_id, cur);
+    }
+    return map;
+  }, [usageRows]);
+
+  // Most recent session date per gear item — powers the "recently used" and
+  // "longest unused" sorts. Plain string compare works because session_date
+  // is an ISO date.
+  const lastUsedByGear = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const row of usageRows ?? []) {
+      const d = (row as any).sessions?.session_date as string | undefined;
+      if (!d) continue;
+      const cur = map.get(row.gear_id);
+      if (!cur || d > cur) map.set(row.gear_id, d);
     }
     return map;
   }, [usageRows]);
@@ -1785,8 +1892,18 @@ function GearList({ athleteId }: { athleteId: string }) {
     );
   }
 
-  const activeFiltered = filtered.filter((g) => !g.is_retired);
-  const retiredFiltered = filtered.filter((g) => g.is_retired);
+  const activeFiltered = sortGear(
+    filtered.filter((g) => !g.is_retired),
+    sortBy,
+    usageByGear,
+    lastUsedByGear,
+  );
+  const retiredFiltered = sortGear(
+    filtered.filter((g) => g.is_retired),
+    sortBy,
+    usageByGear,
+    lastUsedByGear,
+  );
   const filtersOn =
     typeFilter !== "all" || purposeFilter !== "all" || shoeTypeFilter !== "all" || search.trim() !== "";
 
@@ -1813,6 +1930,22 @@ function GearList({ athleteId }: { athleteId: string }) {
                 <CardTitle className="text-base flex items-center gap-2">
                   <Package className="h-4 w-4 text-[var(--accent-red)]" /> All gear
                 </CardTitle>
+                <div className="flex items-center gap-2 flex-wrap">
+                <Select value={sortBy} onValueChange={setSortBy}>
+                  <SelectTrigger className="h-8 w-[190px] text-xs">
+                    <span className="inline-flex items-center gap-1.5 min-w-0">
+                      <ArrowDownUp className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <SelectValue />
+                    </span>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SORT_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <div className="flex items-center gap-1 rounded-md border p-0.5">
                   <button
                     type="button"
@@ -1832,6 +1965,7 @@ function GearList({ athleteId }: { athleteId: string }) {
                   >
                     <List className="h-3.5 w-3.5" /> List
                   </button>
+                </div>
                 </div>
               </div>
               <CardDescription>
