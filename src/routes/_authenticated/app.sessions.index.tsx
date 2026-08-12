@@ -260,8 +260,24 @@ function SessionsList() {
         .from("sessions")
         .select("*, athletes(name, timezone)", { count: "exact" })
         .in("athlete_id", ids)
+        // Newest DAY first, but sessions WITHIN a day run in the order they
+        // were actually done: morning, then afternoon, then evening.
+        //
+        // These two deliberately point opposite ways. Chaining descending onto
+        // both put the evening session above the morning one inside the same
+        // day, which reads backwards — a day is a unit you read forwards, even
+        // in a list where the newest day is on top.
+        //
+        // Works because session_time_of_day is a Postgres enum declared in
+        // chronological order (morning=1, afternoon=2, evening=3), so
+        // ascending IS chronological rather than alphabetical.
+        //
+        // NULLS FIRST because planned sessions and manual entries (gym, races
+        // not yet run) have no time_of_day — they belong at the top of the day
+        // rather than buried under the completed ones. Postgres defaults to
+        // NULLS LAST on ascending, so this must be explicit.
         .order("session_date", { ascending: false })
-        .order("time_of_day", { ascending: false })
+        .order("time_of_day", { ascending: true, nullsFirst: true })
         .range(pageParam, pageParam + PAGE_SIZE - 1);
       if (filterStatus === "done") q = q.not("completed_at", "is", null);
       if (filterStatus === "planned") q = q.is("completed_at", null);
