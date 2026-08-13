@@ -2450,14 +2450,20 @@ function StepBlock({
   // any run done entirely on one surface — so a badge only appears when this
   // step DIFFERS, and choosing "Same as session" clears the override rather
   // than freezing today's session value onto the step.
-  const terrainIsOverride = !!shownTerrain && shownTerrain !== session.terrain;
-
-  // Local echo of the saved value. The Select is otherwise driven straight
-  // from `step.terrain`, which only changes once the steps query refetches —
-  // so without this the control snaps back to its old value on every pick and
-  // reads as "it won't change".
+  //
+  // Order matters here: terrainIsOverride reads shownTerrain, so it MUST come
+  // after it. `const` is in the temporal dead zone until its own line
+  // executes, so having the two the wrong way round threw
+  // "Cannot access 'shownTerrain' before initialization" on every render of
+  // this component — which took the whole session page down, since StepBlock
+  // renders for every step.
+  //
+  // Local echo of the saved value: the Select is otherwise driven straight
+  // from `step.terrain`, which only changes once the steps query refetches,
+  // so without this the control snaps back to its old value on every pick.
   const [terrainDraft, setTerrainDraft] = useState<string | null | undefined>(undefined);
   const shownTerrain = terrainDraft !== undefined ? terrainDraft : (step.terrain ?? null);
+  const terrainIsOverride = !!shownTerrain && shownTerrain !== session.terrain;
 
   // Clear the local echo once the refetched row agrees, so the Select goes
   // back to being driven by server state rather than drifting from it.
