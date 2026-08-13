@@ -1771,7 +1771,7 @@ function SessionDetail() {
         )}
 
         <FuelingPanel session={session} />
-        <GearPanel session={session} />
+        <GearPanel session={session} segmentBreakdown={segmentBreakdown} />
         <SessionCommentsCard sessionId={sessionId} athleteId={session.athlete_id} />
       </div>
 
@@ -3099,7 +3099,19 @@ function FuelingPanel({ session }: { session: any }) {
 // same interaction pattern the Daily Log's recovery-modalities tags
 // already use, since a session can reasonably have more than one item
 // linked (e.g. a treadmill run: both the treadmill and the shoes worn).
-function GearPanel({ session }: { session: any }) {
+function GearPanel({
+  session,
+  segmentBreakdown,
+}: {
+  session: any;
+  /** The same per-segment totals the Overview card shows — summed from real
+   *  recorded reps (steps + interval_results), NOT from sessions.work_distance_m.
+   *  Those two disagree: on this session work_distance_m equals the full
+   *  19.05 km while the actual work steps total 10.07 km, which is why an
+   *  earlier version offered "Work · 19.05 km" and no warm up or cool down
+   *  at all. */
+  segmentBreakdown?: { rows: { kind: string; label: string; timeS: number; distanceM: number }[] };
+}) {
   const qc = useQueryClient();
   const athleteId = session.athlete_id as string;
   const sessionId = session.id as string;
@@ -3137,27 +3149,33 @@ function GearPanel({ session }: { session: any }) {
   const [segment, setSegment] = useState<string>("__whole__");
   const [saving, setSaving] = useState(false);
 
-  // Which segments this session actually has, with their real distances, so
-  // the picker only offers parts that exist and can show what each is worth.
+  // Offer exactly the segments this session actually recorded, with their
+  // real distances — driven by segmentBreakdown (the Overview card's own
+  // numbers) rather than sessions.work_distance_m, which on interval sessions
+  // can hold the whole session distance rather than just the work portion.
+  const SEGMENT_LABELS: Record<string, string> = {
+    warmup: "Warm up",
+    work: "Work / reps",
+    recovery: "Recovery jogs",
+    strides: "Strides",
+    cooldown: "Cool down",
+  };
+
   const segmentOptions = useMemo(() => {
     const total = Number(session.total_distance_m ?? 0);
-    const work = Number(session.work_distance_m ?? 0);
-    const nonWork = Math.max(0, total - work);
     const out: { value: string; label: string; km: number | null }[] = [
       { value: "__whole__", label: "Whole session", km: total > 0 ? total / 1000 : null },
     ];
-    if (work > 0) out.push({ value: "work", label: "Work / reps", km: work / 1000 });
-    // Warm up and cool down aren't stored as separate distances on the
-    // session, so their individual split is only known from per-point data.
-    // The RPC works that out; here we just offer them when there's clearly
-    // non-work distance to attribute.
-    if (nonWork > 0) {
-      out.push({ value: "warmup", label: "Warm up", km: null });
-      out.push({ value: "cooldown", label: "Cool down", km: null });
-      out.push({ value: "recovery", label: "Recovery jogs", km: null });
+    for (const row of segmentBreakdown?.rows ?? []) {
+      if (!(row.distanceM > 0)) continue;
+      out.push({
+        value: row.kind,
+        label: SEGMENT_LABELS[row.kind] ?? row.label,
+        km: row.distanceM / 1000,
+      });
     }
     return out;
-  }, [session.total_distance_m, session.work_distance_m]);
+  }, [session.total_distance_m, segmentBreakdown]);
 
   const linksForSegment = useMemo(() => {
     const want = segment === "__whole__" ? null : segment;
@@ -3284,13 +3302,9 @@ function GearPanel({ session }: { session: any }) {
             selector, a pending unsaved state that silently resets when you
             switch segment is a trap. */}
         <p className="text-[11px] text-muted-foreground">
-          {segment === "__whole__"
-            ? activeSegment?.km != null
-              ? `Whole session — ${activeSegment.km.toFixed(2)} km credited to each pair tapped here.`
-              : "Whole session."
-            : segment === "work"
-              ? `Work only — ${activeSegment?.km?.toFixed(2) ?? "?"} km, not the warm up or cool down.`
-              : "Warm up, cool down and recovery distances are worked out from the session's own data."}
+          {activeSegment?.km != null
+            ? `${activeSegment.label} — ${activeSegment.km.toFixed(2)} km credited to each pair tapped here.`
+            : activeSegment?.label ?? ""}
           {" "}Changes save as you tap.
         </p>
       </CardContent>
