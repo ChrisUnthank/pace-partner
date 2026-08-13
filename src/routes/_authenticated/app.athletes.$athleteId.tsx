@@ -20,6 +20,7 @@ import { AthleteReminderSettings } from "@/components/reminder-settings";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { GoalsCard } from "@/components/goals-card";
 import { AthleteIdentityCard } from "@/components/athlete-identity-card";
+import { IdentifiersCard } from "@/components/copyable-id";
 import { Badge } from "@/components/ui/badge";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { computePbStatus, pbStatusFor, PB_BADGE_LABEL, PB_BADGE_CLASS } from "@/lib/performance-pb";
@@ -452,6 +453,12 @@ function AthleteDetail() {
           Generate or view AI reviews for {athlete?.name ?? "this athlete"} in Reports →
         </Link>
         <AthleteReminderSettings athleteId={athleteId} />
+
+        {/* Reference detail, so it sits at the bottom and is collapsed by
+            default. userId deliberately not passed: a coach viewing an
+            athlete has no business seeing that athlete's login id, and
+            doesn't need it for anything. */}
+        <IdentifiersCard athleteId={athleteId} athleteName={athlete?.name} />
       </div>
     </AppShell>
   );
