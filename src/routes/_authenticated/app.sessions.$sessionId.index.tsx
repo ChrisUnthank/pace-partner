@@ -3119,57 +3119,81 @@ function GearPanel({ session }: { session: any }) {
     },
   });
 
-  const { data: linkedIds } = useQuery({
+  // segment_type comes back too now — a shoe can legitimately be linked more
+  // than once to the same session (trainers for warm up AND cool down), so
+  // the unit here is the LINK, not the gear item.
+  const { data: links } = useQuery({
     queryKey: ["session-gear-links", sessionId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("session_gear").select("gear_id").eq("session_id", sessionId);
+      const { data, error } = await (supabase as any)
+        .from("session_gear")
+        .select("id, gear_id, segment_type")
+        .eq("session_id", sessionId);
       if (error) throw error;
-      return new Set((data ?? []).map((r: any) => r.gear_id as string));
+      return (data ?? []) as any[];
     },
   });
 
-  const [selected, setSelected] = useState<Set<string> | null>(null);
+  const [segment, setSegment] = useState<string>("__whole__");
+  const [saving, setSaving] = useState(false);
 
-  // Re-sync from the DB whenever we land on a (possibly different)
-  // session or its links load/change — same stale-state guard used
-  // throughout this page for components that don't remount between
-  // sessions.
-  useEffect(() => {
-    if (linkedIds) setSelected(new Set(linkedIds));
-  }, [sessionId, linkedIds]);
+  // Which segments this session actually has, with their real distances, so
+  // the picker only offers parts that exist and can show what each is worth.
+  const segmentOptions = useMemo(() => {
+    const total = Number(session.total_distance_m ?? 0);
+    const work = Number(session.work_distance_m ?? 0);
+    const nonWork = Math.max(0, total - work);
+    const out: { value: string; label: string; km: number | null }[] = [
+      { value: "__whole__", label: "Whole session", km: total > 0 ? total / 1000 : null },
+    ];
+    if (work > 0) out.push({ value: "work", label: "Work / reps", km: work / 1000 });
+    // Warm up and cool down aren't stored as separate distances on the
+    // session, so their individual split is only known from per-point data.
+    // The RPC works that out; here we just offer them when there's clearly
+    // non-work distance to attribute.
+    if (nonWork > 0) {
+      out.push({ value: "warmup", label: "Warm up", km: null });
+      out.push({ value: "cooldown", label: "Cool down", km: null });
+      out.push({ value: "recovery", label: "Recovery jogs", km: null });
+    }
+    return out;
+  }, [session.total_distance_m, session.work_distance_m]);
 
-  function toggle(id: string) {
-    setSelected((prev) => {
-      const next = new Set(prev ?? []);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
+  const linksForSegment = useMemo(() => {
+    const want = segment === "__whole__" ? null : segment;
+    return (links ?? []).filter((l) => (l.segment_type ?? null) === want);
+  }, [links, segment]);
 
-  async function save() {
-    if (!selected) return;
-    const before = linkedIds ?? new Set<string>();
-    const toAdd = [...selected].filter((id) => !before.has(id));
-    const toRemove = [...before].filter((id) => !selected.has(id));
+  const selectedIds = useMemo(
+    () => new Set(linksForSegment.map((l) => l.gear_id as string)),
+    [linksForSegment],
+  );
 
-    if (toAdd.length > 0) {
-      const { error } = await supabase
-        .from("session_gear")
-        .insert(toAdd.map((gear_id) => ({ session_id: sessionId, gear_id, athlete_id: athleteId })) as any);
+  async function toggle(gearId: string) {
+    if (saving) return;
+    setSaving(true);
+    const existing = linksForSegment.find((l) => l.gear_id === gearId);
+    if (existing) {
+      const { error } = await supabase.from("session_gear").delete().eq("id", existing.id);
+      if (error) toast.error(error.message);
+    } else {
+      const { error } = await (supabase as any).from("session_gear").insert({
+        session_id: sessionId,
+        gear_id: gearId,
+        athlete_id: athleteId,
+        segment_type: segment === "__whole__" ? null : segment,
+      });
       if (error) {
-        toast.error(error.message);
-        return;
+        // The unique index covers (session_id, gear_id, segment_type) — worth
+        // naming rather than showing a raw constraint message.
+        toast.error(
+          String(error.message).toLowerCase().includes("duplicate")
+            ? "That shoe is already linked to this part of the session."
+            : error.message,
+        );
       }
     }
-    if (toRemove.length > 0) {
-      const { error } = await supabase.from("session_gear").delete().eq("session_id", sessionId).in("gear_id", toRemove);
-      if (error) {
-        toast.error(error.message);
-        return;
-      }
-    }
-    toast.success("Gear updated");
+    setSaving(false);
     qc.invalidateQueries({ queryKey: ["session-gear-links", sessionId] });
     qc.invalidateQueries({ queryKey: ["gear-usage", athleteId] });
     qc.invalidateQueries({ queryKey: ["gear-links"] });
@@ -3194,20 +3218,55 @@ function GearPanel({ session }: { session: any }) {
     );
   }
 
+  const activeSegment = segmentOptions.find((o) => o.value === segment);
+  const hasSegments = segmentOptions.length > 1;
+
   return (
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-base">Gear used</CardTitle>
+        {hasSegments && (
+          <CardDescription>
+            Pick a part of the session first, then tap the gear worn for it. Different shoes for the warm up and the
+            reps is normal — each part only counts its own distance towards that pair.
+          </CardDescription>
+        )}
       </CardHeader>
       <CardContent className="space-y-3">
+        {hasSegments && (
+          <div className="flex flex-wrap gap-1.5">
+            {segmentOptions.map((o) => {
+              const n = (links ?? []).filter(
+                (l) => (l.segment_type ?? null) === (o.value === "__whole__" ? null : o.value),
+              ).length;
+              const active = segment === o.value;
+              return (
+                <button
+                  key={o.value}
+                  type="button"
+                  onClick={() => setSegment(o.value)}
+                  className={`px-2.5 py-1 text-xs rounded-md border ${
+                    active ? "bg-foreground text-background border-foreground" : "border-border text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {o.label}
+                  {o.km != null && <span className="opacity-70"> · {o.km.toFixed(2)} km</span>}
+                  {n > 0 && <span className="opacity-70"> · {n}</span>}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         <div className="flex flex-wrap gap-1.5">
           {gearItems.map((g) => {
-            const isSelected = selected?.has(g.id) ?? false;
+            const isSelected = selectedIds.has(g.id);
             const label = g.nickname || `${g.brand} ${g.model}`;
             return (
               <button
                 key={g.id}
                 type="button"
+                disabled={saving}
                 onClick={() => toggle(g.id)}
                 className={`px-2.5 py-1 text-xs rounded-md border ${
                   isSelected
@@ -3220,9 +3279,20 @@ function GearPanel({ session }: { session: any }) {
             );
           })}
         </div>
-        <Button size="sm" variant="outline" onClick={save}>
-          Save
-        </Button>
+
+        {/* Saves on tap rather than behind a Save button: with a segment
+            selector, a pending unsaved state that silently resets when you
+            switch segment is a trap. */}
+        <p className="text-[11px] text-muted-foreground">
+          {segment === "__whole__"
+            ? activeSegment?.km != null
+              ? `Whole session — ${activeSegment.km.toFixed(2)} km credited to each pair tapped here.`
+              : "Whole session."
+            : segment === "work"
+              ? `Work only — ${activeSegment?.km?.toFixed(2) ?? "?"} km, not the warm up or cool down.`
+              : "Warm up, cool down and recovery distances are worked out from the session's own data."}
+          {" "}Changes save as you tap.
+        </p>
       </CardContent>
     </Card>
   );
