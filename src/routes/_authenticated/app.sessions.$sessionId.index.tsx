@@ -2450,17 +2450,42 @@ function StepBlock({
   // any run done entirely on one surface — so a badge only appears when this
   // step DIFFERS, and choosing "Same as session" clears the override rather
   // than freezing today's session value onto the step.
-  const terrainIsOverride = !!step.terrain && step.terrain !== session.terrain;
+  const terrainIsOverride = !!shownTerrain && shownTerrain !== session.terrain;
+
+  // Local echo of the saved value. The Select is otherwise driven straight
+  // from `step.terrain`, which only changes once the steps query refetches —
+  // so without this the control snaps back to its old value on every pick and
+  // reads as "it won't change".
+  const [terrainDraft, setTerrainDraft] = useState<string | null | undefined>(undefined);
+  const shownTerrain = terrainDraft !== undefined ? terrainDraft : (step.terrain ?? null);
+
+  // Clear the local echo once the refetched row agrees, so the Select goes
+  // back to being driven by server state rather than drifting from it.
+  useEffect(() => {
+    if (terrainDraft !== undefined && (step.terrain ?? null) === terrainDraft) setTerrainDraft(undefined);
+  }, [step.terrain, terrainDraft]);
 
   async function setStepTerrain(value: string) {
     const next = value === "__inherit__" ? null : value;
-    const { error } = await (supabase as any).from("steps").update({ terrain: next }).eq("id", step.id);
+    setTerrainDraft(next);
+    // terrain_source: "manual" is what makes this teachable. The importer
+    // writes "auto", and the pattern matcher only ever counts manual rows —
+    // otherwise it would be learning from its own guesses. Clearing back to
+    // "inherit" also clears the source, so an undone choice stops being
+    // treated as a vote.
+    const { error } = await (supabase as any)
+      .from("steps")
+      .update({ terrain: next, terrain_source: next ? "manual" : null })
+      .eq("id", step.id);
     if (error) {
       toast.error(error.message);
+      setTerrainDraft(undefined);
       return;
     }
-    qc.invalidateQueries({ queryKey: ["session-steps", session.id] });
-    qc.invalidateQueries({ queryKey: ["session", session.id] });
+    // The steps query is keyed ["steps", sessionId] — the earlier
+    // ["session-steps", ...] key matched nothing, so nothing ever refetched
+    // and the value only appeared after some unrelated invalidation.
+    await qc.invalidateQueries({ queryKey: ["steps", session.id] });
   }
 
 
@@ -2717,7 +2742,7 @@ function StepBlock({
                 run on one surface. */}
             {terrainIsOverride && (
               <Badge variant="secondary" className="text-[10px] font-normal normal-case">
-                {TERRAIN_LABEL[step.terrain as Terrain] ?? step.terrain}
+                {TERRAIN_LABEL[shownTerrain as Terrain] ?? shownTerrain}
               </Badge>
             )}
 
@@ -2803,7 +2828,12 @@ function StepBlock({
               express. */}
           <div className="flex items-center gap-2 mb-3 flex-wrap">
             <Label className="text-[11px] text-muted-foreground">Surface</Label>
-            <Select value={step.terrain ?? "__inherit__"} onValueChange={setStepTerrain}>
+            {step.terrain_source === "manual" && (
+              <span className="text-[10px] text-muted-foreground" title="You set this surface">
+                set by you
+              </span>
+            )}
+            <Select value={shownTerrain ?? "__inherit__"} onValueChange={setStepTerrain}>
               <SelectTrigger className="h-7 w-[170px] text-xs" onClick={(e) => e.stopPropagation()}>
                 <SelectValue />
               </SelectTrigger>
