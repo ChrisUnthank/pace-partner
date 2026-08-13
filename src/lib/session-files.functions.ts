@@ -1793,20 +1793,57 @@ async function findMatchingLocation(
   lat: number,
   lng: number,
 ): Promise<{ id: string; surface: string | null; surrounding_terrain: string | null } | null> {
+  // WAS: coach-created locations only, with an early return when the athlete
+  // had no coach. Two things wrong with that now:
+  //
+  //   * A self-coached athlete has no coach_athletes row, so matching bailed
+  //     out before it queried anything. They could add as many locations as
+  //     they liked and never match one.
+  //   * Personal locations (owner_athlete_id set) are created BY the athlete,
+  //     so a created_by filter on coach ids excluded exactly the locations
+  //     the athlete added for themselves.
+  //
+  // Now: the athlete's own personal locations, plus every squad location
+  // belonging to a coach of theirs. Both are things this athlete legitimately
+  // trains at, and both are already visible to them under the RLS.
   const { data: coachLinks } = await sb.from("coach_athletes").select("coach_user_id").eq("athlete_id", athleteId);
   const coachIds = (coachLinks ?? []).map((c: any) => c.coach_user_id).filter(Boolean);
-  if (coachIds.length === 0) return null;
 
-  const { data: locations } = await sb
+  // Two queries rather than one .or() chain: PostgREST's or= syntax with a
+  // nested in() is fiddly to get right and easy to get subtly wrong, and
+  // these are both small indexed reads.
+  const personalQ = sb
     .from("training_locations")
     .select("id, lat, lng, surface, surrounding_terrain")
-    .in("created_by", coachIds)
+    .eq("owner_athlete_id", athleteId)
     .not("lat", "is", null)
     .not("lng", "is", null);
 
+  const squadQ =
+    coachIds.length > 0
+      ? sb
+          .from("training_locations")
+          .select("id, lat, lng, surface, surrounding_terrain")
+          .is("owner_athlete_id", null)
+          .in("created_by", coachIds)
+          .not("lat", "is", null)
+          .not("lng", "is", null)
+      : null;
+
+  const [personalRes, squadRes] = await Promise.all([personalQ, squadQ ?? Promise.resolve({ data: [] as any[] })]);
+
+  // Deduped by id in case a location somehow satisfies both queries — the
+  // nearest-wins loop below would handle it anyway, but a duplicate row here
+  // would silently double the work on a big locker.
+  const byId = new Map<string, any>();
+  for (const loc of [...(personalRes?.data ?? []), ...(squadRes?.data ?? [])]) byId.set(loc.id, loc);
+
   let best: { id: string; surface: string | null; surrounding_terrain: string | null; dist: number } | null = null;
-  for (const loc of locations ?? []) {
+  for (const loc of byId.values()) {
     const dist = haversineMeters(lat, lng, Number(loc.lat), Number(loc.lng));
+    // Nearest wins, so a personal location at the same venue as a squad one
+    // doesn't beat it by ordering — whichever pin is actually closer to where
+    // the run started is the right answer.
     if (dist <= LOCATION_MATCH_RADIUS_M && (!best || dist < best.dist)) {
       best = { id: loc.id, surface: loc.surface, surrounding_terrain: loc.surrounding_terrain, dist };
     }
@@ -2398,9 +2435,35 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
     for (const step of stepsToInsert) {
       if (step.terrain) continue;
       if (step.kind === "work" || step.kind === "recovery") {
-        step.terrain = sess.terrain || (detectedTrack ? "track" : null) || effectiveLocation?.surface || null;
+        // detectedTerrain (from the file's own sub_sport) sits between the
+        // coach's manual value and the inferred track check: it's a direct
+        // statement from the device, so it beats lap-shape inference, but a
+        // coach's explicit choice still wins over both. Previously omitted
+        // here, so a treadmill session got the right SESSION terrain but its
+        // work steps stayed null.
+        step.terrain =
+          sess.terrain || detectedTerrain || (detectedTrack ? "track" : null) || effectiveLocation?.surface || null;
       } else if (step.kind === "warmup" || step.kind === "cooldown") {
-        step.terrain = effectiveLocation?.surrounding_terrain ?? effectiveLocation?.surface ?? null;
+        // Location first: surrounding_terrain describes what you run to and
+        // from a venue on, which is exactly what a warm up is.
+        //
+        // The file's own sub_sport is the fallback when no location matched —
+        // previously this went straight to null, so an unmatched session lost
+        // its warm up and cool down surface entirely. That's the common case
+        // for a treadmill (no GPS to match on at all) and for anywhere the
+        // athlete hasn't saved a location yet.
+        //
+        // Still deliberately does NOT fall back to sess.terrain: "this was a
+        // track session" says nothing about what the warm up was run on, and
+        // guessing "track" there is what over-counted track mileage before.
+        // sourceFileIndex lives on LAPS, not on the step rows being inserted,
+        // so the file's surface is resolved from the laps of that kind rather
+        // than read off the step.
+        step.terrain =
+          effectiveLocation?.surrounding_terrain ??
+          effectiveLocation?.surface ??
+          (step.kind === "warmup" ? dominantTerrain(warmupLaps) : dominantTerrain(cooldownLaps)) ??
+          null;
       }
     }
 
