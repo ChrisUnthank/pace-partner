@@ -109,26 +109,14 @@ export function SessionCommentsCard({
     qc.invalidateQueries({ queryKey: ["session-comments", sessionId] });
   }
 
-  const Shell = embedded
-    ? ({ children }: { children: React.ReactNode }) => <div className="space-y-3">{children}</div>
-    : ({ children }: { children: React.ReactNode }) => (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <MessageCircle className="h-4 w-4 text-[var(--accent-red)]" />
-              Session chat
-            </CardTitle>
-            <CardDescription>
-              Talk about this specific session — separate from your general Messages inbox.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">{children}</CardContent>
-        </Card>
-      );
-
-  return (
-    <Shell>
-      <>
+  // NOT a component defined inside render — see panelShell in
+  // app.sessions.$sessionId.index.tsx for the full reasoning. Short version:
+  // a component type created during render is a new type every render, so
+  // React remounts the whole subtree each time. Here that meant the chat's
+  // message list and text box being torn down and rebuilt on every parent
+  // render, which loses focus mid-typing.
+  const inner = (
+    <>
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : comments.length === 0 ? (
@@ -175,7 +163,23 @@ export function SessionCommentsCard({
             <Send className="h-3.5 w-3.5" />
           </Button>
         </div>
-      </>
-    </Shell>
+    </>
+  );
+
+  if (embedded) return <div className="space-y-3">{inner}</div>;
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <MessageCircle className="h-4 w-4 text-[var(--accent-red)]" />
+          Session chat
+        </CardTitle>
+        <CardDescription>
+          Talk about this specific session — separate from your general Messages inbox.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">{inner}</CardContent>
+    </Card>
   );
 }
