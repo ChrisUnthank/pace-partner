@@ -326,7 +326,7 @@ const BRANDS_BY_TYPE: Record<string, string[]> = {
     "Other",
   ],
   bike: ["Trek", "Specialized", "Cannondale", "Giant", "Cervélo", "Scott", "Bianchi", "Canyon", "Other"],
-  treadmill: ["NordicTrack", "Woodway", "Peloton", "Technogym", "Life Fitness", "Sole", "Other"],
+  treadmill: ["Life Fitness", "Matrix", "NordicTrack", "Peloton", "Sole", "Technogym", "Woodway", "Other"],
   other: ["Other"],
 };
 
