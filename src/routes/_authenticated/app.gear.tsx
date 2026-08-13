@@ -46,6 +46,7 @@ import {
   ImagePlus,
   X,
   Copy,
+  MapPin,
   ArrowDownUp,
   List,
   Maximize2,
@@ -360,6 +361,7 @@ type GearDraft = {
   weight_g: string;
   description: string;
   image_url: string;
+  default_location_id: string;
   brand: string;
   customBrand: string;
   model: string;
@@ -386,6 +388,7 @@ function emptyDraft(): GearDraft {
     weight_g: "",
     description: "",
     image_url: "",
+    default_location_id: "",
     brand: BRANDS_BY_TYPE.shoe[0],
     customBrand: "",
     model: "",
@@ -417,6 +420,7 @@ function draftFromItem(item: any): GearDraft {
     weight_g: item.weight_g == null ? "" : String(item.weight_g),
     description: item.description ?? "",
     image_url: item.image_url ?? "",
+    default_location_id: item.default_location_id ?? "",
     brand: brandIsKnown ? item.brand : "Other",
     customBrand: brandIsKnown ? "" : (item.brand ?? ""),
     model: item.model ?? "",
@@ -477,6 +481,10 @@ function draftToPayload(d: GearDraft, athleteId: string) {
     weight_g: isShoe ? num(d.weight_g) : null,
     description: d.description || null,
     image_url: d.image_url || null,
+    // Only meaningful for kit that stays put — a shoe's "location" is wherever
+    // you took it, so this is cleared rather than carried when the type is a
+    // shoe.
+    default_location_id: isShoe ? null : d.default_location_id || null,
     // Legacy columns, derived — the session detail page still reads them.
     shoe_category: isShoe ? legacyCategoryFor(d.shoe_surface || null) : null,
     is_spike: isShoe && d.shoe_type === "spike",
@@ -758,6 +766,21 @@ function GearFormFields({
 
   const superShoe = draft.gear_type === "shoe" && isSuperShoe({ shoe_type: draft.shoe_type, shoe_traits: draft.shoe_traits });
 
+  // Only fetched for kit that stays in one place — no point querying
+  // locations while adding a pair of shoes.
+  const { data: locations } = useQuery({
+    queryKey: ["gear-training-locations", athleteId],
+    enabled: draft.gear_type !== "shoe",
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("training_locations")
+        .select("id, name, surface")
+        .order("name");
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+
   return (
     <div className="space-y-4">
       <GearImageUpload athleteId={athleteId} value={draft.image_url} onChange={(v) => set("image_url", v)} />
@@ -927,6 +950,35 @@ function GearFormFields({
           </>
         )}
       </div>
+
+      {draft.gear_type !== "shoe" && (
+        <div className="max-w-sm">
+          <Label className="text-xs flex items-center gap-1.5">
+            <MapPin className="h-3.5 w-3.5" /> Where it lives (optional)
+          </Label>
+          <Select
+            value={draft.default_location_id || "__none__"}
+            onValueChange={(v) => set("default_location_id", v === "__none__" ? "" : v)}
+          >
+            <SelectTrigger className="mt-1">
+              <SelectValue placeholder="No location set" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">No location set</SelectItem>
+              {(locations ?? []).map((l: any) => (
+                <SelectItem key={l.id} value={l.id}>
+                  {l.name}
+                  {l.surface ? ` · ${l.surface}` : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-[11px] text-muted-foreground mt-1 leading-snug">
+            Indoor sessions have no GPS, so nothing can work out where they happened. Setting this means a session
+            auto-linked to this item gets the location too. It never overwrites a location already on the session.
+          </p>
+        </div>
+      )}
 
       {superShoe && (
         <div className="flex items-center gap-2 text-xs rounded-md border px-3 py-2" style={tintStyle("#a855f7")}>
