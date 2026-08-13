@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuthUser, useMyRoles } from "@/lib/use-auth";
+import { useAuthUser, useMyRoles, useMyAthlete } from "@/lib/use-auth";
 import { secToClock } from "@/lib/format";
 import { TERRAIN_VALUES, TERRAIN_LABEL } from "@/lib/session-categories";
 import { UserAvatar } from "@/components/user-avatar";
@@ -39,6 +39,7 @@ const TILE_ATTRIBUTION =
 type TrainingRoute = {
   id: string;
   created_by: string;
+  owner_athlete_id?: string | null;
   athlete_id: string | null;
   source_session_id: string | null;
   name: string;
@@ -510,6 +511,10 @@ function LocationsManagerDialog({
   isCoach: boolean;
   onChanged: () => void;
 }) {
+  // Needed to tell "yours" from "another athlete's" in the list — the RLS
+  // already hides other athletes' personal locations, but a coach sees them
+  // and must not be shown edit controls the database would reject.
+  const { data: myAthlete } = useMyAthlete();
   const [editing, setEditing] = useState<TrainingLocation | "new" | null>(null);
 
   const routeCountByLocation = useMemo(() => {
@@ -559,11 +564,14 @@ function LocationsManagerDialog({
           />
         ) : (
           <div className="space-y-3">
-            {isCoach && (
-              <Button size="sm" variant="outline" onClick={() => setEditing("new")}>
-                <Plus className="h-3.5 w-3.5 mr-1.5" /> Add location
-              </Button>
-            )}
+            {/* Anyone can add a location now — a self-coached athlete, or an
+                athlete setting up their own treadmill, has no coach to ask and
+                previously hit an empty picker with no way to fill it. Editing
+                and deleting stay restricted to whoever created the location
+                (or any coach/manager), enforced by RLS as well as here. */}
+            <Button size="sm" variant="outline" onClick={() => setEditing("new")}>
+              <Plus className="h-3.5 w-3.5 mr-1.5" /> Add location
+            </Button>
             <div className="divide-y max-h-80 overflow-y-auto brand-scrollbar border rounded">
               {locations.length === 0 ? (
                 <p className="p-4 text-sm text-muted-foreground">No locations saved yet.</p>
@@ -573,12 +581,24 @@ function LocationsManagerDialog({
                     <div className="min-w-0">
                       <div className="text-sm font-medium truncate">{l.name}</div>
                       <div className="text-xs text-muted-foreground truncate">
+                        {l.owner_athlete_id && (
+                          <span className="mr-1.5 rounded border px-1 py-px text-[10px]">
+                            {l.owner_athlete_id === myAthlete?.id ? "Yours" : "Athlete's"}
+                          </span>
+                        )}
                         {[l.address, l.surface].filter(Boolean).join(" · ") || "—"}
                         {" · "}
                         {(routeCountByLocation.get(l.id) ?? 0)} route{(routeCountByLocation.get(l.id) ?? 0) === 1 ? "" : "s"}
                       </div>
                     </div>
-                    {isCoach && (
+                    {/* Mirrors the RLS rule exactly: a personal location is
+                        the owning athlete's alone (a coach may see it but not
+                        edit it), a squad location is coach/manager-managed.
+                        Showing a button the database would reject is worse
+                        than hiding it. */}
+                    {(l.owner_athlete_id
+                      ? l.owner_athlete_id === myAthlete?.id
+                      : isCoach) && (
                       <div className="flex items-center gap-2 shrink-0">
                         <button type="button" onClick={() => setEditing(l)} className="text-muted-foreground hover:text-foreground" aria-label="Edit location">
                           <Pencil className="h-3.5 w-3.5" />
@@ -592,9 +612,11 @@ function LocationsManagerDialog({
                 ))
               )}
             </div>
-            {!isCoach && (
-              <p className="text-xs text-muted-foreground">Only coaches can add or edit locations — everyone can see and pick from the list.</p>
-            )}
+            <p className="text-xs text-muted-foreground">
+              {isCoach
+                ? "Locations you add are shared with the squad. Ones an athlete added are marked and visible to you, but only they can edit them."
+                : "Locations you add are private to you — your coach can see them, other athletes can't. Unmarked locations are squad locations added by a coach."}
+            </p>
           </div>
         )}
       </DialogContent>
@@ -612,6 +634,9 @@ function LocationEditForm({
   onSaved: () => void;
 }) {
   const { user } = useAuthUser();
+  const { data: roles = [] } = useMyRoles();
+  const { data: myAthlete } = useMyAthlete();
+  const isCoach = roles.includes("coach");
   const [name, setName] = useState(location?.name ?? "");
   const [address, setAddress] = useState(location?.address ?? "");
   const [surface, setSurface] = useState(location?.surface ?? "");
@@ -638,9 +663,18 @@ function LocationEditForm({
       lat,
       lng,
     };
+    // A coach's new location is a SQUAD one (owner_athlete_id null) — visible
+    // to everyone, editable by any coach. An athlete's is personal to them:
+    // their coach can see it but not change it, and no other athlete sees it
+    // at all. Ownership is set once on creation and never rewritten on edit,
+    // so editing a squad location can't quietly turn it into a personal one.
+    const ownerAthleteId = !isCoach && myAthlete?.id ? myAthlete.id : null;
+
     const { error } = location
       ? await supabase.from("training_locations").update(patch).eq("id", location.id)
-      : await supabase.from("training_locations").insert({ ...patch, created_by: user?.id ?? null });
+      : await (supabase as any)
+          .from("training_locations")
+          .insert({ ...patch, created_by: user?.id ?? null, owner_athlete_id: ownerAthleteId });
     setSaving(false);
     if (error) {
       toast.error(error.message);
