@@ -708,6 +708,18 @@ function SessionDetail() {
     return { rows, movingTimeS, movingDistanceM };
   }, [steps, results]);
 
+  // Surfaces used by steps that DIFFER from the session's own. The session
+  // value is the headline (the work component's surface); this names the
+  // exceptions so a mixed session isn't silently flattened.
+  const mixedSurfaceSummary = useMemo(() => {
+    const others = new Set<string>();
+    for (const st of steps ?? []) {
+      const t = (st as any).terrain;
+      if (t && t !== session?.terrain) others.add(TERRAIN_LABEL[t as Terrain] ?? t);
+    }
+    return others.size > 0 ? Array.from(others).join(", ") : null;
+  }, [steps, session?.terrain]);
+
   const { data: fuelEvents } = useQuery({
     queryKey: ["fuel-events", sessionId],
     queryFn: async () => {
@@ -1156,6 +1168,18 @@ function SessionDetail() {
                           </SelectContent>
                         </Select>
                       )}
+
+                    {/* Flags when a step's surface differs from the session's.
+                        The session value is the WORK component's surface —
+                        a track session whose warm up is on road is still a
+                        track session — so a mismatch here isn't an error, it's
+                        the finer detail, and pointing at where to find it
+                        beats leaving it invisible. */}
+                    {mixedSurfaceSummary && (
+                      <span className="text-[11px] text-muted-foreground" title="Surfaces vary within this session">
+                        · also {mixedSurfaceSummary}
+                      </span>
+                    )}
 
                     {/* Location/Route — auto-matched at upload from the
                         athlete's coach's saved training_locations (GPS
