@@ -89,17 +89,57 @@ const WINDOW_OPTIONS: { value: string; label: string; days: number | null }[] = 
   { value: "all", label: "All fetched", days: null },
 ];
 
-// Session-level zone bucketing (Option 1, the interim version) — each
-// session's dominant_zone is z1-z6 based on its already-classified
-// `intent` (the same time-in-zone-plurality logic that already sets
-// intent elsewhere in the app), computed server-side in
-// get_athlete_biomechanics_trend(). A session with a genuine mix of
-// zone work (common for middle-distance track sessions — a tempo
-// opener into VO2 reps, say) gets bucketed under whichever zone held
-// the most time, same conservative approach `intent` itself already
-// uses — it does NOT split that session's mechanics data across
-// multiple zones. True point-level in-session zone splitting (Option
-// 2) is flagged as follow-up work — see CHANGELOG.
+// Session-level zone bucketing.
+//
+// FIXED (was: dominant_zone from the RPC). The RPC returns dominant_zone
+// as COALESCE(<zone holding the most SECONDS in session_zone_time>,
+// <zone derived from intent>) — i.e. time-in-zone plurality across the
+// WHOLE session. That is structurally broken for interval training, and
+// the real data proves it rather than merely suggesting it:
+//
+//   Across Josh's last 120 days, 45 sessions have a hard training intent
+//   (tempo / threshold / VO2 / anaerobic). ALL 45 bucketed as z1 or z2 by
+//   time — 34 as z1, 11 as z2. Zero exceptions. Overall, 84 of 121
+//   sessions disagreed with their own intent, and the whole 3-month
+//   window produced only two populated buckets: z1 (86 sessions) and z2
+//   (22). Z3-Z6 were empty by construction, which is exactly why every
+//   one of those filters read as "no data".
+//
+// The cause is obvious in hindsight: a VO2 session is mostly warmup,
+// recovery jogs and cooldown by elapsed time, so total time-in-zone
+// always lands in the easy bands no matter how hard the reps were.
+//
+// So the zone now comes from the session's training INTENT (via
+// workout_type, which the RPC already returns), which is what a coach
+// actually means by "show me the VO2 sessions". Sessions whose type has
+// no single fixed zone — race, time trial — deliberately return null and
+// appear only under "All zones", rather than being forced into a bucket
+// they don't belong in. dominant_zone is intentionally NOT used as a
+// fallback: the evidence above shows it would mis-bucket rather than
+// rescue.
+//
+// True point-level in-session zone splitting remains the eventual right
+// answer and is still follow-up work — see CHANGELOG.
+const WORKOUT_TYPE_ZONE: Record<string, string> = {
+  recovery: "z1",
+  easy: "z1",
+  long_run: "z1",
+  aerobic: "z2",
+  tempo: "z3",
+  threshold: "z4",
+  vo2: "z5",
+  anaerobic: "z6",
+  speed: "z6",
+  // race / time_trial deliberately absent — a 1500m race and a half
+  // marathon are not the same zone, and there's nothing in this payload
+  // that could tell them apart. Unmapped = "All zones" only.
+};
+
+function zoneForRow(r: ScoreRow): string | null {
+  if (!r.workout_type) return null;
+  return WORKOUT_TYPE_ZONE[r.workout_type] ?? null;
+}
+
 const ZONE_OPTIONS: { value: string; label: string; color: string }[] = [
   { value: "all", label: "All zones", color: "#94a3b8" },
   { value: "z1", label: "Z1 Recovery", color: "#34d399" },
@@ -289,8 +329,20 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
   // filtered down after the fact.
   const zoneFilteredRows = useMemo(() => {
     if (zone === "all") return rows ?? [];
-    return (rows ?? []).filter((r) => r.dominant_zone === zone);
+    return (rows ?? []).filter((r) => zoneForRow(r) === zone);
   }, [rows, zone]);
+
+  // Session counts per zone, shown in the dropdown so an empty bucket is
+  // visible before it's selected rather than after.
+  const zoneCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of rows ?? []) {
+      const z = zoneForRow(r);
+      if (z) m.set(z, (m.get(z) ?? 0) + 1);
+    }
+    m.set("all", (rows ?? []).length);
+    return m;
+  }, [rows]);
 
   // Rows arrive newest-first.
   const latest = zoneFilteredRows[0];
@@ -337,7 +389,8 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
             </CardTitle>
             <CardDescription>
               Work-effort only — warmup, recovery jogs, and cooldown excluded. Scored against expected ranges for
-              this workout type and athlete level, blended with recent history.
+              this workout type and athlete level, blended with recent history. Zone comes from the session's
+              training intent, not its total time-in-zone.
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
@@ -351,6 +404,7 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
                     <span className="inline-flex items-center gap-1.5">
                       <span className="h-2 w-2 rounded-full inline-block" style={{ background: o.color }} />
                       {o.label}
+                      <span className="text-muted-foreground tabular-nums">({zoneCounts.get(o.value) ?? 0})</span>
                     </span>
                   </SelectItem>
                 ))}
@@ -394,7 +448,7 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
         ) : !hasAny || !active ? (
           <p className="text-sm text-muted-foreground">
             {zone !== "all"
-              ? `No work-effort sessions classified as ${ZONE_OPTIONS.find((o) => o.value === zone)?.label ?? zone} yet${view === "overall" ? " in this window" : ""}.`
+              ? `No work-effort sessions with device mechanics data classified as ${ZONE_OPTIONS.find((o) => o.value === zone)?.label ?? zone}${view === "overall" ? " in this window" : ""} yet. Races and time trials aren't assigned a zone — they appear under All zones only.`
               : view === "overall"
                 ? "No completed running sessions with device data in this window yet."
                 : "No completed running sessions with device data yet."}
