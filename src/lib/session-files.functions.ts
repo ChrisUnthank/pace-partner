@@ -1851,6 +1851,70 @@ async function findMatchingLocation(
   return best ? { id: best.id, surface: best.surface, surrounding_terrain: best.surrounding_terrain } : null;
 }
 
+// How many distinct past sessions must agree before a pattern is trusted.
+// Two is deliberately low: a coach correcting the same thing twice at the
+// same venue is a clear statement, and the cost of being wrong is one
+// dropdown change on the next session, not a corrupted record.
+const TERRAIN_PATTERN_MIN_SESSIONS = 2;
+
+/**
+ * What has a human repeatedly said the surface is, for each step kind, at
+ * this location?
+ *
+ * Counts DISTINCT SESSIONS, not steps — a session with eight work reps would
+ * otherwise cast eight votes and a single session could "establish" a pattern
+ * on its own, which is precisely what the threshold exists to prevent.
+ *
+ * Only reads terrain_source = 'manual'. See the migration for why: counting
+ * the importer's own assignments would make this a feedback loop rather than
+ * learning.
+ */
+async function learnedTerrainByKind(
+  sb: any,
+  athleteId: string,
+  locationId: string | null,
+  excludeSessionId: string,
+): Promise<Record<string, string>> {
+  if (!locationId) return {};
+
+  const { data, error } = await sb
+    .from("steps")
+    .select("kind, terrain, session_id, sessions!inner(id, athlete_id, location_id)")
+    .eq("terrain_source", "manual")
+    .not("terrain", "is", null)
+    .eq("sessions.athlete_id", athleteId)
+    .eq("sessions.location_id", locationId)
+    .limit(500);
+
+  if (error || !data) return {};
+
+  // kind -> terrain -> set of session ids
+  const votes = new Map<string, Map<string, Set<string>>>();
+  for (const row of data as any[]) {
+    if (row.session_id === excludeSessionId) continue;
+    const byTerrain = votes.get(row.kind) ?? new Map<string, Set<string>>();
+    const sessions = byTerrain.get(row.terrain) ?? new Set<string>();
+    sessions.add(row.session_id);
+    byTerrain.set(row.terrain, sessions);
+    votes.set(row.kind, byTerrain);
+  }
+
+  const out: Record<string, string> = {};
+  for (const [kind, byTerrain] of votes) {
+    const ranked = Array.from(byTerrain.entries())
+      .map(([terrain, sessions]) => ({ terrain, n: sessions.size }))
+      .sort((a, b) => b.n - a.n);
+    const top = ranked[0];
+    if (!top || top.n < TERRAIN_PATTERN_MIN_SESSIONS) continue;
+    // A tie is not a pattern — if a coach has said road twice and grass
+    // twice at the same venue, they're genuinely varying it and the app
+    // should stay out of the way rather than pick one.
+    if (ranked[1] && ranked[1].n === top.n) continue;
+    out[kind] = top.terrain;
+  }
+  return out;
+}
+
 async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<void> {
   const { data: sess, error: sessErr } = await sb.from("sessions").select("*").eq("id", sessionId).single();
 
@@ -2144,6 +2208,15 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   // one, so a coach's manual pick is never silently reassigned.
   const matchedLocation = !sess.location_id ? effectiveLocation : null;
 
+  // What a human has repeatedly said the surface is at this location, per
+  // step kind. Excludes this session so a re-import can't learn from itself.
+  const learnedTerrain = await learnedTerrainByKind(
+    sb,
+    sess.athlete_id,
+    effectiveLocation?.id ?? sess.location_id ?? null,
+    sessionId,
+  );
+
   // Computed once here (not inside the hasManualPlan branch below) so these
   // are in scope for the final sessions.update() — previously work_avg_pace_
   // sec_per_km etc. fell back to the whole-session blended average because
@@ -2434,6 +2507,8 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
     // present on the step.
     for (const step of stepsToInsert) {
       if (step.terrain) continue;
+      // Marked auto so the pattern matcher never counts it as evidence.
+      (step as any).terrain_source = "auto";
       if (step.kind === "work" || step.kind === "recovery") {
         // detectedTerrain (from the file's own sub_sport) sits between the
         // coach's manual value and the inferred track check: it's a direct
@@ -2441,8 +2516,22 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
         // coach's explicit choice still wins over both. Previously omitted
         // here, so a treadmill session got the right SESSION terrain but its
         // work steps stayed null.
+        // Priority, strongest evidence first:
+        //   1. sess.terrain      — the coach said so, about this session
+        //   2. detectedTerrain   — the device said so (sub_sport)
+        //   3. learnedTerrain    — a human has said so repeatedly HERE
+        //   4. detectedTrack     — inferred from lap-distance consistency
+        //   5. location.surface  — the venue's generic default
+        //
+        // Learned sits above the inferred/generic sources but below the two
+        // that are direct statements about THIS session.
         step.terrain =
-          sess.terrain || detectedTerrain || (detectedTrack ? "track" : null) || effectiveLocation?.surface || null;
+          sess.terrain ||
+          detectedTerrain ||
+          learnedTerrain[step.kind] ||
+          (detectedTrack ? "track" : null) ||
+          effectiveLocation?.surface ||
+          null;
       } else if (step.kind === "warmup" || step.kind === "cooldown") {
         // Location first: surrounding_terrain describes what you run to and
         // from a venue on, which is exactly what a warm up is.
@@ -2459,7 +2548,12 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
         // sourceFileIndex lives on LAPS, not on the step rows being inserted,
         // so the file's surface is resolved from the laps of that kind rather
         // than read off the step.
+        // Learned first here, ahead of the location's own surrounding_terrain:
+        // a coach repeatedly setting the warm up to road at this venue is a
+        // more specific statement than the venue's general "what's around it"
+        // field, which is a single value covering every session type.
         step.terrain =
+          learnedTerrain[step.kind] ??
           effectiveLocation?.surrounding_terrain ??
           effectiveLocation?.surface ??
           (step.kind === "warmup" ? dominantTerrain(warmupLaps) : dominantTerrain(cooldownLaps)) ??
