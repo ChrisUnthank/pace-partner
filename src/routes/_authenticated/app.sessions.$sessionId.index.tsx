@@ -11,7 +11,7 @@ import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { secToClock, clockToSec, metersFmt, roundDistanceForDisplay, roundRecoverySeconds } from "@/lib/format";
-import { sessionClassificationLabel, TIME_OF_DAY_VALUES, TIME_OF_DAY_LABEL, TERRAIN_VALUES, TERRAIN_LABEL } from "@/lib/session-categories";
+import { sessionClassificationLabel, TIME_OF_DAY_VALUES, TIME_OF_DAY_LABEL, TERRAIN_VALUES, TERRAIN_LABEL, type Terrain } from "@/lib/session-categories";
 import { stepKindBarClass, stepKindTextClass } from "@/lib/step-kind-colors";
 import { saveSessionAsTemplate } from "@/lib/templates";
 import { useAuthUser, useMyRoles } from "@/lib/use-auth";
@@ -41,6 +41,11 @@ import {
   Trash2,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  MessageSquare,
+  Utensils,
+  Footprints,
   Flame,
   Droplet,
   AlertTriangle,
@@ -88,6 +93,58 @@ import { WorkTargetEditor } from "@/components/work-target-editor";
 export const Route = createFileRoute("/_authenticated/app/sessions/$sessionId/")({
   component: SessionDetail,
 });
+
+// ----------------------------------------------------------------------------
+// Collapsible wrapper for the side column.
+//
+// The side panel stacks four sections that a coach dips into rather than
+// reads top to bottom — map, feedback, fuelling, gear. Collapsing them keeps
+// the column scannable instead of turning it into a second long scroll,
+// which was the original complaint about this page.
+//
+// `defaultOpen` rather than a controlled prop: which sections a coach wants
+// expanded is a per-visit preference, and persisting it would be a bigger
+// change than this warrants. Map opens by default because it's the one that
+// reads at a glance.
+// ----------------------------------------------------------------------------
+function SidePanelSection({
+  title,
+  icon: Icon,
+  defaultOpen = false,
+  badge,
+  children,
+}: {
+  title: string;
+  icon?: any;
+  defaultOpen?: boolean;
+  badge?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="w-full flex items-center gap-2 text-left"
+        >
+          {Icon && <Icon className="h-4 w-4 text-muted-foreground shrink-0" />}
+          <CardTitle className="text-sm">{title}</CardTitle>
+          {badge}
+          <span className="ml-auto shrink-0">
+            {open ? (
+              <ChevronUp className="h-4 w-4 text-muted-foreground" />
+            ) : (
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            )}
+          </span>
+        </button>
+      </CardHeader>
+      {open && <CardContent className="pt-0">{children}</CardContent>}
+    </Card>
+  );
+}
 
 function SessionDetail() {
   const { sessionId } = Route.useParams();
@@ -240,6 +297,21 @@ function SessionDetail() {
   const router = useRouter();
   const navigate = useNavigate();
   const canGoBack = useCanGoBack();
+  const [chatOpen, setChatOpen] = useState(false);
+
+  // Just the count, so the side panel button can show there's something to
+  // read without mounting the whole chat (which subscribes to realtime).
+  const { data: commentCount = 0 } = useQuery({
+    queryKey: ["session-comment-count", sessionId],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from("session_comments")
+        .select("id", { count: "exact", head: true })
+        .eq("session_id", sessionId);
+      if (error) throw error;
+      return count ?? 0;
+    },
+  });
 
   // Previous / next session.
   //
@@ -926,8 +998,8 @@ function SessionDetail() {
     : null;
 
   return (
-    <AppShell>
-      <div className="space-y-6 max-w-5xl mx-auto">
+    <AppShell fullWidth>
+      <div className="space-y-6">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3">
             {/* Goes back to wherever you came from — the calendar, a report,
@@ -999,6 +1071,13 @@ function SessionDetail() {
         </div>
 
         {isCoach && session.athlete_id && <AthleteSubnav athleteId={session.athlete_id} active="sessions" />}
+
+        {/* 3/4 main column + 1/4 side panel. Single column below xl — a 25%
+            sidebar on a laptop is too narrow for the map to be worth
+            anything, and stacking is better than cramming. items-start so the
+            side panel doesn't stretch to the main column's height. */}
+        <div className="grid xl:grid-cols-4 gap-6 items-start">
+          <div className="xl:col-span-3 space-y-6 min-w-0">
 
         {/* ───────────────── Header card: who / what / when + primary actions ───────────────── */}
         <Card>
@@ -1330,24 +1409,8 @@ function SessionDetail() {
               </div>
             </div>
 
-            {routeLatLngs.length >= 2 && (
-              <div className="shrink-0 w-40 h-24 rounded-lg overflow-hidden border">
-                <MapContainer
-                  bounds={routeLatLngs}
-                  boundsOptions={{ padding: [8, 8] }}
-                  zoomControl={false}
-                  dragging={false}
-                  scrollWheelZoom={false}
-                  doubleClickZoom={false}
-                  touchZoom={false}
-                  attributionControl={false}
-                  style={{ height: "100%", width: "100%" }}
-                >
-                  <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" />
-                  <Polyline positions={routeLatLngs} pathOptions={{ color: "var(--accent-red)", weight: 3 }} />
-                </MapContainer>
-              </div>
-            )}
+            {/* The route map moved to the side panel, where it gets a usable
+                size instead of a 160x96 thumbnail. */}
             </div>
           </CardContent>
         </Card>
@@ -1824,11 +1887,73 @@ function SessionDetail() {
             athleteName={session.athletes?.name ?? "Athlete"}
           />
         )}
+          </div>
 
-        <FuelingPanel session={session} />
-        <GearPanel session={session} segmentBreakdown={segmentBreakdown} />
-        <SessionCommentsCard sessionId={sessionId} athleteId={session.athlete_id} />
+          {/* ─────────────── Side panel ─────────────── */}
+          <div className="space-y-4 min-w-0 xl:sticky xl:top-4">
+            {routeLatLngs.length >= 2 && (
+              <SidePanelSection title="Route" icon={MapPin} defaultOpen>
+                <div className="h-56 rounded-lg overflow-hidden border">
+                  <MapContainer
+                    bounds={routeLatLngs}
+                    boundsOptions={{ padding: [12, 12] }}
+                    scrollWheelZoom={false}
+                    style={{ height: "100%", width: "100%" }}
+                  >
+                    <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" />
+                    <Polyline positions={routeLatLngs} pathOptions={{ color: "var(--accent-red)", weight: 3 }} />
+                  </MapContainer>
+                </div>
+              </SidePanelSection>
+            )}
+
+            {/* Chat opens in a dialog rather than inline: a conversation needs
+                room to scroll and a text box that isn't 300px wide, and it's
+                the one panel here you'd have open while reading the session
+                rather than instead of it. */}
+            <Card>
+              <CardContent className="py-3">
+                <button
+                  type="button"
+                  onClick={() => setChatOpen(true)}
+                  className="w-full flex items-center gap-2 text-left"
+                >
+                  <MessageSquare className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <span className="text-sm font-medium">Session chat</span>
+                  {commentCount > 0 && (
+                    <Badge variant="secondary" className="text-[10px]">
+                      {commentCount}
+                    </Badge>
+                  )}
+                  <ChevronRight className="h-4 w-4 text-muted-foreground ml-auto shrink-0" />
+                </button>
+              </CardContent>
+            </Card>
+
+            <SidePanelSection title="Fuelling" icon={Utensils}>
+              <FuelingPanel session={session} embedded />
+            </SidePanelSection>
+
+            <SidePanelSection title="Gear" icon={Footprints}>
+              <GearPanel session={session} segmentBreakdown={segmentBreakdown} embedded />
+            </SidePanelSection>
+          </div>
+        </div>
       </div>
+
+      <Dialog open={chatOpen} onOpenChange={setChatOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MessageSquare className="h-4 w-4" /> Session chat
+            </DialogTitle>
+            <DialogDescription>
+              Talk about this specific session — separate from your general Messages inbox.
+            </DialogDescription>
+          </DialogHeader>
+          <SessionCommentsCard sessionId={sessionId} athleteId={session.athlete_id} embedded />
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!mergeTarget} onOpenChange={(open) => !open && setMergeTarget(null)}>
         <DialogContent>
@@ -2297,6 +2422,24 @@ function StepBlock({
 
   const setCount = Math.max(1, step.set_count ?? 1);
 
+  // Per-step surface. NULL inherits the session's terrain, which is right for
+  // any run done entirely on one surface — so a badge only appears when this
+  // step DIFFERS, and choosing "Same as session" clears the override rather
+  // than freezing today's session value onto the step.
+  const terrainIsOverride = !!step.terrain && step.terrain !== session.terrain;
+
+  async function setStepTerrain(value: string) {
+    const next = value === "__inherit__" ? null : value;
+    const { error } = await (supabase as any).from("steps").update({ terrain: next }).eq("id", step.id);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    qc.invalidateQueries({ queryKey: ["session-steps", session.id] });
+    qc.invalidateQueries({ queryKey: ["session", session.id] });
+  }
+
+
   // ✅ START CLOSED (cleaner UX)
   const [open, setOpen] = useState(!!forceOpen);
   useEffect(() => {
@@ -2545,6 +2688,15 @@ function StepBlock({
 
             {isWork && step.target_kind === "time" && ` · ${step.reps}×${secToClock(step.target_time_seconds)}`}
 
+            {/* Only shown when this step's surface differs from the session's —
+                a badge on every step would be noise on the common case of one
+                run on one surface. */}
+            {terrainIsOverride && (
+              <Badge variant="secondary" className="text-[10px] font-normal normal-case">
+                {TERRAIN_LABEL[step.terrain as Terrain] ?? step.terrain}
+              </Badge>
+            )}
+
             {/* Resolved workout target (Phase 3) — "95% thr · 4:07–4:20/km",
                 "Z3 · 4:30–5:00/km", "RPE 7/10". Open steps show nothing.
                 normal-case overrides the CardTitle's capitalize so labels
@@ -2621,6 +2773,28 @@ function StepBlock({
         }`}
       >
         <CardContent>
+          {/* Surface for this block. Lets one continuous run span surfaces —
+              an outdoor first half into a treadmill second half, or a road
+              warm up into track reps — which sessions.terrain alone can't
+              express. */}
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
+            <Label className="text-[11px] text-muted-foreground">Surface</Label>
+            <Select value={step.terrain ?? "__inherit__"} onValueChange={setStepTerrain}>
+              <SelectTrigger className="h-7 w-[170px] text-xs" onClick={(e) => e.stopPropagation()}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__inherit__">
+                  Same as session{session.terrain ? ` (${TERRAIN_LABEL[session.terrain as Terrain] ?? session.terrain})` : ""}
+                </SelectItem>
+                {TERRAIN_VALUES.map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {TERRAIN_LABEL[t]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           {(isWork || isStrides) && (
             <div className="space-y-3">
               {sets.map((setN) => {
@@ -3053,7 +3227,7 @@ function LactateSummary({ results }: { results: any[] }) {
   );
 }
 
-function FuelingPanel({ session }: { session: any }) {
+function FuelingPanel({ session, embedded = false }: { session: any; embedded?: boolean }) {
   const qc = useQueryClient();
   const [notes, setNotes] = useState(session.fueling_notes ?? "");
   const [carbs, setCarbs] = useState<string>(session.fueling_carbs_g != null ? String(session.fueling_carbs_g) : "");
@@ -3087,13 +3261,20 @@ function FuelingPanel({ session }: { session: any }) {
       qc.invalidateQueries({ queryKey: ["session", session.id] });
     }
   }
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">Fueling</CardTitle>
-      </CardHeader>
+  const Shell = embedded
+    ? ({ children }: { children: React.ReactNode }) => <div className="space-y-3">{children}</div>
+    : ({ children }: { children: React.ReactNode }) => (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Fueling</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">{children}</CardContent>
+        </Card>
+      );
 
-      <CardContent className="space-y-3">
+  return (
+    <Shell>
+      <>
         <div className="grid grid-cols-3 gap-2">
           <div>
             <Label className="text-xs flex items-center gap-1">
@@ -3143,8 +3324,8 @@ function FuelingPanel({ session }: { session: any }) {
         <Button size="sm" variant="outline" onClick={save}>
           Save
         </Button>
-      </CardContent>
-    </Card>
+      </>
+    </Shell>
   );
 }
 
@@ -3157,8 +3338,10 @@ function FuelingPanel({ session }: { session: any }) {
 function GearPanel({
   session,
   segmentBreakdown,
+  embedded = false,
 }: {
   session: any;
+  embedded?: boolean;
   /** The same per-segment totals the Overview card shows — summed from real
    *  recorded reps (steps + interval_results), NOT from sessions.work_distance_m.
    *  Those two disagree: on this session work_distance_m equals the full
@@ -3272,21 +3455,24 @@ function GearPanel({
     qc.invalidateQueries({ queryKey: ["gear-links"] });
   }
 
+  const emptyMessage = (
+    <p className="text-sm text-muted-foreground">
+      No gear added yet — add shoes, a bike, or other kit on the{" "}
+      <Link to="/app/gear" className="underline">
+        Gear
+      </Link>{" "}
+      page first.
+    </p>
+  );
+
   if (!gearItems || gearItems.length === 0) {
+    if (embedded) return emptyMessage;
     return (
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Gear</CardTitle>
         </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">
-            No gear added yet — add shoes, a bike, or other kit on the{" "}
-            <Link to="/app/gear" className="underline">
-              Gear
-            </Link>{" "}
-            page first.
-          </p>
-        </CardContent>
+        <CardContent>{emptyMessage}</CardContent>
       </Card>
     );
   }
@@ -3294,18 +3480,26 @@ function GearPanel({
   const activeSegment = segmentOptions.find((o) => o.value === segment);
   const hasSegments = segmentOptions.length > 1;
 
+  const Shell = embedded
+    ? ({ children }: { children: React.ReactNode }) => <div className="space-y-3">{children}</div>
+    : ({ children }: { children: React.ReactNode }) => (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Gear used</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">{children}</CardContent>
+        </Card>
+      );
+
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">Gear used</CardTitle>
+    <Shell>
+      <>
         {hasSegments && (
-          <CardDescription>
-            Pick a part of the session first, then tap the gear worn for it. Different shoes for the warm up and the
-            reps is normal — each part only counts its own distance towards that pair.
-          </CardDescription>
+          <p className="text-[11px] text-muted-foreground">
+            Pick a part of the session first, then tap the gear worn for it. Each part only counts its own distance
+            towards that pair.
+          </p>
         )}
-      </CardHeader>
-      <CardContent className="space-y-3">
         {hasSegments && (
           <div className="flex flex-wrap gap-1.5">
             {segmentOptions.map((o) => {
@@ -3362,8 +3556,8 @@ function GearPanel({
             : activeSegment?.label ?? ""}
           {" "}Changes save as you tap.
         </p>
-      </CardContent>
-    </Card>
+      </>
+    </Shell>
   );
 }
 
