@@ -31,9 +31,14 @@ type CommentRow = {
 export function SessionCommentsCard({
   sessionId,
   athleteId,
+  embedded = false,
 }: {
   sessionId: string;
   athleteId: string;
+  /** Renders without its own Card shell, for use inside a collapsible
+   *  section that already supplies the card and heading. Avoids the
+   *  card-inside-a-card look on the session page's side panel. */
+  embedded?: boolean;
 }) {
   const qc = useQueryClient();
   const { user } = useAuthUser();
@@ -104,16 +109,26 @@ export function SessionCommentsCard({
     qc.invalidateQueries({ queryKey: ["session-comments", sessionId] });
   }
 
+  const Shell = embedded
+    ? ({ children }: { children: React.ReactNode }) => <div className="space-y-3">{children}</div>
+    : ({ children }: { children: React.ReactNode }) => (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <MessageCircle className="h-4 w-4 text-[var(--accent-red)]" />
+              Session chat
+            </CardTitle>
+            <CardDescription>
+              Talk about this specific session — separate from your general Messages inbox.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">{children}</CardContent>
+        </Card>
+      );
+
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <MessageCircle className="h-4 w-4 text-[var(--accent-red)]" />
-          Session chat
-        </CardTitle>
-        <CardDescription>Talk about this specific session — separate from your general Messages inbox.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
+    <Shell>
+      <>
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : comments.length === 0 ? (
@@ -160,7 +175,7 @@ export function SessionCommentsCard({
             <Send className="h-3.5 w-3.5" />
           </Button>
         </div>
-      </CardContent>
-    </Card>
+      </>
+    </Shell>
   );
 }
