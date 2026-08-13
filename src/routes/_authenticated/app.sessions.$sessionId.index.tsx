@@ -3525,27 +3525,43 @@ function GearPanel({
           </div>
         )}
 
-        <div className="flex flex-wrap gap-1.5">
-          {gearItems.map((g) => {
-            const isSelected = selectedIds.has(g.id);
-            const label = g.nickname || `${g.brand} ${g.model}`;
-            return (
-              <button
-                key={g.id}
-                type="button"
-                disabled={saving}
-                onClick={() => toggle(g.id)}
-                className={`px-2.5 py-1 text-xs rounded-md border ${
-                  isSelected
-                    ? "bg-[var(--accent-red)] text-white border-[var(--accent-red)]"
-                    : "border-border text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
+        {/* Grouped by type: a locker with a dozen shoes plus a treadmill and a
+            bike reads as an undifferentiated wall of buttons otherwise. Only
+            types the athlete actually owns get a heading. */}
+        {["shoe", "treadmill", "bike", "other"].map((type) => {
+          const items = gearItems.filter((g) => (g.gear_type ?? "other") === type);
+          if (items.length === 0) return null;
+          const heading =
+            type === "shoe" ? "Shoes" : type === "treadmill" ? "Treadmill" : type === "bike" ? "Bike" : "Other";
+          return (
+            <div key={type} className="space-y-1.5">
+              {gearItems.some((g) => (g.gear_type ?? "other") !== "shoe") && (
+                <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{heading}</div>
+              )}
+              <div className="flex flex-wrap gap-1.5">
+                {items.map((g) => {
+                  const isSelected = selectedIds.has(g.id);
+                  const label = g.nickname || `${g.brand} ${g.model}`;
+                  return (
+                    <button
+                      key={g.id}
+                      type="button"
+                      disabled={saving}
+                      onClick={() => toggle(g.id)}
+                      className={`px-2.5 py-1 text-xs rounded-md border ${
+                        isSelected
+                          ? "bg-[var(--accent-red)] text-white border-[var(--accent-red)]"
+                          : "border-border text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
 
         {/* Saves on tap rather than behind a Save button: with a segment
             selector, a pending unsaved state that silently resets when you
