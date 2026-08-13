@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useRouter, useNavigate, useCanGoBack } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, useMemo, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -237,49 +237,83 @@ function SessionDetail() {
     },
   });
 
-  // Previous/next session for this athlete, ordered by date then id as a
-  // tiebreak for same-day sessions — powers the < > navigation in the
-  // header so a coach can step through an athlete's history without
-  // returning to the calendar between each one. Two separate small queries
-  // rather than one clever one: keeps each side's ordering/limit trivial to
-  // read, and both are cheap (indexed on athlete_id + session_date).
+  const router = useRouter();
+  const navigate = useNavigate();
+  const canGoBack = useCanGoBack();
+
+  // Previous / next session.
+  //
+  // REWRITTEN. The old version filtered same-date ties with `id.lt.` /
+  // `id.gt.` — i.e. it broke ties on a random UUID — while SORTING those same
+  // rows by time_of_day. Filter and sort disagreeing is what made this dead-end:
+  // on a day with two sessions, whether you could step past them depended on
+  // how their UUIDs happened to compare, so prev would sometimes return
+  // nothing even though earlier sessions existed.
+  //
+  // Now: fetch a window of sessions around this date, sort them the same way
+  // the sessions list does (date, then time_of_day chronologically), find this
+  // session in that ordering, and take its neighbours. Ordering logic lives in
+  // one place instead of being split between a filter and an ORDER BY.
+  //
+  // The window widens automatically if this session sits at its edge, so a
+  // long gap between sessions doesn't produce a false dead end.
   const { data: adjacentSessions } = useQuery({
     queryKey: ["session-adjacent", sessionId, session?.athlete_id, session?.session_date],
     enabled: !!session?.athlete_id && !!session?.session_date,
     queryFn: async () => {
       const athleteId = (session as any).athlete_id;
-      const date = session!.session_date;
+      const date = session!.session_date as string;
 
-      const [{ data: prevRows, error: prevErr }, { data: nextRows, error: nextErr }] = await Promise.all([
-        supabase
+      // Enum order, so a session with no time_of_day sorts to the start of its
+      // day rather than being dropped or landing arbitrarily.
+      const todRank = (v: string | null | undefined) =>
+        v === "morning" ? 1 : v === "afternoon" ? 2 : v === "evening" ? 3 : 0;
+
+      const cmp = (a: any, b: any) =>
+        String(a.session_date).localeCompare(String(b.session_date)) ||
+        todRank(a.time_of_day) - todRank(b.time_of_day) ||
+        String(a.id).localeCompare(String(b.id));
+
+      async function fetchWindow(days: number) {
+        const from = new Date(`${date}T00:00:00`);
+        from.setDate(from.getDate() - days);
+        const to = new Date(`${date}T00:00:00`);
+        to.setDate(to.getDate() + days);
+        const iso = (d: Date) => d.toISOString().slice(0, 10);
+
+        const { data, error } = await supabase
           .from("sessions")
           .select("id, session_date, title, time_of_day")
           .eq("athlete_id", athleteId)
-          .or(`session_date.lt.${date},and(session_date.eq.${date},id.lt.${sessionId})`)
-          .order("session_date", { ascending: false })
-          .order("time_of_day", { ascending: false })
-          .order("id", { ascending: false })
-          .limit(1),
-        supabase
-          .from("sessions")
-          .select("id, session_date, title, time_of_day")
-          .eq("athlete_id", athleteId)
-          .or(`session_date.gt.${date},and(session_date.eq.${date},id.gt.${sessionId})`)
-          .order("session_date", { ascending: true })
-          .order("time_of_day", { ascending: true })
-          .order("id", { ascending: true })
-          .limit(1),
-      ]);
-      if (prevErr) throw prevErr;
-      if (nextErr) throw nextErr;
+          .gte("session_date", iso(from))
+          .lte("session_date", iso(to));
+        if (error) throw error;
+        return (data ?? []).slice().sort(cmp);
+      }
 
-      return {
-        prev: prevRows?.[0] ?? null,
-        next: nextRows?.[0] ?? null,
-      };
+      // Widen until this session isn't at the edge of the window, or until
+      // the window is wide enough that an edge means there genuinely is
+      // nothing further.
+      for (const days of [21, 120, 3650]) {
+        const rows = await fetchWindow(days);
+        const i = rows.findIndex((r: any) => r.id === sessionId);
+        if (i === -1) continue;
+
+        const prev = i > 0 ? rows[i - 1] : null;
+        const next = i < rows.length - 1 ? rows[i + 1] : null;
+
+        // At an edge with room left to search? Widen rather than reporting a
+        // dead end that isn't one.
+        const atStart = i === 0;
+        const atEnd = i === rows.length - 1;
+        if ((atStart || atEnd) && days < 3650) continue;
+
+        return { prev, next };
+      }
+
+      return { prev: null, next: null };
     },
   });
-
 
   // "8 × 1km + 90s jog recovery". Fetches every work step, not just the
   // first — a session can legitimately have more than one (e.g. a 2km
@@ -896,8 +930,25 @@ function SessionDetail() {
       <div className="space-y-6 max-w-5xl mx-auto">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3">
+            {/* Goes back to wherever you came from — the calendar, a report,
+                an athlete page — rather than always dumping you on the
+                sessions list. Falls back to the list on a direct page load or
+                a fresh tab, where there's no in-app history to return to.
+                The explicit Sessions and Calendar links stay alongside it, so
+                either destination is always one click away regardless. */}
+            <button
+              type="button"
+              onClick={() => {
+                if (canGoBack) router.history.back();
+                else navigate({ to: "/app/sessions" });
+              }}
+              className="text-sm text-muted-foreground underline"
+            >
+              ← Back
+            </button>
+            <span className="text-muted-foreground/40">·</span>
             <Link to="/app/sessions" className="text-sm text-muted-foreground underline">
-              ← Sessions
+              Sessions
             </Link>
             <span className="text-muted-foreground/40">·</span>
             <Link to="/app/sessions/calendar" className="text-sm text-muted-foreground underline">
@@ -911,15 +962,17 @@ function SessionDetail() {
               size="sm"
               variant="outline"
               disabled={!adjacentSessions?.prev}
-              title={adjacentSessions?.prev ? adjacentSessions.prev.title ?? "Previous session" : "No earlier session"}
+              title={adjacentSessions?.prev ? (adjacentSessions.prev.title ?? "Previous session") : "No earlier session"}
             >
               {adjacentSessions?.prev ? (
                 <Link to="/app/sessions/$sessionId" params={{ sessionId: adjacentSessions.prev.id }}>
                   <ChevronLeft className="h-4 w-4" />
+                  <span className="text-xs">Previous</span>
                 </Link>
               ) : (
-                <span>
+                <span className="inline-flex items-center">
                   <ChevronLeft className="h-4 w-4" />
+                  <span className="text-xs">Previous</span>
                 </span>
               )}
             </Button>
@@ -928,14 +981,16 @@ function SessionDetail() {
               size="sm"
               variant="outline"
               disabled={!adjacentSessions?.next}
-              title={adjacentSessions?.next ? adjacentSessions.next.title ?? "Next session" : "No later session"}
+              title={adjacentSessions?.next ? (adjacentSessions.next.title ?? "Next session") : "No later session"}
             >
               {adjacentSessions?.next ? (
                 <Link to="/app/sessions/$sessionId" params={{ sessionId: adjacentSessions.next.id }}>
+                  <span className="text-xs">Next</span>
                   <ChevronRight className="h-4 w-4" />
                 </Link>
               ) : (
-                <span>
+                <span className="inline-flex items-center">
+                  <span className="text-xs">Next</span>
                   <ChevronRight className="h-4 w-4" />
                 </span>
               )}
