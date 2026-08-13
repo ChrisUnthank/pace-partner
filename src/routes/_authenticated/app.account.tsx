@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { Sparkles, User2, History } from "lucide-react";
+import { Sparkles, User2, History, Fingerprint, Copy, Check } from "lucide-react";
 import { ProfileImageUploader } from "@/components/profile-image-uploader";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { setStoredUnits } from "@/lib/units";
@@ -149,6 +149,8 @@ function Account() {
             <ChangePasswordCard userId={user?.id} />
 
             {user && <PreferencesCard userId={user.id} />}
+
+            {user && <IdentifiersCard userId={user.id} />}
           </div>
         </div>
 
@@ -161,6 +163,113 @@ function Account() {
         <PoweredByStrider className="px-0 pt-2" />
       </div>
     </AppShell>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// Identifiers.
+//
+// These ids come up constantly when doing anything directly against the
+// database — writing a migration, running a diagnostic query, or copying data
+// between athletes. Previously the only way to find an athlete id was to run
+// a SELECT against the athletes table, which is a poor experience for the one
+// piece of information you need before you can run anything else.
+//
+// Not sensitive: a UUID is an identifier, not a credential. Athlete ids
+// already appear in page URLs, and every table is protected by RLS keyed on
+// auth.uid() — knowing an id grants nothing. Deliberately collapsed by
+// default so it stays out of the way of people who'll never need it.
+// ----------------------------------------------------------------------------
+
+function CopyableId({ label, value, hint }: { label: string; value: string | null | undefined; hint?: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      // Reverts on its own rather than needing a second render pass — long
+      // enough to register, short enough that a second copy still gives
+      // feedback.
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard API is unavailable over plain http and in some embedded
+      // webviews; say so rather than silently doing nothing.
+      toast.error("Couldn't copy — select the text and copy manually");
+    }
+  }
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between gap-2">
+        <Label className="text-xs">{label}</Label>
+        {value && (
+          <button
+            type="button"
+            onClick={copy}
+            className="text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+          >
+            {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+            {copied ? "Copied" : "Copy"}
+          </button>
+        )}
+      </div>
+      <code className="block text-[11px] font-mono bg-muted rounded px-2 py-1.5 break-all select-all">
+        {value ?? "—"}
+      </code>
+      {hint && <p className="text-[10px] text-muted-foreground leading-snug">{hint}</p>}
+    </div>
+  );
+}
+
+function IdentifiersCard({ userId }: { userId: string }) {
+  const { data: athlete } = useMyAthlete();
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <button type="button" onClick={() => setOpen((v) => !v)} className="text-left w-full">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Fingerprint className="h-4 w-4" />
+            Identifiers
+            <span className="ml-auto text-[11px] font-normal text-muted-foreground">{open ? "Hide" : "Show"}</span>
+          </CardTitle>
+          <CardDescription>
+            The ids that identify this account and athlete profile in the database. Useful for support, or when running
+            a query directly.
+          </CardDescription>
+        </button>
+      </CardHeader>
+      {open && (
+        <CardContent className="space-y-3">
+          <CopyableId
+            label="User ID"
+            value={userId}
+            hint="Your login. This is what auth.uid() returns, and what user_roles and coach_athletes are keyed on."
+          />
+          <CopyableId
+            label="Athlete ID"
+            value={athlete?.id}
+            hint={
+              athlete?.id
+                ? "Your athlete profile — sessions, gear, performances and zones all hang off this."
+                : "No athlete profile is linked to this login, so there's no athlete id."
+            }
+          />
+          {athlete?.name && (
+            <div className="text-[11px] text-muted-foreground">
+              Athlete profile: <span className="font-medium text-foreground">{athlete.name}</span>
+            </div>
+          )}
+          <p className="text-[10px] text-muted-foreground leading-snug border-t pt-2">
+            These are identifiers, not passwords — they appear in page URLs already, and access to any data is
+            controlled separately by the database's own rules. Safe to paste into a support request.
+          </p>
+        </CardContent>
+      )}
+    </Card>
   );
 }
 
