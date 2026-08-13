@@ -2043,20 +2043,42 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   // explicitly said what the session was.
   const detectedTrack = !sess.terrain && looksLikeTrackSession(workLaps);
 
-  // Terrain straight from the watch. Garmin records sub_sport per FILE, so a
-  // session merged from several files can legitimately disagree — outdoors
-  // into a treadmill, say. Only set the SESSION terrain when every file that
-  // reports a surface agrees; a mixed session keeps its per-step terrain
-  // (assigned below) and leaves the session-level value alone rather than
-  // claiming a surface that only applies to half the run.
-  const fileTerrains = parsedFiles
-    .map(({ parsed }) => terrainFromSubSport(parsed.subSport))
-    .filter((t): t is string => !!t);
-  const uniqueFileTerrains = Array.from(new Set(fileTerrains));
-  const detectedTerrain =
-    !sess.terrain && uniqueFileTerrains.length === 1 && fileTerrains.length === parsedFiles.length
-      ? uniqueFileTerrains[0]
-      : null;
+  // Terrain straight from the watch. Garmin records sub_sport per FILE, and
+  // laps carry sourceFileIndex, so a merged session can say which surface
+  // each part was run on.
+  //
+  // THE SESSION-LEVEL VALUE IS THE WORK COMPONENT'S SURFACE. A track session
+  // whose warm up is on road is a track session — that's what a coach means
+  // by "what was this on", and it's what the Compare page's surface filter
+  // and the mechanics work both need. Per-step terrain carries the finer
+  // detail; this is the headline.
+  //
+  // Falls back to all-file agreement when the work laps don't say (a
+  // continuous run has no work/warmup split worth reading), and finally to
+  // the existing track-shape detection.
+  const terrainByFileIndex = parsedFiles.map(({ parsed }) => terrainFromSubSport(parsed.subSport));
+
+  function dominantTerrain(laps: typeof classifiedLaps): string | null {
+    const byTerrain = new Map<string, number>();
+    for (const lap of laps) {
+      const t = terrainByFileIndex[(lap as any).sourceFileIndex ?? 0];
+      if (!t) continue;
+      // Weighted by distance, not lap count — one long treadmill block
+      // shouldn't lose to three short outdoor laps.
+      byTerrain.set(t, (byTerrain.get(t) ?? 0) + Number((lap as any).total_distance ?? 0));
+    }
+    if (byTerrain.size === 0) return null;
+    return Array.from(byTerrain.entries()).sort((a, b) => b[1] - a[1])[0][0];
+  }
+
+  const workTerrain = dominantTerrain(workLaps);
+
+  const allFileTerrains = terrainByFileIndex.filter((t): t is string => !!t);
+  const uniqueFileTerrains = Array.from(new Set(allFileTerrains));
+  const unanimousTerrain =
+    uniqueFileTerrains.length === 1 && allFileTerrains.length === parsedFiles.length ? uniqueFileTerrains[0] : null;
+
+  const detectedTerrain = !sess.terrain ? (workTerrain ?? unanimousTerrain) : null;
 
   // Effective location for step-terrain purposes — reuses sess.location_id
   // if a coach already set one (manually or from an earlier auto-match)
