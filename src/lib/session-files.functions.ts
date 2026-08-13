@@ -471,6 +471,20 @@ function mapFitSport(sport: string | null | undefined): string {
   return "run";
 }
 
+// FIT sub_sport -> our terrain vocabulary (TERRAIN_VALUES in
+// session-categories.ts). Only the values that map UNAMBIGUOUSLY are listed:
+// "generic" tells us nothing about surface, so it returns null and the
+// existing location/track-detection logic decides instead. Guessing "road"
+// from a generic outdoor run would overwrite better information.
+function terrainFromSubSport(subSport: string | null | undefined): string | null {
+  const s = (subSport ?? "").toLowerCase();
+  if (s === "treadmill" || s === "indoor_running" || s === "virtual_activity") return "treadmill";
+  if (s === "track") return "track";
+  if (s === "trail") return "trail";
+  if (s === "road") return "road";
+  return null;
+}
+
 // The noun used in an auto-generated "Morning/Afternoon/Evening ___" title.
 // Both title-generation spots below (initial file insert, and the later
 // Morning/Afternoon/Evening recompute) previously hardcoded "Run"
@@ -578,6 +592,10 @@ type ParsedFile = {
   totalTimeS: number;
   startedAt: string | null;
   sport: string | null;
+  /** FIT sub_sport — "treadmill", "track", "trail", "indoor_cycling", etc.
+   *  Garmin already records the surface here; nothing read it before, which
+   *  is why treadmill runs arrived indistinguishable from road runs. */
+  subSport: string | null;
 };
 
 type WorkRecoveryPair = {
@@ -620,7 +638,7 @@ function parseGPX(xml: string): ParsedFile {
   }
 
   if (trkpts.length === 0) {
-    return { points: [], laps: [], totalDistanceM: 0, totalTimeS: 0, startedAt: null, sport: null };
+    return { points: [], laps: [], totalDistanceM: 0, totalTimeS: 0, startedAt: null, sport: null, subSport: null };
   }
 
   const t0 = trkpts[0].time ? new Date(trkpts[0].time).getTime() : 0;
@@ -683,6 +701,7 @@ function parseGPX(xml: string): ParsedFile {
     totalTimeS: totalTime,
     startedAt: trkpts[0].time ?? null,
     sport: null,
+    subSport: null,
   };
 }
 
@@ -710,6 +729,7 @@ async function parseFIT(buffer: ArrayBuffer): Promise<ParsedFile> {
           totalTimeS: 0,
           startedAt: null,
           sport: data?.sport?.sport ?? null,
+          subSport: data?.sport?.sub_sport ?? null,
         });
       }
 
@@ -772,9 +792,78 @@ async function parseFIT(buffer: ArrayBuffer): Promise<ParsedFile> {
         totalTimeS: Number(sess?.total_timer_time ?? 0),
         startedAt: records[0].timestamp ?? null,
         sport: sess?.sport ?? data?.sport?.sport ?? null,
+        subSport: sess?.sub_sport ?? data?.sport?.sub_sport ?? null,
       });
     });
   });
+}
+
+// ---------------------------------------------------------------------------
+// Auto-link gear on import.
+//
+// Deliberately conservative. This writes on the athlete's behalf, so it only
+// acts where there's a single unambiguous answer:
+//
+//   * Never touches a session that already has gear linked — a manual choice
+//     always wins, and re-importing must not silently add to it.
+//   * Only links when EXACTLY ONE non-retired item matches. Two treadmills in
+//     the locker means we can't know which, so it links nothing rather than
+//     guessing and quietly inflating the wrong one's mileage.
+//   * Links the treadmill as whole-session (segment_type null), because the
+//     machine was used for the whole thing it appears in.
+//
+// Shoes are deliberately NOT auto-linked. Which pair someone wore isn't
+// derivable from a FIT file, and a wrong guess doesn't just mislead — it
+// corrupts retirement tracking and any future footwear-vs-mechanics analysis.
+// The used_for purposes on the Gear page make that a two-tap job instead.
+// ---------------------------------------------------------------------------
+async function autoLinkGear(
+  sb: any,
+  athleteId: string,
+  sessionId: string,
+  terrain: string | null,
+  sessionHasLocation: boolean,
+): Promise<void> {
+  if (terrain !== "treadmill") return;
+
+  const { data: existing } = await sb
+    .from("session_gear")
+    .select("id")
+    .eq("session_id", sessionId)
+    .limit(1);
+  if (existing && existing.length > 0) return;
+
+  const { data: candidates } = await sb
+    .from("gear_items")
+    .select("id, default_location_id")
+    .eq("athlete_id", athleteId)
+    .eq("gear_type", "treadmill")
+    .eq("is_retired", false);
+
+  if (!candidates || candidates.length !== 1) return;
+  const treadmill = candidates[0];
+
+  await sb
+    .from("session_gear")
+    .insert({ session_id: sessionId, gear_id: treadmill.id, athlete_id: athleteId, segment_type: null });
+
+  // A treadmill doesn't move, so its location is a property of the machine
+  // rather than of the session — which is the only way a GPS-less session can
+  // get one at all. Never overwrites a location the session already has,
+  // whether set by a coach or by an earlier match.
+  if (treadmill.default_location_id && !sessionHasLocation) {
+    const { data: loc } = await sb
+      .from("training_locations")
+      .select("id, name")
+      .eq("id", treadmill.default_location_id)
+      .maybeSingle();
+    if (loc) {
+      await sb
+        .from("sessions")
+        .update({ location_id: loc.id, location: loc.name ?? null })
+        .eq("id", sessionId);
+    }
+  }
 }
 
 function paceSecPerKm(lap: ParsedLap) {
@@ -1954,6 +2043,21 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   // explicitly said what the session was.
   const detectedTrack = !sess.terrain && looksLikeTrackSession(workLaps);
 
+  // Terrain straight from the watch. Garmin records sub_sport per FILE, so a
+  // session merged from several files can legitimately disagree — outdoors
+  // into a treadmill, say. Only set the SESSION terrain when every file that
+  // reports a surface agrees; a mixed session keeps its per-step terrain
+  // (assigned below) and leaves the session-level value alone rather than
+  // claiming a surface that only applies to half the run.
+  const fileTerrains = parsedFiles
+    .map(({ parsed }) => terrainFromSubSport(parsed.subSport))
+    .filter((t): t is string => !!t);
+  const uniqueFileTerrains = Array.from(new Set(fileTerrains));
+  const detectedTerrain =
+    !sess.terrain && uniqueFileTerrains.length === 1 && fileTerrains.length === parsedFiles.length
+      ? uniqueFileTerrains[0]
+      : null;
+
   // Effective location for step-terrain purposes — reuses sess.location_id
   // if a coach already set one (manually or from an earlier auto-match)
   // rather than treating "already set" as "nothing more to do here." The
@@ -2910,7 +3014,9 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
       easy_avg_pace_sec_per_km: easyPaceSecPerKm,
       structure: isIntervals ? "intervals" : "continuous",
       needs_review: isIntervals,
-      ...(detectedTrack ? { terrain: "track" } : {}),
+      // sub_sport is a direct statement from the device, so it wins over
+      // detectedTrack, which is inferred from lap-distance consistency.
+      ...(detectedTerrain ? { terrain: detectedTerrain } : detectedTrack ? { terrain: "track" } : {}),
       ...(matchedLocation ? { location_id: matchedLocation.id } : {}),
       ...(shouldUpdateIntent ? { intent: derivedIntent } : {}),
       ...(recomputedTitle ? { title: recomputedTitle } : {}),
@@ -2919,6 +3025,21 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
     .eq("id", sessionId);
 
   if (updErr) throw updErr;
+
+  // After the terrain write, so it can act on what was just detected rather
+  // than the stale pre-update value. Failure here must not fail the import —
+  // an unlinked treadmill is a minor gap, a failed upload is not.
+  try {
+    await autoLinkGear(
+      sb,
+      sess.athlete_id,
+      sessionId,
+      detectedTerrain ?? sess.terrain ?? null,
+      !!(sess.location_id || matchedLocation),
+    );
+  } catch (e) {
+    console.error("autoLinkGear failed (non-fatal):", e);
+  }
 
   // Continuous sessions get their within-session fatigue (pace/HR drift,
   // first half vs second half) computed here, right after upload — the
