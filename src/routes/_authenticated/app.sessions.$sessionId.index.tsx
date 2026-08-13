@@ -3315,20 +3315,10 @@ function FuelingPanel({ session, embedded = false }: { session: any; embedded?: 
       qc.invalidateQueries({ queryKey: ["session", session.id] });
     }
   }
-  const Shell = embedded
-    ? ({ children }: { children: React.ReactNode }) => <div className="space-y-3">{children}</div>
-    : ({ children }: { children: React.ReactNode }) => (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Fueling</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">{children}</CardContent>
-        </Card>
-      );
-
-  return (
-    <Shell>
-      <>
+  return panelShell(
+    embedded,
+    "Fueling",
+    <>
         <div className="grid grid-cols-3 gap-2">
           <div>
             <Label className="text-xs flex items-center gap-1">
@@ -3378,8 +3368,39 @@ function FuelingPanel({ session, embedded = false }: { session: any; embedded?: 
         <Button size="sm" variant="outline" onClick={save}>
           Save
         </Button>
-      </>
-    </Shell>
+    </>,
+  );
+}
+
+// Wraps a panel's body in a Card, or returns it bare when the panel is being
+// rendered inside a section that already supplies the card and heading.
+//
+// A plain function returning JSX, NOT a component defined inside render.
+// The earlier version did this:
+//
+//   const Shell = embedded ? ({children}) => <div>… : ({children}) => <Card>…
+//   return <Shell>{…}</Shell>
+//
+// which creates a BRAND NEW component type on every render. React compares
+// component types by identity, so it unmounted and remounted the whole
+// subtree each time — losing input focus on every keystroke in the fuelling
+// fields, and remounting the chat (and its realtime subscription) on every
+// parent render. Calling a function that returns JSX has none of that
+// behaviour: the returned elements are ordinary <Card>/<div> nodes and
+// reconcile normally.
+function panelShell(
+  embedded: boolean,
+  title: string,
+  body: React.ReactNode,
+): React.ReactElement {
+  if (embedded) return <div className="space-y-3">{body}</div>;
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">{title}</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">{body}</CardContent>
+    </Card>
   );
 }
 
@@ -3534,20 +3555,10 @@ function GearPanel({
   const activeSegment = segmentOptions.find((o) => o.value === segment);
   const hasSegments = segmentOptions.length > 1;
 
-  const Shell = embedded
-    ? ({ children }: { children: React.ReactNode }) => <div className="space-y-3">{children}</div>
-    : ({ children }: { children: React.ReactNode }) => (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Gear used</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">{children}</CardContent>
-        </Card>
-      );
-
-  return (
-    <Shell>
-      <>
+  return panelShell(
+    embedded,
+    "Gear used",
+    <>
         {hasSegments && (
           <p className="text-[11px] text-muted-foreground">
             Pick a part of the session first, then tap the gear worn for it. Each part only counts its own distance
@@ -3626,8 +3637,7 @@ function GearPanel({
             : activeSegment?.label ?? ""}
           {" "}Changes save as you tap.
         </p>
-      </>
-    </Shell>
+    </>,
   );
 }
 
