@@ -99,6 +99,28 @@ const SHOE_SURFACES: { value: string; label: string }[] = [
 
 const SURFACE_LABEL: Record<string, string> = Object.fromEntries(SHOE_SURFACES.map((s) => [s.value, s.label]));
 
+// Sizing systems. Stored separately from the number because "10.5" alone is
+// ambiguous — UK, US and EU 10.5 are three different shoes.
+const SIZE_SYSTEMS: { value: string; label: string }[] = [
+  { value: "uk", label: "UK" },
+  { value: "us", label: "US" },
+  { value: "eu", label: "EU" },
+  { value: "au", label: "AU" },
+  { value: "jp", label: "JP" },
+  { value: "cm", label: "cm" },
+];
+
+const SIZE_SYSTEM_LABEL: Record<string, string> = Object.fromEntries(SIZE_SYSTEMS.map((s) => [s.value, s.label]));
+
+// "UK 10.5", or just "10.5" if the system was never set — better to show the
+// number than nothing, since a bare size is still more use than blank.
+function formatShoeSize(item: { shoe_size?: string | null; shoe_size_system?: string | null }): string | null {
+  const size = (item.shoe_size ?? "").trim();
+  if (!size) return null;
+  const sys = item.shoe_size_system ? SIZE_SYSTEM_LABEL[item.shoe_size_system] : null;
+  return sys ? `${sys} ${size}` : size;
+}
+
 const TRAIT_GROUPS: { group: string; options: { value: string; label: string }[] }[] = [
   {
     group: "Plate",
@@ -330,6 +352,9 @@ type GearDraft = {
   shoe_type: string;
   shoe_surface: string;
   shoe_traits: string[];
+  shoe_size: string;
+  shoe_size_system: string;
+  shoe_fit_notes: string;
   stack_height_mm: string;
   drop_mm: string;
   weight_g: string;
@@ -351,6 +376,11 @@ function emptyDraft(): GearDraft {
     shoe_type: "",
     shoe_surface: "",
     shoe_traits: [],
+    shoe_size: "",
+    // Defaults to UK: Australian running shoes are overwhelmingly sold in UK
+    // sizing, so this is the least-wrong default for this app's users.
+    shoe_size_system: "uk",
+    shoe_fit_notes: "",
     stack_height_mm: "",
     drop_mm: "",
     weight_g: "",
@@ -379,6 +409,9 @@ function draftFromItem(item: any): GearDraft {
     shoe_type: item.shoe_type ?? "",
     shoe_surface: item.shoe_surface ?? "",
     shoe_traits: Array.isArray(item.shoe_traits) ? item.shoe_traits : [],
+    shoe_size: item.shoe_size ?? "",
+    shoe_size_system: item.shoe_size_system ?? "uk",
+    shoe_fit_notes: item.shoe_fit_notes ?? "",
     stack_height_mm: item.stack_height_mm == null ? "" : String(item.stack_height_mm),
     drop_mm: item.drop_mm == null ? "" : String(item.drop_mm),
     weight_g: item.weight_g == null ? "" : String(item.weight_g),
@@ -435,6 +468,10 @@ function draftToPayload(d: GearDraft, athleteId: string) {
     shoe_type: isShoe ? d.shoe_type || null : null,
     shoe_surface: isShoe ? d.shoe_surface || null : null,
     shoe_traits: isShoe ? d.shoe_traits : [],
+    shoe_size: isShoe ? d.shoe_size.trim() || null : null,
+    // Only meaningful alongside a size — storing a lone system would be noise.
+    shoe_size_system: isShoe && d.shoe_size.trim() ? d.shoe_size_system || null : null,
+    shoe_fit_notes: isShoe ? d.shoe_fit_notes.trim() || null : null,
     stack_height_mm: isShoe ? num(d.stack_height_mm) : null,
     drop_mm: isShoe ? num(d.drop_mm) : null,
     weight_g: isShoe ? num(d.weight_g) : null,
@@ -775,6 +812,39 @@ function GearFormFields({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Size</Label>
+              <div className="flex gap-2 mt-0.5">
+                <Select value={draft.shoe_size_system} onValueChange={(v) => set("shoe_size_system", v)}>
+                  <SelectTrigger className="w-[88px] shrink-0">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SIZE_SYSTEMS.map((c) => (
+                      <SelectItem key={c.value} value={c.value}>
+                        {c.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {/* Text, not a number input: half and third sizes ("10.5",
+                    "42 2/3") need to survive exactly as written. */}
+                <Input
+                  value={draft.shoe_size}
+                  onChange={(e) => set("shoe_size", e.target.value)}
+                  placeholder="10.5"
+                  className="min-w-0"
+                />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs">Fit notes (optional)</Label>
+              <Input
+                value={draft.shoe_fit_notes}
+                onChange={(e) => set("shoe_fit_notes", e.target.value)}
+                placeholder="e.g. half size up, narrow midfoot"
+              />
             </div>
           </>
         )}
@@ -1886,7 +1956,10 @@ function GearList({ athleteId }: { athleteId: string }) {
       out = out.filter((g) => ((g.used_for ?? []) as string[]).includes(purposeFilter));
     }
     const q = search.trim().toLowerCase();
-    if (q) out = out.filter((g) => `${g.brand ?? ""} ${g.model ?? ""} ${g.nickname ?? ""}`.toLowerCase().includes(q));
+    if (q)
+      out = out.filter((g) =>
+        `${g.brand ?? ""} ${g.model ?? ""} ${g.nickname ?? ""} ${g.shoe_size ?? ""}`.toLowerCase().includes(q),
+      );
     return out;
   }, [gearItems, purposeFilter, typeFilter, shoeTypeFilter, search]);
 
@@ -2186,6 +2259,7 @@ function GearDetailsDialog({
           <DialogDescription className="truncate">
             {item.brand} {item.model}
             {item.shoe_type && ` · ${SHOE_TYPE_LABEL[item.shoe_type] ?? item.shoe_type}`}
+            {formatShoeSize(item) && ` · ${formatShoeSize(item)}`}
           </DialogDescription>
         </DialogHeader>
 
@@ -2354,6 +2428,11 @@ function GearTile({
               {SURFACE_LABEL[item.shoe_surface] ?? item.shoe_surface}
             </Badge>
           )}
+          {formatShoeSize(item) && (
+            <Badge variant="outline" className="text-[10px] font-normal">
+              {formatShoeSize(item)}
+            </Badge>
+          )}
         </div>
 
         <div className="flex items-center justify-between text-[11px] text-muted-foreground">
@@ -2473,7 +2552,9 @@ function GearCard({
   const typeColour = SHOE_TYPE_COLOUR[item.shoe_type ?? ""] ?? "#94a3b8";
   const traits: string[] = Array.isArray(item.shoe_traits) ? item.shoe_traits : [];
   const superShoe = item.gear_type === "shoe" && isSuperShoe(item);
+  const sizeText = formatShoeSize(item);
   const specBits = [
+    sizeText ? `Size ${sizeText}` : null,
     item.stack_height_mm != null ? `${item.stack_height_mm}mm stack` : null,
     item.drop_mm != null ? `${item.drop_mm}mm drop` : null,
     item.weight_g != null ? `${item.weight_g}g` : null,
@@ -2642,6 +2723,15 @@ function GearCard({
                   loading="lazy"
                 />
               </button>
+            )}
+            {item.shoe_fit_notes && (
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">Fit</div>
+                <p className="text-xs text-muted-foreground">
+                  {formatShoeSize(item) ? `${formatShoeSize(item)} — ` : ""}
+                  {item.shoe_fit_notes}
+                </p>
+              </div>
             )}
             {item.description && (
               <div>
