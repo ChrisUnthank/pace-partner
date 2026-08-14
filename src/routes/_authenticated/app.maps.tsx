@@ -532,9 +532,19 @@ function LocationsManagerDialog({
       ? `Delete "${loc.name}"? ${count} route${count === 1 ? "" : "s"} linked to it will keep their name/distance but lose the location link.`
       : `Delete "${loc.name}"?`;
     if (!confirm(warning)) return;
-    const { error } = await supabase.from("training_locations").delete().eq("id", loc.id);
+    // Same reasoning as the save above — an RLS-blocked DELETE reports no
+    // error, it just removes nothing.
+    const { data: removed, error } = await (supabase as any)
+      .from("training_locations")
+      .delete()
+      .eq("id", loc.id)
+      .select();
     if (error) {
       toast.error(error.message);
+      return;
+    }
+    if (!removed || removed.length === 0) {
+      toast.error("Couldn't delete — you don't have permission to remove this location.");
       return;
     }
     toast.success("Location deleted");
@@ -670,16 +680,43 @@ function LocationEditForm({
     // so editing a squad location can't quietly turn it into a personal one.
     const ownerAthleteId = !isCoach && myAthlete?.id ? myAthlete.id : null;
 
-    const { error } = location
-      ? await supabase.from("training_locations").update(patch).eq("id", location.id)
+    // .select() on both branches so we get the affected rows back.
+    //
+    // This matters more than it looks: when RLS blocks an UPDATE, Postgres
+    // doesn't raise an error — the statement simply matches zero rows and
+    // Supabase returns { error: null, data: [] }. Without checking the rows,
+    // the code shows "Location updated", closes the dialog, and nothing was
+    // written. That is exactly the "it says it saved but didn't" symptom.
+    const { data: saved, error } = location
+      ? await (supabase as any).from("training_locations").update(patch).eq("id", location.id).select()
       : await (supabase as any)
           .from("training_locations")
-          .insert({ ...patch, created_by: user?.id ?? null, owner_athlete_id: ownerAthleteId });
+          .insert({ ...patch, created_by: user?.id ?? null, owner_athlete_id: ownerAthleteId })
+          .select();
     setSaving(false);
+
     if (error) {
-      toast.error(error.message);
+      // A missing-column error here almost always means the ownership
+      // migration hasn't been run against this database yet — worth saying
+      // so rather than showing a raw Postgres message.
+      const msg = String(error.message ?? "");
+      toast.error(
+        msg.includes("owner_athlete_id")
+          ? "This database is missing the location ownership column — the migration hasn't been run yet."
+          : msg,
+      );
       return;
     }
+
+    if (!saved || saved.length === 0) {
+      toast.error(
+        location
+          ? "Couldn't save — you don't have permission to edit this location. Personal locations can only be edited by the athlete who created them."
+          : "Couldn't save — the database rejected this location.",
+      );
+      return;
+    }
+
     toast.success(location ? "Location updated" : "Location added");
     onSaved();
   }
