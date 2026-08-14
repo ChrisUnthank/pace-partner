@@ -2247,6 +2247,128 @@ function WorkoutStructureOrderEditor({ session, steps, qc }: { session: any; ste
 
   async function addBlock(kind: string) {
     setSaving(true);
+  // ---- Merge consecutive blocks into one set -----------------------------
+  const [selectedForMerge, setSelectedForMerge] = useState<Set<string>>(new Set());
+  const [mergeConfirm, setMergeConfirm] = useState(false);
+
+  // Only offered when there's something plausibly splittable. Two blocks is
+  // the minimum that can be merged at all.
+  const mergeCandidates = localSteps;
+
+  function toggleMerge(id: string) {
+    setSelectedForMerge((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  // Validity is deliberately strict: the selection must be CONSECUTIVE, and
+  // must contain at least two blocks that aren't recovery. Merging
+  // non-adjacent blocks would silently reorder the session, and merging a
+  // single block with its recoveries isn't a set.
+  const { mergeIsValid, mergeHint, mergeEffortSteps, mergeRecoverySteps } = useMemo(() => {
+    const idx = localSteps.map((st, i) => ({ st, i })).filter(({ st }) => selectedForMerge.has(st.id));
+    if (idx.length < 2) {
+      return { mergeIsValid: false, mergeHint: "Pick two or more blocks in a row.", mergeEffortSteps: [], mergeRecoverySteps: [] };
+    }
+    const positions = idx.map((x) => x.i);
+    const consecutive = positions.every((v, k) => k === 0 || v === positions[k - 1] + 1);
+    if (!consecutive) {
+      return { mergeIsValid: false, mergeHint: "Blocks must be next to each other.", mergeEffortSteps: [], mergeRecoverySteps: [] };
+    }
+    const effort = idx.map((x) => x.st).filter((st) => st.kind !== "recovery");
+    const recovery = idx.map((x) => x.st).filter((st) => st.kind === "recovery");
+    if (effort.length < 2) {
+      return { mergeIsValid: false, mergeHint: "Needs at least two effort blocks.", mergeEffortSteps: [], mergeRecoverySteps: [] };
+    }
+    const kinds = Array.from(new Set(effort.map((st) => st.kind)));
+    if (kinds.length > 1) {
+      return {
+        mergeIsValid: false,
+        mergeHint: `Effort blocks must all be the same type (got ${kinds.join(", ")}).`,
+        mergeEffortSteps: [],
+        mergeRecoverySteps: [],
+      };
+    }
+    return {
+      mergeIsValid: true,
+      mergeHint: `${effort.length} x ${effort[0].target_distance_m ? Math.round(effort[0].target_distance_m) + "m" : "block"}${
+        recovery.length > 0 ? ` with ${recovery.length} recovery` : ""
+      }`,
+      mergeEffortSteps: effort,
+      mergeRecoverySteps: recovery,
+    };
+  }, [localSteps, selectedForMerge]);
+
+  async function doMerge() {
+    if (!mergeIsValid) return;
+    setSaving(true);
+    const keep = mergeEffortSteps[0];
+    const rest = mergeEffortSteps.slice(1);
+
+    // Recovery becomes the between-reps recovery of the surviving block,
+    // taken from the first recovery in the selection. Averaging them would
+    // invent a number that matches none of the actual recoveries.
+    const rec = mergeRecoverySteps[0];
+    const patch: any = {
+      reps: mergeEffortSteps.length,
+      set_count: 1,
+    };
+    if (rec) {
+      if (rec.target_kind === "distance" && rec.target_distance_m) {
+        patch.recovery_between_reps_target_kind = "distance";
+        patch.recovery_between_reps_distance_m = rec.target_distance_m;
+        patch.recovery_between_reps_seconds = null;
+      } else {
+        patch.recovery_between_reps_target_kind = "time";
+        patch.recovery_between_reps_seconds = rec.target_time_seconds ?? 60;
+        patch.recovery_between_reps_distance_m = null;
+      }
+      patch.recovery_between_reps_mode = rec.recovery_mode ?? "jog";
+    }
+
+    const { error: upErr } = await (supabase as any).from("steps").update(patch).eq("id", keep.id);
+    if (upErr) {
+      toast.error(upErr.message);
+      setSaving(false);
+      return;
+    }
+
+    // Recorded reps move to the surviving block rather than being deleted —
+    // they're the actual run data, and losing them to a grouping change
+    // would be destroying measurements to fix a label.
+    const moveIds = [...rest, ...mergeRecoverySteps].map((st) => st.id);
+    if (moveIds.length > 0) {
+      const { error: mvErr } = await (supabase as any)
+        .from("interval_results")
+        .update({ step_id: keep.id })
+        .in("step_id", rest.map((st) => st.id));
+      if (mvErr) {
+        toast.error(mvErr.message);
+        setSaving(false);
+        return;
+      }
+      // Recovery blocks' own results are dropped with them: their distance is
+      // recovery, not work, and folding it into the set would inflate the
+      // work total.
+      const { error: delErr } = await (supabase as any).from("steps").delete().in("id", moveIds);
+      if (delErr) {
+        toast.error(delErr.message);
+        setSaving(false);
+        return;
+      }
+    }
+
+    setSaving(false);
+    setSelectedForMerge(new Set());
+    setMergeConfirm(false);
+    toast.success("Blocks merged");
+    invalidateSession(qc, session.id, session.athlete_id);
+  }
+
+
     const nextOrder = localSteps.reduce((max, s) => Math.max(max, s.step_order ?? 0), 0) + 1;
     const row = buildNewStepRow(session.id, kind, nextOrder);
     const { error } = await supabase.from("steps").insert(row as any);
@@ -2302,6 +2424,53 @@ function WorkoutStructureOrderEditor({ session, steps, qc }: { session: any; ste
         block's type, or the buttons below to add or remove a block. Changes save immediately.
       </p>
 
+      {/* Merge consecutive blocks into one.
+          FIT imports sometimes split a set into a block per rep — 4 x 100m
+          strides arrive as four stride blocks with three recovery blocks
+          between them, rather than one "4 x 100m w/ recovery" block.
+          Reassigning a block's type doesn't regroup them, because type and
+          grouping are different things, so this collapses the selection into
+          a single block instead. */}
+      {mergeCandidates.length >= 2 && (
+        <div className="rounded-md border bg-muted/30 px-3 py-2.5 space-y-2">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="text-xs font-semibold">Merge blocks into one set</div>
+            {selectedForMerge.size > 0 && (
+              <button
+                type="button"
+                onClick={() => setSelectedForMerge(new Set())}
+                className="text-[11px] text-muted-foreground hover:text-foreground underline"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {localSteps.map((st, i) => (
+              <button
+                key={st.id}
+                type="button"
+                onClick={() => toggleMerge(st.id)}
+                className={`px-2 py-1 text-[11px] rounded border ${
+                  selectedForMerge.has(st.id)
+                    ? "bg-foreground text-background border-foreground"
+                    : "border-border text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {i + 1}. {BLOCK_KIND_LABEL[st.kind] ?? st.kind}
+                {st.target_distance_m ? ` ${Math.round(st.target_distance_m)}m` : ""}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button size="sm" variant="outline" disabled={!mergeIsValid || saving} onClick={() => setMergeConfirm(true)}>
+              Merge {selectedForMerge.size > 0 ? `${selectedForMerge.size} blocks` : "selected"}
+            </Button>
+            <span className="text-[11px] text-muted-foreground">{mergeHint}</span>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-2 pb-1 border-b">
         {(["warmup", "strides", "work", "recovery", "cooldown"] as const).map((kind) => (
           <Button key={kind} variant="outline" size="sm" disabled={saving} onClick={() => addBlock(kind)}>
@@ -2327,6 +2496,27 @@ function WorkoutStructureOrderEditor({ session, steps, qc }: { session: any; ste
           ))}
         </SortableContext>
       </DndContext>
+
+      <Dialog open={mergeConfirm} onOpenChange={setMergeConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Merge into one block?</DialogTitle>
+            <DialogDescription>
+              This combines the selected blocks into a single {mergeHint} block. The recorded reps are kept and moved
+              onto it — nothing measured is lost. Any recovery blocks in the selection become the recovery between
+              reps, and their own distance stops counting toward work.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setMergeConfirm(false)}>
+              Cancel
+            </Button>
+            <Button onClick={doMerge} disabled={saving}>
+              {saving ? "Merging…" : "Merge"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!blockToDelete} onOpenChange={(open) => !open && setBlockToDelete(null)}>
         <DialogContent>
@@ -2477,6 +2667,33 @@ function StepBlock({
   useEffect(() => {
     if (terrainDraft !== undefined && (step.terrain ?? null) === terrainDraft) setTerrainDraft(undefined);
   }, [step.terrain, terrainDraft]);
+
+  // Per-step RPE and feel. Session-level RPE describes no part of a session
+  // that had an easy warm up and hard reps — this records each block as it
+  // was actually experienced. Local echo for the same reason terrain has one:
+  // the value is driven from `step`, which only changes on refetch.
+  const [rpeDraft, setRpeDraft] = useState<number | null | undefined>(undefined);
+  const [feelDraft, setFeelDraft] = useState<number | null | undefined>(undefined);
+  const shownRpe = rpeDraft !== undefined ? rpeDraft : (step.actual_rpe ?? null);
+  const shownFeel = feelDraft !== undefined ? feelDraft : (step.feel_score ?? null);
+
+  useEffect(() => {
+    if (rpeDraft !== undefined && (step.actual_rpe ?? null) === rpeDraft) setRpeDraft(undefined);
+    if (feelDraft !== undefined && (step.feel_score ?? null) === feelDraft) setFeelDraft(undefined);
+  }, [step.actual_rpe, step.feel_score, rpeDraft, feelDraft]);
+
+  async function setStepRating(patch: { actual_rpe?: number | null; feel_score?: number | null }) {
+    if ("actual_rpe" in patch) setRpeDraft(patch.actual_rpe ?? null);
+    if ("feel_score" in patch) setFeelDraft(patch.feel_score ?? null);
+    const { error } = await (supabase as any).from("steps").update(patch).eq("id", step.id);
+    if (error) {
+      toast.error(error.message);
+      setRpeDraft(undefined);
+      setFeelDraft(undefined);
+      return;
+    }
+    await qc.invalidateQueries({ queryKey: ["steps", session.id] });
+  }
 
   async function setStepTerrain(value: string) {
     const next = value === "__inherit__" ? null : value;
@@ -2753,6 +2970,21 @@ function StepBlock({
             {/* Only shown when this step's surface differs from the session's —
                 a badge on every step would be noise on the common case of one
                 run on one surface. */}
+            {shownRpe != null && (
+              <Badge variant="outline" className="text-[10px] font-normal normal-case">
+                RPE {shownRpe}
+              </Badge>
+            )}
+            {shownFeel != null && (
+              <Badge
+                variant="outline"
+                className={`text-[10px] font-normal normal-case ${
+                  shownFeel <= 2 ? "text-amber-600 border-amber-500/50" : ""
+                }`}
+              >
+                {["Poor", "Below par", "Normal", "Good", "Great"][shownFeel - 1]}
+              </Badge>
+            )}
             {terrainIsOverride && (
               <Badge variant="secondary" className="text-[10px] font-normal normal-case">
                 {TERRAIN_LABEL[shownTerrain as Terrain] ?? shownTerrain}
@@ -2839,6 +3071,52 @@ function StepBlock({
               an outdoor first half into a treadmill second half, or a road
               warm up into track reps — which sessions.terrain alone can't
               express. */}
+          {/* How this block felt. Recorded per step because a session with an
+              easy warm up and hard reps has no single honest answer — and
+              because Final Surge delivers warm ups as their own session, so a
+              merged session can only carry both ratings this way. */}
+          <div className="flex items-center gap-3 mb-3 flex-wrap">
+            <div className="flex items-center gap-1.5">
+              <Label className="text-[11px] text-muted-foreground">Effort</Label>
+              <Select
+                value={shownRpe == null ? "__none__" : String(shownRpe)}
+                onValueChange={(v) => setStepRating({ actual_rpe: v === "__none__" ? null : Number(v) })}
+              >
+                <SelectTrigger className="h-7 w-[104px] text-xs" onClick={(e) => e.stopPropagation()}>
+                  <SelectValue placeholder="RPE" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Not rated</SelectItem>
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+                    <SelectItem key={n} value={String(n)}>
+                      RPE {n}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <Label className="text-[11px] text-muted-foreground">Felt</Label>
+              <Select
+                value={shownFeel == null ? "__none__" : String(shownFeel)}
+                onValueChange={(v) => setStepRating({ feel_score: v === "__none__" ? null : Number(v) })}
+              >
+                <SelectTrigger className="h-7 w-[120px] text-xs" onClick={(e) => e.stopPropagation()}>
+                  <SelectValue placeholder="Feel" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Not rated</SelectItem>
+                  <SelectItem value="1">Poor</SelectItem>
+                  <SelectItem value="2">Below par</SelectItem>
+                  <SelectItem value="3">Normal</SelectItem>
+                  <SelectItem value="4">Good</SelectItem>
+                  <SelectItem value="5">Great</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
           <div className="flex items-center gap-2 mb-3 flex-wrap">
             <Label className="text-[11px] text-muted-foreground">Surface</Label>
             {step.terrain_source === "manual" && (
