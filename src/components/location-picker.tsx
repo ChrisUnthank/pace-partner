@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Save } from "lucide-react";
 import { toast } from "sonner";
-import { useAuthUser } from "@/lib/use-auth";
+import { useAuthUser, useMyRoles, useMyAthlete } from "@/lib/use-auth";
 
 // Same shared, coach-managed pool sessions/squad_training_sessions
 // already link to via location_id — reusing it here (rather than a
@@ -29,6 +29,9 @@ export function LocationPicker({
   compact?: boolean;
 }) {
   const { user } = useAuthUser();
+  const { data: roles = [] } = useMyRoles();
+  const { data: myAthlete } = useMyAthlete();
+  const isCoach = roles.includes("coach");
   const qc = useQueryClient();
   const [mode, setMode] = useState<"saved" | "custom" | "none">(locationId ? "saved" : locationText ? "custom" : "none");
   const [saving, setSaving] = useState(false);
@@ -51,11 +54,44 @@ export function LocationPicker({
   });
 
   async function saveAsLocation() {
-    if (!locationText.trim()) return;
+    const trimmed = locationText.trim();
+    if (!trimmed) return;
+
+    // Reuse an existing location of the same name instead of creating a
+    // second one. Working down an import preview and hitting "save" on each
+    // row is exactly how four venues ended up in the table twice, eight
+    // minutes apart — the button had no idea they already existed.
+    //
+    // Case-insensitive because "The Tan" and "the tan" are the same place.
+    const existing = (savedLocations ?? []).find(
+      (l) => l.name.trim().toLowerCase() === trimmed.toLowerCase(),
+    );
+    if (existing) {
+      toast.success(`Using the existing "${existing.name}"`);
+      setMode("saved");
+      onChange({ locationId: existing.id, locationText: "" });
+      return;
+    }
+
     setSaving(true);
-    const { data, error } = await supabase
+
+    // Ownership, matching the Maps page editor exactly: a coach creates a
+    // SQUAD location (owner_athlete_id null, visible to all, coach-editable);
+    // an athlete creates one PERSONAL to them.
+    //
+    // This was previously omitted, so an athlete saving a venue here created
+    // a squad row they then couldn't edit — the same "I added it but can't
+    // change it" symptom, from a different cause than the missing UPDATE
+    // policy.
+    const ownerAthleteId = !isCoach && myAthlete?.id ? myAthlete.id : null;
+
+    const { data, error } = await (supabase as any)
       .from("training_locations")
-      .insert({ name: locationText.trim(), created_by: user?.id ?? null })
+      .insert({
+        name: trimmed,
+        created_by: user?.id ?? null,
+        owner_athlete_id: ownerAthleteId,
+      })
       .select("id, name, address")
       .single();
     setSaving(false);
@@ -63,7 +99,15 @@ export function LocationPicker({
       toast.error(error?.message ?? "Couldn't save this location");
       return;
     }
-    toast.success(`Saved "${data.name}" as a location`);
+
+    // Deliberately says the location has no coordinates. This shortcut only
+    // captures a NAME — no lat/lng — and a location without coordinates can
+    // never auto-match a session on import, because matching compares the
+    // session's start point against the location's pin and there's nothing
+    // to compare against. It's still perfectly usable when picked by hand;
+    // it just silently never attaches itself, which is worth saying once
+    // rather than leaving to be discovered months later.
+    toast.success(`Saved "${data.name}" — add a pin on the Maps page so sessions here match automatically`);
     qc.invalidateQueries({ queryKey: ["training-locations-list"] });
     setMode("saved");
     onChange({ locationId: data.id, locationText: "" });
