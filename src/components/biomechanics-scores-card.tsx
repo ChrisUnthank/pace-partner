@@ -344,6 +344,10 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
       strideM: r.stride_length_m,
       gctMs: r.avg_gct_ms,
       voCm: r.avg_vo_cm,
+      // Pace is derived from stride x cadence — the RPC doesn't return pace,
+      // but speed is exactly that product, so it can be recovered rather than
+      // fetched separately.
+      cadence: r.avg_cadence,
     }));
     const scored = scoreAgainstOwnHistory(samples);
     return new Map(scored.map((x) => [x.sessionId, x]));
@@ -414,6 +418,8 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
     return {
       sessionId: "overall",
       mei: null,
+      meiExpectedForPace: null,
+      paceAdjustedPct: null,
       score: scored.reduce((sum, x) => sum + (x.score as number), 0) / scored.length,
       vsBaselinePct:
         scored.reduce((sum, x) => sum + (x.vsBaselinePct ?? 0), 0) / scored.length,
@@ -529,6 +535,12 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
                     <span className="text-foreground font-medium">MEI is scored against this athlete's own history.</span>{" "}
                     50 is their typical value for this session type; higher is better than their norm.{" "}
                     {view === "last" && describeSelfScore(activeSelf as any)}
+                    {view === "last" && activeSelf.paceAdjustedPct != null && (
+                      <>
+                        {" "}Adjusted for pace: MEI rises with speed by construction, so this compares the session
+                        against what its own pace predicts rather than against faster or slower sessions.
+                      </>
+                    )}
                     {active.mei_score != null && (
                       <>
                         {" "}Against the general population bands this session scores{" "}
@@ -564,7 +576,7 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
                     ? (activeSelf.score ?? 0) - (previousSelf.score ?? 0)
                     : null
                 }
-                caveat="Stride length relative to ground contact time AND vertical oscillation together, as one combined ratio. Scored against this athlete's own typical value for this session type — 50 is their norm, higher is better than it. It deliberately carries no absolute rating."
+                caveat="Stride length relative to ground contact time AND vertical oscillation together, as one combined ratio — then adjusted for pace, because MEI rises with speed by construction (pace alone explains 97% of it). 50 is this athlete's norm for this session type at that pace; higher means they moved better than usual, not just faster."
               />
               <ScoreTile
                 label="Rhythm & Timing"
