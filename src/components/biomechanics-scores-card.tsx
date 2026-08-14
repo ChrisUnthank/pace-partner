@@ -4,6 +4,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Gauge } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  scoreAgainstOwnHistory,
+  describeSelfScore,
+  MIN_BASELINE_SESSIONS,
+} from "@/lib/mei-self-referenced";
 
 // Reads get_athlete_biomechanics_trend() (see
 // supabase/migrations/20260801000020_overall_economy_redesign.sql) — a
@@ -327,6 +332,26 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
   // coach picking "Z5 VO2" wants the last VO2-zone session and the
   // VO2-zone overall average, not the last session overall further
   // filtered down after the fact.
+  // Self-referenced MEI. The RPC's mei_score compares against
+  // mechanics_workout_templates; this compares each session against the
+  // athlete's OWN history for that workout type. See mei-self-referenced.ts
+  // for why — short version: across 218 sessions these athletes never once
+  // recorded a vertical oscillation inside any template band, and VO is a
+  // divisor in MEI, so the band score was measuring the mismatch rather than
+  // the movement.
+  const selfScores = useMemo(() => {
+    const samples = (rows ?? []).map((r) => ({
+      sessionId: r.session_id,
+      date: r.session_date,
+      workoutType: r.workout_type,
+      strideM: r.stride_length_m,
+      gctMs: r.avg_gct_ms,
+      voCm: r.avg_vo_cm,
+    }));
+    const scored = scoreAgainstOwnHistory(samples);
+    return new Map(scored.map((x) => [x.sessionId, x]));
+  }, [rows]);
+
   const zoneFilteredRows = useMemo(() => {
     if (zone === "all") return rows ?? [];
     return (rows ?? []).filter((r) => zoneForRow(r) === zone);
@@ -377,6 +402,34 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
 
   const active = view === "overall" ? overall : latest;
   const hasAny = view === "overall" ? windowedRows.length > 0 : !!latest;
+
+  // Self-referenced MEI for whichever row the tiles are showing. In the
+  // "overall" view it's the average of the scored sessions in the window —
+  // averaging the SCORES rather than recomputing from averaged inputs,
+  // because a mean stride over a mean GCT over a mean VO is not the mean of
+  // the ratios and would quietly report a different number.
+  const activeSelf = useMemo(() => {
+    if (view === "last") return latest ? selfScores.get(latest.session_id) ?? null : null;
+    const scored = windowedRows
+      .map((r) => selfScores.get(r.session_id))
+      .filter((x): x is NonNullable<typeof x> => !!x && x.hasEnoughHistory && x.score != null);
+    if (scored.length === 0) return null;
+    return {
+      sessionId: "overall",
+      mei: null,
+      score: scored.reduce((sum, x) => sum + (x.score as number), 0) / scored.length,
+      vsBaselinePct:
+        scored.reduce((sum, x) => sum + (x.vsBaselinePct ?? 0), 0) / scored.length,
+      baseline: null,
+      baselineN: scored.length,
+      hasEnoughHistory: true,
+    };
+  }, [view, latest, windowedRows, selfScores]);
+
+  const previousSelf = useMemo(
+    () => (previous ? selfScores.get(previous.session_id) ?? null : null),
+    [previous, selfScores],
+  );
 
   return (
     <Card>
@@ -466,12 +519,54 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
                     : "Last Session"
               }
             />
+            {/* Says plainly what the MEI number means, and keeps the
+                population comparison visible without letting it drive the
+                score. Both matter: the self-referenced number answers "is
+                this athlete improving", the band number answers "how do they
+                compare to a general population" — and the second is only
+                meaningful if you know they sit outside its range. */}
+            {activeSelf && (
+              <div className="rounded-md border bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground leading-snug">
+                {activeSelf.hasEnoughHistory ? (
+                  <>
+                    <span className="text-foreground font-medium">MEI is scored against this athlete's own history.</span>{" "}
+                    50 is their typical value for this session type; higher is better than their norm.{" "}
+                    {view === "last" && describeSelfScore(activeSelf as any)}
+                    {active.mei_score != null && (
+                      <>
+                        {" "}Against the general population bands this session scores{" "}
+                        <span className="tabular-nums">{Math.round(active.mei_score)}</span> — worth reading with
+                        caution, since these athletes' vertical oscillation sits above every band in the reference
+                        table.
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <span className="text-foreground font-medium">Building baseline.</span> MEI needs{" "}
+                    {MIN_BASELINE_SESSIONS} sessions of the same type before it can be scored against this athlete's
+                    own history. Until then no number is shown, rather than one computed from too little to mean
+                    anything.
+                  </>
+                )}
+              </div>
+            )}
+
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {/* MEI is now scored against this athlete's own history rather
+                  than the population template bands. The band comparison is
+                  kept below as a clearly-labelled secondary line so the
+                  information isn't lost — it just no longer drives the
+                  number. */}
               <ScoreTile
                 label="Mechanical Efficiency (MEI)"
-                score={active.mei_score}
-                delta={view === "last" && previous ? (active.mei_score ?? 0) - (previous.mei_score ?? 0) : null}
-                caveat="Stride length relative to ground contact time AND vertical oscillation together, as one combined ratio — not three separately-weighted scores."
+                score={activeSelf?.hasEnoughHistory ? (activeSelf.score ?? null) : null}
+                delta={
+                  view === "last" && previousSelf?.hasEnoughHistory && activeSelf?.hasEnoughHistory
+                    ? (activeSelf.score ?? 0) - (previousSelf.score ?? 0)
+                    : null
+                }
+                caveat="Stride length relative to ground contact time AND vertical oscillation together, as one combined ratio. Scored against this athlete's own typical value for this session type — 50 is their norm, higher is better than it. It deliberately carries no absolute rating."
               />
               <ScoreTile
                 label="Rhythm & Timing"
