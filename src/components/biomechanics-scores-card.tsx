@@ -239,19 +239,16 @@ function RawMeasurementsPanel({
   voCm,
   strideLengthM,
   driftCm,
-  veScore,
   gctMs,
   gctBalancePct,
 }: {
   voCm: number | null;
   strideLengthM: number | null;
   driftCm: number | null;
-  veScore: number | null;
   gctMs: number | null;
   gctBalancePct: number | null;
 }) {
   if (voCm == null && gctMs == null) return null;
-  const veBand = bandFor(veScore);
   const verticalRatioPct = voCm != null && strideLengthM != null && strideLengthM > 0 ? voCm / strideLengthM : null;
   return (
     <div className="border rounded-lg p-4 sm:col-span-2 lg:col-span-3">
@@ -284,15 +281,15 @@ function RawMeasurementsPanel({
             </div>
           </div>
         )}
-        <div>
-          <div className={`text-2xl font-bold tabular-nums ${veBand?.className ?? ""}`}>
-            {veScore != null ? `${Math.round(veScore)}/100` : "—"}
-          </div>
-          <div className="text-xs text-muted-foreground">
-            Vertical Efficiency{veBand ? ` — ${veBand.emoji} ${veBand.label}` : ""}: forward motion per unit of
-            bounce, the actual scored version of Vertical Ratio above
-          </div>
-        </div>
+        {/* Vertical Efficiency's SCORE is deliberately not shown.
+            It is stride / VO, so it has exactly the same defect as the old
+            band-scored MEI: vertical oscillation is the divisor, and these
+            athletes sit above every VO band in the reference table. It was
+            reporting 27/100 for sessions that were mechanically fine.
+            A score an athlete can't act on isn't neutral — it's discouraging
+            and wrong at the same time. The raw Vertical Ratio above is the
+            honest version of the same information: a measurement, presented
+            as a measurement, with no implied verdict. */}
       </div>
     </div>
   );
@@ -604,7 +601,6 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
                 voCm={active.avg_vo_cm}
                 strideLengthM={active.stride_length_m}
                 driftCm={active.vo_drift_cm}
-                veScore={active.vertical_efficiency_score}
                 gctMs={active.avg_gct_ms}
                 gctBalancePct={active.gct_balance_pct}
               />
