@@ -733,6 +733,39 @@ function CalendarPage() {
     loadingEdgeRef.current = false;
   }, [monthWindowEnd]);
 
+  // Land on the requested date.
+  //
+  // The month window is seeded anchor−2 .. anchor+2, but a scroll container
+  // opens at the TOP — which is two months BEFORE the date that was asked
+  // for. So arriving from the dashboard mini-calendar (which links with
+  // ?date=…) or any other deep link showed the wrong part of the year, and
+  // the date you clicked was off-screen below.
+  //
+  // Only runs when a `date` param was actually supplied: with no param the
+  // anchor is today, and today's month is where the top-of-window behaviour
+  // should stay for a plain visit to the calendar.
+  //
+  // `instant` rather than smooth — this is the initial position, not a
+  // navigation, and animating a scroll on mount reads as a glitch.
+  const didInitialScrollRef = useRef(false);
+  useEffect(() => {
+    if (didInitialScrollRef.current) return;
+    if (!search.date || view !== "month") return;
+    const key = monthKey(anchor);
+    // Two frames: the first lets the month headers mount and register their
+    // refs, the second lets layout settle so scrollIntoView measures real
+    // positions rather than a half-built list.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = monthHeaderRefs.current.get(key);
+        if (!el) return;
+        el.scrollIntoView({ behavior: "instant" as ScrollBehavior, block: "start" });
+        setCenteredMonthKey(key);
+        didInitialScrollRef.current = true;
+      });
+    });
+  }, [search.date, view, anchor]);
+
   // Expands the loaded window as the user scrolls near either edge —
   // this is what makes the scroll feel continuous instead of hitting a
   // hard stop a couple of months out. 600px of runway is enough to load
