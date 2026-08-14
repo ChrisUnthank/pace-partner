@@ -81,6 +81,13 @@ export interface MeiScored {
 export const MIN_BASELINE_SESSIONS = 5;
 
 /**
+ * Sessions of the same type that must exist in total before ANY of them is
+ * scored. With leave-one-out (below) each session's baseline is the other
+ * n-1, so this is the total needed, not a count of prior sessions.
+ */
+export const MIN_BUCKET_SESSIONS = MIN_BASELINE_SESSIONS + 1;
+
+/**
  * Percentage difference from baseline that maps to the top/bottom of the
  * scale. ±15% is wide enough that normal session-to-session variation doesn't
  * peg the score, and narrow enough that a real change is visible.
@@ -129,39 +136,59 @@ function median(values: number[]): number | null {
  * a first season.
  */
 export function scoreAgainstOwnHistory(samples: MeiSample[], windowSize = 20): MeiScored[] {
-  const chronological = samples
-    .slice()
-    .sort((a, b) => a.date.localeCompare(b.date));
+  const chronological = samples.slice().sort((a, b) => a.date.localeCompare(b.date));
 
-  const history = new Map<string, number[]>();
-  const out: MeiScored[] = [];
+  // Valid MEI per session, and the per-bucket pools they belong to.
+  const meiById = new Map<string, number | null>();
+  const pools = new Map<string, { id: string; mei: number; date: string }[]>();
 
   for (const s of chronological) {
     const mei = computeMei(s);
-    // Sessions with no usable mechanics are returned unscored rather than
-    // dropped, so the caller can still show the row and say why it's blank.
+    meiById.set(s.sessionId, mei);
+    if (mei == null) continue;
     const bucket = s.workoutType ?? "unknown";
-    const prior = history.get(bucket) ?? [];
-    const windowed = prior.slice(-windowSize);
-    const baseline = median(windowed);
+    const pool = pools.get(bucket) ?? [];
+    pool.push({ id: s.sessionId, mei, date: s.date });
+    pools.set(bucket, pool);
+  }
 
-    if (mei == null) {
-      out.push({
-        sessionId: s.sessionId,
-        mei: null,
-        score: null,
-        vsBaselinePct: null,
-        baseline,
-        baselineN: windowed.length,
-        hasEnoughHistory: windowed.length >= MIN_BASELINE_SESSIONS,
-      });
-      continue;
-    }
+  const out: MeiScored[] = [];
+
+  for (const s of chronological) {
+    const bucket = s.workoutType ?? "unknown";
+    const pool = pools.get(bucket) ?? [];
+    const mei = meiById.get(s.sessionId) ?? null;
+
+    // LEAVE-ONE-OUT rather than prior-sessions-only.
+    //
+    // The original version built the baseline from earlier sessions alone, to
+    // stop a session influencing the norm it was judged against. That goal is
+    // right, but the implementation was too strict: with 7 VO2 sessions and a
+    // minimum of 5 priors, only the last two ever scored — the other five
+    // showed "not enough data" despite the data existing. And a single
+    // session missing stride or VO would drop the count below the threshold
+    // and blank the whole bucket.
+    //
+    // Excluding just THIS session achieves the same thing without discarding
+    // the rest: every session is measured against the other n-1. The trade-off
+    // is that a score can shift slightly as later sessions arrive, which is
+    // honest — the athlete's norm genuinely does move.
+    const others = pool.filter((p) => p.id !== s.sessionId);
+    // Nearest-in-time first, so a long history doesn't anchor a current
+    // session to a much older baseline.
+    const windowed = others
+      .slice()
+      .sort((a, b) => Math.abs(Date.parse(a.date) - Date.parse(s.date)) - Math.abs(Date.parse(b.date) - Date.parse(s.date)))
+      .slice(0, windowSize)
+      .map((p) => p.mei);
+
+    const baseline = median(windowed);
+    const hasEnoughHistory = windowed.length >= MIN_BASELINE_SESSIONS;
 
     let score: number | null = null;
     let vsBaselinePct: number | null = null;
 
-    if (baseline != null && baseline > 0 && windowed.length >= MIN_BASELINE_SESSIONS) {
+    if (mei != null && baseline != null && baseline > 0 && hasEnoughHistory) {
       vsBaselinePct = ((mei - baseline) / baseline) * 100;
       // Linear either side of 50, clamped. Linear rather than curved because
       // the reader needs to be able to reason about it: "10 points is roughly
@@ -176,15 +203,10 @@ export function scoreAgainstOwnHistory(samples: MeiSample[], windowSize = 20): M
       vsBaselinePct,
       baseline,
       baselineN: windowed.length,
-      hasEnoughHistory: windowed.length >= MIN_BASELINE_SESSIONS,
+      hasEnoughHistory,
     });
-
-    // Added AFTER scoring, so this session contributes to future baselines
-    // but never to its own.
-    history.set(bucket, [...prior, mei]);
   }
 
-  // Restore the caller's original ordering.
   const byId = new Map(out.map((r) => [r.sessionId, r]));
   return samples.map((s) => byId.get(s.sessionId)!).filter(Boolean);
 }
@@ -193,7 +215,7 @@ export function scoreAgainstOwnHistory(samples: MeiSample[], windowSize = 20): M
 export function describeSelfScore(r: MeiScored): string {
   if (!r.hasEnoughHistory) {
     const need = MIN_BASELINE_SESSIONS - r.baselineN;
-    return `Building baseline — ${need} more session${need === 1 ? "" : "s"} of this type needed before scoring.`;
+    return `Building baseline — ${need} more session${need === 1 ? "" : "s"} of this type with usable mechanics data needed before scoring.`;
   }
   if (r.mei == null) return "No usable mechanics data for this session.";
   if (r.vsBaselinePct == null) return "No baseline yet.";
