@@ -120,7 +120,11 @@ export function AthleteMiniCalendarWidget({ athleteId }: { athleteId: string }) 
               <Link
                 key={iso}
                 to="/app/sessions/calendar"
-                search={{ date: iso } as any}
+                // athleteId matters as much as the date: without it the
+                // calendar falls back to the viewer's own athlete, so a coach
+                // clicking a day on an athlete's dashboard landed on their own
+                // calendar rather than that athlete's.
+                search={{ date: iso, athleteId } as any}
                 className={`rounded-md flex flex-col items-center justify-center gap-0.5 text-[10px] transition-colors hover:bg-accent/60 ${
                   isToday ? "ring-1 ring-[var(--accent-red)]" : ""
                 } ${inMonth ? "" : "opacity-30"}`}
@@ -143,7 +147,11 @@ export function AthleteMiniCalendarWidget({ athleteId }: { athleteId: string }) 
           })}
         </div>
         <div className="flex justify-end mt-2">
-          <Link to="/app/sessions/calendar" className="text-xs text-muted-foreground hover:text-foreground underline">
+          <Link
+            to="/app/sessions/calendar"
+            search={{ athleteId } as any}
+            className="text-xs text-muted-foreground hover:text-foreground underline"
+          >
             Open full calendar →
           </Link>
         </div>
