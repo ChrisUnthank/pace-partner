@@ -225,16 +225,23 @@ function SessionDetail() {
     queryKey: ["saved-locations-for-session", session?.athlete_id],
     enabled: !!session?.athlete_id,
     queryFn: async () => {
-      const { data: coachLinks } = await supabase
-        .from("coach_athletes")
-        .select("coach_user_id")
-        .eq("athlete_id", session!.athlete_id);
-      const coachIds = (coachLinks ?? []).map((c: any) => c.coach_user_id).filter(Boolean);
-      if (coachIds.length === 0) return [];
+      // Select all and let RLS decide, exactly as the saved-routes query
+      // below already does.
+      //
+      // WAS: filtered to created_by IN (this athlete's coaches), with an
+      // early return of [] when the athlete had no coach. That predates
+      // athletes being able to add their own locations, so it excluded every
+      // personal location (created_by is the athlete, not a coach) and
+      // returned nothing at all for a self-coached athlete. The dropdown was
+      // empty no matter how many locations had been saved.
+      //
+      // RLS on training_locations already scopes this correctly: squad
+      // locations to everyone, personal ones to the owner and whoever can
+      // access them. Re-implementing that filter here is what let the two
+      // drift apart in the first place.
       const { data } = await supabase
         .from("training_locations")
-        .select("id, name")
-        .in("created_by", coachIds)
+        .select("id, name, owner_athlete_id")
         .order("name");
       return data ?? [];
     },
