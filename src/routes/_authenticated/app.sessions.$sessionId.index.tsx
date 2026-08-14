@@ -3465,7 +3465,7 @@ function GearPanel({
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("session_gear")
-        .select("id, gear_id, segment_type")
+        .select("id, gear_id, segment_type, step_id")
         .eq("session_id", sessionId);
       if (error) throw error;
       return (data ?? []) as any[];
@@ -3487,25 +3487,80 @@ function GearPanel({
     cooldown: "Cool down",
   };
 
+  // Work steps, so a session with more than one can have a different shoe per
+  // step — a 2km threshold in flats then 5x1km in spikes is two work steps,
+  // and "work" alone can't tell them apart.
+  //
+  // Fetched here rather than passed in: `steps` is a local in SessionDetail,
+  // not a prop of this component. Referencing it directly compiled fine and
+  // would have crashed at render, the same way `shownTerrain` did.
+  // Shares the ["steps", sessionId] key, so it's the cache entry the rest of
+  // the page already populates — no extra request in practice.
+  const { data: allSteps } = useQuery({
+    queryKey: ["steps", sessionId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("steps")
+        .select("id, kind, step_order, reps, target_distance_m")
+        .eq("session_id", sessionId)
+        .order("step_order");
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+
+  const workSteps = useMemo(
+    () =>
+      (allSteps ?? [])
+        .filter((st: any) => st.kind === "work")
+        .slice()
+        .sort((a: any, b: any) => (a.step_order ?? 0) - (b.step_order ?? 0)),
+    [allSteps],
+  );
+
+  function stepLabel(st: any): string {
+    const target = Number(st.target_distance_m ?? 0);
+    const reps = Number(st.reps ?? 1);
+    if (target > 0) {
+      const amt = target >= 1000 ? `${(target / 1000).toFixed(target % 1000 === 0 ? 0 : 1)}km` : `${Math.round(target)}m`;
+      return reps > 1 ? `${reps} x ${amt}` : amt;
+    }
+    return `Step ${st.step_order ?? 0}`;
+  }
+
   const segmentOptions = useMemo(() => {
     const total = Number(session.total_distance_m ?? 0);
-    const out: { value: string; label: string; km: number | null }[] = [
+    const out: { value: string; label: string; km: number | null; stepId?: string }[] = [
       { value: "__whole__", label: "Whole session", km: total > 0 ? total / 1000 : null },
     ];
     for (const row of segmentBreakdown?.rows ?? []) {
       if (!(row.distanceM > 0)) continue;
+      // Only ONE work step: "Work / reps" already identifies it unambiguously,
+      // so listing the step as well would be the same button twice.
+      if (row.kind === "work" && workSteps.length > 1) continue;
       out.push({
         value: row.kind,
         label: SEGMENT_LABELS[row.kind] ?? row.label,
         km: row.distanceM / 1000,
       });
     }
+    if (workSteps.length > 1) {
+      for (const st of workSteps) {
+        out.push({ value: `step:${st.id}`, label: stepLabel(st), km: null, stepId: st.id });
+      }
+    }
     return out;
-  }, [session.total_distance_m, segmentBreakdown]);
+  }, [session.total_distance_m, segmentBreakdown, workSteps]);
 
   const linksForSegment = useMemo(() => {
+    if (segment.startsWith("step:")) {
+      const stepId = segment.slice(5);
+      return (links ?? []).filter((l) => l.step_id === stepId);
+    }
     const want = segment === "__whole__" ? null : segment;
-    return (links ?? []).filter((l) => (l.segment_type ?? null) === want);
+    // step_id must be null here, or a step-specific link would also show as
+    // selected under the broader "Work / reps" button.
+    return (links ?? []).filter((l) => (l.segment_type ?? null) === want && !l.step_id);
   }, [links, segment]);
 
   const selectedIds = useMemo(
@@ -3521,11 +3576,16 @@ function GearPanel({
       const { error } = await supabase.from("session_gear").delete().eq("id", existing.id);
       if (error) toast.error(error.message);
     } else {
+      const isStep = segment.startsWith("step:");
       const { error } = await (supabase as any).from("session_gear").insert({
         session_id: sessionId,
         gear_id: gearId,
         athlete_id: athleteId,
-        segment_type: segment === "__whole__" ? null : segment,
+        // A step link still records segment_type 'work' alongside step_id, so
+        // anything reading by segment alone still sees it as work rather than
+        // as an unclassified link.
+        segment_type: isStep ? "work" : segment === "__whole__" ? null : segment,
+        step_id: isStep ? segment.slice(5) : null,
       });
       if (error) {
         // The unique index covers (session_id, gear_id, segment_type) — worth
@@ -3576,14 +3636,17 @@ function GearPanel({
           <p className="text-[11px] text-muted-foreground">
             Pick a part of the session first, then tap the gear worn for it. Each part only counts its own distance
             towards that pair.
+            {workSteps.length > 1 && " Work steps are listed separately, so different reps can have different shoes."}
           </p>
         )}
         {hasSegments && (
           <div className="flex flex-wrap gap-1.5">
             {segmentOptions.map((o) => {
-              const n = (links ?? []).filter(
-                (l) => (l.segment_type ?? null) === (o.value === "__whole__" ? null : o.value),
-              ).length;
+              const n = o.stepId
+                ? (links ?? []).filter((l) => l.step_id === o.stepId).length
+                : (links ?? []).filter(
+                    (l) => (l.segment_type ?? null) === (o.value === "__whole__" ? null : o.value) && !l.step_id,
+                  ).length;
               const active = segment === o.value;
               return (
                 <button
