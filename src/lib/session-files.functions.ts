@@ -1651,6 +1651,37 @@ async function parseStoredFile(
   }
 }
 
+/**
+ * Stride length for one rep, in CENTIMETRES.
+ *
+ * interval_results.stride_length_cm has never been written by the importer —
+ * confirmed across 25 of Jackson's interval sessions, every one with cadence
+ * and HR fully populated and stride at zero. That single gap blanks Rhythm and
+ * Fatigue on EVERY interval session, and Biomechanical Score with them, since
+ * both need per-rep cadence AND stride. Stability survived only because its
+ * interval branch uses heart rate alone.
+ *
+ * Nothing new has to be measured: stride is distance / (time x cadence/60),
+ * and all three are already on the lap.
+ *
+ * Returns null rather than a wrong number when the inputs don't support it —
+ * a fabricated stride would feed straight into the rep-to-rep CV that Rhythm
+ * is built on, and consistency scores are exactly where invented values do
+ * the most damage.
+ */
+function strideLengthCmForLap(lap: any, cadenceSpm: number | null | undefined): number | null {
+  const dist = Number(lap?.total_distance);
+  const time = Number(lap?.total_elapsed_time);
+  const cad = Number(cadenceSpm);
+  if (!(dist > 0) || !(time > 0) || !(cad > 0)) return null;
+  const steps = (cad / 60) * time;
+  if (!(steps > 0)) return null;
+  const cm = (dist / steps) * 100;
+  // Rails: a rep outside this is a bad cadence or a mis-split lap, not a
+  // stride. 50cm is slower than walking, 300cm beyond a sprinter's stride.
+  return cm >= 50 && cm <= 300 ? Math.round(cm * 10) / 10 : null;
+}
+
 function buildIntervalRowsFromPlan(
   workBlocks: WorkRecoveryPair[][],
   plannedSteps: any[],
@@ -1705,6 +1736,7 @@ function buildIntervalRowsFromPlan(
         hr_end: getEndHrForLap(mergedPoints, lap) ?? lap.max_heart_rate ?? lap.avg_heart_rate ?? null,
         hr_end_recovery: getEndHrForLap(mergedPoints, recovery) ?? recovery?.avg_heart_rate ?? null,
         cadence: lap.avg_cadence ?? null,
+        stride_length_cm: strideLengthCmForLap(lap, lap.avg_cadence),
       });
     }
 
@@ -2666,6 +2698,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
               hr_end: getEndHrForLap(mergedPoints, lap) ?? lap.max_heart_rate ?? lap.avg_heart_rate ?? null,
               hr_end_recovery: getEndHrForLap(mergedPoints, recovery) ?? recovery?.avg_heart_rate ?? null,
               cadence: lap.avg_cadence ?? null,
+              stride_length_cm: strideLengthCmForLap(lap, lap.avg_cadence),
             });
           });
         }
