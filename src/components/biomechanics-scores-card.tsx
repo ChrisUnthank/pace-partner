@@ -540,10 +540,11 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
                   </>
                 ) : (
                   <>
-                    <span className="text-foreground font-medium">Building baseline.</span> MEI needs{" "}
-                    {MIN_BASELINE_SESSIONS} sessions of the same type before it can be scored against this athlete's
-                    own history. Until then no number is shown, rather than one computed from too little to mean
-                    anything.
+                    <span className="text-foreground font-medium">Building baseline.</span> MEI is scored against
+                    the other sessions of the same type, and needs at least {MIN_BASELINE_SESSIONS} of them with
+                    usable stride, ground-contact and oscillation data. This type currently has{" "}
+                    <span className="tabular-nums">{activeSelf.baselineN}</span>. Sessions missing any of the three
+                    can't contribute — so a bucket can look well-populated while still being short.
                   </>
                 )}
               </div>
