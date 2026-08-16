@@ -1,39 +1,33 @@
 -- ============================================================================
--- FIX: work-segment distance and duration included the recoveries.
+-- FIX (v2): work-segment distance and duration included the recoveries.
 --
--- get_athlete_biomechanics_trend computed, when _segment_type is set:
+-- SUPERSEDES 20260816120000, which grouped raw_session_points by step_id.
+-- That did nothing — step_id is 0% populated: 381,702 points, none with a
+-- value. Grouping by an always-null column produced one group, so the sum
+-- equalled the span and the numbers were unchanged.
 --
---     sb_distance_m = MAX(distance_m) - MIN(distance_m)
---     sb_duration_s = MAX(elapsed_s)  - MIN(elapsed_s)
+-- THE ACTUAL PROBLEM
 --
--- across every point of that segment in one group. Correct for a continuous
--- run. Wrong for intervals, where the work points are not contiguous: the
--- span ran from the first rep to the last and included every recovery jog
--- between them.
+-- segment_bounds took MAX(distance_m) - MIN(distance_m) across every point
+-- of the segment at once. Right for a continuous run. Wrong for intervals,
+-- where work points are not contiguous: the span ran first rep to last and
+-- included every recovery jog between them.
 --
--- CONFIRMED ON REAL DATA (Jackson):
+--     date        type        reported    actual
+--     2026-08-06  vo2         4:31/km     2:51/km
+--     2026-08-08  threshold   3:26/km     3:08/km
+--     2026-08-11  threshold   1:38/km     3:09/km
 --
---     date        type        span pace   true pace   error
---     2026-08-06  vo2          4:31/km     2:50/km     37%
---     2026-08-08  threshold    3:26/km     3:07/km      9%
---     continuous  (84 sessions)  no difference in any case
+-- THE FIX: sum interval_results — one row per rep, each with its own
+-- distance and time. Exact, and the gaps between reps are simply not part of
+-- it. Continuous sessions have no work reps, so they fall through to the
+-- original point-span calculation via COALESCE and are unchanged.
 --
--- Stride length is derived from this pace and feeds MEI directly, so every
--- interval session's mechanical efficiency has been understated.
+-- Built from the LIVE definition (pg_get_functiondef), one CTE replaced.
 --
--- THE FIX: group by step_id first, then sum. raw_session_points already
--- carries step_id, so each rep is bounded exactly and the gaps between reps
--- are simply not included. Points with a NULL step_id fall into one group,
--- reproducing the previous behaviour — so nothing already correct changes.
---
--- This is the LIVE function definition (pulled with pg_get_functiondef) with
--- only the segment_bounds CTE replaced. Everything else is byte-for-byte as
--- it currently runs, so there is no risk of reverting unrelated drift.
---
--- AFTER RUNNING: MEI values on interval sessions will rise. That is the fix
--- working, not a regression — the previous figures were suppressed by the
--- recovery jogs. Own-history baselines recompute from the corrected values
--- on next load, so scores stay comparable within an athlete.
+-- AFTER RUNNING: MEI on interval sessions rises substantially — the 06 Aug
+-- VO2 session goes from a stride of ~1.16m to ~1.88m, and MEI with it. That
+-- is the correction, not a regression.
 -- ============================================================================
 
 CREATE OR REPLACE FUNCTION public.get_athlete_biomechanics_trend(_athlete_id uuid, _limit integer DEFAULT 40, _segment_type text DEFAULT NULL::text)
@@ -139,51 +133,55 @@ BEGIN
     WHERE (_segment_type IS NULL OR tp.segment_type = _segment_type)
     GROUP BY tp.session_id
   ),
-  -- FIXED: sum PER STEP, then per session.
+  -- Distance and duration recorded against the actual REPS, for the work
+  -- segment. interval_results carries one row per rep with its own distance
+  -- and time, so summing them gives the work total exactly — no inference
+  -- from point boundaries, and the recoveries between reps simply aren't
+  -- part of it.
   --
-  -- WAS: MAX(distance_m) - MIN(distance_m) across every point of the segment
-  -- in one go. On a continuous session that is right — the points are one
-  -- unbroken run. On an INTERVAL session the work points are not contiguous,
-  -- so the span ran from the first rep to the last and swallowed every
-  -- recovery jog between them. Their distance AND their time both landed in
-  -- the total, so "work pace" was really reps-plus-recoveries.
+  -- Only meaningful for _segment_type = 'work'; there are no
+  -- interval_results rows for warmup or cooldown.
+  rep_bounds AS (
+    SELECT
+      st.session_id AS rb_session_id,
+      SUM(ir.actual_distance_m)   AS rb_distance_m,
+      SUM(ir.actual_time_seconds) AS rb_duration_s
+    FROM public.interval_results ir
+    JOIN public.steps st ON st.id = ir.step_id
+    WHERE _segment_type = 'work'
+      AND st.kind = 'work'
+      AND st.session_id IN (SELECT ar.id FROM all_runs ar)
+      AND ir.actual_distance_m > 0
+      AND ir.actual_time_seconds > 0
+    GROUP BY st.session_id
+  ),
+  -- FIXED: the old version took MAX(distance) - MIN(distance) across every
+  -- point of the segment in one group. Correct for a continuous run, wrong
+  -- for intervals: the work points are not contiguous, so the span ran from
+  -- the first rep to the last and swallowed every recovery jog between them.
+  -- Both their distance and their time landed in the total, so "work pace"
+  -- was really reps-plus-recoveries.
   --
-  -- Measured on real sessions before the fix:
-  --   2026-08-06 vo2        span 4:31/km   actual 2:50/km   37% out
-  --   2026-08-08 threshold  span 3:26/km   actual 3:07/km    9% out
-  -- Continuous sessions were unaffected (0.0% in every case).
+  -- Measured before the fix:
+  --   2026-08-06 vo2        4:31/km reported, 2:51/km actual
+  --   2026-08-08 threshold  3:26/km reported, 3:08/km actual
+  --   2026-08-11 threshold  1:38/km reported, 3:09/km actual
   --
-  -- Stride is derived from this pace and feeds MEI directly, so every
-  -- interval session's mechanical efficiency was understated by roughly a
-  -- fifth to a third.
+  -- An earlier attempt grouped by raw_session_points.step_id, which looked
+  -- neat but did nothing: step_id is 0% populated across all 381,702 points.
+  -- The reps themselves were the reliable source all along.
   --
-  -- Grouping by step_id rather than detecting contiguous runs of points:
-  -- raw_session_points already carries step_id, so each rep is identified
-  -- exactly. A row-number gaps-and-islands approach was tried first and
-  -- produced nonsense on one multi-file session — 21 spurious blocks
-  -- totalling 192km of "work" from a 20km span — because duplicate
-  -- elapsed_s values across merged files break the row-number arithmetic.
-  -- step_id has no such failure mode.
-  --
-  -- Points with step_id NULL (continuous sessions, or anything not split
-  -- into steps) collapse into a single group, which reproduces the old
-  -- behaviour exactly — so nothing that was previously correct changes.
+  -- COALESCE so continuous sessions — which have no work reps — keep the
+  -- point-span behaviour that was always correct for them.
   segment_bounds AS (
     SELECT
-      b.sb_session_id,
-      SUM(b.sb_step_distance_m) AS sb_distance_m,
-      SUM(b.sb_step_duration_s) AS sb_duration_s
-    FROM (
-      SELECT
-        tp.session_id AS sb_session_id,
-        tp.step_id,
-        MAX(tp.distance_m) - MIN(tp.distance_m) AS sb_step_distance_m,
-        MAX(tp.elapsed_s) - MIN(tp.elapsed_s) AS sb_step_duration_s
-      FROM trimmed_points tp
-      WHERE _segment_type IS NOT NULL AND tp.segment_type = _segment_type
-      GROUP BY tp.session_id, tp.step_id
-    ) b
-    GROUP BY b.sb_session_id
+      tp.session_id AS sb_session_id,
+      COALESCE(MAX(rb.rb_distance_m), MAX(tp.distance_m) - MIN(tp.distance_m)) AS sb_distance_m,
+      COALESCE(MAX(rb.rb_duration_s), MAX(tp.elapsed_s) - MIN(tp.elapsed_s)) AS sb_duration_s
+    FROM trimmed_points tp
+    LEFT JOIN rep_bounds rb ON rb.rb_session_id = tp.session_id
+    WHERE _segment_type IS NOT NULL AND tp.segment_type = _segment_type
+    GROUP BY tp.session_id
   ),
   drift AS (
     SELECT DISTINCT ON (sf.session_id)
@@ -428,14 +426,3 @@ END;
 $function$;
 
 NOTIFY pgrst, 'reload schema';
-
--- ============================================================================
--- VERIFY — run separately. Expect interval work paces to drop to genuine rep
--- pace (roughly 2:50-3:10 for VO2), and continuous sessions to be unchanged.
--- ============================================================================
--- SELECT session_date, session_title, workout_type,
---        stride_length_m, avg_gct_ms, avg_vo_cm,
---        ROUND((stride_length_m / ((avg_gct_ms/1000.0) * (avg_vo_cm/100.0)))::numeric, 1) AS mei
--- FROM public.get_athlete_biomechanics_trend(
---        '8b6b3720-18ac-4c49-9887-70bb7912623d', 50, 'work')
--- ORDER BY session_date DESC;
