@@ -604,7 +604,7 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
                     ? (activeSelf.score ?? 0) - (previousSelf.score ?? 0)
                     : null
                 }
-                caveat="Stride length relative to ground contact time AND vertical oscillation together, as one combined ratio — then adjusted for pace, because MEI rises with speed by construction (pace alone explains 97% of it). 50 is this athlete's norm for this session type at that pace; higher means they moved better than usual, not just faster."
+                caveat="Stride length relative to ground contact time AND vertical oscillation together, as one combined ratio — then adjusted for pace, because MEI rises with speed by construction (pace alone explains 99% of it). 50 is this athlete's norm for this session type at that pace; higher means they moved better than usual, not just faster."
               />
               <ScoreTile
                 label="Rhythm & Timing"
