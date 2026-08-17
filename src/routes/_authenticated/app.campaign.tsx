@@ -405,7 +405,13 @@ function CreateCampaignDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto brand-scrollbar">
+      <DialogContent
+        // Near-full-width: the timeline inside is the point of this dialog,
+        // and a 30-week season needs the room. Capped at 1400px so it doesn't
+        // stretch absurdly on an ultrawide, and vw-based below that so it
+        // adapts rather than sitting at a fixed size.
+        className="w-[96vw] max-w-[1400px] sm:max-w-[1400px] max-h-[92vh] overflow-y-auto brand-scrollbar"
+      >
         <DialogHeader>
           <DialogTitle>New campaign</DialogTitle>
           <DialogDescription>
