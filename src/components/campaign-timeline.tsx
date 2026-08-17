@@ -87,6 +87,15 @@ export function CampaignTimeline({
   onWeekClick?: (week: GeneratedWeek) => void;
   /** When set, tooltips read in km rather than percent. */
   baselineKm?: number | null;
+  /**
+   * What actually happened, keyed by week start.
+   *
+   * Drawn as a thin mark across each bar rather than a second bar: the plan is
+   * the shape being read, and a paired-bars chart halves the width of both
+   * while making neither easier to follow. A line crossing the planned bar
+   * answers "did the week land where it was meant to" at a glance.
+   */
+  actualByWeek?: Map<string, { km: number; sessions: number }>;
 }) {
   // Scale bars against the campaign's own maximum rather than a fixed 150%,
   // so a conservative campaign doesn't render as a row of stumps.
@@ -165,6 +174,12 @@ export function CampaignTimeline({
                     w.qualitySessions
                       ? ` · ${w.qualitySessions === 0.5 ? "quality every 2nd week" : `${w.qualitySessions} quality`}`
                       : ""
+                  }${
+                    actualByWeek?.get(w.weekStart)
+                      ? ` · actual ${actualByWeek.get(w.weekStart)!.km} km over ${
+                          actualByWeek.get(w.weekStart)!.sessions
+                        } sessions`
+                      : ""
                   }${w.raceName ? ` · ${w.raceName}` : ""}${
                     w.isLocked ? " · edited" : ""
                   }`}
@@ -205,6 +220,32 @@ export function CampaignTimeline({
                     {w.isLocked && (
                       <Lock className="h-3 w-3 absolute top-1 left-1/2 -translate-x-1/2 text-white/80" />
                     )}
+                    {(() => {
+                      // Actual volume, as a mark positioned by the same scale
+                      // the bar uses. Only for weeks that have any — a future
+                      // week with a mark at zero would read as a week that
+                      // went badly rather than one that hasn't happened.
+                      const act = actualByWeek?.get(w.weekStart);
+                      if (!act || !baselineKm || act.km <= 0) return null;
+                      const actualPct = (act.km / baselineKm) * 100;
+                      const barPct = (w.loadPct / maxLoad) * 100;
+                      if (barPct <= 0) return null;
+                      // Offset from the bar's own top, in its own height.
+                      const rel = (1 - actualPct / w.loadPct) * 100;
+                      const clamped = Math.max(-30, Math.min(96, rel));
+                      const over = actualPct > w.loadPct;
+                      return (
+                        <span
+                          className="absolute left-0 right-0 pointer-events-none"
+                          style={{ top: `${clamped}%` }}
+                        >
+                          <span
+                            className="block h-[2px] w-full"
+                            style={{ background: over ? "#ffffff" : "rgba(0,0,0,.55)" }}
+                          />
+                        </span>
+                      );
+                    })()}
                   </div>
                 </button>
               );
@@ -263,6 +304,12 @@ export function CampaignTimeline({
             {PHASE_STYLE[p].label}
           </span>
         ))}
+        {actualByWeek && actualByWeek.size > 0 && (
+          <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span className="h-[2px] w-4 inline-block" style={{ background: "rgba(0,0,0,.55)" }} />
+            Actual volume
+          </span>
+        )}
         {weeks.some((w) => (w.qualitySessions ?? 0) > 0) && (
           <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
             <span
