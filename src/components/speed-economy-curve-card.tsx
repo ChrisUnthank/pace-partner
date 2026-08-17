@@ -58,14 +58,23 @@ type TrendRow = {
   avg_cadence: number | null;
 };
 
-// Wider than the old 15 s/km because the y-axis is now a residual rather than
-// a level: neighbouring paces no longer differ systematically, so pooling them
-// costs nothing and each bucket gets more sessions behind it.
-const BUCKET_SEC = 20;
+// 10 s/km, not 20.
+//
+// Measured on real zone boundaries, the hard zones are NARROWER than a 20s
+// bucket: z4 spans 13.2 s/km, z5 13.2, z6 18.8. A 20s bucket therefore cannot
+// sit inside any of them, so those zones could never be represented — Z4 went
+// missing entirely despite having 13 threshold sessions, because the bucket
+// holding them was centred at 200 while z4 ends at 195.9.
+//
+// 10s buckets fit inside every zone. The cost is fewer sessions per bucket,
+// which the minimum below accounts for.
+const BUCKET_SEC = 10;
 
 // A single session's mechanics reflect that day — fatigue, wind, terrain —
-// rather than a pattern.
-const MIN_SESSIONS_PER_BUCKET = 3;
+// rather than a pattern. Two is the floor at 10s buckets: three would drop
+// most of the fast end, where sessions are naturally scarcer, and losing the
+// hard zones is exactly the failure this width was chosen to avoid.
+const MIN_SESSIONS_PER_BUCKET = 2;
 
 // Two points describe a slope, not a peak.
 const MIN_BUCKETS_FOR_OPTIMAL = 3;
@@ -186,16 +195,22 @@ export function SpeedEconomyCurveCard({ athleteId }: { athleteId: string }) {
     // Residual per session, then averaged per bucket — not bucket-then-
     // residualise. The model is non-linear, so the residual of a mean is not
     // the mean of the residuals.
-    const buckets = new Map<number, { sum: number; n: number; rawSum: number }>();
+    const buckets = new Map<number, { sum: number; n: number; rawSum: number; zones: Map<string, number> }>();
     for (const p of points) {
       const expected = predictMei(m, p.pace);
       if (expected == null || expected <= 0) continue;
       const residualPct = ((p.mei - expected) / expected) * 100;
       const center = Math.round(p.pace / BUCKET_SEC) * BUCKET_SEC;
-      const b = buckets.get(center) ?? { sum: 0, n: 0, rawSum: 0 };
+      const b = buckets.get(center) ?? { sum: 0, n: 0, rawSum: 0, zones: new Map<string, number>() };
       b.sum += residualPct;
       b.rawSum += p.mei;
       b.n += 1;
+      // Zone of the SESSION's own pace, not of the bucket centre. A bucket
+      // straddling a boundary would otherwise take its colour from a rounded
+      // midpoint that no session actually ran at — which is how 13 threshold
+      // sessions ended up coloured as Z3.
+      const sz = zoneForPace(p.pace, zoneProfile);
+      if (sz) b.zones.set(sz, (b.zones.get(sz) ?? 0) + 1);
       buckets.set(center, b);
     }
 
@@ -204,7 +219,15 @@ export function SpeedEconomyCurveCard({ athleteId }: { athleteId: string }) {
       // Slowest first, so the chart reads left-to-right as "getting faster".
       .sort((a, b) => b[0] - a[0])
       .map(([center, b]) => {
-        const zone = zoneForPace(center, zoneProfile);
+        // Majority zone among the sessions in the bucket. Ties fall to the
+        // harder zone, since at a boundary the faster classification is the
+        // more informative one for a coach.
+        const zone =
+          b.zones.size === 0
+            ? null
+            : Array.from(b.zones.entries()).sort(
+                (x, y) => y[1] - x[1] || ZONE_META.findIndex((z) => z.key === y[0]) - ZONE_META.findIndex((z) => z.key === x[0]),
+              )[0][0];
         const row: any = {
           paceLabel: paceLabel(center),
           pace: center,
