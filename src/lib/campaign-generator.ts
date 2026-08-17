@@ -43,6 +43,12 @@ export interface CampaignTarget {
   raceDate: string; // ISO yyyy-mm-dd
   name?: string | null;
   priority: TargetPriority;
+  /** Where this race came from, when it was picked rather than typed. The
+   *  generator ignores both — they exist so the campaign can be saved with
+   *  the link intact rather than duplicating a date that already exists as a
+   *  goal or a calendar entry. */
+  athleteGoalId?: string | null;
+  raceScheduleEntryId?: string | null;
 }
 
 export interface CampaignSettings {
