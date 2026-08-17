@@ -80,7 +80,7 @@ function CampaignsPage() {
           </div>
         </div>
 
-        <BucketTabStrip items={COACHING_HUB_TABS} />
+        <BucketTabStrip items={COACHING_HUB_TABS} active="/app/campaigns" />
 
         <Card>
           <CardHeader className="pb-3">
