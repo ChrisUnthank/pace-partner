@@ -338,6 +338,14 @@ function CreateCampaignDialog({
   // need the floor held higher.
   const [taperFloorPct, setTaperFloorPct] = useState(55);
   const [taperShape, setTaperShape] = useState<"linear" | "gentle" | "steep">("linear");
+  // Days, not weeks. Coaches taper in days and a Monday grid was distorting
+  // it — see the generator for the arithmetic.
+  const [taperDays, setTaperDays] = useState(14);
+  const [keyTaperDays, setKeyTaperDays] = useState(7);
+  const [baseProgression, setBaseProgression] = useState<"progressive" | "flat">("progressive");
+  const [buildProgression, setBuildProgression] = useState<"progressive" | "flat">("progressive");
+  const [baseQuality, setBaseQuality] = useState(0.5);
+  const [buildQuality, setBuildQuality] = useState(2);
   const [raceWeekReduction, setRaceWeekReduction] = useState(15);
   const [targets, setTargets] = useState<CampaignTarget[]>([]);
   const [saving, setSaving] = useState(false);
@@ -361,11 +369,18 @@ function CreateCampaignDialog({
         targets,
         taperFloorPct,
         taperShape,
+        taperDays,
+        keyTaperDays,
+        baseProgression,
+        buildProgression,
+        baseQualityPerWeek: baseQuality,
+        buildQualityPerWeek: buildQuality,
         loads: { raceWeekReduction },
       }),
     [
       startsOn, loadWeeks, deloadWeeks, deloadsEnabled, taperWeeks, keyTaperWeeks,
       resetWeeks, targets, raceWeekReduction, taperFloorPct, taperShape,
+      taperDays, keyTaperDays, baseProgression, buildProgression, baseQuality, buildQuality,
     ],
   );
 
@@ -398,6 +413,12 @@ function CreateCampaignDialog({
           race_week_reduction_pct: raceWeekReduction,
           taper_floor_pct: taperFloorPct,
           taper_shape: taperShape,
+          taper_days: taperDays,
+          key_taper_days: keyTaperDays,
+          base_progression: baseProgression,
+          build_progression: buildProgression,
+          base_quality_per_week: baseQuality,
+          build_quality_per_week: buildQuality,
           status: "draft",
         })
         .select()
@@ -552,8 +573,8 @@ function CreateCampaignDialog({
             <NumField label="Down weeks" value={resetWeeks} onChange={setResetWeeks} min={0} max={8} />
             <NumField label="Load weeks" value={loadWeeks} onChange={setLoadWeeks} min={1} max={6} />
             <NumField label="Deload weeks" value={deloadWeeks} onChange={setDeloadWeeks} min={0} max={2} />
-            <NumField label="Peak taper" value={taperWeeks} onChange={setTaperWeeks} min={0} max={4} />
-            <NumField label="Key taper" value={keyTaperWeeks} onChange={setKeyTaperWeeks} min={0} max={3} />
+            <NumField label="Peak taper (days)" value={taperDays} onChange={setTaperDays} min={3} max={35} />
+            <NumField label="Key taper (days)" value={keyTaperDays} onChange={setKeyTaperDays} min={2} max={21} />
             <NumField label="Race wk −%" value={raceWeekReduction} onChange={setRaceWeekReduction} min={0} max={50} />
           </div>
 
@@ -595,6 +616,59 @@ function CreateCampaignDialog({
                 Volume only — keeping intensity up through a taper is a matter of which sessions fill the week, not of
                 this number.
               </span>
+            </p>
+          </div>
+
+          <div className="rounded-lg border p-3 space-y-2">
+            <div className="text-xs font-medium">How this athlete builds</div>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <Label className="text-[11px]">Base load</Label>
+                <Select value={baseProgression} onValueChange={(v) => setBaseProgression(v as any)}>
+                  <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="progressive">Climbs across the block</SelectItem>
+                    <SelectItem value="flat">Flat — deloads do the varying</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-[11px]">Build load</Label>
+                <Select value={buildProgression} onValueChange={(v) => setBuildProgression(v as any)}>
+                  <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="progressive">Climbs across the block</SelectItem>
+                    <SelectItem value="flat">Flat — deloads do the varying</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-[11px]">Quality in base</Label>
+                <Select value={String(baseQuality)} onValueChange={(v) => setBaseQuality(Number(v))}>
+                  <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="0">None</SelectItem>
+                    <SelectItem value="0.5">Every second week</SelectItem>
+                    <SelectItem value="1">One a week</SelectItem>
+                    <SelectItem value="2">Two a week</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-[11px]">Quality in build</Label>
+                <Select value={String(buildQuality)} onValueChange={(v) => setBuildQuality(Number(v))}>
+                  <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">One a week</SelectItem>
+                    <SelectItem value="2">Two a week</SelectItem>
+                    <SelectItem value="3">Three a week</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <p className="text-[11px] text-muted-foreground leading-snug">
+              Quality density shows on the timeline as vertical stripes — denser means more. It records HOW OFTEN hard
+              work appears, not what it is; the session itself comes from whatever template fills the week.
             </p>
           </div>
 
