@@ -9,7 +9,14 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { Flag, Plus, Trash2, Target, CalendarRange, Sparkles } from "lucide-react";
 import { BucketTabStrip, COACHING_HUB_TABS } from "@/components/bucket-tab-strip";
@@ -22,10 +29,18 @@ export const Route = createFileRoute("/_authenticated/app/campaigns")({
 });
 
 const PRIORITIES: { value: TargetPriority; label: string; help: string }[] = [
-  { value: "peak", label: "Peak", help: "The season's target. Full taper, and the campaign's highest load leads into it." },
+  {
+    value: "peak",
+    label: "Peak",
+    help: "The season's target. Full taper, and the campaign's highest load leads into it.",
+  },
   { value: "key", label: "Key", help: "Races that matter — State champs and similar. Short taper." },
   { value: "tune_up", label: "Tune-up", help: "A few days easier. No taper week." },
-  { value: "training", label: "Training", help: "Raced through. Volume held; adjust the week's sessions away from lactic work." },
+  {
+    value: "training",
+    label: "Training",
+    help: "Raced through. Volume held; adjust the week's sessions away from lactic work.",
+  },
 ];
 
 function todayIso(): string {
@@ -53,7 +68,12 @@ function CampaignsPage() {
 
   const athleteId = selectedAthleteId || myAthlete?.id || roster?.[0]?.id || "";
 
-  const { data: campaigns, isLoading, isError, error } = useQuery({
+  const {
+    data: campaigns,
+    isLoading,
+    isError,
+    error,
+  } = useQuery({
     queryKey: ["campaigns", athleteId],
     enabled: !!athleteId,
     queryFn: async () => {
@@ -95,8 +115,8 @@ function CampaignsPage() {
             <div>
               <div className="font-medium mb-1">Built around your races</div>
               <p className="text-xs text-muted-foreground">
-                Mark which races matter and which are raced through. A club race during a base block stays a base
-                block — only the races you flag as peaks reshape the season around them.
+                Mark which races matter and which are raced through. A club race during a base block stays a base block
+                — only the races you flag as peaks reshape the season around them.
               </p>
             </div>
             <div>
@@ -131,9 +151,7 @@ function CampaignsPage() {
               </SelectContent>
             </Select>
           )}
-          {rosterError && (
-            <p className="text-xs text-destructive">Couldn't load the athlete list.</p>
-          )}
+          {rosterError && <p className="text-xs text-destructive">Couldn't load the athlete list.</p>}
           <Button onClick={() => setCreateOpen(true)} disabled={!athleteId}>
             <Plus className="h-4 w-4 mr-1.5" /> New campaign
           </Button>
@@ -165,7 +183,10 @@ function CampaignsPage() {
           <Card>
             <CardContent className="py-6">
               <p className="text-sm text-muted-foreground">
-                No athlete selected. {isCoach ? "Choose one above to see their campaigns." : "This account isn't linked to an athlete profile."}
+                No athlete selected.{" "}
+                {isCoach
+                  ? "Choose one above to see their campaigns."
+                  : "This account isn't linked to an athlete profile."}
               </p>
             </CardContent>
           </Card>
@@ -183,7 +204,11 @@ function CampaignsPage() {
         )}
 
         {(campaigns ?? []).map((c: any) => (
-          <SavedCampaign key={c.id} campaign={c} onChanged={() => qc.invalidateQueries({ queryKey: ["campaigns", athleteId] })} />
+          <SavedCampaign
+            key={c.id}
+            campaign={c}
+            onChanged={() => qc.invalidateQueries({ queryKey: ["campaigns", athleteId] })}
+          />
         ))}
       </div>
 
@@ -239,10 +264,11 @@ function SavedCampaign({ campaign, onChanged }: { campaign: any; onChanged: () =
           label: b.label ?? b.phase,
           startsOn: b.starts_on,
           endsOn: b.ends_on,
-          weeks: Math.round(
-            (new Date(`${b.ends_on}T00:00:00`).getTime() - new Date(`${b.starts_on}T00:00:00`).getTime()) /
-              (7 * 86400000),
-          ) + 1,
+          weeks:
+            Math.round(
+              (new Date(`${b.ends_on}T00:00:00`).getTime() - new Date(`${b.starts_on}T00:00:00`).getTime()) /
+                (7 * 86400000),
+            ) + 1,
         })),
     [campaign],
   );
@@ -258,8 +284,8 @@ function SavedCampaign({ campaign, onChanged }: { campaign: any; onChanged: () =
           <Badge variant={campaign.status === "active" ? "default" : "secondary"}>{campaign.status}</Badge>
         </div>
         <CardDescription>
-          {campaign.starts_on} → {campaign.ends_on} · {weeks.length} weeks ·{" "}
-          {(campaign.campaign_targets ?? []).length} race
+          {campaign.starts_on} → {campaign.ends_on} · {weeks.length} weeks · {(campaign.campaign_targets ?? []).length}{" "}
+          race
           {(campaign.campaign_targets ?? []).length === 1 ? "" : "s"}
         </CardDescription>
       </CardHeader>
@@ -312,7 +338,17 @@ function CreateCampaignDialog({
         targets,
         loads: { raceWeekReduction },
       }),
-    [startsOn, loadWeeks, deloadWeeks, deloadsEnabled, taperWeeks, keyTaperWeeks, resetWeeks, targets, raceWeekReduction],
+    [
+      startsOn,
+      loadWeeks,
+      deloadWeeks,
+      deloadsEnabled,
+      taperWeeks,
+      keyTaperWeeks,
+      resetWeeks,
+      targets,
+      raceWeekReduction,
+    ],
   );
 
   function addTarget() {
@@ -448,7 +484,9 @@ function CreateCampaignDialog({
                     className="flex-1 min-w-[140px]"
                     placeholder="Race name"
                     value={t.name ?? ""}
-                    onChange={(e) => setTargets((arr) => arr.map((x, k) => (k === i ? { ...x, name: e.target.value } : x)))}
+                    onChange={(e) =>
+                      setTargets((arr) => arr.map((x, k) => (k === i ? { ...x, name: e.target.value } : x)))
+                    }
                   />
                   <Select
                     value={t.priority}
@@ -473,7 +511,11 @@ function CreateCampaignDialog({
                       ))}
                     </SelectContent>
                   </Select>
-                  <Button size="icon" variant="ghost" onClick={() => setTargets((arr) => arr.filter((_, k) => k !== i))}>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => setTargets((arr) => arr.filter((_, k) => k !== i))}
+                  >
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 </div>
