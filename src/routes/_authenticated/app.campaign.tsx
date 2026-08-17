@@ -80,7 +80,11 @@ function CampaignsPage() {
           </div>
         </div>
 
-        <BucketTabStrip items={COACHING_HUB_TABS} active="/app/campaigns" />
+        {/* COACHING_HUB_TABS is now empty — Coaching moved to a grouped
+            sidebar bucket, and BucketTabStrip renders nothing at length <= 1.
+            Left in place rather than removing the import, so this file isn't
+            touched again while the GitHub sync is unreliable. */}
+        <BucketTabStrip items={COACHING_HUB_TABS} active="/app/campaign" />
 
         <Card>
           <CardHeader className="pb-3">
