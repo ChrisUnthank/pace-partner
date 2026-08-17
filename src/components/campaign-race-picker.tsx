@@ -32,6 +32,59 @@ function goalToPriority(g: any): TargetPriority {
   return "training";
 }
 
+/**
+ * One selectable race.
+ *
+ * Defined at module scope, NOT inside the dialog's render. A component created
+ * during render is a brand new type on every render, so React unmounts and
+ * rebuilds the whole list each time a row is ticked — the same defect that
+ * remounted the session panels earlier in this project.
+ */
+function RaceRow({
+  id,
+  date,
+  name,
+  sub,
+  hint,
+  already,
+  on,
+  onToggle,
+}: {
+  id: string;
+  date: string;
+  name: string;
+  sub?: string;
+  hint?: string;
+  already: boolean;
+  on: boolean;
+  onToggle: (id: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={already}
+      onClick={() => onToggle(id)}
+      className={`w-full flex items-center gap-3 px-3 py-2 rounded-md border text-left transition-colors ${
+        already
+          ? "opacity-50 cursor-default"
+          : on
+            ? "border-[var(--accent-red)] bg-[var(--accent-red)]/5"
+            : "hover:bg-accent/50"
+      }`}
+    >
+      <span className="w-4 shrink-0">{on && <Check className="h-4 w-4 text-[var(--accent-red)]" />}</span>
+      <span className="text-xs tabular-nums w-24 shrink-0">{date}</span>
+      <span className="text-sm flex-1 min-w-0 truncate">{name}</span>
+      {sub && <span className="text-[11px] text-muted-foreground truncate">{sub}</span>}
+      {already ? (
+        <Badge variant="secondary" className="text-[10px]">already added</Badge>
+      ) : hint ? (
+        <Badge variant="outline" className="text-[10px]">{hint}</Badge>
+      ) : null}
+    </button>
+  );
+}
+
 export function AddRacesDialog({
   open,
   onOpenChange,
@@ -48,7 +101,7 @@ export function AddRacesDialog({
 }) {
   const [picked, setPicked] = useState<Set<string>>(new Set());
 
-  const { data: goals } = useQuery({
+  const { data: goals, isError: goalsError, error: goalsErr } = useQuery({
     queryKey: ["campaign-pick-goals", athleteId],
     enabled: open && !!athleteId,
     queryFn: async () => {
@@ -62,7 +115,7 @@ export function AddRacesDialog({
     },
   });
 
-  const { data: schedule } = useQuery({
+  const { data: schedule, isError: schedError, error: schedErr } = useQuery({
     queryKey: ["campaign-pick-schedule"],
     enabled: open,
     queryFn: async () => {
@@ -127,51 +180,6 @@ export function AddRacesDialog({
     onOpenChange(false);
   }
 
-  const Row = ({
-    id,
-    date,
-    name,
-    sub,
-    hint,
-  }: {
-    id: string;
-    date: string;
-    name: string;
-    sub?: string;
-    hint?: string;
-  }) => {
-    const already = existingDates.has(date);
-    const on = picked.has(id);
-    return (
-      <button
-        type="button"
-        disabled={already}
-        onClick={() => toggle(id)}
-        className={`w-full flex items-center gap-3 px-3 py-2 rounded-md border text-left transition-colors ${
-          already
-            ? "opacity-50 cursor-default"
-            : on
-              ? "border-[var(--accent-red)] bg-[var(--accent-red)]/5"
-              : "hover:bg-accent/50"
-        }`}
-      >
-        <span className="w-4 shrink-0">{on && <Check className="h-4 w-4 text-[var(--accent-red)]" />}</span>
-        <span className="text-xs tabular-nums w-24 shrink-0">{date}</span>
-        <span className="text-sm flex-1 min-w-0 truncate">{name}</span>
-        {sub && <span className="text-[11px] text-muted-foreground truncate">{sub}</span>}
-        {already ? (
-          <Badge variant="secondary" className="text-[10px]">
-            already added
-          </Badge>
-        ) : hint ? (
-          <Badge variant="outline" className="text-[10px]">
-            {hint}
-          </Badge>
-        ) : null}
-      </button>
-    );
-  };
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto brand-scrollbar">
@@ -188,20 +196,27 @@ export function AddRacesDialog({
             <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
               <Target className="h-3.5 w-3.5" /> Goals
             </div>
-            {goalRows.length === 0 ? (
+            {goalsError ? (
+              <p className="text-xs text-destructive">
+                Couldn't load goals — {(goalsErr as any)?.message ?? "unknown error"}
+              </p>
+            ) : goalRows.length === 0 ? (
               <p className="text-xs text-muted-foreground">
                 No dated goals for this athlete. A goal needs a race or target date before it can sit on a timeline.
               </p>
             ) : (
               <div className="space-y-1.5">
                 {goalRows.map((g) => (
-                  <Row
+                  <RaceRow
                     key={g.id}
                     id={`goal:${g.id}`}
                     date={g.date}
                     name={g.title ?? "Goal race"}
                     sub={g.distance_m ? `${Math.round(g.distance_m)}m` : undefined}
-                    hint={goalToPriority(g) === "peak" ? "peak" : goalToPriority(g)}
+                    hint={goalToPriority(g)}
+                    already={existingDates.has(g.date)}
+                    on={picked.has(`goal:${g.id}`)}
+                    onToggle={toggle}
                   />
                 ))}
               </div>
@@ -212,18 +227,25 @@ export function AddRacesDialog({
             <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
               <CalendarRange className="h-3.5 w-3.5" /> Race schedule
             </div>
-            {scheduleRows.length === 0 ? (
+            {schedError ? (
+              <p className="text-xs text-destructive">
+                Couldn't load the race schedule — {(schedErr as any)?.message ?? "unknown error"}
+              </p>
+            ) : scheduleRows.length === 0 ? (
               <p className="text-xs text-muted-foreground">Nothing dated in the race schedule yet.</p>
             ) : (
               <div className="space-y-1.5">
                 {scheduleRows.map((r) => (
-                  <Row
+                  <RaceRow
                     key={r.id}
                     id={`entry:${r.id}`}
                     date={r.event_date}
                     name={r.name ?? "Race"}
                     sub={r.location ?? undefined}
                     hint="training"
+                    already={existingDates.has(r.event_date)}
+                    on={picked.has(`entry:${r.id}`)}
+                    onToggle={toggle}
                   />
                 ))}
               </div>
