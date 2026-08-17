@@ -74,6 +74,49 @@ const MIN_BUCKETS_FOR_OPTIMAL = 3;
 // so a peak has to clear that to mean anything.
 const MEANINGFUL_RESIDUAL_PCT = 2;
 
+// Same palette and labels as the Efficiency Scores card and the Zone
+// Boundaries card — a zone colour has to mean the same thing everywhere or it
+// stops being a shortcut and becomes a thing to look up.
+const ZONE_META: { key: string; label: string; color: string }[] = [
+  { key: "z1", label: "Z1 Recovery", color: "#34d399" },
+  { key: "z2", label: "Z2 Easy/Aerobic", color: "#38bdf8" },
+  { key: "z3", label: "Z3 Steady/Tempo", color: "#fbbf24" },
+  { key: "z4", label: "Z4 Threshold", color: "#f97316" },
+  { key: "z5", label: "Z5 VO2", color: "#ef4444" },
+  { key: "z6", label: "Z6 Anaerobic/Max", color: "#9333ea" },
+];
+const ZONE_COLOR: Record<string, string> = Object.fromEntries(ZONE_META.map((z) => [z.key, z.color]));
+const ZONE_LABEL: Record<string, string> = Object.fromEntries(ZONE_META.map((z) => [z.key, z.label]));
+
+/**
+ * Which pace zone a bucket centre falls in.
+ *
+ * pace_zN_max_sec_per_km is the SLOWEST pace still inside zone N, so the
+ * boundaries descend as the zones get harder — z1_max is the largest number.
+ * A pace is in the first zone whose max it doesn't exceed, walking from
+ * easiest to hardest.
+ *
+ * Returns null when the athlete has no pace zones set, so the chart falls
+ * back to a single uncoloured line rather than inventing zones.
+ */
+function zoneForPace(pace: number, zp: any): string | null {
+  if (!zp) return null;
+  const bounds: { key: string; max: number | null }[] = [
+    { key: "z1", max: zp.pace_z1_max_sec_per_km },
+    { key: "z2", max: zp.pace_z2_max_sec_per_km },
+    { key: "z3", max: zp.pace_z3_max_sec_per_km },
+    { key: "z4", max: zp.pace_z4_max_sec_per_km },
+    { key: "z5", max: zp.pace_z5_max_sec_per_km },
+    { key: "z6", max: zp.pace_z6_max_sec_per_km },
+  ].filter((b) => b.max != null) as { key: string; max: number }[];
+  if (bounds.length === 0) return null;
+  for (const b of bounds) {
+    if (pace >= b.max) return b.key;
+  }
+  // Faster than every boundary — belongs to the hardest zone defined.
+  return bounds[bounds.length - 1].key;
+}
+
 function paceLabel(secPerKm: number): string {
   const m = Math.floor(secPerKm / 60);
   const s = Math.round(secPerKm % 60);
@@ -82,6 +125,12 @@ function paceLabel(secPerKm: number): string {
 
 export function SpeedEconomyCurveCard({ athleteId }: { athleteId: string }) {
   const [showRaw, setShowRaw] = useState(false);
+  // "combined" draws one line with each point coloured by the zone its pace
+  // falls in — the shape of the whole curve stays readable. "split" draws a
+  // separate line per zone, which makes within-zone shape visible but breaks
+  // the curve into disconnected pieces. Neither is strictly better, hence the
+  // toggle rather than a decision.
+  const [zoneView, setZoneView] = useState<"combined" | "split">("combined");
 
   const { data: rows, isLoading, isError, error } = useQuery({
     queryKey: ["speed-economy-residual", athleteId],
@@ -105,7 +154,9 @@ export function SpeedEconomyCurveCard({ athleteId }: { athleteId: string }) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("athlete_zone_profiles")
-        .select("pace_threshold_sec_per_km")
+        .select(
+          "pace_threshold_sec_per_km, pace_z1_max_sec_per_km, pace_z2_max_sec_per_km, pace_z3_max_sec_per_km, pace_z4_max_sec_per_km, pace_z5_max_sec_per_km, pace_z6_max_sec_per_km",
+        )
         .eq("athlete_id", athleteId)
         .maybeSingle();
       if (error) throw error;
@@ -113,7 +164,7 @@ export function SpeedEconomyCurveCard({ athleteId }: { athleteId: string }) {
     },
   });
 
-  const { chartData, model, optimal, usableSessions } = useMemo(() => {
+  const { chartData, model, optimal, usableSessions, zonesPresent } = useMemo(() => {
     const samples = (rows ?? []).map((r) => ({
       sessionId: r.session_id,
       date: r.session_date,
@@ -129,7 +180,8 @@ export function SpeedEconomyCurveCard({ athleteId }: { athleteId: string }) {
       .filter((p): p is { pace: number; mei: number } => p.pace != null && p.mei != null);
 
     const m = fitPaceModel(points);
-    if (!m) return { chartData: [], model: null, optimal: null, usableSessions: points.length };
+    if (!m)
+      return { chartData: [], model: null, optimal: null, usableSessions: points.length, zonesPresent: [] as string[] };
 
     // Residual per session, then averaged per bucket — not bucket-then-
     // residualise. The model is non-linear, so the residual of a mean is not
@@ -151,13 +203,26 @@ export function SpeedEconomyCurveCard({ athleteId }: { athleteId: string }) {
       .filter(([, b]) => b.n >= MIN_SESSIONS_PER_BUCKET)
       // Slowest first, so the chart reads left-to-right as "getting faster".
       .sort((a, b) => b[0] - a[0])
-      .map(([center, b]) => ({
-        paceLabel: paceLabel(center),
-        pace: center,
-        residual: Math.round((b.sum / b.n) * 10) / 10,
-        rawMei: Math.round((b.rawSum / b.n) * 10) / 10,
-        sessionCount: b.n,
-      }));
+      .map(([center, b]) => {
+        const zone = zoneForPace(center, zoneProfile);
+        const row: any = {
+          paceLabel: paceLabel(center),
+          pace: center,
+          residual: Math.round((b.sum / b.n) * 10) / 10,
+          rawMei: Math.round((b.rawSum / b.n) * 10) / 10,
+          sessionCount: b.n,
+          zone,
+        };
+        // One series PER ZONE, so "split by zone" can draw a separate line for
+        // each without re-shaping the data. Recharts needs the value present
+        // under the series key and absent (undefined) elsewhere — nulls would
+        // still be plotted as gaps in the wrong series.
+        if (zone) {
+          row[`res_${zone}`] = row.residual;
+          row[`raw_${zone}`] = row.rawMei;
+        }
+        return row;
+      });
 
     // An optimum only when the best bucket is meaningfully above zero. A curve
     // flat within noise has no optimum, and saying so is more useful than
@@ -168,8 +233,10 @@ export function SpeedEconomyCurveCard({ athleteId }: { athleteId: string }) {
       if (top.residual >= MEANINGFUL_RESIDUAL_PCT) best = top;
     }
 
-    return { chartData: data, model: m, optimal: best, usableSessions: points.length };
-  }, [rows]);
+    const zonesPresent = ZONE_META.map((z) => z.key).filter((k) => data.some((d) => d.zone === k));
+
+    return { chartData: data, model: m, optimal: best, usableSessions: points.length, zonesPresent };
+  }, [rows, zoneProfile]);
 
   const thresholdPace = zoneProfile?.pace_threshold_sec_per_km ?? null;
 
@@ -180,13 +247,37 @@ export function SpeedEconomyCurveCard({ athleteId }: { athleteId: string }) {
           <CardTitle className="text-base flex items-center gap-2">
             <Gauge className="h-4 w-4 text-[var(--accent-red)]" /> Speed Economy Curve
           </CardTitle>
-          <button
-            type="button"
-            onClick={() => setShowRaw((v) => !v)}
-            className="text-[11px] text-muted-foreground hover:text-foreground underline"
-          >
-            {showRaw ? "Show pace-adjusted" : "Show raw MEI"}
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            {zonesPresent.length > 1 && (
+              <div className="flex items-center gap-1 rounded-md border p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setZoneView("combined")}
+                  className={`px-2 py-0.5 text-[11px] rounded transition-colors ${
+                    zoneView === "combined" ? "bg-accent font-medium" : "text-muted-foreground hover:bg-accent/50"
+                  }`}
+                >
+                  One curve
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setZoneView("split")}
+                  className={`px-2 py-0.5 text-[11px] rounded transition-colors ${
+                    zoneView === "split" ? "bg-accent font-medium" : "text-muted-foreground hover:bg-accent/50"
+                  }`}
+                >
+                  Split by zone
+                </button>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowRaw((v) => !v)}
+              className="text-[11px] text-muted-foreground hover:text-foreground underline"
+            >
+              {showRaw ? "Show pace-adjusted" : "Show raw MEI"}
+            </button>
+          </div>
         </div>
         <CardDescription>
           {showRaw
@@ -228,21 +319,70 @@ export function SpeedEconomyCurveCard({ athleteId }: { athleteId: string }) {
                     }}
                     formatter={(v: any, _n: any, p: any) => [
                       showRaw ? `MEI ${v}` : `${Number(v) > 0 ? "+" : ""}${v}% vs predicted`,
-                      `${p?.payload?.sessionCount} session(s)`,
+                      `${p?.payload?.sessionCount} session(s)${
+                        p?.payload?.zone ? ` · ${ZONE_LABEL[p.payload.zone]}` : ""
+                      }`,
                     ]}
                     labelFormatter={(l) => `${l} /km`}
                   />
                   {!showRaw && <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeDasharray="4 4" />}
-                  <Line
-                    type="monotone"
-                    dataKey={showRaw ? "rawMei" : "residual"}
-                    stroke="var(--accent-red)"
-                    strokeWidth={2}
-                    dot={{ r: 3 }}
-                  />
+
+                  {zoneView === "split" && zonesPresent.length > 1 ? (
+                    // One line per zone. connectNulls={false} so a zone's line
+                    // stops where that zone stops, rather than leaping across
+                    // paces it never covered.
+                    zonesPresent.map((z) => (
+                      <Line
+                        key={z}
+                        type="monotone"
+                        dataKey={showRaw ? `raw_${z}` : `res_${z}`}
+                        name={ZONE_LABEL[z]}
+                        stroke={ZONE_COLOR[z]}
+                        strokeWidth={2}
+                        dot={{ r: 3 }}
+                        connectNulls={false}
+                      />
+                    ))
+                  ) : (
+                    <Line
+                      type="monotone"
+                      dataKey={showRaw ? "rawMei" : "residual"}
+                      stroke="hsl(var(--muted-foreground))"
+                      strokeWidth={2}
+                      // The line stays neutral and the DOTS carry the zone
+                      // colour. Colouring the line itself would need a
+                      // gradient per segment, and a segment spanning two zones
+                      // has no single correct colour anyway.
+                      dot={(props: any) => {
+                        const z = props?.payload?.zone;
+                        return (
+                          <circle
+                            key={`${props?.payload?.pace}`}
+                            cx={props.cx}
+                            cy={props.cy}
+                            r={4}
+                            fill={z ? ZONE_COLOR[z] : "var(--accent-red)"}
+                            stroke="hsl(var(--background))"
+                            strokeWidth={1.5}
+                          />
+                        );
+                      }}
+                    />
+                  )}
                 </LineChart>
               </ResponsiveContainer>
             </div>
+
+            {zonesPresent.length > 0 && (
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                {zonesPresent.map((z) => (
+                  <span key={z} className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <span className="h-2 w-2 rounded-full inline-block" style={{ background: ZONE_COLOR[z] }} />
+                    {ZONE_LABEL[z]}
+                  </span>
+                ))}
+              </div>
+            )}
 
             <div className="grid sm:grid-cols-3 gap-3 text-sm">
               <div className="border rounded-lg p-3">
