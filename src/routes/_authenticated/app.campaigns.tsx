@@ -41,7 +41,7 @@ function CampaignsPage() {
   const [selectedAthleteId, setSelectedAthleteId] = useState<string>("");
   const [createOpen, setCreateOpen] = useState(false);
 
-  const { data: roster } = useQuery({
+  const { data: roster, isError: rosterError } = useQuery({
     queryKey: ["campaign-roster", isCoach],
     enabled: isCoach,
     queryFn: async () => {
@@ -53,7 +53,7 @@ function CampaignsPage() {
 
   const athleteId = selectedAthleteId || myAthlete?.id || roster?.[0]?.id || "";
 
-  const { data: campaigns, isLoading } = useQuery({
+  const { data: campaigns, isLoading, isError, error } = useQuery({
     queryKey: ["campaigns", athleteId],
     enabled: !!athleteId,
     queryFn: async () => {
@@ -131,14 +131,47 @@ function CampaignsPage() {
               </SelectContent>
             </Select>
           )}
+          {rosterError && (
+            <p className="text-xs text-destructive">Couldn't load the athlete list.</p>
+          )}
           <Button onClick={() => setCreateOpen(true)} disabled={!athleteId}>
             <Plus className="h-4 w-4 mr-1.5" /> New campaign
           </Button>
         </div>
 
+        {/* A page with a loading state and an empty state but no ERROR state
+            hides its own failures — a query that keeps retrying reads as
+            "still loading" forever, and one that fails outright reads as
+            "no campaigns yet". Both are wrong and neither is debuggable from
+            the screen. */}
         {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
 
-        {!isLoading && (campaigns?.length ?? 0) === 0 && (
+        {isError && (
+          <Card>
+            <CardContent className="py-6 space-y-2">
+              <p className="text-sm text-destructive">Couldn't load campaigns.</p>
+              <p className="text-xs text-muted-foreground font-mono break-all">
+                {(error as any)?.message ?? "Unknown error"}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                If this mentions a relationship or a missing column, the campaign migrations may not have been run
+                against this database yet.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {!isLoading && !isError && !athleteId && (
+          <Card>
+            <CardContent className="py-6">
+              <p className="text-sm text-muted-foreground">
+                No athlete selected. {isCoach ? "Choose one above to see their campaigns." : "This account isn't linked to an athlete profile."}
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {!isLoading && !isError && athleteId && (campaigns?.length ?? 0) === 0 && (
           <Card>
             <CardContent className="py-10 text-center space-y-2">
               <Sparkles className="h-6 w-6 mx-auto text-muted-foreground" />
