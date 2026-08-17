@@ -17,7 +17,7 @@ import { CampaignTimeline, PRIORITY_STYLE } from "@/components/campaign-timeline
 import { WeekEditDialog, BaselineDialog } from "@/components/campaign-week-edit";
 import { EditCampaignDialog } from "@/components/campaign-edit";
 import { AddRacesDialog } from "@/components/campaign-race-picker";
-import { generateCampaign, type CampaignTarget, type TargetPriority } from "@/lib/campaign-generator";
+import { generateCampaign, type CampaignTarget, type TargetPriority, isValidIsoDate } from "@/lib/campaign-generator";
 import { useMyRoles, useMyAthlete, useAuthUser } from "@/lib/use-auth";
 
 export const Route = createFileRoute("/_authenticated/app/campaign")({
@@ -492,6 +492,8 @@ function CreateCampaignDialog({
 
   async function save() {
     if (!name.trim()) return toast.error("Give the campaign a name.");
+    if (targets.some((t) => !isValidIsoDate(t.raceDate)))
+      return toast.error("One of the races has an incomplete date.");
     if (targets.length === 0) return toast.error("Add at least one race.");
     if (preview.weeks.length === 0) return toast.error(preview.notes[0] ?? "Nothing to save.");
 
