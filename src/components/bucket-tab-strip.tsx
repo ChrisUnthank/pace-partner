@@ -1,6 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
-import { Apple, Bandage, Bath, BookUser, BookmarkCheck, CalendarDays, CalendarRange, ClipboardList, Clock, FlaskConical, Footprints, HeartPulse, IdCard, LayoutGrid, NotebookPen, Target, TestTube2, Ticket } from "lucide-react";
+import { Apple, Bandage, Bath, CalendarDays, CalendarRange, ClipboardList, Clock, FlaskConical, Footprints, HeartPulse, IdCard, NotebookPen, TestTube2, Ticket } from "lucide-react";
 
 export type BucketTabItem = {
   to: string;
@@ -23,19 +23,21 @@ export const TRAINING_TABS: BucketTabItem[] = [
   { to: "/app/training-schedule", label: "Training Schedule", icon: Clock },
 ];
 
-export const COACHING_HUB_TABS: BucketTabItem[] = [
-  { to: "/app/coaching-hub", label: "Overview", icon: LayoutGrid },
-  { to: "/app/templates", label: "Session Templates", icon: BookmarkCheck },
-  { to: "/app/plans", label: "Plans", icon: CalendarRange },
-  // Sits after Plans deliberately: a campaign is the layer ABOVE a plan —
-  // it decides which blocks exist and what each is for, and a plan fills one.
-  { to: "/app/campaign", label: "Campaigns", icon: Target },
-  // Coach's own combined-schedule diary — distinct from the athlete Diary
-  // in LOCKER_TABS below, which shares the same icon deliberately (same
-  // concept, different audience).
-  { to: "/app/coach-diary", label: "Diary", icon: NotebookPen },
-  { to: "/app/address-book", label: "Address Book", icon: BookUser },
-];
+// Deliberately EMPTY.
+//
+// Coaching moved from a leaf-plus-tab-strip to a grouped sidebar bucket
+// ("Build training" / "Squad admin"). Keeping the strip as well would put the
+// same five links on screen twice, with neither one authoritative.
+//
+// Emptied rather than removed, and the pages left importing it, because
+// BucketTabStrip already returns null at length <= 1 — so every Coaching page
+// loses its strip from this single change. Editing five route files to delete
+// the import would touch five more files through a sync that has been
+// silently merging rather than replacing them, and the risk of that outweighs
+// tidying up an unused import.
+//
+// If Coaching ever needs a strip again, repopulate here.
+export const COACHING_HUB_TABS: BucketTabItem[] = [];
 
 // Locker — personal schedule (moved from Training), plus gear,
 // credentials, and event entries as each gets built. Schedule is the only
