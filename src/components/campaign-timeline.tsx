@@ -14,7 +14,7 @@ import { Flag, Lock } from "lucide-react";
 // described the weeks accurately and the training not at all.
 // ----------------------------------------------------------------------------
 
-const PHASE_STYLE: Record<Phase, { fill: string; label: string; blurb: string }> = {
+export const PHASE_STYLE: Record<Phase, { fill: string; label: string; blurb: string }> = {
   reset: {
     fill: "#94a3b8",
     label: "Down period",
@@ -53,14 +53,14 @@ const PHASE_STYLE: Record<Phase, { fill: string; label: string; blurb: string }>
   },
 };
 
-const PRIORITY_STYLE: Record<string, { fill: string; label: string }> = {
+export const PRIORITY_STYLE: Record<string, { fill: string; label: string }> = {
   peak: { fill: "#dc2626", label: "Peak" },
   key: { fill: "#f97316", label: "Key" },
   tune_up: { fill: "#eab308", label: "Tune-up" },
   training: { fill: "#94a3b8", label: "Training" },
 };
 
-function fmtDate(iso: string): string {
+export function fmtDate(iso: string): string {
   const d = new Date(`${iso}T00:00:00`);
   return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
@@ -209,4 +209,9 @@ export function CampaignTimeline({
   );
 }
 
-export { PHASE_STYLE, PRIORITY_STYLE, fmtDate };
+// Exports are declared inline rather than gathered into a trailing
+// `export { ... }` block. Nothing else in this codebase uses a trailing
+// export block, and a preview build was failing with
+// "SyntaxError: Unexpected token 'export'" on this route — not proof the
+// block was the cause, but it is the one unusual construct here and inlining
+// costs nothing.
