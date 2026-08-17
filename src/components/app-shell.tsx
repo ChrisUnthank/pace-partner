@@ -341,7 +341,12 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
   // across one interleaved list instead of two separate ones.
   const visibleEntries: NavEntry[] = navEntries
     .map((e) => (e.kind === "bucket" ? { ...e, children: e.children.filter((c) => c.show) } : e))
-    .filter((e) => (e.kind === "bucket" ? e.children.length > 0 : e.show));
+    // A bucket needs at least one visible LEAF, not merely a visible child.
+    // Counting children would keep a bucket alive on its headings alone,
+    // producing a group that expands to two labels and no links.
+    .filter((e) =>
+      e.kind === "bucket" ? e.children.some((c) => !isHeading(c)) : e.show,
+    );
 
   function isBucketActive(bucket: NavBucket) {
     return bucket.children.some((c) => !isHeading(c) && isPathActive(path, c.to));
@@ -364,8 +369,17 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
   // Breadcrumb label — longest-matching `to` wins (rather than relying on
   // array order) so e.g. "/app/sessions/calendar" resolves to "Calendar"
   // and not the shorter "/app/sessions" → "Sessions" match.
+  // Headings are filtered OUT. A bucket's children are a union of leaves and
+  // headings since Coaching gained "Build training" / "Squad admin", and a
+  // heading has no `to` — leaving them in meant the breadcrumb reduce read
+  // `.length` off undefined.
   const allLeaves = useMemo(
-    () => [...visibleEntries.flatMap((e) => (e.kind === "bucket" ? e.children : [e])), ...visibleAccountItems],
+    () => [
+      ...visibleEntries.flatMap((e) =>
+        e.kind === "bucket" ? (e.children.filter((c) => !isHeading(c)) as NavLeaf[]) : [e],
+      ),
+      ...visibleAccountItems,
+    ],
     [visibleEntries, visibleAccountItems],
   );
   const crumb = (() => {
@@ -381,11 +395,20 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
   // mirrors the sidebar's visibleEntries, so Health still lands between
   // Metrics and Performances here too.
   const mobileItems: (NavLeaf & { bucketActive?: boolean })[] = [
-    ...visibleEntries.map((e) =>
-      e.kind === "bucket"
-        ? { to: e.children[0].to, label: e.label, icon: e.icon, show: true, bucketActive: isBucketActive(e) }
-        : e,
-    ),
+    // First non-heading child, not children[0].
+    //
+    // The Coaching bucket now opens with a "Build training" heading, so
+    // children[0] has no `to` — this produced { to: undefined }, which
+    // rendered as key={undefined} (the duplicate-key warning) and, worse, a
+    // TanStack Link with to={undefined}, which throws during render and takes
+    // the page down. Buckets with no leaf at all are dropped rather than
+    // rendered pointing nowhere.
+    ...visibleEntries.flatMap((e) => {
+      if (e.kind !== "bucket") return [e];
+      const first = e.children.find((c) => !isHeading(c)) as NavLeaf | undefined;
+      if (!first) return [];
+      return [{ to: first.to, label: e.label, icon: e.icon, show: true, bucketActive: isBucketActive(e) }];
+    }),
     ...visibleAccountItems,
   ];
 
