@@ -811,7 +811,16 @@ function CreateCampaignDialog({
           </Button>
         </DialogFooter>
 
-        <AddRacesDialog
+
+      </DialogContent>
+
+      {/* Mounted as a SIBLING of the outer Dialog, not inside its
+          DialogContent.
+          Nested Radix dialogs fight over the focus trap — the inner one
+          mounts inside a portal the outer one is still guarding, and opening
+          it threw, which unmounted the route and bounced back to the list. A
+          sibling shares no focus scope with it. */}
+      <AddRacesDialog
           open={pickerOpen}
           onOpenChange={setPickerOpen}
           athleteId={athleteId}
@@ -822,7 +831,6 @@ function CreateCampaignDialog({
             )
           }
         />
-      </DialogContent>
     </Dialog>
   );
 }
