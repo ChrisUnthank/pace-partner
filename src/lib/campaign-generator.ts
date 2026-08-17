@@ -72,6 +72,24 @@ export interface CampaignSettings {
    *   steep   sheds early and coasts in — for athletes who arrive tired
    */
   taperShape?: "linear" | "gentle" | "steep";
+  /**
+   * Taper length in DAYS. When set, overrides taperWeeks.
+   *
+   * Coaches taper in days — "ten days out" — and a week grid was forcing that
+   * onto Mondays: a one-week taper gave eleven reduced days into a Thursday
+   * race and fourteen into a Sunday one. With days, the taper starts on a
+   * real date and each week's load is averaged across its own seven days, so
+   * the same ten days produce different weeks depending on where the race
+   * falls. Weeks remain the storage and display unit.
+   */
+  taperDays?: number | null;
+  keyTaperDays?: number | null;
+  /** 'flat' holds the block's top figure; deloads then provide the variation. */
+  baseProgression?: "progressive" | "flat";
+  buildProgression?: "progressive" | "flat";
+  /** Quality sessions per week. 0.5 = every second week. */
+  baseQualityPerWeek?: number;
+  buildQualityPerWeek?: number;
   /** Down weeks at the START — the break after the previous season. */
   resetWeeks?: number;
   /** Recovery after a peak race before normal training resumes. */
@@ -110,6 +128,8 @@ export interface GeneratedWeek {
   /** Set when this week contains a target race. */
   raceName?: string | null;
   racePriority?: TargetPriority | null;
+  /** Quality sessions planned this week, from the phase default. */
+  qualitySessions?: number | null;
   /** Not set by the generator — carried on weeks loaded from the database, so
    *  the timeline can mark weeks a coach has edited and regeneration can skip
    *  them. Present here so one type serves both a freshly generated preview
@@ -117,6 +137,18 @@ export interface GeneratedWeek {
   isLocked?: boolean;
   /** Database id, on saved weeks only. */
   id?: string;
+  /** Mon=1 .. Sun=7, on race weeks. Drives the part-week load below. */
+  raceDayOfWeek?: number | null;
+  /**
+   * Reduced-load days actually leading into the race, counting the taper
+   * weeks plus the pre-race part of race week.
+   *
+   * Weeks are Monday-based, so a race on Thursday means the athlete is down
+   * for the whole taper week PLUS Mon-Thu — eleven days on what the settings
+   * call a one-week taper. Surfaced rather than silently corrected, because
+   * whether eleven days is too many depends on the athlete.
+   */
+  taperDaysIntoRace?: number | null;
 }
 
 export interface GeneratedBlock {
@@ -207,10 +239,64 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
    * cases: one expression covers all three shapes and any taper length, and
    * the floor is hit exactly in race week whatever the shape.
    */
+  /** Mon=1 .. Sun=7 for an ISO date. */
+  function dayOfWeek(iso: string): number {
+    const d = new Date(`${iso}T00:00:00`);
+    return ((d.getDay() + 6) % 7) + 1;
+  }
+
   function taperLoad(weeksOut: number, len: number, peakLoad: number): number {
     const p = (weeksOut - 1) / Math.max(1, len); // 1 at the start, 0 at the race
     const exp = taperShape === "gentle" ? 0.55 : taperShape === "steep" ? 1.8 : 1;
     return Math.round(taperFloor + (peakLoad - taperFloor) * Math.pow(p, exp));
+  }
+
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const taperExp = taperShape === "gentle" ? 0.55 : taperShape === "steep" ? 1.8 : 1;
+
+  /**
+   * A week's load when the taper is measured in DAYS.
+   *
+   * Averages across the week's seven days, placing each one on the taper curve
+   * individually: days before the taper starts sit at the pre-taper load, days
+   * inside it follow the curve, days after the race ease back. A week that
+   * straddles the taper start therefore comes out part-way, which is exactly
+   * what happens in reality and what a week-index calculation could never
+   * express.
+   */
+  function dayTaperWeekLoad(
+    weekStartIso: string,
+    raceIso: string,
+    days: number,
+    preTaperLoad: number,
+  ): number {
+    const race = toDate(raceIso).getTime();
+    const taperStart = race - days * DAY_MS;
+    const postRaceLoad = Math.round(taperFloor * 1.15);
+    const ws = toDate(weekStartIso).getTime();
+    let sum = 0;
+    for (let k = 0; k < 7; k++) {
+      const day = ws + k * DAY_MS;
+      if (day > race) {
+        sum += postRaceLoad;
+      } else if (day <= taperStart) {
+        sum += preTaperLoad;
+      } else {
+        const p = (race - day) / DAY_MS / days; // 1 at taper start, 0 at race
+        sum += taperFloor + (preTaperLoad - taperFloor) * Math.pow(p, taperExp);
+      }
+    }
+    return Math.round(sum / 7);
+  }
+
+  const taperDays = settings.taperDays ?? null;
+  const keyTaperDays = settings.keyTaperDays ?? null;
+
+  /** Taper length in days for a target, whichever unit was configured. */
+  function taperDaysFor(t: CampaignTarget): number {
+    if (t.priority === "peak") return taperDays ?? settings.taperWeeks * 7;
+    if (t.priority === "key") return keyTaperDays ?? keyTaper * 7;
+    return 0;
   }
 
   const startMonday = mondayOf(settings.startsOn);
@@ -252,9 +338,27 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
   // a decision for whoever fills the block, not for the structure.
   const peakIdxs: number[] = [];
   for (const [raceIdx, t] of raceAt) {
-    const taperLen = t.priority === "peak" ? settings.taperWeeks : t.priority === "key" ? keyTaper : 0;
+    // Weeks to MARK as taper. With a day-based taper this is how many weeks
+    // the day window touches, so a 10-day taper marks two weeks and each gets
+    // its own day-averaged load below.
+    const dList = taperDaysFor(t);
+    const taperLen = dList > 0 ? Math.ceil(dList / 7) : 0;
+    // Ceil can reach one week further back than the taper actually touches —
+    // a 10-day taper into a Thursday race spans two weeks, but into a Sunday
+    // race the earlier week holds only one taper day. Marking a week whose
+    // load is still full peak as "taper" is misleading, so each candidate is
+    // checked against the real day window.
+    const raceMs = toDate(t.raceDate).getTime();
+    const taperStartMs = raceMs - dList * DAY_MS;
     for (let i = 1; i <= taperLen; i++) {
       const idx = raceIdx - i;
+      const wkStart = toDate(addDays(startMonday, idx * 7)).getTime();
+      const wkEnd = wkStart + 6 * DAY_MS;
+      // Skip a week with no taper days in it. <= not <: taperStart is the day
+      // BEFORE the first tapering day, so a week ending exactly on it holds
+      // none. Without this a 7-day taper into a Sunday race labelled the
+      // previous week "taper" while leaving it at full peak load.
+      if (wkEnd <= taperStartMs) continue;
       // A taper is never overwritten by another race's week — a club race
       // inside a Nationals taper doesn't cancel the taper, it just happens
       // during it. Without this, training races were eating taper weeks and
@@ -266,7 +370,7 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
       // happens to sit exactly where the peak week would go. Losing the peak
       // block entirely because a minor race landed on it was the wrong
       // trade — the peak is the point of the campaign.
-      let peakIdx = raceIdx - settings.taperWeeks - 1;
+      let peakIdx = raceIdx - Math.ceil(taperDaysFor(t) / 7) - 1;
       while (peakIdx >= resetWeeks && (raceAt.has(peakIdx) || phases[peakIdx] === "taper")) peakIdx -= 1;
       if (peakIdx >= resetWeeks) {
         phases[peakIdx] = "peak";
@@ -348,25 +452,60 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
     else if (phase === "peak") loadPct = L.peak;
     else if (phase === "taper") {
       const nextRace = [...raceAt.keys()].filter((k) => k > i).sort((a, b) => a - b)[0] ?? i + 1;
-      const weeksOut = nextRace - i;
       const t = raceAt.get(nextRace);
-      const len = t?.priority === "peak" ? settings.taperWeeks : keyTaper;
-      loadPct = taperLoad(weeksOut, len, L.peak);
+      const configuredDays = t ? taperDaysFor(t) : 0;
+      const usingDays = t && (t.priority === "peak" ? taperDays != null : keyTaperDays != null);
+      if (usingDays && t) {
+        loadPct = dayTaperWeekLoad(weekStart, t.raceDate, configuredDays, L.peak);
+      } else {
+        const weeksOut = nextRace - i;
+        const len = t?.priority === "peak" ? settings.taperWeeks : keyTaper;
+        loadPct = taperLoad(weeksOut, len, L.peak);
+      }
     } else if (phase === "race_week") {
       // A race week is NOT a deload. A training race often keeps its volume
       // entirely and only changes session type; the reduction is the coach's
       // setting, applied to a normal week rather than dropped to a deload.
       const normal = L.buildTop;
+      // For a PEAK race, blend across the week rather than holding the taper
+      // floor for all seven days.
+      //
+      // A Sunday race is seven pre-race days and the floor is right for all
+      // of them. A Thursday race is four pre-race days and three AFTER it,
+      // and those three are recovery — lighter than normal but not still
+      // tapering. Holding the floor across the whole week under-loaded the
+      // back half of every midweek race week.
+      const dow = race ? dayOfWeek(race.raceDate) : 7;
+      const postRaceDays = 7 - dow;
+      const postRaceLoad = Math.round(taperFloor * 1.15); // easing back in
+      const raceUsesDays = race && (race.priority === "peak" ? taperDays != null : keyTaperDays != null);
       loadPct =
         race?.priority === "peak"
-          ? taperFloor
+          ? raceUsesDays
+            ? dayTaperWeekLoad(weekStart, race.raceDate, taperDaysFor(race), L.peak)
+            : Math.round((dow * taperFloor + postRaceDays * postRaceLoad) / 7)
           : race?.priority === "key"
             ? Math.round(normal * (1 - (L.raceWeekReduction + 10) / 100))
             : race?.priority === "tune_up"
               ? Math.round(normal * (1 - L.raceWeekReduction / 100))
               : Math.round(normal * (1 - Math.max(0, L.raceWeekReduction - 10) / 100));
-    } else if (phase === "build") loadPct = rampe(L.buildStart, L.buildTop, "build");
-    else loadPct = rampe(L.baseStart, L.baseTop, "base");
+    } else if (phase === "build") {
+      // 'flat' holds the top figure and lets the deloads do the varying —
+      // some athletes want base and build steady at a sustainable number
+      // rather than climbing, and a hardcoded ramp asserted one philosophy.
+      loadPct =
+        (settings.buildProgression ?? "progressive") === "flat"
+          ? L.buildTop
+          : rampe(L.buildStart, L.buildTop, "build");
+    } else {
+      loadPct =
+        (settings.baseProgression ?? "progressive") === "flat"
+          ? L.baseTop
+          : rampe(L.baseStart, L.baseTop, "base");
+    }
+
+    const raceDow = race ? dayOfWeek(race.raceDate) : null;
+    const taperDaysForRace = race ? taperDaysFor(race) : 0;
 
     weeks.push({
       weekNumber: i + 1,
@@ -376,6 +515,24 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
       isDeload,
       raceName: race?.name ?? null,
       racePriority: race?.priority ?? null,
+      qualitySessions:
+        phase === "build"
+          ? (settings.buildQualityPerWeek ?? 2)
+          : phase === "base"
+            ? (settings.baseQualityPerWeek ?? 0.5)
+            : phase === "peak"
+              ? (settings.buildQualityPerWeek ?? 2)
+              : null,
+      raceDayOfWeek: raceDow,
+      // With a day-based taper the answer is simply the configured days; with
+      // weeks it is the taper weeks plus the pre-race part of race week, which
+      // is the mismatch that prompted days in the first place.
+      taperDaysIntoRace:
+        race && taperDaysForRace > 0
+          ? (race.priority === "peak" ? taperDays != null : keyTaperDays != null)
+            ? taperDaysForRace
+            : taperDaysForRace + (raceDow ?? 7)
+          : null,
     });
   }
 
@@ -433,6 +590,38 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
 
   if (!deloadsOn) {
     notes.push("Deloads are switched off, so loading weeks run continuously.");
+  }
+
+  // Flag races that fall MIDWEEK, where the taper runs materially longer than
+  // the settings say.
+  //
+  // Weeks are Monday-based, so a taper always includes the whole week before
+  // the race plus the pre-race part of race week. A Sunday race gets exactly
+  // the intended stretch; a Wednesday race gets three days less of race week
+  // but the same full taper week before it, so the athlete is down for ten
+  // days on a "one week" taper.
+  //
+  // Reported, not corrected. Whether that extra stretch is a problem depends
+  // on the athlete — the same split that made taper depth a setting — and the
+  // only clean fixes are moving to day-level planning or shortening the taper
+  // by a whole week, which is usually too blunt.
+  const DAY = ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  for (const w of weeks) {
+    if (!w.taperDaysIntoRace || !w.raceDayOfWeek) continue;
+    const usesDays = w.racePriority === "peak" ? taperDays != null : keyTaperDays != null;
+    if (usesDays) continue; // a day taper is exactly as long as it says
+    const taperLen = w.racePriority === "peak" ? settings.taperWeeks : keyTaper;
+    const nominal = taperLen * 7;
+    // Compared against what the SETTING implies, not against a Sunday race.
+    // An earlier version compared midweek races to the Sunday case and so
+    // reported them as shorter, which is the wrong way round: the concern is
+    // that the reduced stretch is LONGER than the number of taper weeks
+    // suggests, because race week is itself a reduced week on top of them.
+    if (w.taperDaysIntoRace <= nominal + 2) continue;
+    const extra = w.taperDaysIntoRace - nominal;
+    notes.push(
+      `${w.raceName ?? "A race"} is on a ${DAY[w.raceDayOfWeek]}. A ${taperLen}-week taper plus the reduced days of race week means ${w.taperDaysIntoRace} days of easier running into it — ${extra} more than the ${nominal} the setting implies. Drop a taper week if that is too long for this athlete.`,
+    );
   }
 
   return { blocks, weeks, notes };
