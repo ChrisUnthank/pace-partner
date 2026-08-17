@@ -15,6 +15,7 @@ import { Flag, Plus, Trash2, Target, CalendarRange, Sparkles } from "lucide-reac
 import { BucketTabStrip, COACHING_HUB_TABS } from "@/components/bucket-tab-strip";
 import { CampaignTimeline, PRIORITY_STYLE } from "@/components/campaign-timeline";
 import { WeekEditDialog, BaselineDialog } from "@/components/campaign-week-edit";
+import { EditCampaignDialog } from "@/components/campaign-edit";
 import { generateCampaign, type CampaignTarget, type TargetPriority } from "@/lib/campaign-generator";
 import { useMyRoles, useMyAthlete } from "@/lib/use-auth";
 
@@ -208,6 +209,8 @@ function CampaignsPage() {
 function SavedCampaign({ campaign, onChanged }: { campaign: any; onChanged: () => void }) {
   const [editingWeek, setEditingWeek] = useState<any>(null);
   const [baselineOpen, setBaselineOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const baselineKm = campaign.baseline_weekly_km != null ? Number(campaign.baseline_weekly_km) : null;
 
   const weeks = useMemo(
@@ -270,7 +273,15 @@ function SavedCampaign({ campaign, onChanged }: { campaign: any; onChanged: () =
             <CalendarRange className="h-4 w-4 text-[var(--accent-red)]" />
             {campaign.name}
           </CardTitle>
-          <Badge variant={campaign.status === "active" ? "default" : "secondary"}>{campaign.status}</Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant={campaign.status === "active" ? "default" : "secondary"}>{campaign.status}</Badge>
+            <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
+              Edit
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(true)}>
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         </div>
         <CardDescription>
           {campaign.starts_on} → {campaign.ends_on} · {weeks.length} weeks ·{" "}
@@ -303,6 +314,42 @@ function SavedCampaign({ campaign, onChanged }: { campaign: any; onChanged: () =
         allWeeks={weeks as any}
         onSaved={onChanged}
       />
+      <EditCampaignDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        campaign={campaign}
+        onSaved={onChanged}
+      />
+
+      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete this campaign?</DialogTitle>
+            <DialogDescription>
+              {campaign.name} and its {(campaign.campaign_weeks ?? []).length} weeks will be removed. Sessions and
+              training data are untouched — a campaign is structure only.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setConfirmDelete(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                const { error } = await (supabase as any).from("campaigns").delete().eq("id", campaign.id);
+                if (error) return toast.error(error.message);
+                toast.success("Campaign deleted");
+                setConfirmDelete(false);
+                onChanged();
+              }}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <BaselineDialog
         open={baselineOpen}
         onOpenChange={setBaselineOpen}
