@@ -1,0 +1,359 @@
+// campaign-generator.ts
+//
+// Lays out a season: blocks, phases and weekly load targets, between a start
+// date and the last race.
+//
+// WHAT IT DELIBERATELY DOES NOT DO
+//
+// Produce sessions. Coaches work two ways — some build a whole season up front
+// and adjust as they go, others sketch the structure and fill a block at a
+// time. Generating sessions here would force a choice between them. The
+// campaign asserts structure only; filling a block is a separate action using
+// the plan templates and volume progression that already exist.
+//
+// It also doesn't emit kilometres. load_pct is relative — 100 is the athlete's
+// normal loading week — because absolute volume depends on training history
+// this generator can't see, and a number invented here would look authoritative
+// while being a guess.
+//
+// WHY IT ISN'T "COUNT BACK FROM RACE DAY"
+//
+// That suits one marathon. A middle-distance season is a dozen races with a
+// peak reserved for one or two and the rest run through or lightly freshened.
+// So the generator lays out AROUND targets of differing priority rather than
+// backwards from a single date.
+
+export type Phase = "base" | "build" | "peak" | "taper" | "transition" | "race_week";
+export type TargetPriority = "peak" | "tune_up" | "training";
+
+export interface CampaignTarget {
+  raceDate: string; // ISO yyyy-mm-dd
+  name?: string | null;
+  priority: TargetPriority;
+}
+
+export interface CampaignSettings {
+  startsOn: string;
+  /** Weeks of loading between deloads. */
+  loadWeeks: number;
+  /** Deload weeks after each loading run. 0 disables deloads entirely. */
+  deloadWeeks: number;
+  /** Taper length before a `peak` target. */
+  taperWeeks: number;
+  /** Recovery weeks after the final target. */
+  transitionWeeks: number;
+  targets: CampaignTarget[];
+}
+
+export interface GeneratedWeek {
+  weekNumber: number;
+  weekStart: string;
+  phase: Phase;
+  loadPct: number;
+  isDeload: boolean;
+  /** Set when this week contains a target race. */
+  raceName?: string | null;
+  racePriority?: TargetPriority | null;
+}
+
+export interface GeneratedBlock {
+  blockOrder: number;
+  phase: Phase;
+  label: string;
+  startsOn: string;
+  endsOn: string;
+  weeks: number;
+}
+
+export interface GeneratedCampaign {
+  blocks: GeneratedBlock[];
+  weeks: GeneratedWeek[];
+  /** Things the coach should know about how this was laid out. */
+  notes: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Load levels, as a percentage of a normal loading week.
+//
+// Chosen to be conservative and legible rather than precise: the campaign is a
+// starting point a coach edits, so round numbers that are easy to reason about
+// beat a curve that looks authoritative. A coach can see at a glance that a
+// peak week is "about 15% up on normal" and disagree.
+// ---------------------------------------------------------------------------
+const LOAD = {
+  baseStart: 85,
+  baseTop: 100,
+  buildStart: 95,
+  buildTop: 110,
+  peak: 115,
+  deload: 70,
+  transition: 50,
+  /** A training race is run through — the week around it is otherwise normal. */
+  trainingRace: 95,
+  /** A tune-up gets a few days' freshening, not a taper. */
+  tuneUpRace: 85,
+} as const;
+
+function toDate(iso: string): Date {
+  return new Date(`${iso}T00:00:00`);
+}
+
+function isoOf(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function addDays(iso: string, days: number): string {
+  const d = toDate(iso);
+  d.setDate(d.getDate() + days);
+  return isoOf(d);
+}
+
+/** Monday of the week containing this date. Weeks are Monday-based throughout Strider. */
+export function mondayOf(iso: string): string {
+  const d = toDate(iso);
+  const dow = (d.getDay() + 6) % 7; // 0 = Monday
+  d.setDate(d.getDate() - dow);
+  return isoOf(d);
+}
+
+function weeksBetween(startIso: string, endIso: string): number {
+  const ms = toDate(endIso).getTime() - toDate(startIso).getTime();
+  return Math.floor(ms / (7 * 24 * 60 * 60 * 1000));
+}
+
+/**
+ * Lays out the season.
+ *
+ * Approach: find the peak targets, work out where each one's taper must sit,
+ * and fill everything before them with base and build blocks. What's left over
+ * after the last target becomes transition.
+ *
+ * A short runway gets fewer phases, not a refusal — with six weeks to a race
+ * there is no time for two base blocks, so it produces build and taper and
+ * says so in the notes rather than declining to generate.
+ */
+export function generateCampaign(settings: CampaignSettings): GeneratedCampaign {
+  const notes: string[] = [];
+  const startMonday = mondayOf(settings.startsOn);
+
+  const targets = [...settings.targets]
+    .filter((t) => !!t.raceDate)
+    .sort((a, b) => a.raceDate.localeCompare(b.raceDate));
+
+  if (targets.length === 0) {
+    return { blocks: [], weeks: [], notes: ["No target races set — a campaign needs at least one."] };
+  }
+
+  const lastTarget = targets[targets.length - 1];
+  const peaks = targets.filter((t) => t.priority === "peak");
+
+  if (peaks.length === 0) {
+    notes.push(
+      "No race is marked as a peak, so no taper has been built in. Mark the race that matters most as a peak to get one.",
+    );
+  }
+
+  // Week grid runs from the start Monday to the end of transition after the
+  // final race — the campaign covers the recovery too, since a season that
+  // ends at the finish line leaves the next one starting from nowhere.
+  const lastRaceMonday = mondayOf(lastTarget.raceDate);
+  const totalWeeks = weeksBetween(startMonday, lastRaceMonday) + 1 + settings.transitionWeeks;
+
+  if (totalWeeks < 3) {
+    return {
+      blocks: [],
+      weeks: [],
+      notes: ["Less than three weeks to the first race — too short to structure. Plan these weeks directly."],
+    };
+  }
+
+  // Phase per week, resolved in priority order: race weeks and tapers are
+  // fixed points, everything else fills the gaps.
+  const phases: Phase[] = new Array(totalWeeks).fill("base");
+  const raceAt = new Map<number, CampaignTarget>();
+
+  for (const t of targets) {
+    const idx = weeksBetween(startMonday, mondayOf(t.raceDate));
+    if (idx >= 0 && idx < totalWeeks) raceAt.set(idx, t);
+  }
+
+  // Transition: everything after the last race.
+  const lastRaceIdx = weeksBetween(startMonday, lastRaceMonday);
+  for (let i = lastRaceIdx + 1; i < totalWeeks; i++) phases[i] = "transition";
+
+  // Taper before each peak, and a peak block immediately before that.
+  for (const p of peaks) {
+    const raceIdx = weeksBetween(startMonday, mondayOf(p.raceDate));
+    if (raceIdx < 0) continue;
+    for (let i = 1; i <= settings.taperWeeks; i++) {
+      const idx = raceIdx - i;
+      if (idx >= 0) phases[idx] = "taper";
+    }
+    const peakIdx = raceIdx - settings.taperWeeks - 1;
+    if (peakIdx >= 0) phases[peakIdx] = "peak";
+  }
+
+  // Race weeks override, so a race is never buried inside a base block.
+  for (const [idx] of raceAt) phases[idx] = "race_week";
+
+  // Base at the front, build after — measured against the run-in to the first
+  // PEAK-related fixed point, not the first race.
+  //
+  // Measuring to the first race week was wrong: a track season has training
+  // races scattered through it, so every race reset the split and the campaign
+  // came out as "Base 1, Build, race, Base 2, race, Base 3" — dropping back to
+  // base after every race, which is not how a season progresses. Only a peak
+  // or its taper ends the base-to-build run-in.
+  // Applied to EVERY run-in, not just the first.
+  //
+  // A season with an indoor and an outdoor peak has two run-ins, and the
+  // second needs its own base-then-build progression. Splitting only the
+  // opening stretch produced "Base 2 (7wk) -> Peak 2" for the second half —
+  // seven weeks of base followed immediately by a peak week, with no build at
+  // all. Each stretch between one peak's race and the next peak gets the same
+  // treatment as the opening one.
+  const peakIdxs: number[] = [];
+  phases.forEach((p, i) => {
+    if (p === "peak") peakIdxs.push(i);
+  });
+
+  // Where each run-in begins: the start, then the week after each peak's race.
+  const runInStarts: number[] = [0];
+  for (const [idx, t] of raceAt) {
+    if (t.priority === "peak") runInStarts.push(idx + 1);
+  }
+  runInStarts.sort((a, b) => a - b);
+
+  const runInEnds = peakIdxs.length > 0 ? peakIdxs : [lastRaceIdx + 1];
+
+  let shortRunIn = 0;
+  for (const end of runInEnds) {
+    const start = [...runInStarts].reverse().find((x) => x < end) ?? 0;
+    const span = end - start;
+    if (span <= 0) continue;
+
+    // 55% base is a common enough starting split to be unsurprising, and it's
+    // editable — the campaign proposes, it doesn't prescribe.
+    const baseCount = Math.max(0, Math.round(span * 0.55));
+    const tooShortForBase = span < 4;
+    if (tooShortForBase) shortRunIn = span;
+
+    for (let i = start; i < end; i++) {
+      // Race weeks keep their own phase — a race inside a build block is
+      // still a race week, it just doesn't interrupt the progression.
+      if (phases[i] === "race_week" || phases[i] === "taper") continue;
+      phases[i] = tooShortForBase || i - start >= baseCount ? "build" : "base";
+    }
+  }
+
+  if (shortRunIn > 0) {
+    notes.push(
+      `Only ${shortRunIn} week${shortRunIn === 1 ? "" : "s"} of run-in before a peak, so there is no room for a base block there — that stretch is all build.`,
+    );
+  }
+
+  // ---- weeks -------------------------------------------------------------
+  const weeks: GeneratedWeek[] = [];
+  let sinceDeload = 0;
+
+  for (let i = 0; i < totalWeeks; i++) {
+    const phase = phases[i];
+    const weekStart = addDays(startMonday, i * 7);
+    const race = raceAt.get(i) ?? null;
+
+    // Deloads only inside base and build. A peak block runs straight through —
+    // that's what makes it a peak — and tapering is already a reduction, so
+    // inserting a deload inside one would be reducing a reduction.
+    let isDeload = false;
+    if (phase === "base" || phase === "build") {
+      sinceDeload += 1;
+      if (settings.deloadWeeks > 0 && sinceDeload > settings.loadWeeks) {
+        isDeload = true;
+        if (sinceDeload >= settings.loadWeeks + settings.deloadWeeks) sinceDeload = 0;
+      }
+    } else {
+      sinceDeload = 0;
+    }
+
+    let loadPct: number;
+    if (isDeload) {
+      loadPct = LOAD.deload;
+    } else if (phase === "transition") {
+      loadPct = LOAD.transition;
+    } else if (phase === "peak") {
+      loadPct = LOAD.peak;
+    } else if (phase === "taper") {
+      // Steps down evenly across the taper, ending close to half a normal
+      // week in the last week before the race.
+      const raceIdx = [...raceAt.keys()].find((k) => k > i) ?? i + 1;
+      const weeksOut = raceIdx - i;
+      const step = (LOAD.peak - 55) / Math.max(1, settings.taperWeeks);
+      loadPct = Math.round(55 + step * (weeksOut - 1));
+    } else if (phase === "race_week") {
+      loadPct =
+        race?.priority === "peak" ? 55 : race?.priority === "tune_up" ? LOAD.tuneUpRace : LOAD.trainingRace;
+    } else if (phase === "build") {
+      const buildWeeks = phases.filter((p) => p === "build").length;
+      const nth = phases.slice(0, i + 1).filter((p) => p === "build").length;
+      loadPct = Math.round(
+        LOAD.buildStart + ((LOAD.buildTop - LOAD.buildStart) * (nth - 1)) / Math.max(1, buildWeeks - 1),
+      );
+    } else {
+      const bWeeks = phases.filter((p) => p === "base").length;
+      const nth = phases.slice(0, i + 1).filter((p) => p === "base").length;
+      loadPct = Math.round(
+        LOAD.baseStart + ((LOAD.baseTop - LOAD.baseStart) * (nth - 1)) / Math.max(1, bWeeks - 1),
+      );
+    }
+
+    weeks.push({
+      weekNumber: i + 1,
+      weekStart,
+      phase,
+      loadPct: Math.max(30, Math.min(150, loadPct)),
+      isDeload,
+      raceName: race?.name ?? null,
+      racePriority: race?.priority ?? null,
+    });
+  }
+
+  // ---- blocks: contiguous runs of the same phase --------------------------
+  const blocks: GeneratedBlock[] = [];
+  let order = 1;
+  let cursor = 0;
+  const phaseCounts = new Map<Phase, number>();
+
+  while (cursor < weeks.length) {
+    const phase = weeks[cursor].phase;
+    let end = cursor;
+    while (end + 1 < weeks.length && weeks[end + 1].phase === phase) end += 1;
+
+    const n = (phaseCounts.get(phase) ?? 0) + 1;
+    phaseCounts.set(phase, n);
+    const span = end - cursor + 1;
+
+    const baseLabel =
+      phase === "race_week"
+        ? weeks[cursor].raceName || "Race week"
+        : phase.charAt(0).toUpperCase() + phase.slice(1);
+    // Numbered only when there's more than one — "Base 1" alone reads oddly.
+    const willRepeat = weeks.filter((w) => w.phase === phase).length > span;
+
+    blocks.push({
+      blockOrder: order++,
+      phase,
+      label: willRepeat && phase !== "race_week" ? `${baseLabel} ${n}` : baseLabel,
+      startsOn: weeks[cursor].weekStart,
+      endsOn: addDays(weeks[end].weekStart, 6),
+      weeks: span,
+    });
+
+    cursor = end + 1;
+  }
+
+  if (settings.deloadWeeks === 0) {
+    notes.push("Deloads are switched off, so loading weeks run continuously. Worth a look if this is a long campaign.");
+  }
+
+  return { blocks, weeks, notes };
+}
