@@ -150,7 +150,13 @@ export function CampaignTimeline({
                   key={w.weekNumber}
                   type="button"
                   onClick={() => onWeekClick?.(w)}
-                  className="flex-1 min-w-0 flex flex-col justify-end h-full group relative"
+                  // Not a button visually when there's nothing to click — an
+                  // athlete viewing a coach's campaign shouldn't get hover
+                  // affordances for an action that doesn't exist.
+                  className={`flex-1 min-w-0 flex flex-col justify-end h-full group relative ${
+                    onWeekClick ? "cursor-pointer" : "cursor-default"
+                  }`}
+                  disabled={!onWeekClick}
                   title={`Week ${w.weekNumber} · ${style.label} · ${
                     baselineKm
                       ? `${Math.round((w.loadPct / 100) * baselineKm)} km (${w.loadPct}%)`
