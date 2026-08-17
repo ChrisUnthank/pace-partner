@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { Plus, Trash2, Flag, Lock } from "lucide-react";
 import { CampaignTimeline, PRIORITY_STYLE } from "@/components/campaign-timeline";
 import { generateCampaign, type CampaignTarget, type TargetPriority } from "@/lib/campaign-generator";
+import { AddRacesDialog } from "@/components/campaign-race-picker";
 
 // ----------------------------------------------------------------------------
 // Editing a saved campaign.
@@ -60,6 +61,7 @@ export function EditCampaignDialog({
   const [buildQuality, setBuildQuality] = useState(Number(campaign?.build_quality_per_week ?? 2));
   const [raceWeekReduction, setRaceWeekReduction] = useState(campaign?.race_week_reduction_pct ?? 15);
   const [targets, setTargets] = useState<CampaignTarget[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // Re-seed whenever a different campaign is opened, or the same one is
@@ -86,7 +88,13 @@ export function EditCampaignDialog({
     setTargets(
       [...(campaign.campaign_targets ?? [])]
         .sort((a: any, b: any) => String(a.race_date).localeCompare(String(b.race_date)))
-        .map((t: any) => ({ raceDate: t.race_date, name: t.name ?? "", priority: t.priority as TargetPriority })),
+        .map((t: any) => ({
+          raceDate: t.race_date,
+          name: t.name ?? "",
+          priority: t.priority as TargetPriority,
+          athleteGoalId: t.athlete_goal_id ?? null,
+          raceScheduleEntryId: t.race_schedule_entry_id ?? null,
+        })),
     );
   }, [campaign?.id, campaign?.updated_at]);
 
@@ -184,6 +192,8 @@ export function EditCampaignDialog({
           race_date: t.raceDate,
           name: t.name || null,
           priority: t.priority,
+          athlete_goal_id: t.athleteGoalId ?? null,
+          race_schedule_entry_id: t.raceScheduleEntryId ?? null,
         })),
       );
       if (tErr) throw tErr;
@@ -285,15 +295,18 @@ export function EditCampaignDialog({
           <div>
             <div className="flex items-center justify-between mb-2">
               <Label className="text-xs">Races</Label>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() =>
-                  setTargets((t) => [...t, { raceDate: startsOn, name: "", priority: "training" }])
-                }
-              >
-                <Plus className="h-3.5 w-3.5 mr-1" /> Add race
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" onClick={() => setPickerOpen(true)}>
+                  <Plus className="h-3.5 w-3.5 mr-1" /> From goals / schedule
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setTargets((t) => [...t, { raceDate: startsOn, name: "", priority: "training" }])}
+                >
+                  Type one in
+                </Button>
+              </div>
             </div>
             <div className="space-y-2">
               {targets.map((t, i) => (
@@ -420,6 +433,16 @@ export function EditCampaignDialog({
             </p>
           ))}
         </div>
+
+        <AddRacesDialog
+          open={pickerOpen}
+          onOpenChange={setPickerOpen}
+          athleteId={campaign?.athlete_id}
+          existing={targets}
+          onAdd={(added) =>
+            setTargets((t) => [...t, ...added].sort((a, b) => a.raceDate.localeCompare(b.raceDate)))
+          }
+        />
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
