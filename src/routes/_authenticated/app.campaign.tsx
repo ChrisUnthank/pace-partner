@@ -16,6 +16,7 @@ import { BucketTabStrip, COACHING_HUB_TABS } from "@/components/bucket-tab-strip
 import { CampaignTimeline, PRIORITY_STYLE } from "@/components/campaign-timeline";
 import { WeekEditDialog, BaselineDialog } from "@/components/campaign-week-edit";
 import { EditCampaignDialog } from "@/components/campaign-edit";
+import { AddRacesDialog } from "@/components/campaign-race-picker";
 import { generateCampaign, type CampaignTarget, type TargetPriority } from "@/lib/campaign-generator";
 import { useMyRoles, useMyAthlete, useAuthUser } from "@/lib/use-auth";
 
@@ -232,6 +233,26 @@ function SavedCampaign({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const baselineKm = campaign.baseline_weekly_km != null ? Number(campaign.baseline_weekly_km) : null;
 
+  // What actually happened. Derived, never stored — a campaign says what was
+  // planned and sessions record what occurred, so storing an "actual" column
+  // would mean keeping it in step with every session edit for no benefit.
+  const { data: actuals } = useQuery({
+    queryKey: ["campaign-actuals", campaign.id],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).rpc("get_campaign_actuals", { _campaign_id: campaign.id });
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+
+  const actualByWeek = useMemo(
+    () =>
+      new Map(
+        (actuals ?? []).map((a: any) => [a.week_start, { km: Number(a.actual_km), sessions: Number(a.sessions) }]),
+      ),
+    [actuals],
+  );
+
   const weeks = useMemo(
     () =>
       [...(campaign.campaign_weeks ?? [])]
@@ -333,6 +354,7 @@ function SavedCampaign({
           weeks={weeks as any}
           blocks={blocks as any}
           baselineKm={baselineKm}
+          actualByWeek={actualByWeek as any}
           onWeekClick={canWrite ? (w) => setEditingWeek(w) : undefined}
         />
       </CardContent>
@@ -427,6 +449,7 @@ function CreateCampaignDialog({
   const [buildQuality, setBuildQuality] = useState(2);
   const [raceWeekReduction, setRaceWeekReduction] = useState(15);
   const [targets, setTargets] = useState<CampaignTarget[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // Live preview. The whole point of the create flow is seeing the shape
@@ -510,6 +533,8 @@ function CreateCampaignDialog({
           race_date: t.raceDate,
           name: t.name || null,
           priority: t.priority,
+          athlete_goal_id: t.athleteGoalId ?? null,
+          race_schedule_entry_id: t.raceScheduleEntryId ?? null,
         })),
       );
       if (tErr) throw tErr;
@@ -586,9 +611,14 @@ function CreateCampaignDialog({
           <div>
             <div className="flex items-center justify-between mb-2">
               <Label className="text-xs">Races</Label>
-              <Button size="sm" variant="outline" onClick={addTarget}>
-                <Plus className="h-3.5 w-3.5 mr-1" /> Add race
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" onClick={() => setPickerOpen(true)}>
+                  <Plus className="h-3.5 w-3.5 mr-1" /> From goals / schedule
+                </Button>
+                <Button size="sm" variant="ghost" onClick={addTarget}>
+                  Type one in
+                </Button>
+              </div>
             </div>
             {targets.length === 0 && (
               <p className="text-xs text-muted-foreground">
@@ -780,6 +810,18 @@ function CreateCampaignDialog({
             {saving ? "Creating…" : "Create campaign"}
           </Button>
         </DialogFooter>
+
+        <AddRacesDialog
+          open={pickerOpen}
+          onOpenChange={setPickerOpen}
+          athleteId={athleteId}
+          existing={targets}
+          onAdd={(added) =>
+            setTargets((t) =>
+              [...t, ...added].sort((a, b) => a.raceDate.localeCompare(b.raceDate)),
+            )
+          }
+        />
       </DialogContent>
     </Dialog>
   );
