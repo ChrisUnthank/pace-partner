@@ -95,6 +95,13 @@ export interface GeneratedWeek {
   /** Set when this week contains a target race. */
   raceName?: string | null;
   racePriority?: TargetPriority | null;
+  /** Not set by the generator — carried on weeks loaded from the database, so
+   *  the timeline can mark weeks a coach has edited and regeneration can skip
+   *  them. Present here so one type serves both a freshly generated preview
+   *  and a saved campaign. */
+  isLocked?: boolean;
+  /** Database id, on saved weeks only. */
+  id?: string;
 }
 
 export interface GeneratedBlock {
