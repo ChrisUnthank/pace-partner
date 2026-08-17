@@ -253,11 +253,30 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
     buildTop: settings.loads?.buildTop ?? 110,
     reset: settings.loads?.reset ?? 50,
   };
-  const resetWeeks = settings.resetWeeks ?? 0;
-  const keyTaper = settings.keyTaperWeeks ?? 1;
-  const postPeak = settings.postPeakRecoveryWeeks ?? 1;
-  const deloadsOn = settings.deloadsEnabled !== false && settings.deloadWeeks > 0;
-  const taperFloor = settings.taperFloorPct ?? 55;
+  /**
+   * Every numeric setting is coerced at the boundary.
+   *
+   * These come from number inputs, and an input mid-edit can hand over NaN or
+   * undefined. Guarding each use site individually is how one gets missed —
+   * clamping once, here, means nothing downstream has to think about it.
+   */
+  const num = (v: unknown, fallback: number, min: number, max: number): number => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(min, Math.min(max, n));
+  };
+
+  const resetWeeks = num(settings.resetWeeks, 0, 0, 12);
+  const keyTaper = num(settings.keyTaperWeeks, 1, 0, 6);
+  const postPeak = num(settings.postPeakRecoveryWeeks, 1, 0, 6);
+  const deloadsOn = settings.deloadsEnabled !== false && num(settings.deloadWeeks, 1, 0, 4) > 0;
+  const taperFloor = num(settings.taperFloorPct, 55, 20, 100);
+  // The remaining three, coerced once so no use site handles a raw value.
+  // taperWeeks reached taperDaysFor() unclamped and Infinity * 7 produced a
+  // date arithmetic throw further down — the last hole in the fuzz.
+  const taperWeeks = num(settings.taperWeeks, 2, 0, 8);
+  const loadWeeksN = num(settings.loadWeeks, 3, 1, 12);
+  const deloadWeeksN = num(settings.deloadWeeks, 1, 0, 4);
   const taperShape = settings.taperShape ?? "linear";
 
   /**
@@ -317,12 +336,12 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
     return Math.round(sum / 7);
   }
 
-  const taperDays = settings.taperDays ?? null;
-  const keyTaperDays = settings.keyTaperDays ?? null;
+  const taperDays = settings.taperDays == null ? null : num(settings.taperDays, 14, 1, 60);
+  const keyTaperDays = settings.keyTaperDays == null ? null : num(settings.keyTaperDays, 7, 1, 40);
 
   /** Taper length in days for a target, whichever unit was configured. */
   function taperDaysFor(t: CampaignTarget): number {
-    if (t.priority === "peak") return taperDays ?? settings.taperWeeks * 7;
+    if (t.priority === "peak") return taperDays ?? taperWeeks * 7;
     if (t.priority === "key") return keyTaperDays ?? keyTaper * 7;
     return 0;
   }
@@ -354,13 +373,22 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
 
   const lastTarget = targets[targets.length - 1];
   const lastRaceIdx = weeksBetween(startMonday, mondayOf(lastTarget.raceDate));
-  const totalWeeks = lastRaceIdx + 1 + (settings.transitionWeeks ?? 0);
+  const totalWeeks = lastRaceIdx + 1 + num(settings.transitionWeeks, 0, 0, 12);
 
-  if (totalWeeks < 3) {
+  // NaN-safe. `NaN < 3` is FALSE, so a NaN sailed straight past a plain
+  // less-than check and reached `new Array(NaN)`, which throws
+  // "RangeError: Invalid array length" — mid-render, taking the page down.
+  // A number field left empty for a moment while being retyped is enough to
+  // produce one.
+  if (!Number.isFinite(totalWeeks) || totalWeeks < 3) {
     return {
       blocks: [],
       weeks: [],
-      notes: ["Less than three weeks to the first race — too short to structure. Plan these weeks directly."],
+      notes: [
+        Number.isFinite(totalWeeks)
+          ? "Less than three weeks to the first race — too short to structure. Plan these weeks directly."
+          : "Check the week and taper numbers — one of them isn't a value the season can be built from.",
+      ],
     };
   }
 
@@ -477,9 +505,9 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
     let isDeload = false;
     if (phase === "base" || phase === "build") {
       sinceDeload += 1;
-      if (deloadsOn && sinceDeload > settings.loadWeeks) {
+      if (deloadsOn && sinceDeload > loadWeeksN) {
         isDeload = true;
-        if (sinceDeload >= settings.loadWeeks + settings.deloadWeeks) sinceDeload = 0;
+        if (sinceDeload >= loadWeeksN + deloadWeeksN) sinceDeload = 0;
       }
     } else {
       sinceDeload = 0;
@@ -505,7 +533,7 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
         loadPct = dayTaperWeekLoad(weekStart, t.raceDate, configuredDays, L.peak);
       } else {
         const weeksOut = nextRace - i;
-        const len = t?.priority === "peak" ? settings.taperWeeks : keyTaper;
+        const len = t?.priority === "peak" ? taperWeeks : keyTaper;
         loadPct = taperLoad(weeksOut, len, L.peak);
       }
     } else if (phase === "race_week") {
@@ -656,7 +684,7 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
     if (!w.taperDaysIntoRace || !w.raceDayOfWeek) continue;
     const usesDays = w.racePriority === "peak" ? taperDays != null : keyTaperDays != null;
     if (usesDays) continue; // a day taper is exactly as long as it says
-    const taperLen = w.racePriority === "peak" ? settings.taperWeeks : keyTaper;
+    const taperLen = w.racePriority === "peak" ? taperWeeks : keyTaper;
     const nominal = taperLen * 7;
     // Compared against what the SETTING implies, not against a Sunday race.
     // An earlier version compared midweek races to the Sunday case and so
