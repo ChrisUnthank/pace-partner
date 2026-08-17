@@ -81,6 +81,12 @@ export function CampaignTimeline({
   blocks,
   onWeekClick,
   baselineKm,
+  // Was declared in the type below but never destructured here, so every
+  // reference in the body resolved to nothing:
+  // "ReferenceError: actualByWeek is not defined", thrown during render.
+  // TypeScript would have caught it; esbuild strips types without checking
+  // them, which is why it compiled cleanly and failed only in the browser.
+  actualByWeek,
 }: {
   weeks: GeneratedWeek[];
   blocks: GeneratedBlock[];
