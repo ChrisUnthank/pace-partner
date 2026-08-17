@@ -27,7 +27,6 @@ import { Route as AuthenticatedAppBiomechanicsRouteImport } from './routes/_auth
 import { Route as AuthenticatedAppCalculatorsRouteImport } from './routes/_authenticated/app.calculators'
 import { Route as AuthenticatedAppCheckoutRouteImport } from './routes/_authenticated/app.checkout'
 import { Route as AuthenticatedAppCoachDiaryRouteImport } from './routes/_authenticated/app.coach-diary'
-import { Route as AuthenticatedAppCoachingHubRouteImport } from './routes/_authenticated/app.coaching-hub'
 import { Route as AuthenticatedAppCompareRouteImport } from './routes/_authenticated/app.compare'
 import { Route as AuthenticatedAppCredentialsRouteImport } from './routes/_authenticated/app.credentials'
 import { Route as AuthenticatedAppDailyLogRouteImport } from './routes/_authenticated/app.daily-log'
@@ -183,12 +182,6 @@ const AuthenticatedAppCoachDiaryRoute =
   AuthenticatedAppCoachDiaryRouteImport.update({
     id: '/app/coach-diary',
     path: '/app/coach-diary',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedAppCoachingHubRoute =
-  AuthenticatedAppCoachingHubRouteImport.update({
-    id: '/app/coaching-hub',
-    path: '/app/coaching-hub',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedAppCompareRoute = AuthenticatedAppCompareRouteImport.update({
@@ -553,7 +546,6 @@ export interface FileRoutesByFullPath {
   '/app/calculators': typeof AuthenticatedAppCalculatorsRouteWithChildren
   '/app/checkout': typeof AuthenticatedAppCheckoutRoute
   '/app/coach-diary': typeof AuthenticatedAppCoachDiaryRoute
-  '/app/coaching-hub': typeof AuthenticatedAppCoachingHubRoute
   '/app/compare': typeof AuthenticatedAppCompareRoute
   '/app/credentials': typeof AuthenticatedAppCredentialsRoute
   '/app/daily-log': typeof AuthenticatedAppDailyLogRoute
@@ -630,7 +622,6 @@ export interface FileRoutesByTo {
   '/app/biomechanics': typeof AuthenticatedAppBiomechanicsRoute
   '/app/checkout': typeof AuthenticatedAppCheckoutRoute
   '/app/coach-diary': typeof AuthenticatedAppCoachDiaryRoute
-  '/app/coaching-hub': typeof AuthenticatedAppCoachingHubRoute
   '/app/compare': typeof AuthenticatedAppCompareRoute
   '/app/credentials': typeof AuthenticatedAppCredentialsRoute
   '/app/daily-log': typeof AuthenticatedAppDailyLogRoute
@@ -707,7 +698,6 @@ export interface FileRoutesById {
   '/_authenticated/app/calculators': typeof AuthenticatedAppCalculatorsRouteWithChildren
   '/_authenticated/app/checkout': typeof AuthenticatedAppCheckoutRoute
   '/_authenticated/app/coach-diary': typeof AuthenticatedAppCoachDiaryRoute
-  '/_authenticated/app/coaching-hub': typeof AuthenticatedAppCoachingHubRoute
   '/_authenticated/app/compare': typeof AuthenticatedAppCompareRoute
   '/_authenticated/app/credentials': typeof AuthenticatedAppCredentialsRoute
   '/_authenticated/app/daily-log': typeof AuthenticatedAppDailyLogRoute
@@ -788,7 +778,6 @@ export interface FileRouteTypes {
     | '/app/calculators'
     | '/app/checkout'
     | '/app/coach-diary'
-    | '/app/coaching-hub'
     | '/app/compare'
     | '/app/credentials'
     | '/app/daily-log'
@@ -865,7 +854,6 @@ export interface FileRouteTypes {
     | '/app/biomechanics'
     | '/app/checkout'
     | '/app/coach-diary'
-    | '/app/coaching-hub'
     | '/app/compare'
     | '/app/credentials'
     | '/app/daily-log'
@@ -941,7 +929,6 @@ export interface FileRouteTypes {
     | '/_authenticated/app/calculators'
     | '/_authenticated/app/checkout'
     | '/_authenticated/app/coach-diary'
-    | '/_authenticated/app/coaching-hub'
     | '/_authenticated/app/compare'
     | '/_authenticated/app/credentials'
     | '/_authenticated/app/daily-log'
@@ -1141,13 +1128,6 @@ declare module '@tanstack/react-router' {
       path: '/app/coach-diary'
       fullPath: '/app/coach-diary'
       preLoaderRoute: typeof AuthenticatedAppCoachDiaryRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/app/coaching-hub': {
-      id: '/_authenticated/app/coaching-hub'
-      path: '/app/coaching-hub'
-      fullPath: '/app/coaching-hub'
-      preLoaderRoute: typeof AuthenticatedAppCoachingHubRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/app/compare': {
@@ -1699,7 +1679,6 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAppCalculatorsRoute: typeof AuthenticatedAppCalculatorsRouteWithChildren
   AuthenticatedAppCheckoutRoute: typeof AuthenticatedAppCheckoutRoute
   AuthenticatedAppCoachDiaryRoute: typeof AuthenticatedAppCoachDiaryRoute
-  AuthenticatedAppCoachingHubRoute: typeof AuthenticatedAppCoachingHubRoute
   AuthenticatedAppCompareRoute: typeof AuthenticatedAppCompareRoute
   AuthenticatedAppCredentialsRoute: typeof AuthenticatedAppCredentialsRoute
   AuthenticatedAppDailyLogRoute: typeof AuthenticatedAppDailyLogRoute
@@ -1755,7 +1734,6 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
     AuthenticatedAppCalculatorsRouteWithChildren,
   AuthenticatedAppCheckoutRoute: AuthenticatedAppCheckoutRoute,
   AuthenticatedAppCoachDiaryRoute: AuthenticatedAppCoachDiaryRoute,
-  AuthenticatedAppCoachingHubRoute: AuthenticatedAppCoachingHubRoute,
   AuthenticatedAppCompareRoute: AuthenticatedAppCompareRoute,
   AuthenticatedAppCredentialsRoute: AuthenticatedAppCredentialsRoute,
   AuthenticatedAppDailyLogRoute: AuthenticatedAppDailyLogRoute,
