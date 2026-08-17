@@ -434,15 +434,7 @@ export function EditCampaignDialog({
           ))}
         </div>
 
-        <AddRacesDialog
-          open={pickerOpen}
-          onOpenChange={setPickerOpen}
-          athleteId={campaign?.athlete_id}
-          existing={targets}
-          onAdd={(added) =>
-            setTargets((t) => [...t, ...added].sort((a, b) => a.raceDate.localeCompare(b.raceDate)))
-          }
-        />
+
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
@@ -451,6 +443,19 @@ export function EditCampaignDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      {/* Sibling of the outer Dialog, not a child of its content — see the
+          same fix in app.campaign.tsx. Nested Radix dialogs conflict over the
+          focus trap. */}
+      <AddRacesDialog
+          open={pickerOpen}
+          onOpenChange={setPickerOpen}
+          athleteId={campaign?.athlete_id}
+          existing={targets}
+          onAdd={(added) =>
+            setTargets((t) => [...t, ...added].sort((a, b) => a.raceDate.localeCompare(b.raceDate)))
+          }
+        />
     </Dialog>
   );
 }
