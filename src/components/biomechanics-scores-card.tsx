@@ -55,6 +55,12 @@ type ScoreRow = {
   session_title: string | null;
   workout_type: string | null;
   dominant_zone: string | null;
+  /** 'continuous' | 'interval' | null — which methodology the RPC used for
+   *  Rhythm / Stability / Fatigue on this session. Continuous sessions are
+   *  scored from point-level variability, interval sessions from rep-to-rep
+   *  variability. Both are real methods, which is why the tiles below no
+   *  longer claim to be continuous-only. */
+  score_basis: string | null;
   avg_cadence: number | null;
   stride_length_m: number | null;
   avg_vo_cm: number | null;
@@ -72,6 +78,22 @@ type ScoreRow = {
 };
 
 type Band = { label: string; className: string; emoji: string };
+
+// The three consistency/drift tiles used to say "Continuous-effort sessions
+// only". That stopped being true when interval methodology was added in
+// 20260810020000 — Rhythm, Stability and Fatigue each have a rep-to-rep
+// branch that fires on structure <> 'continuous' with 4+ reps. The captions
+// never caught up, and now contradict a VO2 session showing 85 / 82 / 86.
+//
+// Rather than just deleting the claim, the wording names the method actually
+// used for the session on screen. How a number was arrived at matters here:
+// variability across points and variability across reps measure different
+// things and aren't directly comparable between session types.
+function basisNote(basis: string | null | undefined): string {
+  if (basis === "interval") return " Measured rep-to-rep across the work intervals.";
+  if (basis === "continuous") return " Measured across the continuous effort.";
+  return "";
+}
 
 function bandFor(score: number | null): Band | null {
   if (score == null) return null;
@@ -385,7 +407,13 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
 
   const overall = useMemo(() => {
     const all = windowedRows;
+    // Sessions in the window can use different methodologies (a continuous
+    // easy run and an interval session both appear here), so the basis is
+    // deliberately null for the aggregate and the note is omitted rather
+    // than claiming one method for a mixed set.
+    const bases = Array.from(new Set(all.map((r) => r.score_basis).filter(Boolean)));
     return {
+      score_basis: bases.length === 1 ? (bases[0] as string) : null,
       mei_score: average(all.map((r) => r.mei_score)),
       vertical_efficiency_score: average(all.map((r) => r.vertical_efficiency_score)),
       rhythm_score: average(all.map((r) => r.rhythm_score)),
@@ -582,7 +610,7 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
                 label="Rhythm & Timing"
                 score={active.rhythm_score}
                 delta={view === "last" && previous ? (active.rhythm_score ?? 0) - (previous.rhythm_score ?? 0) : null}
-                caveat="Cadence AND stride consistency together — the repeatability of the stride cycle. Continuous-effort sessions only."
+                caveat={`Cadence AND stride consistency together — the repeatability of the stride cycle.${basisNote(active.score_basis)}`}
               />
               <ScoreTile
                 label="Mechanical Stability"
@@ -592,7 +620,7 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
                     ? (active.mechanical_stability_score ?? 0) - (previous.mechanical_stability_score ?? 0)
                     : null
                 }
-                caveat="Ground contact time AND vertical oscillation consistency across the whole session. Continuous-effort sessions only — most provisional of these scores, worth checking against real sessions."
+                caveat={`Ground contact time AND vertical oscillation consistency.${basisNote(active.score_basis)} The most provisional of these scores — worth checking against sessions you remember.`}
               />
               <ScoreTile
                 label="Mechanical Fatigue"
@@ -602,7 +630,7 @@ export function BiomechanicsScoresCard({ athleteId }: { athleteId: string }) {
                     ? (active.biomechanical_fatigue_score ?? 0) - (previous.biomechanical_fatigue_score ?? 0)
                     : null
                 }
-                caveat="First-fifth vs. last-fifth GCT/VO/cadence drift. Continuous-effort sessions only — a separate read from the existing pace/HR-based efficiency score."
+                caveat={`Drift in ground contact, oscillation and cadence from the start of the effort to the end.${basisNote(active.score_basis)} A separate read from the pace/HR-based efficiency score.`}
               />
               <ScoreTile
                 label="Biomechanical Score"
