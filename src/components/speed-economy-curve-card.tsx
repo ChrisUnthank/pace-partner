@@ -2,91 +2,100 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Gauge } from "lucide-react";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine } from "recharts";
-import { paceFmt } from "@/lib/format";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Gauge, Info } from "lucide-react";
+import { computeMei, fitPaceModel, predictMei, paceFromSample } from "@/lib/mei-self-referenced";
 
-// Reads get_athlete_speed_economy_curve() (see
-// supabase/migrations/20260801000018_speed_economy_pace_zone_filter.sql)
-// — each point is realized pace vs. this athlete's already-computed
-// Biomechanical Score, averaged per 15 sec/km bucket. NOT a second,
-// independently-scored curve — same underlying score as the Biomechanics
-// page's Efficiency Scores card.
+// ----------------------------------------------------------------------------
+// Speed Economy Curve — rebuilt on PACE-ADJUSTED mechanics.
 //
-// Z1-Z6 pace zone filter (not workout-type — replaced per direct
-// feedback) added for the same underlying reason: an unfiltered curve
-// naturally skews toward whatever paces have the most logged volume —
-// almost always easy/recovery — which can make "Optimal Mechanical
-// Pace" land on a well-populated easy zone rather than reflecting
-// genuine mechanical quality at race-relevant intensities. Uses the
-// app's real, established 6-zone pace model (athlete_zone_profiles,
-// same zones as the Zones page and session/race analysis) rather than
-// the workout-type buckets built for the mechanics templates — pace
-// zones are purely pace-derived, not tied to prescribed workout intent,
-// so filtering by them doesn't have the template-mismatch risk the
-// workout-type version could.
+// WHY THE OLD VERSION COULDN'T WORK
 //
-// Real caveat still worth remembering: Biomechanical Score itself is
-// still scored relative to EACH SESSION'S OWN workout-type template
-// (not the pace zone), and several of those templates are interpolated
-// guesses rather than sourced research (see 20260801000008's notes) —
-// a curve that peaks somewhere unexpected can still reflect template
-// calibration differences underneath, even filtered to one pace zone.
+// It plotted avg_biomechanical_score against pace. That score is 35% MEI, and
+// MEI is a function of pace: measured across 113 sessions, pace explains 98.7%
+// of its variance (log-log r² 0.987), with residuals inside ±1% in every
+// populated band. Plotting a pace-derived score against pace produces a line
+// that slopes by construction.
 //
-// "Optimal Mechanical Pace" (the bucket with the highest average score)
-// is only ever named once there are at least 3 qualifying buckets —
-// enough to see an actual curve shape, not 1-2 lonely points calling
-// themselves a trend.
+// Two things followed. "Optimal Mechanical Pace" tended to pick whatever fast
+// bucket had enough sessions — reporting where the athlete runs fast, not
+// where they move well. And "Mechanical–Aerobic Gap", being threshold minus
+// optimal, was then almost always positive, so the card nearly always
+// concluded aerobic capacity was the limiter. That is a coaching
+// recommendation produced by arithmetic.
 //
-// "Mechanical-Aerobic Gap" compares Optimal Mechanical Pace against the
-// athlete's current threshold pace (athlete_zone_profiles) — the same
-// number already used to build this athlete's pace zones, not a second
-// disagreeing threshold figure.
+// The Z1–Z6 filter was added to stop the curve peaking on easy running. The
+// real cause of that peak was different: biomechanical_score is null unless
+// all four components exist, and Rhythm and Fatigue were null on every
+// interval session because interval_results.stride_length_cm was never
+// populated. Interval sessions were therefore excluded from the curve
+// entirely and only easy runs remained. The filter treated a symptom of
+// missing data.
+//
+// It also broke what it sat inside. A pace zone IS a pace range — Z5 spans
+// about 19 s/km against 15 s/km buckets — so a filtered curve held at most
+// one or two buckets while "optimal" needs three. Filtered, it could never
+// appear.
+//
+// WHAT THIS PLOTS INSTEAD
+//
+// Each session's MEI as a percentage above or below what its own pace
+// predicts. Zero means "moved exactly as expected for that speed". A peak now
+// means something real: a pace at which this athlete moves better than their
+// own pace model says they should.
+//
+// The zone filter is gone — unnecessary once the y-axis no longer tracks
+// pace, and it was preventing the only interesting output.
+// ----------------------------------------------------------------------------
 
-type CurvePoint = {
-  pace_bucket_center_sec_per_km: number;
-  avg_biomechanical_score: number;
-  session_count: number;
+type TrendRow = {
+  session_id: string;
+  session_date: string;
+  workout_type: string | null;
+  stride_length_m: number | null;
+  avg_gct_ms: number | null;
+  avg_vo_cm: number | null;
+  avg_cadence: number | null;
 };
 
+// Wider than the old 15 s/km because the y-axis is now a residual rather than
+// a level: neighbouring paces no longer differ systematically, so pooling them
+// costs nothing and each bucket gets more sessions behind it.
+const BUCKET_SEC = 20;
+
+// A single session's mechanics reflect that day — fatigue, wind, terrain —
+// rather than a pattern.
+const MIN_SESSIONS_PER_BUCKET = 3;
+
+// Two points describe a slope, not a peak.
 const MIN_BUCKETS_FOR_OPTIMAL = 3;
 
-// Matches the app's real, established 6-zone pace model (same labels
-// as ZONE_LABEL in app.sessions.$sessionId.analysis.tsx and the Zones
-// page) — pace-based, not HR-based. Cleaner and more physiologically
-// grounded than the workout-type buckets this filter used before.
-const ZONE_OPTIONS: { value: string; label: string; color: string }[] = [
-  { value: "all", label: "All zones", color: "#94a3b8" },
-  { value: "z1", label: "Z1 Recovery", color: "#34d399" },
-  { value: "z2", label: "Z2 Easy/Aerobic", color: "#38bdf8" },
-  { value: "z3", label: "Z3 Steady/Tempo", color: "#fbbf24" },
-  { value: "z4", label: "Z4 Threshold", color: "#f97316" },
-  { value: "z5", label: "Z5 VO2", color: "#ef4444" },
-  { value: "z6", label: "Z6 Anaerobic/Max", color: "#9333ea" },
-];
+// Session-to-session MEI variation within a workout type measured around 2%,
+// so a peak has to clear that to mean anything.
+const MEANINGFUL_RESIDUAL_PCT = 2;
 
-// paceFmt() already appends the unit suffix itself (" /km" or " /mi"
-// depending on the Imperial/Metric setting) — do not append a second
-// "/km" on top of it.
 function paceLabel(secPerKm: number): string {
-  return paceFmt(secPerKm);
+  const m = Math.floor(secPerKm / 60);
+  const s = Math.round(secPerKm % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 export function SpeedEconomyCurveCard({ athleteId }: { athleteId: string }) {
-  const [zone, setZone] = useState("all");
+  const [showRaw, setShowRaw] = useState(false);
 
-  const { data: curve, isLoading, isError, error } = useQuery({
-    queryKey: ["athlete-speed-economy-curve", athleteId, zone],
+  const { data: rows, isLoading, isError, error } = useQuery({
+    queryKey: ["speed-economy-residual", athleteId],
     enabled: !!athleteId,
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("get_athlete_speed_economy_curve" as any, {
+      // Same source and segment filter as the Efficiency Scores card, so the
+      // two cannot disagree about what a session's mechanics were.
+      const { data, error } = await supabase.rpc("get_athlete_biomechanics_trend" as any, {
         _athlete_id: athleteId,
         _limit: 200,
-        _zone: zone === "all" ? null : zone,
+        _segment_type: "work",
       });
       if (error) throw error;
-      return (data ?? []) as CurvePoint[];
+      return (data ?? []) as TrendRow[];
     },
   });
 
@@ -104,169 +113,185 @@ export function SpeedEconomyCurveCard({ athleteId }: { athleteId: string }) {
     },
   });
 
-  // Chart reads fastest-to-slowest left-to-right feels backwards for a
-  // pace axis — sort slowest-to-fastest (ascending seconds/km = faster,
-  // so descending numeric value) for a left-to-right "getting faster"
-  // read, matching how a coach would sketch this by hand.
-  const chartData = useMemo(
-    () =>
-      [...(curve ?? [])]
-        .sort((a, b) => b.pace_bucket_center_sec_per_km - a.pace_bucket_center_sec_per_km)
-        .map((c) => ({
-          paceLabel: paceLabel(c.pace_bucket_center_sec_per_km),
-          pace: c.pace_bucket_center_sec_per_km,
-          score: c.avg_biomechanical_score,
-          sessionCount: c.session_count,
-        })),
-    [curve],
-  );
+  const { chartData, model, optimal, usableSessions } = useMemo(() => {
+    const samples = (rows ?? []).map((r) => ({
+      sessionId: r.session_id,
+      date: r.session_date,
+      workoutType: r.workout_type,
+      strideM: r.stride_length_m,
+      gctMs: r.avg_gct_ms,
+      voCm: r.avg_vo_cm,
+      cadence: r.avg_cadence,
+    }));
 
-  const hasEnoughForOptimal = (curve ?? []).length >= MIN_BUCKETS_FOR_OPTIMAL;
+    const points = samples
+      .map((s) => ({ pace: paceFromSample(s), mei: computeMei(s) }))
+      .filter((p): p is { pace: number; mei: number } => p.pace != null && p.mei != null);
 
-  const optimal = useMemo(() => {
-    if (!hasEnoughForOptimal) return null;
-    return (curve ?? []).reduce((best, c) =>
-      c.avg_biomechanical_score > best.avg_biomechanical_score ? c : best,
-    );
-  }, [curve, hasEnoughForOptimal]);
+    const m = fitPaceModel(points);
+    if (!m) return { chartData: [], model: null, optimal: null, usableSessions: points.length };
+
+    // Residual per session, then averaged per bucket — not bucket-then-
+    // residualise. The model is non-linear, so the residual of a mean is not
+    // the mean of the residuals.
+    const buckets = new Map<number, { sum: number; n: number; rawSum: number }>();
+    for (const p of points) {
+      const expected = predictMei(m, p.pace);
+      if (expected == null || expected <= 0) continue;
+      const residualPct = ((p.mei - expected) / expected) * 100;
+      const center = Math.round(p.pace / BUCKET_SEC) * BUCKET_SEC;
+      const b = buckets.get(center) ?? { sum: 0, n: 0, rawSum: 0 };
+      b.sum += residualPct;
+      b.rawSum += p.mei;
+      b.n += 1;
+      buckets.set(center, b);
+    }
+
+    const data = Array.from(buckets.entries())
+      .filter(([, b]) => b.n >= MIN_SESSIONS_PER_BUCKET)
+      // Slowest first, so the chart reads left-to-right as "getting faster".
+      .sort((a, b) => b[0] - a[0])
+      .map(([center, b]) => ({
+        paceLabel: paceLabel(center),
+        pace: center,
+        residual: Math.round((b.sum / b.n) * 10) / 10,
+        rawMei: Math.round((b.rawSum / b.n) * 10) / 10,
+        sessionCount: b.n,
+      }));
+
+    // An optimum only when the best bucket is meaningfully above zero. A curve
+    // flat within noise has no optimum, and saying so is more useful than
+    // pointing at the highest of several equivalent numbers.
+    let best: (typeof data)[number] | null = null;
+    if (data.length >= MIN_BUCKETS_FOR_OPTIMAL) {
+      const top = data.reduce((acc, d) => (d.residual > acc.residual ? d : acc), data[0]);
+      if (top.residual >= MEANINGFUL_RESIDUAL_PCT) best = top;
+    }
+
+    return { chartData: data, model: m, optimal: best, usableSessions: points.length };
+  }, [rows]);
 
   const thresholdPace = zoneProfile?.pace_threshold_sec_per_km ?? null;
-  // threshold − optimal (not optimal − threshold): a FASTER optimal
-  // mechanical pace than current threshold pace means mechanics could
-  // already handle faster running than the aerobic engine currently
-  // sustains — a positive gap, aerobic capacity is the likely limiter.
-  // A slower optimal pace than threshold means the athlete is being
-  // asked to hold a pace their mechanics aren't actually best suited to
-  // — form is the limiter at that intensity.
-  const gapSeconds =
-    optimal != null && thresholdPace != null ? thresholdPace - optimal.pace_bucket_center_sec_per_km : null;
-
-  const hasAny = (curve ?? []).length > 0;
 
   return (
     <Card>
-      <CardHeader>
-        <div className="flex items-start justify-between gap-3 flex-wrap">
-          <div>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Gauge className="h-4 w-4 text-[var(--accent-red)]" />
-              Speed Economy Curve
-            </CardTitle>
-            <CardDescription>
-              Biomechanical Score by realized pace, across the last 200 running sessions with device data.
-            </CardDescription>
-          </div>
-          <Select value={zone} onValueChange={setZone}>
-            <SelectTrigger className="h-8 w-[160px] text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {ZONE_OPTIONS.map((o) => (
-                <SelectItem key={o.value} value={o.value}>
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-full inline-block" style={{ background: o.color }} />
-                    {o.label}
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Gauge className="h-4 w-4 text-[var(--accent-red)]" /> Speed Economy Curve
+          </CardTitle>
+          <button
+            type="button"
+            onClick={() => setShowRaw((v) => !v)}
+            className="text-[11px] text-muted-foreground hover:text-foreground underline"
+          >
+            {showRaw ? "Show pace-adjusted" : "Show raw MEI"}
+          </button>
         </div>
+        <CardDescription>
+          {showRaw
+            ? "Raw mechanical efficiency by pace. This slopes by construction — MEI rises with speed — which is why the adjusted view is the one that says anything."
+            : "How far mechanics sit above or below what each pace predicts. Zero is exactly as expected; a peak is a pace where this athlete moves better than their own model says they should."}
+        </CardDescription>
       </CardHeader>
-      <CardContent>
-        {isLoading ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
-        ) : isError ? (
-          <p className="text-sm text-destructive">
-            Couldn't load the speed economy curve — {(error as any)?.message ?? "unknown error"}. If this mentions
-            the function not existing, the <code className="text-xs">get_athlete_speed_economy_curve</code>{" "}
-            migration hasn't been run in Supabase yet.
-          </p>
-        ) : !hasAny ? (
+
+      <CardContent className="space-y-4">
+        {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+        {isError && <p className="text-sm text-destructive">{(error as any)?.message ?? "Couldn't load the curve."}</p>}
+
+        {!isLoading && !isError && chartData.length === 0 && (
           <p className="text-sm text-muted-foreground">
-            Not enough repeated sessions at any single pace yet — each point on this curve needs at least 2 sessions
-            at a similar pace to be trustworthy.
+            {usableSessions < 8
+              ? `Needs at least 8 sessions with stride, ground contact and oscillation data to fit a pace model — currently ${usableSessions}.`
+              : `No pace range yet has ${MIN_SESSIONS_PER_BUCKET}+ sessions behind it.`}
           </p>
-        ) : (
-          <div className="space-y-4">
-            <div className="h-[220px] w-full">
+        )}
+
+        {chartData.length > 0 && (
+          <>
+            <div className="h-[240px] w-full">
               <ResponsiveContainer>
-                <LineChart data={chartData} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
+                <LineChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
-                  <XAxis dataKey="paceLabel" tick={{ fontSize: 10 }} />
-                  <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} width={32} />
-                  <Tooltip
-                    contentStyle={{ background: "hsl(var(--background))", border: "1px solid hsl(var(--border))", fontSize: 12 }}
-                    formatter={(v: number, _n: string, item: any) => [
-                      `${v} (${item?.payload?.sessionCount ?? "?"} sessions)`,
-                      "Biomechanical Score",
-                    ]}
+                  <XAxis dataKey="paceLabel" tick={{ fontSize: 11 }} />
+                  <YAxis
+                    tick={{ fontSize: 11 }}
+                    width={46}
+                    tickFormatter={(v) => (showRaw ? `${v}` : `${Number(v) > 0 ? "+" : ""}${v}%`)}
+                    domain={showRaw ? ["dataMin - 5", "dataMax + 5"] : ["dataMin - 2", "dataMax + 2"]}
                   />
-                  {optimal && (
-                    <ReferenceLine
-                      x={paceLabel(optimal.pace_bucket_center_sec_per_km)}
-                      stroke="var(--accent-red)"
-                      strokeDasharray="4 4"
-                      label={{ value: "Optimal", fontSize: 10, fill: "var(--accent-red)" }}
-                    />
-                  )}
+                  <Tooltip
+                    contentStyle={{
+                      background: "hsl(var(--background))",
+                      border: "1px solid hsl(var(--border))",
+                      fontSize: 12,
+                    }}
+                    formatter={(v: any, _n: any, p: any) => [
+                      showRaw ? `MEI ${v}` : `${Number(v) > 0 ? "+" : ""}${v}% vs predicted`,
+                      `${p?.payload?.sessionCount} session(s)`,
+                    ]}
+                    labelFormatter={(l) => `${l} /km`}
+                  />
+                  {!showRaw && <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeDasharray="4 4" />}
                   <Line
                     type="monotone"
-                    dataKey="score"
-                    stroke="#8b5cf6"
+                    dataKey={showRaw ? "rawMei" : "residual"}
+                    stroke="var(--accent-red)"
                     strokeWidth={2}
-                    dot={{ r: 4 }}
-                    connectNulls={false}
+                    dot={{ r: 3 }}
                   />
                 </LineChart>
               </ResponsiveContainer>
             </div>
 
-            <div className="grid sm:grid-cols-3 gap-3">
-              <div className="border rounded-lg p-4">
-                <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Optimal Mechanical Pace</div>
+            <div className="grid sm:grid-cols-3 gap-3 text-sm">
+              <div className="border rounded-lg p-3">
+                <div className="text-[11px] text-muted-foreground">Best mechanical pace</div>
                 {optimal ? (
-                  <div className="font-display text-2xl font-extrabold tabular-nums mt-1">
-                    {paceLabel(optimal.pace_bucket_center_sec_per_km)}
-                  </div>
-                ) : (
-                  <div className="text-sm text-muted-foreground mt-2">
-                    Needs {MIN_BUCKETS_FOR_OPTIMAL}+ distinct pace ranges with repeated sessions
-                  </div>
-                )}
-              </div>
-              <div className="border rounded-lg p-4">
-                <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Current Threshold Pace</div>
-                <div className="font-display text-2xl font-extrabold tabular-nums mt-1">
-                  {thresholdPace != null ? paceLabel(thresholdPace) : "—"}
-                </div>
-              </div>
-              <div className="border rounded-lg p-4">
-                <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Mechanical–Aerobic Gap</div>
-                {gapSeconds != null ? (
                   <>
-                    <div className="font-display text-2xl font-extrabold tabular-nums mt-1">
-                      {Math.abs(Math.round(gapSeconds))}s/km
-                    </div>
-                    <div className="text-[10px] text-muted-foreground mt-1">
-                      {gapSeconds > 0
-                        ? "Mechanics can go faster than current aerobic threshold allows — aerobic capacity is the likely limiter."
-                        : "Threshold pace is at or beyond optimal mechanics — form may be the limiter at this intensity."}
+                    <div className="text-lg font-bold tabular-nums">{optimal.paceLabel} /km</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      +{optimal.residual}% above predicted, {optimal.sessionCount} sessions
                     </div>
                   </>
                 ) : (
-                  <div className="text-sm text-muted-foreground mt-2">Needs both figures available</div>
+                  <div className="text-[11px] text-muted-foreground mt-1">
+                    {chartData.length < MIN_BUCKETS_FOR_OPTIMAL
+                      ? `Needs ${MIN_BUCKETS_FOR_OPTIMAL} pace ranges with ${MIN_SESSIONS_PER_BUCKET}+ sessions each.`
+                      : "No pace stands out — mechanics track pace closely, which is the normal result."}
+                  </div>
                 )}
+              </div>
+
+              <div className="border rounded-lg p-3">
+                <div className="text-[11px] text-muted-foreground">Current threshold pace</div>
+                <div className="text-lg font-bold tabular-nums">
+                  {thresholdPace ? `${paceLabel(thresholdPace)} /km` : "—"}
+                </div>
+              </div>
+
+              <div className="border rounded-lg p-3">
+                <div className="text-[11px] text-muted-foreground">Pace model fit</div>
+                <div className="text-lg font-bold tabular-nums">{model ? `r² ${model.r2.toFixed(3)}` : "—"}</div>
+                <div className="text-[11px] text-muted-foreground">{model ? `${model.n} sessions` : ""}</div>
               </div>
             </div>
 
-            <p className="text-[10px] text-muted-foreground">
-              A single session's mechanics can reflect fatigue, terrain, or weather rather than a real pattern —
-              trust this curve more once it holds consistently across a full training block, not from one strong or
-              weak session. The underlying score is still scored relative to each session's own workout-type
-              template, so an unexpected peak can still reflect template calibration, even within one pace zone.
+            <p className="text-[11px] text-muted-foreground leading-snug flex items-start gap-1.5">
+              <Info className="h-3.5 w-3.5 shrink-0 mt-px" />
+              <span>
+                {model && model.r2 > 0.95 ? (
+                  <>
+                    Pace explains {(model.r2 * 100).toFixed(1)}% of this athlete's mechanical efficiency, so the
+                    adjusted curve is mostly flat by nature. Departures from zero are the signal — a bucket sitting
+                    +{MEANINGFUL_RESIDUAL_PCT}% or more above the line is doing something pace alone doesn't explain.{" "}
+                  </>
+                ) : null}
+                A single session can reflect fatigue, terrain or weather rather than a pattern; trust this across a
+                training block rather than from one strong or weak week.
+              </span>
             </p>
-          </div>
+          </>
         )}
       </CardContent>
     </Card>
