@@ -233,6 +233,12 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
         // them. (Daily Log moved to Health & Vitals; My Schedule moved
         // to the new Locker area.)
         { to: "/app/training-schedule", label: "Training Schedule", icon: Clock, show: true },
+        // Campaign also appears under Coaching for a coach, pointing at the
+        // same page. Athletes need their own way in: a season built for them
+        // is theirs to read, and burying it in a coach-only bucket meant they
+        // could not see the plan they were training to. The page itself
+        // decides what they may change — read-only unless they built it.
+        { to: "/app/campaign", label: "Campaign", icon: Target, show: isCoachOrAthlete },
         // Placeholder page for now (coming soon) — placed here rather than
         // its own bucket since a route library is fundamentally a training-
         // planning tool, same audience as Sessions/Calendar/Schedule.
