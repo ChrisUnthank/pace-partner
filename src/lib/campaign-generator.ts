@@ -57,6 +57,21 @@ export interface CampaignSettings {
   taperWeeks: number;
   /** Shorter taper before a `key` race. */
   keyTaperWeeks?: number;
+  /**
+   * Load in race week, as a percentage of a normal loading week.
+   *
+   * Was hardcoded at 55. That suits an athlete who sharpens on a deep taper
+   * and is wrong for one who detrains on it — at a 90km baseline it is the
+   * difference between 50km and 63km in race week.
+   */
+  taperFloorPct?: number;
+  /**
+   * How the taper gets to that floor.
+   *   linear  even steps down
+   *   gentle  holds load, then drops late — for athletes who need the work
+   *   steep   sheds early and coasts in — for athletes who arrive tired
+   */
+  taperShape?: "linear" | "gentle" | "steep";
   /** Down weeks at the START — the break after the previous season. */
   resetWeeks?: number;
   /** Recovery after a peak race before normal training resumes. */
@@ -182,6 +197,21 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
   const keyTaper = settings.keyTaperWeeks ?? 1;
   const postPeak = settings.postPeakRecoveryWeeks ?? 1;
   const deloadsOn = settings.deloadsEnabled !== false && settings.deloadWeeks > 0;
+  const taperFloor = settings.taperFloorPct ?? 55;
+  const taperShape = settings.taperShape ?? "linear";
+
+  /**
+   * Load for a taper week, `weeksOut` weeks before the race.
+   *
+   * Curved via an exponent on the normalised position rather than by special
+   * cases: one expression covers all three shapes and any taper length, and
+   * the floor is hit exactly in race week whatever the shape.
+   */
+  function taperLoad(weeksOut: number, len: number, peakLoad: number): number {
+    const p = (weeksOut - 1) / Math.max(1, len); // 1 at the start, 0 at the race
+    const exp = taperShape === "gentle" ? 0.55 : taperShape === "steep" ? 1.8 : 1;
+    return Math.round(taperFloor + (peakLoad - taperFloor) * Math.pow(p, exp));
+  }
 
   const startMonday = mondayOf(settings.startsOn);
   const targets = [...settings.targets].filter((t) => !!t.raceDate).sort((a, b) => a.raceDate.localeCompare(b.raceDate));
@@ -321,8 +351,7 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
       const weeksOut = nextRace - i;
       const t = raceAt.get(nextRace);
       const len = t?.priority === "peak" ? settings.taperWeeks : keyTaper;
-      const step = (L.peak - 55) / Math.max(1, len);
-      loadPct = Math.round(55 + step * (weeksOut - 1));
+      loadPct = taperLoad(weeksOut, len, L.peak);
     } else if (phase === "race_week") {
       // A race week is NOT a deload. A training race often keeps its volume
       // entirely and only changes session type; the reduction is the coach's
@@ -330,7 +359,7 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
       const normal = L.buildTop;
       loadPct =
         race?.priority === "peak"
-          ? 55
+          ? taperFloor
           : race?.priority === "key"
             ? Math.round(normal * (1 - (L.raceWeekReduction + 10) / 100))
             : race?.priority === "tune_up"
