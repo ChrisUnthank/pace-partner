@@ -5,36 +5,39 @@ import { supabase } from "@/integrations/supabase/client";
 import { useMyRoles, useAuthUser } from "@/lib/use-auth";
 import { Button } from "@/components/ui/button";
 import {
-  CalendarDays,
-  CalendarRange,
-  Users,
-  User2,
-  LogOut,
-  Home,
+  Backpack,
+  BookUser,
   BookmarkCheck,
-  LineChart,
+  Calculator,
+  CalendarDays,
+  CalendarPlus,
+  CalendarRange,
+  ChevronDown,
   ChevronsLeft,
   ChevronsRight,
-  ChevronDown,
-  HeartPulse,
   Clock,
-  Backpack,
-  Megaphone,
-  MessageSquare,
-  MessageCircle,
-  Trophy,
-  Gauge,
-  Calculator,
-  GitCompare,
-  IdCard,
   FileText,
   Flag,
-  CalendarPlus,
+  Gauge,
+  GitCompare,
   Globe,
+  HeartPulse,
+  Home,
+  IdCard,
+  LineChart,
+  LogOut,
   Map as MapIcon,
-  PersonStanding,
-  UserCircle2,
+  Megaphone,
+  MessageCircle,
+  MessageSquare,
+  NotebookPen,
   Palette,
+  PersonStanding,
+  Target,
+  Trophy,
+  User2,
+  UserCircle2,
+  Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NotificationBell } from "@/components/notification-bell";
@@ -46,7 +49,18 @@ import { PwaInstallPrompt } from "@/components/pwa-install-card";
 import { useAppMode } from "@/lib/device";
 
 type NavLeaf = { to: string; label: string; icon: any; show: boolean };
-type NavBucket = { id: string; label: string; icon: any; children: NavLeaf[] };
+// A heading sits among a bucket's children to group them. Needed once a
+// bucket holds two genuinely different kinds of thing — the Coaching bucket
+// separates building training (templates, plans, campaigns) from running the
+// business (diary, contacts), and without a divider those five items read as
+// one undifferentiated list.
+type NavHeading = { kind: "heading"; label: string; show: boolean };
+type NavBucketChild = NavLeaf | NavHeading;
+type NavBucket = { id: string; label: string; icon: any; children: NavBucketChild[] };
+
+function isHeading(c: NavBucketChild): c is NavHeading {
+  return (c as NavHeading).kind === "heading";
+}
 // Unified ordering type — lets standalone links (leaves) and accordion
 // groups (buckets) interleave in one render pass instead of always
 // rendering "all leaves, then all buckets" as two separate blocks. Needed
@@ -177,13 +191,34 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
     // of a separate bespoke self-service page. Identity/Goals/Zones/
     // Seasons moved here from the old Profile/Account page.
     { kind: "leaf", to: "/app/athlete-info", label: "Athlete Info", icon: UserCircle2, show: isAthleteView },
-    // Coaching Hub: session templates, plan templates, active plans — and
-    // room to grow into a session library / phase builder later. Gets its
-    // own Overview + tab-strip (BucketTabStrip, same component the
-    // sidebar buckets use) rather than living inside the Training
-    // accordion, since — like Athletes — it has a real landing dashboard
-    // to earn that treatment, not just a handful of unrelated tools.
-    { kind: "leaf", to: "/app/coaching-hub", label: "Coaching Hub", icon: BookmarkCheck, show: isCoachView },
+    // Coaching: was a single leaf pointing at a Coaching Hub overview page
+    // with a horizontal tab strip beneath it. Two problems with that by the
+    // time it reached six tabs: the strip scrolled horizontally on a phone,
+    // so some tabs were simply off-screen with nothing indicating they
+    // existed; and the overview page had stopped earning its click — a
+    // couple of "recent templates" lists that were quicker to reach from the
+    // nav itself.
+    //
+    // Now a bucket, with the same grouping a coach already holds in their
+    // head: the tools for BUILDING training, and the tools for RUNNING the
+    // squad. Templates, Plans and Campaigns form a ladder — a template
+    // describes a session, a plan fills a week, a campaign decides which
+    // weeks exist — so they belong together and in that order.
+    {
+      kind: "bucket",
+      id: "coaching",
+      label: "Coaching",
+      icon: BookmarkCheck,
+      children: [
+        { kind: "heading", label: "Build training", show: isCoachView },
+        { to: "/app/templates", label: "Session Templates", icon: BookmarkCheck, show: isCoachView },
+        { to: "/app/plans", label: "Plans", icon: CalendarRange, show: isCoachView },
+        { to: "/app/campaign", label: "Campaigns", icon: Target, show: isCoachView },
+        { kind: "heading", label: "Squad admin", show: isCoachView },
+        { to: "/app/coach-diary", label: "Diary", icon: NotebookPen, show: isCoachView },
+        { to: "/app/address-book", label: "Address Book", icon: BookUser, show: isCoachView },
+      ],
+    },
     {
       kind: "bucket",
       id: "training",
@@ -303,7 +338,7 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
     .filter((e) => (e.kind === "bucket" ? e.children.length > 0 : e.show));
 
   function isBucketActive(bucket: NavBucket) {
-    return bucket.children.some((c) => isPathActive(path, c.to));
+    return bucket.children.some((c) => !isHeading(c) && isPathActive(path, c.to));
   }
 
   function isBucketOpen(bucket: NavBucket) {
@@ -410,7 +445,7 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
             const open = collapsed ? false : isBucketOpen(bucket);
 
             if (collapsed) {
-              const first = bucket.children[0];
+              const first = bucket.children.find((c) => !isHeading(c)) as NavLeaf | undefined;
               return (
                 <Link
                   key={bucket.id}
@@ -454,6 +489,16 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
                 {open && (
                   <div className="ml-3.5 pl-3 border-l border-border space-y-0.5 py-0.5">
                     {bucket.children.map((n) => {
+                      if (isHeading(n)) {
+                        return (
+                          <div
+                            key={`h-${n.label}`}
+                            className="px-2.5 pt-2.5 pb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70 first:pt-0"
+                          >
+                            {n.label}
+                          </div>
+                        );
+                      }
                       const childActive = isPathActive(path, n.to);
                       return (
                         <Link
