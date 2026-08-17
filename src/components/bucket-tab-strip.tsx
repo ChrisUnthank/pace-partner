@@ -29,7 +29,7 @@ export const COACHING_HUB_TABS: BucketTabItem[] = [
   { to: "/app/plans", label: "Plans", icon: CalendarRange },
   // Sits after Plans deliberately: a campaign is the layer ABOVE a plan —
   // it decides which blocks exist and what each is for, and a plan fills one.
-  { to: "/app/campaigns", label: "Campaigns", icon: Target },
+  { to: "/app/campaign", label: "Campaigns", icon: Target },
   // Coach's own combined-schedule diary — distinct from the athlete Diary
   // in LOCKER_TABS below, which shares the same icon deliberately (same
   // concept, different audience).
