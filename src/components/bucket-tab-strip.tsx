@@ -1,6 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
-import { CalendarDays, CalendarRange, ClipboardList, BookmarkCheck, LayoutGrid, Clock, NotebookPen, HeartPulse, Apple, Bath, Bandage, FlaskConical, TestTube2, Footprints, IdCard, Ticket, BookUser } from "lucide-react";
+import { Apple, Bandage, Bath, BookUser, BookmarkCheck, CalendarDays, CalendarRange, ClipboardList, Clock, FlaskConical, Footprints, HeartPulse, IdCard, LayoutGrid, NotebookPen, Target, TestTube2, Ticket } from "lucide-react";
 
 export type BucketTabItem = {
   to: string;
@@ -27,6 +27,9 @@ export const COACHING_HUB_TABS: BucketTabItem[] = [
   { to: "/app/coaching-hub", label: "Overview", icon: LayoutGrid },
   { to: "/app/templates", label: "Session Templates", icon: BookmarkCheck },
   { to: "/app/plans", label: "Plans", icon: CalendarRange },
+  // Sits after Plans deliberately: a campaign is the layer ABOVE a plan —
+  // it decides which blocks exist and what each is for, and a plan fills one.
+  { to: "/app/campaigns", label: "Campaigns", icon: Target },
   // Coach's own combined-schedule diary — distinct from the athlete Diary
   // in LOCKER_TABS below, which shares the same icon deliberately (same
   // concept, different audience).
