@@ -1799,6 +1799,260 @@ export type Database = {
           },
         ]
       }
+      campaign_blocks: {
+        Row: {
+          block_order: number
+          campaign_id: string
+          created_at: string
+          ends_on: string
+          filled_at: string | null
+          filled_from_template_id: string | null
+          id: string
+          label: string | null
+          phase: string
+          starts_on: string
+        }
+        Insert: {
+          block_order: number
+          campaign_id: string
+          created_at?: string
+          ends_on: string
+          filled_at?: string | null
+          filled_from_template_id?: string | null
+          id?: string
+          label?: string | null
+          phase: string
+          starts_on: string
+        }
+        Update: {
+          block_order?: number
+          campaign_id?: string
+          created_at?: string
+          ends_on?: string
+          filled_at?: string | null
+          filled_from_template_id?: string | null
+          id?: string
+          label?: string | null
+          phase?: string
+          starts_on?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_blocks_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_blocks_filled_from_template_id_fkey"
+            columns: ["filled_from_template_id"]
+            isOneToOne: false
+            referencedRelation: "plan_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaign_targets: {
+        Row: {
+          athlete_goal_id: string | null
+          campaign_id: string
+          created_at: string
+          distance_m: number | null
+          id: string
+          name: string | null
+          priority: string
+          race_date: string
+        }
+        Insert: {
+          athlete_goal_id?: string | null
+          campaign_id: string
+          created_at?: string
+          distance_m?: number | null
+          id?: string
+          name?: string | null
+          priority?: string
+          race_date: string
+        }
+        Update: {
+          athlete_goal_id?: string | null
+          campaign_id?: string
+          created_at?: string
+          distance_m?: number | null
+          id?: string
+          name?: string | null
+          priority?: string
+          race_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_targets_athlete_goal_id_fkey"
+            columns: ["athlete_goal_id"]
+            isOneToOne: false
+            referencedRelation: "athlete_goals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_targets_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaign_weeks: {
+        Row: {
+          block_id: string | null
+          campaign_id: string
+          created_at: string
+          id: string
+          is_deload: boolean
+          is_locked: boolean
+          load_pct: number
+          notes: string | null
+          updated_at: string
+          week_number: number
+          week_start: string
+        }
+        Insert: {
+          block_id?: string | null
+          campaign_id: string
+          created_at?: string
+          id?: string
+          is_deload?: boolean
+          is_locked?: boolean
+          load_pct?: number
+          notes?: string | null
+          updated_at?: string
+          week_number: number
+          week_start: string
+        }
+        Update: {
+          block_id?: string | null
+          campaign_id?: string
+          created_at?: string
+          id?: string
+          is_deload?: boolean
+          is_locked?: boolean
+          load_pct?: number
+          notes?: string | null
+          updated_at?: string
+          week_number?: number
+          week_start?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_weeks_block_id_fkey"
+            columns: ["block_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_blocks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_weeks_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaigns: {
+        Row: {
+          athlete_id: string
+          created_at: string
+          created_by: string | null
+          deload_weeks: number
+          deloads_enabled: boolean
+          ends_on: string
+          id: string
+          key_taper_weeks: number
+          load_base_start_pct: number
+          load_base_top_pct: number
+          load_build_start_pct: number
+          load_build_top_pct: number
+          load_deload_pct: number
+          load_peak_pct: number
+          load_reset_pct: number
+          load_weeks: number
+          name: string
+          notes: string | null
+          post_peak_recovery_weeks: number
+          race_week_reduction_pct: number
+          reset_weeks: number
+          starts_on: string
+          status: string
+          taper_weeks: number
+          transition_weeks: number
+          updated_at: string
+        }
+        Insert: {
+          athlete_id: string
+          created_at?: string
+          created_by?: string | null
+          deload_weeks?: number
+          deloads_enabled?: boolean
+          ends_on: string
+          id?: string
+          key_taper_weeks?: number
+          load_base_start_pct?: number
+          load_base_top_pct?: number
+          load_build_start_pct?: number
+          load_build_top_pct?: number
+          load_deload_pct?: number
+          load_peak_pct?: number
+          load_reset_pct?: number
+          load_weeks?: number
+          name: string
+          notes?: string | null
+          post_peak_recovery_weeks?: number
+          race_week_reduction_pct?: number
+          reset_weeks?: number
+          starts_on: string
+          status?: string
+          taper_weeks?: number
+          transition_weeks?: number
+          updated_at?: string
+        }
+        Update: {
+          athlete_id?: string
+          created_at?: string
+          created_by?: string | null
+          deload_weeks?: number
+          deloads_enabled?: boolean
+          ends_on?: string
+          id?: string
+          key_taper_weeks?: number
+          load_base_start_pct?: number
+          load_base_top_pct?: number
+          load_build_start_pct?: number
+          load_build_top_pct?: number
+          load_deload_pct?: number
+          load_peak_pct?: number
+          load_reset_pct?: number
+          load_weeks?: number
+          name?: string
+          notes?: string | null
+          post_peak_recovery_weeks?: number
+          race_week_reduction_pct?: number
+          reset_weeks?: number
+          starts_on?: string
+          status?: string
+          taper_weeks?: number
+          transition_weeks?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaigns_athlete_id_fkey"
+            columns: ["athlete_id"]
+            isOneToOne: false
+            referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       coach_athletes: {
         Row: {
           athlete_id: string
@@ -1866,6 +2120,57 @@ export type Database = {
           is_published?: boolean
           sort_order?: number
           title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      coach_branding: {
+        Row: {
+          app_name: string | null
+          brand_color: string | null
+          coach_user_id: string
+          created_at: string
+          danger_color: string | null
+          default_theme: string
+          enabled: boolean
+          force_theme: boolean
+          logo_initials: string | null
+          logo_mark_url: string | null
+          logo_url: string | null
+          secondary_color: string | null
+          support_email: string | null
+          updated_at: string
+        }
+        Insert: {
+          app_name?: string | null
+          brand_color?: string | null
+          coach_user_id: string
+          created_at?: string
+          danger_color?: string | null
+          default_theme?: string
+          enabled?: boolean
+          force_theme?: boolean
+          logo_initials?: string | null
+          logo_mark_url?: string | null
+          logo_url?: string | null
+          secondary_color?: string | null
+          support_email?: string | null
+          updated_at?: string
+        }
+        Update: {
+          app_name?: string | null
+          brand_color?: string | null
+          coach_user_id?: string
+          created_at?: string
+          danger_color?: string | null
+          default_theme?: string
+          enabled?: boolean
+          force_theme?: boolean
+          logo_initials?: string | null
+          logo_mark_url?: string | null
+          logo_url?: string | null
+          secondary_color?: string | null
+          support_email?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -2472,8 +2777,12 @@ export type Database = {
           athlete_id: string
           brand: string
           created_at: string
+          default_location_id: string | null
+          description: string | null
+          drop_mm: number | null
           gear_type: string
           id: string
+          image_url: string | null
           is_favourite: boolean
           is_retired: boolean
           is_spike: boolean
@@ -2484,14 +2793,27 @@ export type Database = {
           rating: number | null
           retirement_target_km: number | null
           shoe_category: string | null
+          shoe_fit_notes: string | null
+          shoe_size: string | null
+          shoe_size_system: string | null
+          shoe_surface: string | null
+          shoe_traits: string[]
+          shoe_type: string | null
+          stack_height_mm: number | null
           updated_at: string
+          used_for: string[]
+          weight_g: number | null
         }
         Insert: {
           athlete_id: string
           brand: string
           created_at?: string
+          default_location_id?: string | null
+          description?: string | null
+          drop_mm?: number | null
           gear_type: string
           id?: string
+          image_url?: string | null
           is_favourite?: boolean
           is_retired?: boolean
           is_spike?: boolean
@@ -2502,14 +2824,27 @@ export type Database = {
           rating?: number | null
           retirement_target_km?: number | null
           shoe_category?: string | null
+          shoe_fit_notes?: string | null
+          shoe_size?: string | null
+          shoe_size_system?: string | null
+          shoe_surface?: string | null
+          shoe_traits?: string[]
+          shoe_type?: string | null
+          stack_height_mm?: number | null
           updated_at?: string
+          used_for?: string[]
+          weight_g?: number | null
         }
         Update: {
           athlete_id?: string
           brand?: string
           created_at?: string
+          default_location_id?: string | null
+          description?: string | null
+          drop_mm?: number | null
           gear_type?: string
           id?: string
+          image_url?: string | null
           is_favourite?: boolean
           is_retired?: boolean
           is_spike?: boolean
@@ -2520,7 +2855,16 @@ export type Database = {
           rating?: number | null
           retirement_target_km?: number | null
           shoe_category?: string | null
+          shoe_fit_notes?: string | null
+          shoe_size?: string | null
+          shoe_size_system?: string | null
+          shoe_surface?: string | null
+          shoe_traits?: string[]
+          shoe_type?: string | null
+          stack_height_mm?: number | null
           updated_at?: string
+          used_for?: string[]
+          weight_g?: number | null
         }
         Relationships: [
           {
@@ -2528,6 +2872,13 @@ export type Database = {
             columns: ["athlete_id"]
             isOneToOne: false
             referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "gear_items_default_location_id_fkey"
+            columns: ["default_location_id"]
+            isOneToOne: false
+            referencedRelation: "training_locations"
             referencedColumns: ["id"]
           },
         ]
@@ -3109,6 +3460,30 @@ export type Database = {
           },
         ]
       }
+      parent_consent_records: {
+        Row: {
+          accepted_at: string
+          consent_text_version: string
+          id: string
+          invite_token: string
+          parent_user_id: string
+        }
+        Insert: {
+          accepted_at?: string
+          consent_text_version: string
+          id?: string
+          invite_token: string
+          parent_user_id: string
+        }
+        Update: {
+          accepted_at?: string
+          consent_text_version?: string
+          id?: string
+          invite_token?: string
+          parent_user_id?: string
+        }
+        Relationships: []
+      }
       parent_invites: {
         Row: {
           accepted_at: string | null
@@ -3146,30 +3521,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
-      }
-      parent_consent_records: {
-        Row: {
-          accepted_at: string
-          consent_text_version: string
-          id: string
-          invite_token: string
-          parent_user_id: string
-        }
-        Insert: {
-          accepted_at?: string
-          consent_text_version: string
-          id?: string
-          invite_token: string
-          parent_user_id: string
-        }
-        Update: {
-          accepted_at?: string
-          consent_text_version?: string
-          id?: string
-          invite_token?: string
-          parent_user_id?: string
-        }
-        Relationships: []
       }
       pending_reminders: {
         Row: {
@@ -3556,6 +3907,7 @@ export type Database = {
           timezone: string | null
           units: string
           updated_at: string
+          white_label_active: boolean
         }
         Insert: {
           advanced_metrics_enabled?: boolean
@@ -3570,6 +3922,7 @@ export type Database = {
           timezone?: string | null
           units?: string
           updated_at?: string
+          white_label_active?: boolean
         }
         Update: {
           advanced_metrics_enabled?: boolean
@@ -3584,6 +3937,7 @@ export type Database = {
           timezone?: string | null
           units?: string
           updated_at?: string
+          white_label_active?: boolean
         }
         Relationships: []
       }
@@ -4746,21 +5100,27 @@ export type Database = {
           created_at: string
           gear_id: string
           id: string
+          segment_type: string | null
           session_id: string
+          step_id: string | null
         }
         Insert: {
           athlete_id: string
           created_at?: string
           gear_id: string
           id?: string
+          segment_type?: string | null
           session_id: string
+          step_id?: string | null
         }
         Update: {
           athlete_id?: string
           created_at?: string
           gear_id?: string
           id?: string
+          segment_type?: string | null
           session_id?: string
+          step_id?: string | null
         }
         Relationships: [
           {
@@ -4782,6 +5142,13 @@ export type Database = {
             columns: ["session_id"]
             isOneToOne: false
             referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "session_gear_step_id_fkey"
+            columns: ["step_id"]
+            isOneToOne: false
+            referencedRelation: "steps"
             referencedColumns: ["id"]
           },
         ]
@@ -4986,13 +5353,14 @@ export type Database = {
           pace_decay_pct: number | null
           race_step_id: string | null
           review_dismissed_at: string | null
+          route_id: string | null
           rpe: number | null
           same_day_ignored_ids: string[]
           session_date: string
           source: Database["public"]["Enums"]["session_source"]
           structure: Database["public"]["Enums"]["session_structure"] | null
           terrain: string | null
-          time_of_day: string | null
+          time_of_day: Database["public"]["Enums"]["session_time_of_day"] | null
           title: string
           total_distance_m: number | null
           total_moving_time_seconds: number | null
@@ -5046,13 +5414,16 @@ export type Database = {
           pace_decay_pct?: number | null
           race_step_id?: string | null
           review_dismissed_at?: string | null
+          route_id?: string | null
           rpe?: number | null
           same_day_ignored_ids?: string[]
           session_date: string
           source?: Database["public"]["Enums"]["session_source"]
           structure?: Database["public"]["Enums"]["session_structure"] | null
           terrain?: string | null
-          time_of_day?: string | null
+          time_of_day?:
+            | Database["public"]["Enums"]["session_time_of_day"]
+            | null
           title: string
           total_distance_m?: number | null
           total_moving_time_seconds?: number | null
@@ -5106,13 +5477,16 @@ export type Database = {
           pace_decay_pct?: number | null
           race_step_id?: string | null
           review_dismissed_at?: string | null
+          route_id?: string | null
           rpe?: number | null
           same_day_ignored_ids?: string[]
           session_date?: string
           source?: Database["public"]["Enums"]["session_source"]
           structure?: Database["public"]["Enums"]["session_structure"] | null
           terrain?: string | null
-          time_of_day?: string | null
+          time_of_day?:
+            | Database["public"]["Enums"]["session_time_of_day"]
+            | null
           title?: string
           total_distance_m?: number | null
           total_moving_time_seconds?: number | null
@@ -5149,6 +5523,13 @@ export type Database = {
             columns: ["race_step_id"]
             isOneToOne: false
             referencedRelation: "steps"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sessions_route_id_fkey"
+            columns: ["route_id"]
+            isOneToOne: false
+            referencedRelation: "training_routes"
             referencedColumns: ["id"]
           },
         ]
@@ -5296,8 +5677,11 @@ export type Database = {
       }
       steps: {
         Row: {
+          actual_rpe: number | null
           counts_toward_distance: boolean
           created_at: string
+          feel_note: string | null
+          feel_score: number | null
           fuel_note: string | null
           id: string
           is_ladder: boolean
@@ -5330,10 +5714,15 @@ export type Database = {
           target_threshold_pace_pct: number | null
           target_time_seconds: number | null
           target_zone: string | null
+          terrain: string | null
+          terrain_source: string | null
         }
         Insert: {
+          actual_rpe?: number | null
           counts_toward_distance?: boolean
           created_at?: string
+          feel_note?: string | null
+          feel_score?: number | null
           fuel_note?: string | null
           id?: string
           is_ladder?: boolean
@@ -5366,10 +5755,15 @@ export type Database = {
           target_threshold_pace_pct?: number | null
           target_time_seconds?: number | null
           target_zone?: string | null
+          terrain?: string | null
+          terrain_source?: string | null
         }
         Update: {
+          actual_rpe?: number | null
           counts_toward_distance?: boolean
           created_at?: string
+          feel_note?: string | null
+          feel_score?: number | null
           fuel_note?: string | null
           id?: string
           is_ladder?: boolean
@@ -5402,6 +5796,8 @@ export type Database = {
           target_threshold_pace_pct?: number | null
           target_time_seconds?: number | null
           target_zone?: string | null
+          terrain?: string | null
+          terrain_source?: string | null
         }
         Relationships: [
           {
@@ -5603,7 +5999,9 @@ export type Database = {
           lng: number | null
           name: string
           notes: string | null
+          owner_athlete_id: string | null
           surface: string | null
+          surrounding_terrain: string | null
           updated_at: string
         }
         Insert: {
@@ -5616,7 +6014,9 @@ export type Database = {
           lng?: number | null
           name: string
           notes?: string | null
+          owner_athlete_id?: string | null
           surface?: string | null
+          surrounding_terrain?: string | null
           updated_at?: string
         }
         Update: {
@@ -5629,10 +6029,20 @@ export type Database = {
           lng?: number | null
           name?: string
           notes?: string | null
+          owner_athlete_id?: string | null
           surface?: string | null
+          surrounding_terrain?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "training_locations_owner_athlete_id_fkey"
+            columns: ["owner_athlete_id"]
+            isOneToOne: false
+            referencedRelation: "athletes"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       training_routes: {
         Row: {
@@ -5780,6 +6190,10 @@ export type Database = {
         Args: { _calendar_id: string; _user_id: string }
         Returns: boolean
       }
+      can_write_gear_media: {
+        Args: { _folder: string; _user_id: string }
+        Returns: boolean
+      }
       claim_athlete_invite: { Args: { _token: string }; Returns: Json }
       claim_parent_invite: { Args: { _token: string }; Returns: Json }
       compute_continuous_fatigue: {
@@ -5824,6 +6238,7 @@ export type Database = {
           overall_economy_score: number
           pace_hr_efficiency_score: number
           rhythm_score: number
+          score_basis: string
           session_date: string
           session_id: string
           session_title: string
@@ -5862,6 +6277,22 @@ export type Database = {
           avg_biomechanical_score: number
           pace_bucket_center_sec_per_km: number
           session_count: number
+        }[]
+      }
+      get_effective_branding: { Args: never; Returns: Json }
+      get_gear_usage: {
+        Args: { _athlete_id: string }
+        Returns: {
+          distance_m: number
+          gear_id: string
+          is_estimated: boolean
+          link_id: string
+          segment_type: string
+          session_date: string
+          session_id: string
+          session_title: string
+          step_id: string
+          step_label: string
         }[]
       }
       get_invite_by_token: {
@@ -5916,6 +6347,10 @@ export type Database = {
           _title: string
         }
         Returns: undefined
+      }
+      owns_athlete_profile: {
+        Args: { _athlete_id: string; _user_id: string }
+        Returns: boolean
       }
       owns_race_calendar: {
         Args: { _calendar_id: string; _user_id: string }
@@ -6002,6 +6437,7 @@ export type Database = {
         Returns: Json
       }
       session_training_load: { Args: { _session_id: string }; Returns: number }
+      session_weighted_rpe: { Args: { _session_id: string }; Returns: number }
       set_hr_threshold_manual:
         | {
             Args: { _athlete_id: string; _hr_threshold: number }
@@ -6036,6 +6472,7 @@ export type Database = {
         Args: { _athlete_id: string; _performance_id: string }
         Returns: undefined
       }
+      step_effective_terrain: { Args: { _step_id: string }; Returns: string }
       submit_coach_inquiry: {
         Args: {
           p_discipline: string
@@ -6118,6 +6555,7 @@ export type Database = {
         | "time_trial"
       session_source: "manual" | "synced" | "fit_import"
       session_structure: "continuous" | "reps_intervals" | "intervals"
+      session_time_of_day: "morning" | "afternoon" | "evening"
       step_kind: "warmup" | "work" | "recovery" | "cooldown" | "strides"
       target_kind: "time" | "distance"
       training_day_type:
@@ -6306,6 +6744,7 @@ export const Constants = {
       ],
       session_source: ["manual", "synced", "fit_import"],
       session_structure: ["continuous", "reps_intervals", "intervals"],
+      session_time_of_day: ["morning", "afternoon", "evening"],
       step_kind: ["warmup", "work", "recovery", "cooldown", "strides"],
       target_kind: ["time", "distance"],
       training_day_type: [

@@ -17,14 +17,15 @@ import { Route as CSlugRouteImport } from './routes/c.$slug'
 import { Route as ClaimTokenRouteImport } from './routes/claim.$token'
 import { Route as AuthenticatedAppIndexRouteImport } from './routes/_authenticated/app.index'
 import { Route as AuthenticatedAppAccountRouteImport } from './routes/_authenticated/app.account'
-import { Route as AuthenticatedAppBrandingRouteImport } from './routes/_authenticated/app.branding'
 import { Route as AuthenticatedAppAddressBookRouteImport } from './routes/_authenticated/app.address-book'
 import { Route as AuthenticatedAppAnalyticsRouteImport } from './routes/_authenticated/app.analytics'
 import { Route as AuthenticatedAppAthleteInfoRouteImport } from './routes/_authenticated/app.athlete-info'
 import { Route as AuthenticatedAppAthletesRouteImport } from './routes/_authenticated/app.athletes'
 import { Route as AuthenticatedAppBicarbRouteImport } from './routes/_authenticated/app.bicarb'
 import { Route as AuthenticatedAppBiomechanicsRouteImport } from './routes/_authenticated/app.biomechanics'
+import { Route as AuthenticatedAppBrandingRouteImport } from './routes/_authenticated/app.branding'
 import { Route as AuthenticatedAppCalculatorsRouteImport } from './routes/_authenticated/app.calculators'
+import { Route as AuthenticatedAppCampaignRouteImport } from './routes/_authenticated/app.campaign'
 import { Route as AuthenticatedAppCheckoutRouteImport } from './routes/_authenticated/app.checkout'
 import { Route as AuthenticatedAppCoachDiaryRouteImport } from './routes/_authenticated/app.coach-diary'
 import { Route as AuthenticatedAppCompareRouteImport } from './routes/_authenticated/app.compare'
@@ -126,11 +127,6 @@ const AuthenticatedAppAccountRoute = AuthenticatedAppAccountRouteImport.update({
   path: '/app/account',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedAppBrandingRoute = AuthenticatedAppBrandingRouteImport.update({
-  id: '/app/branding',
-  path: '/app/branding',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
 const AuthenticatedAppAddressBookRoute =
   AuthenticatedAppAddressBookRouteImport.update({
     id: '/app/address-book',
@@ -166,10 +162,22 @@ const AuthenticatedAppBiomechanicsRoute =
     path: '/app/biomechanics',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAppBrandingRoute =
+  AuthenticatedAppBrandingRouteImport.update({
+    id: '/app/branding',
+    path: '/app/branding',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAppCalculatorsRoute =
   AuthenticatedAppCalculatorsRouteImport.update({
     id: '/app/calculators',
     path: '/app/calculators',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppCampaignRoute =
+  AuthenticatedAppCampaignRouteImport.update({
+    id: '/app/campaign',
+    path: '/app/campaign',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedAppCheckoutRoute =
@@ -536,14 +544,15 @@ export interface FileRoutesByFullPath {
   '/c/$slug': typeof CSlugRoute
   '/claim/$token': typeof ClaimTokenRoute
   '/app/account': typeof AuthenticatedAppAccountRoute
-  '/app/branding': typeof AuthenticatedAppBrandingRoute
   '/app/address-book': typeof AuthenticatedAppAddressBookRoute
   '/app/analytics': typeof AuthenticatedAppAnalyticsRoute
   '/app/athlete-info': typeof AuthenticatedAppAthleteInfoRoute
   '/app/athletes': typeof AuthenticatedAppAthletesRouteWithChildren
   '/app/bicarb': typeof AuthenticatedAppBicarbRoute
   '/app/biomechanics': typeof AuthenticatedAppBiomechanicsRoute
+  '/app/branding': typeof AuthenticatedAppBrandingRoute
   '/app/calculators': typeof AuthenticatedAppCalculatorsRouteWithChildren
+  '/app/campaign': typeof AuthenticatedAppCampaignRoute
   '/app/checkout': typeof AuthenticatedAppCheckoutRoute
   '/app/coach-diary': typeof AuthenticatedAppCoachDiaryRoute
   '/app/compare': typeof AuthenticatedAppCompareRoute
@@ -614,12 +623,13 @@ export interface FileRoutesByTo {
   '/c/$slug': typeof CSlugRoute
   '/claim/$token': typeof ClaimTokenRoute
   '/app/account': typeof AuthenticatedAppAccountRoute
-  '/app/branding': typeof AuthenticatedAppBrandingRoute
   '/app/address-book': typeof AuthenticatedAppAddressBookRoute
   '/app/analytics': typeof AuthenticatedAppAnalyticsRoute
   '/app/athlete-info': typeof AuthenticatedAppAthleteInfoRoute
   '/app/bicarb': typeof AuthenticatedAppBicarbRoute
   '/app/biomechanics': typeof AuthenticatedAppBiomechanicsRoute
+  '/app/branding': typeof AuthenticatedAppBrandingRoute
+  '/app/campaign': typeof AuthenticatedAppCampaignRoute
   '/app/checkout': typeof AuthenticatedAppCheckoutRoute
   '/app/coach-diary': typeof AuthenticatedAppCoachDiaryRoute
   '/app/compare': typeof AuthenticatedAppCompareRoute
@@ -688,14 +698,15 @@ export interface FileRoutesById {
   '/c/$slug': typeof CSlugRoute
   '/claim/$token': typeof ClaimTokenRoute
   '/_authenticated/app/account': typeof AuthenticatedAppAccountRoute
-  '/_authenticated/app/branding': typeof AuthenticatedAppBrandingRoute
   '/_authenticated/app/address-book': typeof AuthenticatedAppAddressBookRoute
   '/_authenticated/app/analytics': typeof AuthenticatedAppAnalyticsRoute
   '/_authenticated/app/athlete-info': typeof AuthenticatedAppAthleteInfoRoute
   '/_authenticated/app/athletes': typeof AuthenticatedAppAthletesRouteWithChildren
   '/_authenticated/app/bicarb': typeof AuthenticatedAppBicarbRoute
   '/_authenticated/app/biomechanics': typeof AuthenticatedAppBiomechanicsRoute
+  '/_authenticated/app/branding': typeof AuthenticatedAppBrandingRoute
   '/_authenticated/app/calculators': typeof AuthenticatedAppCalculatorsRouteWithChildren
+  '/_authenticated/app/campaign': typeof AuthenticatedAppCampaignRoute
   '/_authenticated/app/checkout': typeof AuthenticatedAppCheckoutRoute
   '/_authenticated/app/coach-diary': typeof AuthenticatedAppCoachDiaryRoute
   '/_authenticated/app/compare': typeof AuthenticatedAppCompareRoute
@@ -768,14 +779,15 @@ export interface FileRouteTypes {
     | '/c/$slug'
     | '/claim/$token'
     | '/app/account'
-    | '/app/branding'
     | '/app/address-book'
     | '/app/analytics'
     | '/app/athlete-info'
     | '/app/athletes'
     | '/app/bicarb'
     | '/app/biomechanics'
+    | '/app/branding'
     | '/app/calculators'
+    | '/app/campaign'
     | '/app/checkout'
     | '/app/coach-diary'
     | '/app/compare'
@@ -846,12 +858,13 @@ export interface FileRouteTypes {
     | '/c/$slug'
     | '/claim/$token'
     | '/app/account'
-    | '/app/branding'
     | '/app/address-book'
     | '/app/analytics'
     | '/app/athlete-info'
     | '/app/bicarb'
     | '/app/biomechanics'
+    | '/app/branding'
+    | '/app/campaign'
     | '/app/checkout'
     | '/app/coach-diary'
     | '/app/compare'
@@ -919,14 +932,15 @@ export interface FileRouteTypes {
     | '/c/$slug'
     | '/claim/$token'
     | '/_authenticated/app/account'
-    | '/_authenticated/app/branding'
     | '/_authenticated/app/address-book'
     | '/_authenticated/app/analytics'
     | '/_authenticated/app/athlete-info'
     | '/_authenticated/app/athletes'
     | '/_authenticated/app/bicarb'
     | '/_authenticated/app/biomechanics'
+    | '/_authenticated/app/branding'
     | '/_authenticated/app/calculators'
+    | '/_authenticated/app/campaign'
     | '/_authenticated/app/checkout'
     | '/_authenticated/app/coach-diary'
     | '/_authenticated/app/compare'
@@ -1060,13 +1074,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppAccountRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/app/branding': {
-      id: '/_authenticated/app/branding'
-      path: '/app/branding'
-      fullPath: '/app/branding'
-      preLoaderRoute: typeof AuthenticatedAppBrandingRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
     '/_authenticated/app/address-book': {
       id: '/_authenticated/app/address-book'
       path: '/app/address-book'
@@ -1109,11 +1116,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAppBiomechanicsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/app/branding': {
+      id: '/_authenticated/app/branding'
+      path: '/app/branding'
+      fullPath: '/app/branding'
+      preLoaderRoute: typeof AuthenticatedAppBrandingRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/app/calculators': {
       id: '/_authenticated/app/calculators'
       path: '/app/calculators'
       fullPath: '/app/calculators'
       preLoaderRoute: typeof AuthenticatedAppCalculatorsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/campaign': {
+      id: '/_authenticated/app/campaign'
+      path: '/app/campaign'
+      fullPath: '/app/campaign'
+      preLoaderRoute: typeof AuthenticatedAppCampaignRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/app/checkout': {
@@ -1669,14 +1690,15 @@ const AuthenticatedAppSessionsRouteWithChildren =
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAppAccountRoute: typeof AuthenticatedAppAccountRoute
-  AuthenticatedAppBrandingRoute: typeof AuthenticatedAppBrandingRoute
   AuthenticatedAppAddressBookRoute: typeof AuthenticatedAppAddressBookRoute
   AuthenticatedAppAnalyticsRoute: typeof AuthenticatedAppAnalyticsRoute
   AuthenticatedAppAthleteInfoRoute: typeof AuthenticatedAppAthleteInfoRoute
   AuthenticatedAppAthletesRoute: typeof AuthenticatedAppAthletesRouteWithChildren
   AuthenticatedAppBicarbRoute: typeof AuthenticatedAppBicarbRoute
   AuthenticatedAppBiomechanicsRoute: typeof AuthenticatedAppBiomechanicsRoute
+  AuthenticatedAppBrandingRoute: typeof AuthenticatedAppBrandingRoute
   AuthenticatedAppCalculatorsRoute: typeof AuthenticatedAppCalculatorsRouteWithChildren
+  AuthenticatedAppCampaignRoute: typeof AuthenticatedAppCampaignRoute
   AuthenticatedAppCheckoutRoute: typeof AuthenticatedAppCheckoutRoute
   AuthenticatedAppCoachDiaryRoute: typeof AuthenticatedAppCoachDiaryRoute
   AuthenticatedAppCompareRoute: typeof AuthenticatedAppCompareRoute
@@ -1723,15 +1745,16 @@ interface AuthenticatedRouteRouteChildren {
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAppAccountRoute: AuthenticatedAppAccountRoute,
-  AuthenticatedAppBrandingRoute: AuthenticatedAppBrandingRoute,
   AuthenticatedAppAddressBookRoute: AuthenticatedAppAddressBookRoute,
   AuthenticatedAppAnalyticsRoute: AuthenticatedAppAnalyticsRoute,
   AuthenticatedAppAthleteInfoRoute: AuthenticatedAppAthleteInfoRoute,
   AuthenticatedAppAthletesRoute: AuthenticatedAppAthletesRouteWithChildren,
   AuthenticatedAppBicarbRoute: AuthenticatedAppBicarbRoute,
   AuthenticatedAppBiomechanicsRoute: AuthenticatedAppBiomechanicsRoute,
+  AuthenticatedAppBrandingRoute: AuthenticatedAppBrandingRoute,
   AuthenticatedAppCalculatorsRoute:
     AuthenticatedAppCalculatorsRouteWithChildren,
+  AuthenticatedAppCampaignRoute: AuthenticatedAppCampaignRoute,
   AuthenticatedAppCheckoutRoute: AuthenticatedAppCheckoutRoute,
   AuthenticatedAppCoachDiaryRoute: AuthenticatedAppCoachDiaryRoute,
   AuthenticatedAppCompareRoute: AuthenticatedAppCompareRoute,
@@ -1797,3 +1820,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
