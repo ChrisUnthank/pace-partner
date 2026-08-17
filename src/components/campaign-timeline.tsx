@@ -155,7 +155,11 @@ export function CampaignTimeline({
                     baselineKm
                       ? `${Math.round((w.loadPct / 100) * baselineKm)} km (${w.loadPct}%)`
                       : `${w.loadPct}%`
-                  }${w.isDeload ? " · deload" : ""}${w.raceName ? ` · ${w.raceName}` : ""}${
+                  }${w.isDeload ? " · deload" : ""}${
+                    w.qualitySessions
+                      ? ` · ${w.qualitySessions === 0.5 ? "quality every 2nd week" : `${w.qualitySessions} quality`}`
+                      : ""
+                  }${w.raceName ? ` · ${w.raceName}` : ""}${
                     w.isLocked ? " · edited" : ""
                   }`}
                 >
@@ -167,9 +171,29 @@ export function CampaignTimeline({
                       // Deloads read as a dip in the bar chart already, but a
                       // hatched fill makes them identifiable at a glance
                       // without counting heights.
-                      backgroundImage: w.isDeload
-                        ? "repeating-linear-gradient(45deg, rgba(255,255,255,.35) 0 3px, transparent 3px 6px)"
-                        : undefined,
+                      // Two overlays, distinguishable because they run at
+                      // different angles: deload hatches at 45 degrees,
+                      // quality density stripes vertically. A week can be
+                      // both — a deload that still carries a session — so
+                      // they compose rather than replacing each other.
+                      //
+                      // Density is shown by stripe spacing rather than count:
+                      // at 24px wide a bar can't hold three legible marks,
+                      // but "denser stripes = more quality" reads instantly
+                      // and survives any bar width.
+                      backgroundImage: [
+                        w.isDeload
+                          ? "repeating-linear-gradient(45deg, rgba(255,255,255,.35) 0 3px, transparent 3px 6px)"
+                          : null,
+                        w.qualitySessions && w.qualitySessions > 0
+                          ? `repeating-linear-gradient(90deg, rgba(255,255,255,.28) 0 1.5px, transparent 1.5px ${Math.max(
+                              4,
+                              Math.round(14 / Math.max(0.5, w.qualitySessions)),
+                            )}px)`
+                          : null,
+                      ]
+                        .filter(Boolean)
+                        .join(", ") || undefined,
                     }}
                   >
                     {w.isLocked && (
@@ -233,6 +257,15 @@ export function CampaignTimeline({
             {PHASE_STYLE[p].label}
           </span>
         ))}
+        {weeks.some((w) => (w.qualitySessions ?? 0) > 0) && (
+          <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span
+              className="h-2 w-4 rounded-sm inline-block border"
+              style={{ backgroundImage: "repeating-linear-gradient(90deg, #999 0 1.5px, transparent 1.5px 5px)" }}
+            />
+            Quality work (denser = more)
+          </span>
+        )}
         {weeks.some((w) => w.isDeload) && (
           <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
             <span
