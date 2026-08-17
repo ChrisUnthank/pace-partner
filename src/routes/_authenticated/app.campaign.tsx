@@ -17,7 +17,7 @@ import { CampaignTimeline, PRIORITY_STYLE } from "@/components/campaign-timeline
 import { WeekEditDialog, BaselineDialog } from "@/components/campaign-week-edit";
 import { EditCampaignDialog } from "@/components/campaign-edit";
 import { generateCampaign, type CampaignTarget, type TargetPriority } from "@/lib/campaign-generator";
-import { useMyRoles, useMyAthlete } from "@/lib/use-auth";
+import { useMyRoles, useMyAthlete, useAuthUser } from "@/lib/use-auth";
 
 export const Route = createFileRoute("/_authenticated/app/campaign")({
   component: CampaignsPage,
@@ -38,7 +38,9 @@ function CampaignsPage() {
   const qc = useQueryClient();
   const { data: roles = [] } = useMyRoles();
   const { data: myAthlete } = useMyAthlete();
+  const { user } = useAuthUser();
   const isCoach = roles.includes("coach");
+  const isManager = roles.includes("manager");
 
   const [selectedAthleteId, setSelectedAthleteId] = useState<string>("");
   const [createOpen, setCreateOpen] = useState(false);
@@ -140,9 +142,11 @@ function CampaignsPage() {
           {rosterError && (
             <p className="text-xs text-destructive">Couldn't load the athlete list.</p>
           )}
-          <Button onClick={() => setCreateOpen(true)} disabled={!athleteId}>
-            <Plus className="h-4 w-4 mr-1.5" /> New campaign
-          </Button>
+          {(isCoach || isManager || athleteId === myAthlete?.id) && (
+            <Button onClick={() => setCreateOpen(true)} disabled={!athleteId}>
+              <Plus className="h-4 w-4 mr-1.5" /> New campaign
+            </Button>
+          )}
         </div>
 
         {/* A page with a loading state and an empty state but no ERROR state
@@ -189,7 +193,12 @@ function CampaignsPage() {
         )}
 
         {(campaigns ?? []).map((c: any) => (
-          <SavedCampaign key={c.id} campaign={c} onChanged={() => qc.invalidateQueries({ queryKey: ["campaigns", athleteId] })} />
+          <SavedCampaign
+            key={c.id}
+            campaign={c}
+            canWrite={isCoach || isManager || c.created_by === user?.id}
+            onChanged={() => qc.invalidateQueries({ queryKey: ["campaigns", athleteId] })}
+          />
         ))}
       </div>
 
@@ -206,7 +215,17 @@ function CampaignsPage() {
   );
 }
 
-function SavedCampaign({ campaign, onChanged }: { campaign: any; onChanged: () => void }) {
+function SavedCampaign({
+  campaign,
+  onChanged,
+  canWrite,
+}: {
+  campaign: any;
+  onChanged: () => void;
+  /** Mirrors the RLS rule: coaches and managers, or the athlete who built it.
+   *  Showing controls the database will refuse is worse than hiding them. */
+  canWrite: boolean;
+}) {
   const [editingWeek, setEditingWeek] = useState<any>(null);
   const [baselineOpen, setBaselineOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -275,12 +294,16 @@ function SavedCampaign({ campaign, onChanged }: { campaign: any; onChanged: () =
           </CardTitle>
           <div className="flex items-center gap-2">
             <Badge variant={campaign.status === "active" ? "default" : "secondary"}>{campaign.status}</Badge>
-            <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
-              Edit
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(true)}>
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
+            {canWrite && (
+              <>
+                <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
+                  Edit
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(true)}>
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </>
+            )}
           </div>
         </div>
         <CardDescription>
@@ -291,17 +314,26 @@ function SavedCampaign({ campaign, onChanged }: { campaign: any; onChanged: () =
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex items-center gap-3 flex-wrap text-[11px] text-muted-foreground">
-          <button type="button" onClick={() => setBaselineOpen(true)} className="underline hover:text-foreground">
-            {baselineKm ? `Baseline ${baselineKm} km/week` : "Set weekly baseline"}
-          </button>
-          <span>Click any week to change its load.</span>
+          {canWrite ? (
+            <>
+              <button type="button" onClick={() => setBaselineOpen(true)} className="underline hover:text-foreground">
+                {baselineKm ? `Baseline ${baselineKm} km/week` : "Set weekly baseline"}
+              </button>
+              <span>Click any week to change its load.</span>
+            </>
+          ) : (
+            <>
+              {baselineKm && <span>Baseline {baselineKm} km/week</span>}
+              <span>Built by your coach — hover any week for its detail.</span>
+            </>
+          )}
         </div>
 
         <CampaignTimeline
           weeks={weeks as any}
           blocks={blocks as any}
           baselineKm={baselineKm}
-          onWeekClick={(w) => setEditingWeek(w)}
+          onWeekClick={canWrite ? (w) => setEditingWeek(w) : undefined}
         />
       </CardContent>
 
