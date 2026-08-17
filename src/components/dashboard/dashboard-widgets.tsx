@@ -259,15 +259,20 @@ export function CommunityWidget() {
   );
 }
 
-// Covers the Coaching Hub sidebar leaf — previously the only widget-grid
-// coverage for it was none at all.
+// Covers the Coaching sidebar bucket.
+//
+// Was pointing at /app/coaching-hub, an overview page that has been removed —
+// it had stopped earning its click, and the sidebar now lists its contents
+// directly under "Build training" and "Squad admin". Points at Session
+// Templates instead: the first item in the bucket, and the one a coach is
+// most often heading for.
 export function CoachingHubWidget() {
   return (
     <BigLinkCard
-      to="/app/coaching-hub"
+      to="/app/templates"
       icon={BookmarkCheck}
-      title="Coaching Hub"
-      description="Session templates, plan templates, and active plans."
+      title="Coaching"
+      description="Session templates, plans, and season campaigns."
     />
   );
 }
