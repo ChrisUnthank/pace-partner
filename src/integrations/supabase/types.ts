@@ -1863,6 +1863,7 @@ export type Database = {
           name: string | null
           priority: string
           race_date: string
+          race_schedule_entry_id: string | null
         }
         Insert: {
           athlete_goal_id?: string | null
@@ -1873,6 +1874,7 @@ export type Database = {
           name?: string | null
           priority?: string
           race_date: string
+          race_schedule_entry_id?: string | null
         }
         Update: {
           athlete_goal_id?: string | null
@@ -1883,6 +1885,7 @@ export type Database = {
           name?: string | null
           priority?: string
           race_date?: string
+          race_schedule_entry_id?: string | null
         }
         Relationships: [
           {
@@ -1899,6 +1902,13 @@ export type Database = {
             referencedRelation: "campaigns"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "campaign_targets_race_entry_fkey"
+            columns: ["race_schedule_entry_id"]
+            isOneToOne: false
+            referencedRelation: "race_schedule_entries"
+            referencedColumns: ["id"]
+          },
         ]
       }
       campaign_weeks: {
@@ -1911,6 +1921,7 @@ export type Database = {
           is_locked: boolean
           load_pct: number
           notes: string | null
+          quality_sessions: number | null
           updated_at: string
           week_number: number
           week_start: string
@@ -1924,6 +1935,7 @@ export type Database = {
           is_locked?: boolean
           load_pct?: number
           notes?: string | null
+          quality_sessions?: number | null
           updated_at?: string
           week_number: number
           week_start: string
@@ -1937,6 +1949,7 @@ export type Database = {
           is_locked?: boolean
           load_pct?: number
           notes?: string | null
+          quality_sessions?: number | null
           updated_at?: string
           week_number?: number
           week_start?: string
@@ -1961,12 +1974,18 @@ export type Database = {
       campaigns: {
         Row: {
           athlete_id: string
+          base_progression: string
+          base_quality_per_week: number
+          baseline_weekly_km: number | null
+          build_progression: string
+          build_quality_per_week: number
           created_at: string
           created_by: string | null
           deload_weeks: number
           deloads_enabled: boolean
           ends_on: string
           id: string
+          key_taper_days: number | null
           key_taper_weeks: number
           load_base_start_pct: number
           load_base_top_pct: number
@@ -1983,18 +2002,27 @@ export type Database = {
           reset_weeks: number
           starts_on: string
           status: string
+          taper_days: number | null
+          taper_floor_pct: number
+          taper_shape: string
           taper_weeks: number
           transition_weeks: number
           updated_at: string
         }
         Insert: {
           athlete_id: string
+          base_progression?: string
+          base_quality_per_week?: number
+          baseline_weekly_km?: number | null
+          build_progression?: string
+          build_quality_per_week?: number
           created_at?: string
           created_by?: string | null
           deload_weeks?: number
           deloads_enabled?: boolean
           ends_on: string
           id?: string
+          key_taper_days?: number | null
           key_taper_weeks?: number
           load_base_start_pct?: number
           load_base_top_pct?: number
@@ -2011,18 +2039,27 @@ export type Database = {
           reset_weeks?: number
           starts_on: string
           status?: string
+          taper_days?: number | null
+          taper_floor_pct?: number
+          taper_shape?: string
           taper_weeks?: number
           transition_weeks?: number
           updated_at?: string
         }
         Update: {
           athlete_id?: string
+          base_progression?: string
+          base_quality_per_week?: number
+          baseline_weekly_km?: number | null
+          build_progression?: string
+          build_quality_per_week?: number
           created_at?: string
           created_by?: string | null
           deload_weeks?: number
           deloads_enabled?: boolean
           ends_on?: string
           id?: string
+          key_taper_days?: number | null
           key_taper_weeks?: number
           load_base_start_pct?: number
           load_base_top_pct?: number
@@ -2039,6 +2076,9 @@ export type Database = {
           reset_weeks?: number
           starts_on?: string
           status?: string
+          taper_days?: number | null
+          taper_floor_pct?: number
+          taper_shape?: string
           taper_weeks?: number
           transition_weeks?: number
           updated_at?: string
@@ -6190,6 +6230,10 @@ export type Database = {
         Args: { _calendar_id: string; _user_id: string }
         Returns: boolean
       }
+      can_write_campaign: {
+        Args: { _campaign_id: string; _user_id: string }
+        Returns: boolean
+      }
       can_write_gear_media: {
         Args: { _folder: string; _user_id: string }
         Returns: boolean
@@ -6277,6 +6321,15 @@ export type Database = {
           avg_biomechanical_score: number
           pace_bucket_center_sec_per_km: number
           session_count: number
+        }[]
+      }
+      get_campaign_actuals: {
+        Args: { _campaign_id: string }
+        Returns: {
+          actual_km: number
+          actual_m: number
+          sessions: number
+          week_start: string
         }[]
       }
       get_effective_branding: { Args: never; Returns: Json }

@@ -1,38 +1,37 @@
-# Fix the build: stray extensionless duplicate of campaign-generator
+# Build is green — nothing is failing the compiler
 
-## The actual compiler output
+## Actual output
 
 ```text
-[PARSE_ERROR] Unexpected token
-    ╭─[ src/lib/campaign-generator:26:8 ]
-    │
- 26 │ export type Phase = "reset" | "base" | "build" | "peak" | "taper" | "transition" | "race_week";
-    │        ──┬─
-    │          ╰───
-────╯
-✗ Build failed in 13.52s
+✓ built in 2.13s
+[nitro] ℹ Using auto generated worker name: tanstack-start-ts
+ℹ Generated dist/server/wrangler.json
+ℹ Generated .wrangler/deploy/config.json
+ℹ Generated dist/client/_headers
+ℹ Generated dist/nitro.json
+[nitro] ✔ You can preview this build using npx vite preview
 ```
 
-## What is wrong
+The earlier `[PARSE_ERROR] src/lib/campaign-generator:26:8` is gone: only `src/lib/campaign-generator.ts` remains on disk, the extensionless duplicate no longer exists.
 
-There are two copies of the same module:
+The dev server also answers `200` on `http://localhost:8080/`.
 
-- `src/lib/campaign-generator.ts` — the real TypeScript module
-- `src/lib/campaign-generator` — a byte-identical copy with **no file extension** (confirmed identical via `diff`)
+## What the dev-server log does show
 
-Both `src/components/campaign-timeline.tsx` and `src/routes/_authenticated/app.campaign.tsx` import `@/lib/campaign-generator`. The bundler resolves the exact extensionless file first, treats it as plain JavaScript, and dies on the first `export type`. That single parse error is the whole build failure — nothing else fails the build.
+Repeating, but not build-breaking:
 
-`src/lib/campaign-generator` is the only extensionless file under `src/`.
+```text
+Error: aborted ... code: 'ECONNRESET'
+Error: h3 swallowed SSR error: {"status":500,"unhandled":true,"message":"HTTPError"}
+    at normalizeCatastrophicSsrResponse (src/server.ts:33)
+```
 
-## The fix
+These are aborted in-flight requests (browser navigating/reloading away mid-SSR) being re-thrown as a generic 500 by the SSR error wrapper. They are a symptom of a client that disconnects, not of a compile failure.
 
-Delete `src/lib/campaign-generator` (the extensionless duplicate). No import changes needed — `@/lib/campaign-generator` then resolves to the `.ts` file.
+## Proposed next step (needs your go-ahead)
 
-## Verification
+1. Load `/` and one authenticated route headlessly and capture console + network, to see whether the preview is actually broken for a real visit or only stale in your tab.
+2. If reproducible, make `src/server.ts` treat an aborted request (`ECONNRESET` / client abort) as a non-error instead of a catastrophic 500, so genuine SSR errors stand out in the log.
+3. No other files touched.
 
-Run the production build and confirm it completes and prerenders pages.
-
-## Not in scope
-
-- The deleted `/app/coaching-hub` and `/app/campaigns` routes: the only remaining mentions in `src/` are two explanatory code comments (`src/components/dashboard/dashboard-widgets.tsx`, `src/components/app-shell.tsx`). No live import or `<Link to>` targets them, so nothing there breaks the build.
-- Pre-existing typecheck-only errors (`app-shell.tsx` NavHeading `to`, `app.maps.tsx`, `app.sessions.$sessionId.index.tsx` merge symbols, etc.) do not fail the build and are left alone unless you want them tackled separately.
+If the preview looks stale on your side only, a hard reload is likely all that's needed — the build artefacts are current.
