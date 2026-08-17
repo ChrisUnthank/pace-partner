@@ -165,7 +165,7 @@ function median(values: number[]): number | null {
  *
  * WHY PACE HAS TO BE REMOVED FIRST
  *
- * Measured on real data, pace explains 97% of MEI's variance (r² = 0.970).
+ * Measured on real data, pace explains 98.7% of MEI's variance (r² = 0.987 across 113 sessions).
  * That is not a coincidence — run faster and stride lengthens while ground
  * contact shortens, and both push MEI up before economy is involved at all.
  *
@@ -174,14 +174,19 @@ function median(values: number[]): number | null {
  * within threshold alone, pace spans 180-210 s/km and MEI moves 96 to 82, so
  * a session still scores largely on how fast it was.
  *
- * Log-log rather than straight linear because the relationship is curved. A
- * linear fit leaves residuals positive at BOTH ends of the pace range and
- * negative in the middle — an artefact of forcing a line through a curve,
- * which would read as "fast and slow sessions are both efficient". On the
- * same data: linear r² 0.947, log-log r² 0.970, and the end-curvature
- * disappears.
+ * Log-log rather than straight linear: MEI scales as a power of pace, not
+ * linearly. Measured across 113 sessions, linear r² 0.967 against log-log
+ * 0.987, with a fitted exponent near -1.46 — so MEI rises roughly with
+ * speed^1.5.
  *
- * The fitted exponent lands near -1.5, i.e. MEI scales roughly with speed^1.5.
+ * A note on an earlier reading: before the interval work-pace bug was fixed
+ * (segment bounds spanned the recovery jogs, understating interval stride by
+ * 18-30%), a linear fit showed residuals positive at both ends of the range
+ * and negative in the middle. That looked like curvature but was an artefact
+ * of the compressed pace range. On corrected data residuals are within ±1%
+ * across every populated band — meaning MEI really is, to within a percent,
+ * a pure function of pace, and the pace adjustment below is not a refinement
+ * but the thing that makes the metric carry any information at all.
  */
 export interface PaceModel {
   a: number;
