@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { Plus, Trash2, Flag, Lock } from "lucide-react";
 import { CampaignTimeline, PRIORITY_STYLE } from "@/components/campaign-timeline";
-import { generateCampaign, type CampaignTarget, type TargetPriority } from "@/lib/campaign-generator";
+import { generateCampaign, type CampaignTarget, type TargetPriority, isValidIsoDate } from "@/lib/campaign-generator";
 import { AddRacesDialog } from "@/components/campaign-race-picker";
 
 // ----------------------------------------------------------------------------
@@ -141,6 +141,8 @@ export function EditCampaignDialog({
 
   async function save() {
     if (!name.trim()) return toast.error("Give the campaign a name.");
+    if (targets.some((t) => !isValidIsoDate(t.raceDate)))
+      return toast.error("One of the races has an incomplete date.");
     if (targets.length === 0) return toast.error("A campaign needs at least one race.");
     if (preview.weeks.length === 0) return toast.error(preview.notes[0] ?? "Nothing to save.");
 
