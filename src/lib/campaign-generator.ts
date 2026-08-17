@@ -181,6 +181,25 @@ export interface GeneratedCampaign {
 // beat a curve that looks authoritative. A coach can see at a glance that a
 // peak week is "about 15% up on normal" and disagree.
 // ---------------------------------------------------------------------------
+/**
+ * True only for a complete, real yyyy-mm-dd.
+ *
+ * A date input emits PARTIAL values while being typed — "2026-11-" on the way
+ * to "2026-11-26" — and every date helper here ends in toISOString(), which
+ * throws RangeError on an invalid date. That throw lands mid-render, unmounts
+ * the route and bounces the user off the page, which is exactly what happened
+ * when a race date was being entered.
+ *
+ * Checked with a regex as well as a parse: `new Date("2026-13-45")` is invalid
+ * as expected, but plenty of malformed strings parse to something plausible
+ * and would pass a parse-only check.
+ */
+export function isValidIsoDate(iso: string | null | undefined): boolean {
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return false;
+  const d = new Date(`${iso}T00:00:00`);
+  return !Number.isNaN(d.getTime());
+}
+
 function toDate(iso: string): Date {
   return new Date(`${iso}T00:00:00`);
 }
@@ -197,6 +216,9 @@ function addDays(iso: string, days: number): string {
 
 /** Monday of the week containing this date. Weeks are Monday-based throughout Strider. */
 export function mondayOf(iso: string): string {
+  // Returns the input unchanged rather than throwing on a partial date —
+  // callers treat an unparseable value as "not ready yet".
+  if (!isValidIsoDate(iso)) return iso;
   const d = toDate(iso);
   const dow = (d.getDay() + 6) % 7; // 0 = Monday
   d.setDate(d.getDate() - dow);
@@ -305,11 +327,29 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
     return 0;
   }
 
+  if (!isValidIsoDate(settings.startsOn)) {
+    return { blocks: [], weeks: [], notes: ["Pick a start date."] };
+  }
+
   const startMonday = mondayOf(settings.startsOn);
-  const targets = [...settings.targets].filter((t) => !!t.raceDate).sort((a, b) => a.raceDate.localeCompare(b.raceDate));
+  // Half-typed race dates are dropped rather than parsed. The alternative is
+  // a RangeError from toISOString() during render, which takes the whole page
+  // down while someone is simply entering a date.
+  const targets = [...settings.targets]
+    .filter((t) => isValidIsoDate(t.raceDate))
+    .sort((a, b) => a.raceDate.localeCompare(b.raceDate));
 
   if (targets.length === 0) {
-    return { blocks: [], weeks: [], notes: ["No target races set — a campaign needs at least one."] };
+    const incomplete = settings.targets.length > 0;
+    return {
+      blocks: [],
+      weeks: [],
+      notes: [
+        incomplete
+          ? "Finish entering the race date to see the season laid out."
+          : "No target races set — a campaign needs at least one.",
+      ],
+    };
   }
 
   const lastTarget = targets[targets.length - 1];
