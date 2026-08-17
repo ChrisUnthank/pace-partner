@@ -15,52 +15,63 @@ import { Flag, Lock } from "lucide-react";
 // ----------------------------------------------------------------------------
 
 export const PHASE_STYLE: Record<Phase, { fill: string; label: string; blurb: string }> = {
+  // Built from the Strider accent (#FF004C) rather than the green/teal of the
+  // app this was modelled on. The ramp carries meaning: muted grey for weeks
+  // with no intensity, pale through to the full accent as load rises, then
+  // darkening as the taper pulls it back. Phase order is legible from colour
+  // alone, without reading a legend.
+  //
+  // Adjacent phases were checked for luminance separation — an earlier
+  // version had build and peak within 0.018, indistinguishable on a small
+  // bar.
   reset: {
-    fill: "#94a3b8",
+    fill: "#8a8a8a",
     label: "Down period",
     blurb:
       "The break after the previous season, planned at the head of this campaign rather than the tail of the last — so recovery is set with the next build in view.",
   },
   base: {
-    fill: "#5eead4",
+    fill: "#f0b8c4",
     label: "Base",
     blurb: "Aerobic capacity, mostly easy volume. Long run-ins get several base blocks; short ones may get none.",
   },
   build: {
-    fill: "#14b8a6",
+    fill: "#e8607f",
     label: "Build",
     blurb: "Training turns race-specific. Intensity comes in with the target event in mind.",
   },
   peak: {
-    fill: "#0f766e",
+    fill: "#ff004c",
     label: "Peak",
     blurb: "The highest load of the campaign. Runs straight through — no deload inside it.",
   },
   taper: {
-    fill: "#166534",
+    fill: "#8f2440",
     label: "Taper",
     blurb: "Load steps down week by week so the work turns into freshness. Length is yours to set.",
   },
   race_week: {
-    fill: "#0369a1",
+    fill: "#262626",
     label: "Race week",
     blurb: "A target race. Only a peak race gets a block of its own; the rest sit inside the block around them.",
   },
   transition: {
-    fill: "#94a3b8",
+    fill: "#8a8a8a",
     label: "Transition",
     blurb: "Deliberate rest and unstructured activity after the final target.",
   },
 };
 
 export const PRIORITY_STYLE: Record<string, { fill: string; label: string }> = {
-  peak: { fill: "#dc2626", label: "Peak" },
-  key: { fill: "#f97316", label: "Key" },
-  tune_up: { fill: "#eab308", label: "Tune-up" },
-  training: { fill: "#94a3b8", label: "Training" },
+  // Race importance, same brand ramp: the accent for the one that matters,
+  // stepping back through darker reds to grey for a race run through.
+  peak: { fill: "#ff004c", label: "Peak" },
+  key: { fill: "#c11f47", label: "Key" },
+  tune_up: { fill: "#8f2440", label: "Tune-up" },
+  training: { fill: "#8a8a8a", label: "Training" },
 };
 
-export function fmtDate(iso: string): string {
+function fmtDate(iso: string): string {
   const d = new Date(`${iso}T00:00:00`);
   return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
@@ -93,15 +104,23 @@ export function CampaignTimeline({
 
   return (
     <div className="space-y-2">
-      {/* Bars. Horizontally scrollable rather than squeezed: a 30-week season
-          on a laptop would otherwise give each week about 30px, too narrow to
-          click or read. */}
-      <div className="overflow-x-auto brand-scrollbar pb-1">
-        <div className="min-w-max">
+      {/* Bars FIT the width — no horizontal scroll.
+          //
+          // Previously each week was a fixed 48px and the row scrolled, which
+          // meant a 30-week season had weeks off-screen with nothing
+          // indicating they existed. The whole value of this view is seeing
+          // the shape of a season at once; a scrollbar defeats it.
+          //
+          // Weeks now flex to share the available width. Below about 20px a
+          // week they stop being individually readable, but the SHAPE still
+          // is — and week detail is available on hover and in the block strip
+          // beneath. */}
+      <div className="w-full">
+        <div className="w-full">
           {/* Race flags, above the bars */}
           <div className="flex items-end gap-1 h-8">
             {weeks.map((w) => (
-              <div key={`flag-${w.weekNumber}`} className="w-12 flex justify-center">
+              <div key={`flag-${w.weekNumber}`} className="flex-1 min-w-0 flex justify-center">
                 {w.raceName && (
                   <span
                     className="inline-flex items-center gap-0.5 text-[10px] px-1 py-0.5 rounded"
@@ -128,7 +147,7 @@ export function CampaignTimeline({
                   key={w.weekNumber}
                   type="button"
                   onClick={() => onWeekClick?.(w)}
-                  className="w-12 flex flex-col justify-end h-full group relative"
+                  className="flex-1 min-w-0 flex flex-col justify-end h-full group relative"
                   title={`Week ${w.weekNumber} · ${style.label} · ${w.loadPct}%${w.isDeload ? " (deload)" : ""}${
                     w.raceName ? ` · ${w.raceName}` : ""
                   }`}
@@ -155,11 +174,18 @@ export function CampaignTimeline({
             })}
           </div>
 
-          {/* Week numbers */}
+          {/* Week numbers.
+              At ~24px per week on a long season a label under every bar turns
+              into noise, so past 20 weeks only every other one is printed.
+              The bars themselves stay one-per-week — it's the labels that
+              thin out, not the data. */}
           <div className="flex gap-1 mt-1">
-            {weeks.map((w) => (
-              <div key={`n-${w.weekNumber}`} className="w-12 text-center text-[10px] text-muted-foreground">
-                W{w.weekNumber}
+            {weeks.map((w, i) => (
+              <div
+                key={`n-${w.weekNumber}`}
+                className="flex-1 min-w-0 text-center text-[10px] text-muted-foreground overflow-hidden"
+              >
+                {weeks.length <= 20 || i % 2 === 0 ? `W${w.weekNumber}` : ""}
               </div>
             ))}
           </div>
@@ -168,17 +194,22 @@ export function CampaignTimeline({
           <div className="flex gap-1 mt-1">
             {weeks.map((w, i) => {
               const block = spans[i];
-              if (!block) return <div key={`b-${w.weekNumber}`} className="w-12" />;
-              const widthPx = block.weeks * 48 + (block.weeks - 1) * 4;
+              // A week covered by a block that started earlier renders nothing
+              // — the block's own cell spans it via flexGrow.
+              if (!block) return null;
               return (
                 <div
                   key={`b-${w.weekNumber}`}
-                  className="rounded text-[10px] text-white px-2 py-1 leading-tight overflow-hidden"
-                  style={{ width: widthPx, background: PHASE_STYLE[block.phase].fill }}
+                  // flexGrow proportional to the block's length, so blocks
+                  // stay aligned with their weeks at any container width.
+                  // Fixed pixel widths broke the moment the bars stopped
+                  // being 48px each.
+                  style={{ flexGrow: block.weeks, flexBasis: 0, background: PHASE_STYLE[block.phase].fill }}
+                  className="rounded text-[10px] text-white px-1.5 py-1 leading-tight overflow-hidden min-w-0"
                   title={PHASE_STYLE[block.phase].blurb}
                 >
                   <div className="font-medium truncate">{block.label}</div>
-                  <div className="opacity-80">{block.weeks} wk</div>
+                  <div className="opacity-80 truncate">{block.weeks} wk</div>
                 </div>
               );
             })}
