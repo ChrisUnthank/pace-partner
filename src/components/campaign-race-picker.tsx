@@ -24,6 +24,21 @@ import type { CampaignTarget, TargetPriority } from "@/lib/campaign-generator";
 // way that a season built around the wrong peak is not.
 // ----------------------------------------------------------------------------
 
+/**
+ * Trims whatever the database returns down to a plain yyyy-mm-dd.
+ *
+ * A `date` column comes back as "2026-11-29" but a `timestamptz` comes back as
+ * "2026-11-29T00:00:00+00:00", and the generator only accepts the former —
+ * anything else is dropped as an incomplete date. Silently losing every
+ * picked race because a column is a timestamp would be very hard to diagnose
+ * from the outside, so the shape is normalised here rather than assumed.
+ */
+function toIsoDate(v: unknown): string | null {
+  if (typeof v !== "string" || v.length < 10) return null;
+  const head = v.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(head) ? head : null;
+}
+
 function goalToPriority(g: any): TargetPriority {
   if (g.is_primary) return "peak";
   const p = String(g.priority ?? "").toLowerCase();
@@ -135,12 +150,18 @@ export function AddRacesDialog({
   const goalRows = useMemo(
     () =>
       (goals ?? [])
-        .map((g) => ({ ...g, date: g.race_date ?? g.target_date }))
+        .map((g) => ({ ...g, date: toIsoDate(g.race_date ?? g.target_date) }))
         .filter((g) => !!g.date && g.status !== "abandoned"),
     [goals],
   );
 
-  const scheduleRows = useMemo(() => (schedule ?? []).filter((r) => !!r.event_date), [schedule]);
+  const scheduleRows = useMemo(
+    () =>
+      (schedule ?? [])
+        .map((r) => ({ ...r, date: toIsoDate(r.event_date) }))
+        .filter((r) => !!r.date),
+    [schedule],
+  );
 
   function toggle(key: string) {
     setPicked((prev) => {
@@ -165,17 +186,21 @@ export function AddRacesDialog({
     for (const r of scheduleRows) {
       if (!picked.has(`entry:${r.id}`)) continue;
       out.push({
-        raceDate: r.event_date,
+        raceDate: r.date!,
         name: r.name ?? "Race",
         priority: "training",
         raceScheduleEntryId: r.id,
       } as CampaignTarget);
     }
-    if (out.length === 0) {
+    // Nothing malformed can leave this dialog. A target with a bad date would
+    // be dropped by the generator anyway, but silently — better to not create
+    // it than to wonder why a picked race never appeared.
+    const clean = out.filter((t) => !!toIsoDate(t.raceDate));
+    if (clean.length === 0) {
       onOpenChange(false);
       return;
     }
-    onAdd(out);
+    onAdd(clean);
     setPicked(new Set());
     onOpenChange(false);
   }
@@ -239,11 +264,11 @@ export function AddRacesDialog({
                   <RaceRow
                     key={r.id}
                     id={`entry:${r.id}`}
-                    date={r.event_date}
+                    date={r.date!}
                     name={r.name ?? "Race"}
                     sub={r.location ?? undefined}
                     hint="training"
-                    already={existingDates.has(r.event_date)}
+                    already={existingDates.has(r.date!)}
                     on={picked.has(`entry:${r.id}`)}
                     onToggle={toggle}
                   />
