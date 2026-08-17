@@ -80,10 +80,13 @@ export function CampaignTimeline({
   weeks,
   blocks,
   onWeekClick,
+  baselineKm,
 }: {
   weeks: GeneratedWeek[];
   blocks: GeneratedBlock[];
   onWeekClick?: (week: GeneratedWeek) => void;
+  /** When set, tooltips read in km rather than percent. */
+  baselineKm?: number | null;
 }) {
   // Scale bars against the campaign's own maximum rather than a fixed 150%,
   // so a conservative campaign doesn't render as a row of stumps.
@@ -148,8 +151,12 @@ export function CampaignTimeline({
                   type="button"
                   onClick={() => onWeekClick?.(w)}
                   className="flex-1 min-w-0 flex flex-col justify-end h-full group relative"
-                  title={`Week ${w.weekNumber} · ${style.label} · ${w.loadPct}%${w.isDeload ? " (deload)" : ""}${
-                    w.raceName ? ` · ${w.raceName}` : ""
+                  title={`Week ${w.weekNumber} · ${style.label} · ${
+                    baselineKm
+                      ? `${Math.round((w.loadPct / 100) * baselineKm)} km (${w.loadPct}%)`
+                      : `${w.loadPct}%`
+                  }${w.isDeload ? " · deload" : ""}${w.raceName ? ` · ${w.raceName}` : ""}${
+                    w.isLocked ? " · edited" : ""
                   }`}
                 >
                   <div
