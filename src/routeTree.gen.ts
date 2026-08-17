@@ -43,6 +43,7 @@ import { Route as AuthenticatedAppMessagesRouteImport } from './routes/_authenti
 import { Route as AuthenticatedAppMyRaceScheduleRouteImport } from './routes/_authenticated/app.my-race-schedule'
 import { Route as AuthenticatedAppMyScheduleRouteImport } from './routes/_authenticated/app.my-schedule'
 import { Route as AuthenticatedAppNoticeboardRouteImport } from './routes/_authenticated/app.noticeboard'
+import { Route as AuthenticatedAppCampaignsRouteImport } from './routes/_authenticated/app.campaigns'
 import { Route as AuthenticatedAppPlansRouteImport } from './routes/_authenticated/app.plans'
 import { Route as AuthenticatedAppRaceScheduleRouteImport } from './routes/_authenticated/app.race-schedule'
 import { Route as AuthenticatedAppRacesRouteImport } from './routes/_authenticated/app.races'
@@ -274,6 +275,12 @@ const AuthenticatedAppNoticeboardRoute =
   AuthenticatedAppNoticeboardRouteImport.update({
     id: '/app/noticeboard',
     path: '/app/noticeboard',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAppCampaignsRoute =
+  AuthenticatedAppCampaignsRouteImport.update({
+    id: '/app/campaigns',
+    path: '/app/campaigns',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedAppPlansRoute = AuthenticatedAppPlansRouteImport.update({
@@ -569,6 +576,7 @@ export interface FileRoutesByFullPath {
   '/app/my-race-schedule': typeof AuthenticatedAppMyRaceScheduleRoute
   '/app/my-schedule': typeof AuthenticatedAppMyScheduleRoute
   '/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
+  '/app/campaigns': typeof AuthenticatedAppCampaignsRoute
   '/app/plans': typeof AuthenticatedAppPlansRoute
   '/app/race-schedule': typeof AuthenticatedAppRaceScheduleRoute
   '/app/races': typeof AuthenticatedAppRacesRouteWithChildren
@@ -646,6 +654,7 @@ export interface FileRoutesByTo {
   '/app/my-race-schedule': typeof AuthenticatedAppMyRaceScheduleRoute
   '/app/my-schedule': typeof AuthenticatedAppMyScheduleRoute
   '/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
+  '/app/campaigns': typeof AuthenticatedAppCampaignsRoute
   '/app/plans': typeof AuthenticatedAppPlansRoute
   '/app/race-schedule': typeof AuthenticatedAppRaceScheduleRoute
   '/app/recovery': typeof AuthenticatedAppRecoveryRoute
@@ -723,6 +732,7 @@ export interface FileRoutesById {
   '/_authenticated/app/my-race-schedule': typeof AuthenticatedAppMyRaceScheduleRoute
   '/_authenticated/app/my-schedule': typeof AuthenticatedAppMyScheduleRoute
   '/_authenticated/app/noticeboard': typeof AuthenticatedAppNoticeboardRoute
+  '/_authenticated/app/campaigns': typeof AuthenticatedAppCampaignsRoute
   '/_authenticated/app/plans': typeof AuthenticatedAppPlansRoute
   '/_authenticated/app/race-schedule': typeof AuthenticatedAppRaceScheduleRoute
   '/_authenticated/app/races': typeof AuthenticatedAppRacesRouteWithChildren
@@ -804,6 +814,7 @@ export interface FileRouteTypes {
     | '/app/my-race-schedule'
     | '/app/my-schedule'
     | '/app/noticeboard'
+    | '/app/campaigns'
     | '/app/plans'
     | '/app/race-schedule'
     | '/app/races'
@@ -881,6 +892,7 @@ export interface FileRouteTypes {
     | '/app/my-race-schedule'
     | '/app/my-schedule'
     | '/app/noticeboard'
+    | '/app/campaigns'
     | '/app/plans'
     | '/app/race-schedule'
     | '/app/recovery'
@@ -957,6 +969,7 @@ export interface FileRouteTypes {
     | '/_authenticated/app/my-race-schedule'
     | '/_authenticated/app/my-schedule'
     | '/_authenticated/app/noticeboard'
+    | '/_authenticated/app/campaigns'
     | '/_authenticated/app/plans'
     | '/_authenticated/app/race-schedule'
     | '/_authenticated/app/races'
@@ -1253,6 +1266,13 @@ declare module '@tanstack/react-router' {
       path: '/app/noticeboard'
       fullPath: '/app/noticeboard'
       preLoaderRoute: typeof AuthenticatedAppNoticeboardRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/campaigns': {
+      id: '/_authenticated/app/campaigns'
+      path: '/app/campaigns'
+      fullPath: '/app/campaigns'
+      preLoaderRoute: typeof AuthenticatedAppCampaignsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/app/plans': {
@@ -1771,6 +1791,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAppMyRaceScheduleRoute: AuthenticatedAppMyRaceScheduleRoute,
   AuthenticatedAppMyScheduleRoute: AuthenticatedAppMyScheduleRoute,
   AuthenticatedAppNoticeboardRoute: AuthenticatedAppNoticeboardRoute,
+  AuthenticatedAppCampaignsRoute: AuthenticatedAppCampaignsRoute,
   AuthenticatedAppPlansRoute: AuthenticatedAppPlansRoute,
   AuthenticatedAppRaceScheduleRoute: AuthenticatedAppRaceScheduleRoute,
   AuthenticatedAppRacesRoute: AuthenticatedAppRacesRouteWithChildren,
