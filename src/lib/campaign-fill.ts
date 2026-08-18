@@ -8,18 +8,37 @@
  * is fuzzed in campaign-fill.test.ts.
  *
  *
- * THE BRIDGE
+ * THE BRIDGE, AND ITS LIMIT
  *
  * campaign_weeks.load_pct means "100 = the athlete's normal loading week".
  * calendar-copy.ts's WeekOverride.volumePct means "+X% off the template's
  * authored volume", fed through scaleStep() — the same engine Copy Period
- * Forward uses. So the whole load bridge is:
+ * Forward uses. So the naive bridge is:
  *
  *     volumePct = load_pct - 100
  *
- * That also handles deloads for free. A campaign deload week already carries
- * load_pct 70, so applying load_pct IS applying the deload. Passing a separate
- * DeloadConfig as well would cut an already-cut week twice.
+ * That is RELATIVE anchoring, and it carries an assumption that is usually
+ * false: that the template's own authored volume already equals the athlete's
+ * normal loading week. It rarely does. A 40 km/week template used to fill a
+ * campaign built on a 60 km/week baseline produces 40 km weeks while the
+ * timeline says 60 — and nothing anywhere says so, because the campaign only
+ * ever sees percentages and the plan only ever sees its own kilometres.
+ *
+ * So when the campaign has a baseline, ABSOLUTE anchoring is used instead:
+ *
+ *     targetM  = baselineKm * 1000 * load_pct/100
+ *     volumePct = (targetM / templateWeekM - 1) * 100
+ *
+ * which scales the template to hit the number the campaign actually states.
+ * Relative anchoring remains as the fallback for a campaign with no baseline
+ * set, where there is genuinely no absolute figure to aim at — and it says so
+ * in the notes rather than quietly behaving differently.
+ *
+ * The template's own volume must be measured the same way the baseline and
+ * get_campaign_actuals are, or the correction just moves the error: both are
+ * TOTAL distance including warmup, cooldown and recovery jogs. That is what
+ * session-volume.ts exists to compute, and why it is not the work-only
+ * estimate the plan pages have been using.
  *
  *
  * WHY THERE IS NO START-DATE RECONCILIATION
@@ -140,6 +159,19 @@ export interface BuildFillPlanInput {
    * and wants it left alone.
    */
   applyCampaignLoad: boolean;
+  /**
+   * The campaign's normal loading week in km. Enables absolute anchoring —
+   * without it the fill can only scale relative to the template's own volume
+   * and cannot know whether that lands anywhere near what the campaign says.
+   */
+  baselineKm?: number | null;
+  /**
+   * Total metres per template week, keyed by template week number, measured
+   * the same way the baseline is: warmup, cooldown and recovery included.
+   * Absolute anchoring needs this; without it the mode degrades to relative
+   * and reports why.
+   */
+  templateWeekVolumeM?: Map<number, number> | null;
 }
 
 export interface FillSlot {
@@ -153,8 +185,22 @@ export interface FillSlot {
   templateWeekNumber: number | null;
   /** The campaign's stored load for this week, carried through untouched. */
   loadPct: number;
-  /** What actually gets applied: loadPct - 100, or 0 when applyCampaignLoad is off. */
+  /** What actually gets applied: see anchor for how it was derived. */
   volumePct: number;
+  /**
+   * How volumePct was arrived at.
+   *   absolute  scaled to hit the campaign's stated kilometres
+   *   relative  load_pct applied as a delta off the template's own volume,
+   *             because no baseline or no measurable template volume
+   *   none      campaign load turned off; the template stands as authored
+   */
+  anchor: "absolute" | "relative" | "none";
+  /** Metres the campaign asks for this week, when a baseline is set. */
+  targetM: number | null;
+  /** Metres the template week holds before scaling, when measurable. */
+  templateM: number | null;
+  /** Metres this week will actually come to after scaling. */
+  resultM: number | null;
   /** This template week was already used earlier in the same fill. */
   isRepeat: boolean;
 }
@@ -247,6 +293,39 @@ export function buildFillPlan(input: BuildFillPlanInput): FillPlan {
 
     const loadPct = Number.isFinite(Number(w.loadPct)) ? Number(w.loadPct) : 100;
 
+    // --- Anchoring -------------------------------------------------------
+    //
+    // Absolute where possible: scale the template week to hit the metres the
+    // campaign actually states. Relative only where there is no baseline to
+    // aim at, or the template week holds nothing measurable to scale (an
+    // all-rest week, or steps with no targets set yet) — dividing by that
+    // would produce Infinity and a session of impossible length.
+    const baselineM =
+      input.baselineKm != null && Number.isFinite(Number(input.baselineKm)) && Number(input.baselineKm) > 0
+        ? Number(input.baselineKm) * 1000
+        : null;
+    const targetM = baselineM == null ? null : baselineM * (loadPct / 100);
+    const templateM =
+      templateWeekNumber == null ? null : (input.templateWeekVolumeM?.get(templateWeekNumber) ?? null);
+    const canAnchorAbsolute =
+      targetM != null && templateM != null && Number.isFinite(templateM) && templateM > 0;
+
+    let volumePct: number;
+    let anchor: "absolute" | "relative" | "none";
+    if (!input.applyCampaignLoad) {
+      volumePct = 0;
+      anchor = "none";
+    } else if (canAnchorAbsolute) {
+      volumePct = (targetM! / templateM!) * 100 - 100;
+      anchor = "absolute";
+    } else {
+      volumePct = loadPct - 100;
+      anchor = "relative";
+    }
+
+    const resultM =
+      templateM != null && Number.isFinite(templateM) ? templateM * (1 + volumePct / 100) : null;
+
     slots.push({
       campaignWeekId: w.id,
       campaignWeekNumber: w.weekNumber,
@@ -256,7 +335,11 @@ export function buildFillPlan(input: BuildFillPlanInput): FillPlan {
       isLocked: !!w.isLocked,
       templateWeekNumber,
       loadPct,
-      volumePct: input.applyCampaignLoad ? loadPct - 100 : 0,
+      volumePct,
+      anchor,
+      targetM,
+      templateM,
+      resultM,
       isRepeat: seen > 0,
     });
   }
@@ -293,6 +376,46 @@ export function buildFillPlan(input: BuildFillPlanInput): FillPlan {
     notes.push(
       "Campaign load is turned off: the template's own authored volume is used and the campaign's weekly loads are ignored. The timeline will still show the campaign's figures, which the sessions will not match.",
     );
+  }
+
+  // --- The mismatch this feature exists to stop being silent -------------
+  const filled = slots.filter((s) => s.templateWeekNumber != null);
+  const relative = filled.filter((s) => s.anchor === "relative");
+  const absolute = filled.filter((s) => s.anchor === "absolute");
+
+  if (input.applyCampaignLoad && relative.length > 0) {
+    const why =
+      input.baselineKm == null || !(Number(input.baselineKm) > 0)
+        ? "This campaign has no weekly baseline set, so there is no kilometre figure to aim at."
+        : "Some template weeks hold nothing measurable to scale.";
+    notes.push(
+      `${why} ${relative.length} week${relative.length === 1 ? "" : "s"} will be scaled RELATIVE to the template's own volume instead — the shape of the campaign is applied, but whether the result is 40 km or 80 km depends entirely on how the template was written, and nothing checks it against the campaign.`,
+    );
+  }
+
+  if (absolute.length > 0) {
+    // The gap BEFORE scaling. This is the number a coach needs: it says how
+    // far the template they picked is from the campaign they built, which is
+    // what decides whether it is a sensible template for this block at all.
+    const withBoth = absolute.filter((s) => s.templateM != null && s.targetM != null && s.templateM > 0);
+    if (withBoth.length > 0) {
+      const totalTemplate = withBoth.reduce((a, s) => a + (s.templateM ?? 0), 0);
+      const totalTarget = withBoth.reduce((a, s) => a + (s.targetM ?? 0), 0);
+      const gapPct = (totalTemplate / totalTarget - 1) * 100;
+      if (Math.abs(gapPct) >= 10) {
+        notes.push(
+          `As written, this template averages ${Math.round(Math.abs(gapPct))}% ${gapPct < 0 ? "UNDER" : "OVER"} what the campaign asks for across these weeks ` +
+            `(${(totalTemplate / 1000).toFixed(0)} km of template against ${(totalTarget / 1000).toFixed(0)} km of campaign target). ` +
+            `Every session will be scaled to close that gap. A gap this size is worth a look before committing — it usually means the template was built for a different athlete or a different phase.`,
+        );
+      }
+      const extreme = withBoth.filter((s) => Math.abs(s.volumePct) > 60);
+      if (extreme.length > 0) {
+        notes.push(
+          `${extreme.length} week${extreme.length === 1 ? "" : "s"} need${extreme.length === 1 ? "s" : ""} scaling by more than 60% to reach the campaign's target. Scaling that hard turns a session into something its author would not recognise — consider a closer-fitting template, or adjust the campaign's baseline.`,
+        );
+      }
+    }
   }
 
   const lockedFilled = slots.filter((s) => s.isLocked && s.templateWeekNumber != null);
@@ -569,9 +692,59 @@ export function buildFillRows(
       template_name: templateName,
       template_week_number: s.templateWeekNumber!,
       is_repeat: s.isRepeat,
-      // What was ACTUALLY applied. With campaign load off the template's own
-      // volume stands, which is 100% of itself — not the campaign's figure,
-      // which was ignored.
-      load_pct_applied: s.volumePct === 0 && s.loadPct !== 100 ? 100 : s.loadPct,
+      // The campaign's figure when its load was actually applied, 100 when it
+      // was not. Under absolute anchoring this is exactly right: the week WAS
+      // scaled to hit baseline x load_pct, so load_pct is what landed. Under
+      // relative anchoring it is the coach's intent rather than a measurement
+      // — which is why the relative case is called out in the fill notes
+      // rather than left to be inferred from this column.
+      load_pct_applied: s.anchor === "none" ? 100 : s.loadPct,
     }));
+}
+
+/**
+ * Per-week volume comparison for display: what the campaign asks for, what the
+ * template holds, and what the fill will actually produce.
+ *
+ * Separate from buildFillPlan's notes because the notes summarise and this
+ * itemises — a coach who has been told the template runs 30% light will want
+ * to see which weeks, and the totals are what makes a fill checkable against
+ * the timeline sitting directly above it.
+ */
+export function fillVolumeSummary(slots: FillSlot[]): {
+  rows: {
+    campaignWeekNumber: number;
+    weekStart: string;
+    targetM: number | null;
+    templateM: number | null;
+    resultM: number | null;
+    deltaPct: number | null;
+    anchor: FillSlot["anchor"];
+  }[];
+  totalTargetM: number;
+  totalResultM: number;
+  /** Null when no week had a target to compare against. */
+  totalDeltaPct: number | null;
+  anyRelative: boolean;
+} {
+  const filled = slots.filter((s) => s.templateWeekNumber != null);
+  const rows = filled.map((s) => ({
+    campaignWeekNumber: s.campaignWeekNumber,
+    weekStart: s.weekStart,
+    targetM: s.targetM,
+    templateM: s.templateM,
+    resultM: s.resultM,
+    deltaPct:
+      s.targetM != null && s.targetM > 0 && s.resultM != null ? (s.resultM / s.targetM - 1) * 100 : null,
+    anchor: s.anchor,
+  }));
+  const totalTargetM = rows.reduce((a, r) => a + (r.targetM ?? 0), 0);
+  const totalResultM = rows.reduce((a, r) => a + (r.resultM ?? 0), 0);
+  return {
+    rows,
+    totalTargetM,
+    totalResultM,
+    totalDeltaPct: totalTargetM > 0 ? (totalResultM / totalTargetM - 1) * 100 : null,
+    anyRelative: rows.some((r) => r.anchor === "relative"),
+  };
 }
