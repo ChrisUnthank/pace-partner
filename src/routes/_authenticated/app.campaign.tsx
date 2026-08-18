@@ -364,14 +364,22 @@ function SavedCampaign({
           id: w.id,
           raceName:
             (campaign.campaign_targets ?? []).find((t: any) => {
-              const d = new Date(`${t.race_date}T00:00:00`);
-              const s = new Date(`${w.week_start}T00:00:00`);
+              // UTC, matching the generator. Parsed as local midnight, a
+              // seven-day window crossing a DST change is an hour short, so a
+              // race on the last day of a week could fall outside it and the
+              // flag would land on the wrong week.
+              const d = new Date(`${t.race_date}T00:00:00Z`);
+              const s = new Date(`${w.week_start}T00:00:00Z`);
               return d >= s && d < new Date(s.getTime() + 7 * 86400000);
             })?.name ?? null,
           racePriority:
             (campaign.campaign_targets ?? []).find((t: any) => {
-              const d = new Date(`${t.race_date}T00:00:00`);
-              const s = new Date(`${w.week_start}T00:00:00`);
+              // UTC, matching the generator. Parsed as local midnight, a
+              // seven-day window crossing a DST change is an hour short, so a
+              // race on the last day of a week could fall outside it and the
+              // flag would land on the wrong week.
+              const d = new Date(`${t.race_date}T00:00:00Z`);
+              const s = new Date(`${w.week_start}T00:00:00Z`);
               return d >= s && d < new Date(s.getTime() + 7 * 86400000);
             })?.priority ?? null,
         })),
