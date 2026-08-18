@@ -18,6 +18,7 @@ import {
   applyCollisionPolicy,
   computeCampaignWriteBacks,
   buildFillRows,
+  fillVolumeSummary,
   defaultAlignmentForPhase,
   DEFAULT_SHORTFALL,
   type FillAlignment,
@@ -26,6 +27,7 @@ import {
   type FillTargetWeek,
   type RemappableDraft,
 } from "@/lib/campaign-fill";
+import { estimateStepsVolume, sumVolumes, formatKm, formatDuration } from "@/lib/session-volume";
 import { phaseStyle } from "@/components/campaign-timeline";
 import { cn } from "@/lib/utils";
 
@@ -52,6 +54,8 @@ export interface FillBlockTarget {
   blockLabel: string;
   phase: string;
   weeks: FillTargetWeek[];
+  /** campaigns.baseline_weekly_km — enables absolute volume anchoring. */
+  baselineKm: number | null;
 }
 
 function fmtDate(iso: string): string {
@@ -82,8 +86,66 @@ export function FillBlockDialog({
   const [collisionPolicy, setCollisionPolicy] = useState<CollisionPolicy>("skip");
   const [writeBack, setWriteBack] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [rawDrafts, setRawDrafts] = useState<RemappableDraft[] | null>(null);
   const [previewErr, setPreviewErr] = useState<string | null>(null);
+
+  // The block's first Monday — the start date the template resolves against,
+  // and independent of which template is chosen.
+  const blockStart = useMemo(() => {
+    const sorted = [...(target?.weeks ?? [])].sort((a, b) => (a.weekStart < b.weekStart ? -1 : 1));
+    return sorted[0]?.weekStart ?? "";
+  }, [target]);
+
+  // Resolved at SETUP, not at review.
+  //
+  // The mapping preview has to state what each week will actually come to in
+  // kilometres, and that cannot be known without the template's real steps —
+  // including days that resolve from the session-template library, which is
+  // exactly what previewPlanAssignment exists to expand. Fetching it here
+  // means the volume comparison is on screen while the coach is still
+  // choosing, which is the only point at which it can change their mind.
+  //
+  // No progression rules on purpose. Overrides are keyed by TEMPLATE week,
+  // and a repeat maps one template week onto several campaign weeks at
+  // different loads — which a template-week-keyed override cannot express.
+  // The raw template comes back unscaled and applyFillPlan scales per slot.
+  const { data: rawDrafts, isFetching: loadingDrafts } = useQuery({
+    queryKey: ["campaign-fill-preview", templateId, blockStart],
+    enabled: open && !!templateId && !!blockStart,
+    queryFn: async () => {
+      const res: any = await previewPlanAssignment({
+        data: { planTemplateId: templateId, startDate: blockStart },
+      });
+      return (res?.drafts ?? []) as RemappableDraft[];
+    },
+  });
+
+  /** Total metres per template week, measured the way the baseline is. */
+  const templateWeekVolumeM = useMemo(() => {
+    const byWeek = new Map<number, number>();
+    if (!rawDrafts) return byWeek;
+    const grouped = new Map<number, RemappableDraft[]>();
+    for (const d of rawDrafts) {
+      const list = grouped.get(d.week_number) ?? [];
+      list.push(d);
+      grouped.set(d.week_number, list);
+    }
+    for (const [wk, ds] of grouped) {
+      const total = sumVolumes(
+        ds.map((d) => estimateStepsVolume(d.steps as any[], (d.bucket as string) ?? d.intent ?? "easy")),
+      );
+      byWeek.set(wk, total.totalM);
+    }
+    return byWeek;
+  }, [rawDrafts]);
+
+  /** How much of the template's volume is a pace assumption rather than a prescription. */
+  const estimatedShare = useMemo(() => {
+    if (!rawDrafts || rawDrafts.length === 0) return 0;
+    const total = sumVolumes(
+      rawDrafts.map((d) => estimateStepsVolume(d.steps as any[], (d.bucket as string) ?? d.intent ?? "easy")),
+    );
+    return total.totalM > 0 ? total.estimatedFromTimeM / total.totalM : 0;
+  }, [rawDrafts]);
 
   // Reset on open. A dialog that reopens holding the previous block's mapping
   // is the kind of thing nobody notices until it has written the wrong week.
@@ -97,7 +159,6 @@ export function FillBlockDialog({
     setLoadEdits({});
     setCollisionPolicy("skip");
     setWriteBack(true);
-    setRawDrafts(null);
     setPreviewErr(null);
   }, [open, target?.campaignId, target?.blockLabel]);
 
@@ -138,9 +199,21 @@ export function FillBlockDialog({
         alignment,
         shortfall,
         applyCampaignLoad,
+        baselineKm: target?.baselineKm ?? null,
+        templateWeekVolumeM,
       }),
-    [effectiveWeeks, template?.duration_weeks, alignment, shortfall, applyCampaignLoad],
+    [
+      effectiveWeeks,
+      template?.duration_weeks,
+      alignment,
+      shortfall,
+      applyCampaignLoad,
+      target?.baselineKm,
+      templateWeekVolumeM,
+    ],
   );
+
+  const volume = useMemo(() => fillVolumeSummary(plan.slots), [plan.slots]);
 
   const writeBacks = useMemo(() => {
     if (!target) return [];
@@ -156,9 +229,11 @@ export function FillBlockDialog({
       alignment,
       shortfall,
       applyCampaignLoad,
+      baselineKm: target?.baselineKm ?? null,
+      templateWeekVolumeM,
     });
     return computeCampaignWriteBacks(stored.slots, overridden);
-  }, [target, loadEdits, template?.duration_weeks, alignment, shortfall, applyCampaignLoad]);
+  }, [target, loadEdits, template?.duration_weeks, alignment, shortfall, applyCampaignLoad, templateWeekVolumeM]);
 
   // Sessions already sitting on the block's dates.
   const dateRange = useMemo(() => {
@@ -222,8 +297,8 @@ export function FillBlockDialog({
 
   const mapped = useMemo(() => {
     if (!rawDrafts || !plan.slots.length) return { drafts: [] as RemappableDraft[], flaggedCount: 0 };
-    return applyFillPlan(rawDrafts, plan, plan.startDate);
-  }, [rawDrafts, plan]);
+    return applyFillPlan(rawDrafts, plan, blockStart);
+  }, [rawDrafts, plan, blockStart]);
 
   const collisions = useMemo(
     () => detectFillCollisions(mapped.drafts, existing ?? new Map()),
@@ -235,26 +310,27 @@ export function FillBlockDialog({
     [mapped.drafts, collisions, collisionPolicy],
   );
 
-  async function goToReview() {
-    if (!target || !template) return;
-    setBusy(true);
+  /**
+   * Distance lost to skipped collision days.
+   *
+   * Skipping is the right default, but it silently subtracts from a block
+   * that was just scaled to hit a target. Two skipped long runs is most of a
+   * week, and without this the review would still show the pre-skip figure.
+   */
+  const skippedM = useMemo(() => {
+    if (collisionPolicy !== "skip" || collisions.length === 0) return 0;
+    const kept = new Set(finalDrafts.map((d) => d.tempId));
+    return sumVolumes(
+      mapped.drafts
+        .filter((d) => !kept.has(d.tempId))
+        .map((d) => estimateStepsVolume(d.steps as any[], (d.bucket as string) ?? d.intent ?? "easy")),
+    ).totalM;
+  }, [mapped.drafts, finalDrafts, collisions, collisionPolicy]);
+
+  function goToReview() {
+    if (!target || !template || !rawDrafts) return;
     setPreviewErr(null);
-    try {
-      // No progression rules on purpose. Overrides are keyed by TEMPLATE week,
-      // and a repeat maps one template week onto several campaign weeks at
-      // different loads — which a template-week-keyed override cannot express.
-      // The raw template comes back unscaled and applyFillPlan scales once per
-      // slot instead.
-      const res: any = await previewPlanAssignment({
-        data: { planTemplateId: templateId, startDate: plan.startDate },
-      });
-      setRawDrafts((res?.drafts ?? []) as RemappableDraft[]);
-      setStep("review");
-    } catch (e: any) {
-      setPreviewErr(e?.message ?? "Could not read that template");
-    } finally {
-      setBusy(false);
-    }
+    setStep("review");
   }
 
   async function commit() {
@@ -276,7 +352,7 @@ export function FillBlockDialog({
         data: {
           athleteId: target.athleteId,
           planTemplateId: templateId,
-          startDate: plan.startDate,
+          startDate: blockStart,
           drafts: finalDrafts as any,
           campaignId: target.campaignId,
           campaignFillRows: buildFillRows(keptSlots, "", templateId, template.name).map(
@@ -420,6 +496,14 @@ export function FillBlockDialog({
                       {filledSlots} of {target.weeks.length} weeks filled
                     </span>
                   </div>
+                  <div className="flex gap-2 border-b bg-muted/30 px-3 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <span className="w-10 shrink-0">Week</span>
+                    <span className="w-16 shrink-0">Starts</span>
+                    <span className="min-w-0 flex-1">From template</span>
+                    <span className="w-14 shrink-0 text-right">Target</span>
+                    <span className="w-14 shrink-0 text-right">Result</span>
+                    <span className="w-[76px] shrink-0 text-right">Load</span>
+                  </div>
                   <div className="max-h-64 overflow-y-auto brand-scrollbar divide-y">
                     {plan.slots.map((s) => (
                       <div key={s.campaignWeekNumber} className="flex items-center gap-2 px-3 py-1.5 text-xs">
@@ -430,34 +514,81 @@ export function FillBlockDialog({
                             <span className="text-muted-foreground italic">left empty</span>
                           ) : (
                             <>
-                              template week {s.templateWeekNumber}
+                              week {s.templateWeekNumber}
+                              {s.templateM != null && (
+                                <span className="ml-1 text-muted-foreground">({formatKm(s.templateM, 0)})</span>
+                              )}
                               {s.isRepeat && (
                                 <Badge variant="secondary" className="ml-1.5 h-4 px-1 text-[10px]">
                                   repeat
                                 </Badge>
                               )}
+                              {s.isDeload && (
+                                <Badge variant="outline" className="ml-1 h-4 px-1 text-[10px]">
+                                  deload
+                                </Badge>
+                              )}
                             </>
                           )}
                         </span>
-                        {s.isDeload && (
-                          <Badge variant="outline" className="h-4 shrink-0 px-1 text-[10px]">
-                            deload
-                          </Badge>
-                        )}
-                        <Input
-                          type="number"
-                          value={loadEdits[s.campaignWeekNumber] ?? String(s.loadPct)}
-                          onChange={(e) =>
-                            setLoadEdits((p) => ({ ...p, [s.campaignWeekNumber]: e.target.value }))
-                          }
-                          disabled={!applyCampaignLoad}
-                          className="h-6 w-16 shrink-0 text-xs"
-                        />
-                        <span className="w-3 shrink-0 text-muted-foreground">%</span>
+                        <span className="w-14 shrink-0 text-right text-muted-foreground">
+                          {s.targetM == null ? "—" : formatKm(s.targetM, 0)}
+                        </span>
+                        <span
+                          className={cn(
+                            "w-14 shrink-0 text-right",
+                            s.anchor === "relative" && s.targetM != null && "text-amber-600 dark:text-amber-500",
+                          )}
+                        >
+                          {s.resultM == null ? "—" : formatKm(s.resultM, 0)}
+                        </span>
+                        <span className="flex w-[76px] shrink-0 items-center justify-end gap-1">
+                          <Input
+                            type="number"
+                            value={loadEdits[s.campaignWeekNumber] ?? String(s.loadPct)}
+                            onChange={(e) =>
+                              setLoadEdits((p) => ({ ...p, [s.campaignWeekNumber]: e.target.value }))
+                            }
+                            disabled={!applyCampaignLoad}
+                            className="h-6 w-14 text-xs"
+                          />
+                          <span className="text-muted-foreground">%</span>
+                        </span>
                       </div>
                     ))}
                   </div>
+                  {volume.totalTargetM > 0 && (
+                    <div className="flex items-center gap-2 border-t px-3 py-1.5 text-xs">
+                      <span className="font-medium">Block total</span>
+                      <span className="ml-auto text-muted-foreground">
+                        target {formatKm(volume.totalTargetM, 0)}
+                      </span>
+                      <span className="w-14 text-right font-medium">{formatKm(volume.totalResultM, 0)}</span>
+                      <span className="w-[76px] text-right text-muted-foreground">
+                        {volume.totalDeltaPct == null
+                          ? ""
+                          : `${volume.totalDeltaPct >= 0 ? "+" : ""}${volume.totalDeltaPct.toFixed(0)}%`}
+                      </span>
+                    </div>
+                  )}
                 </div>
+
+                {loadingDrafts && (
+                  <p className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Measuring the template…
+                  </p>
+                )}
+
+                {estimatedShare > 0.15 && (
+                  <p className="flex gap-2 text-[11px] text-muted-foreground">
+                    <Info className="h-3.5 w-3.5 shrink-0 mt-px" />
+                    <span>
+                      {Math.round(estimatedShare * 100)}% of this template's distance comes from time-based targets
+                      converted at an assumed pace, not from prescribed distances. The kilometre figures above are an
+                      estimate to that extent.
+                    </span>
+                  </p>
+                )}
 
                 {plan.notes.map((n, i) => (
                   <p key={i} className="flex gap-2 text-[11px] text-muted-foreground">
@@ -502,6 +633,32 @@ export function FillBlockDialog({
                 <div className="text-lg font-bold">{collisions.length}</div>
                 <div className="text-[11px] text-muted-foreground">days with a clash</div>
               </div>
+            </div>
+
+            {/* Volume, restated at the point of commitment.
+                //
+                // The setup step showed it while the template was being
+                // chosen; repeating it here is deliberate, because skipping
+                // clashing days REMOVES distance and the block can quietly
+                // land under its target between one step and the next. */}
+            <div className="flex items-center gap-2 rounded-md border px-3 py-2 text-xs">
+              <span className="font-medium">Volume</span>
+              <span className="text-muted-foreground">
+                {volume.totalTargetM > 0
+                  ? `${formatKm(volume.totalResultM, 0)} against a campaign target of ${formatKm(volume.totalTargetM, 0)}`
+                  : `${formatKm(volume.totalResultM, 0)} — no campaign baseline to compare against`}
+              </span>
+              {volume.totalDeltaPct != null && Math.abs(volume.totalDeltaPct) >= 5 && (
+                <Badge variant="outline" className="ml-auto h-5 px-1.5 text-[10px]">
+                  {volume.totalDeltaPct >= 0 ? "+" : ""}
+                  {volume.totalDeltaPct.toFixed(0)}%
+                </Badge>
+              )}
+              {skippedM > 0 && (
+                <span className="ml-auto text-muted-foreground">
+                  {formatKm(skippedM, 0)} dropped to skipped days
+                </span>
+              )}
             </div>
 
             {collisions.length > 0 && (
@@ -600,7 +757,7 @@ export function FillBlockDialog({
               <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={busy}>
                 Cancel
               </Button>
-              <Button onClick={goToReview} disabled={busy || !template || filledSlots === 0}>
+              <Button onClick={goToReview} disabled={busy || !template || !rawDrafts || loadingDrafts || filledSlots === 0}>
                 {busy && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
                 Review
               </Button>
