@@ -17,7 +17,7 @@ import { CampaignTimeline, PRIORITY_STYLE } from "@/components/campaign-timeline
 import { WeekEditDialog, BaselineDialog } from "@/components/campaign-week-edit";
 import { EditCampaignDialog } from "@/components/campaign-edit";
 import { AddRacesPanel } from "@/components/campaign-race-picker";
-import { generateCampaign, type CampaignTarget, type TargetPriority, isValidIsoDate } from "@/lib/campaign-generator";
+import { generateCampaign, type CampaignTarget, type TargetPriority, isValidIsoDate, deriveTaperFloor } from "@/lib/campaign-generator";
 import { useMyRoles, useMyAthlete, useAuthUser } from "@/lib/use-auth";
 
 export const Route = createFileRoute("/_authenticated/app/campaign")({
@@ -538,6 +538,12 @@ function CreateCampaignDialog({
   const [taperStrategy, setTaperStrategy] = useState<"traditional" | "high_response" | "custom">("traditional");
   const [taperFrequencyMode, setTaperFrequencyMode] = useState<"fewer_days" | "same_days_shorter">("fewer_days");
   const [taperNeuro, setTaperNeuro] = useState(false);
+  const [taperRestDays, setTaperRestDays] = useState(1);
+  const [taperSessionCut, setTaperSessionCut] = useState<"minimal" | "moderate" | "large">("moderate");
+  // The percentage follows the structure. Overriding is possible but is a
+  // deliberate act, not the default way in.
+  const [floorOverride, setFloorOverride] = useState(false);
+  const derivedFloor = deriveTaperFloor(taperRestDays, taperSessionCut);
 
   /**
    * Applying an archetype sets the numbers; changing a number afterwards
@@ -554,12 +560,16 @@ function CreateCampaignDialog({
       setTaperShape("linear");
       setTaperFrequencyMode("fewer_days");
       setTaperNeuro(false);
+      setTaperRestDays(2);
+      setTaperSessionCut("moderate");
     } else if (v === "high_response") {
       setTaperDays(9);
       setTaperFloorPct(50);
       setTaperShape("gentle");
       setTaperFrequencyMode("same_days_shorter");
       setTaperNeuro(true);
+      setTaperRestDays(0);
+      setTaperSessionCut("large");
     }
   }
   // Days, not weeks. Coaches taper in days and a Monday grid was distorting
@@ -599,6 +609,9 @@ function CreateCampaignDialog({
         overloadBeforeKey: overloadKey,
         taperFrequencyMode,
         taperNeuromuscular: taperNeuro,
+        taperRestDaysAdded: taperRestDays,
+        taperSessionReduction: taperSessionCut,
+        taperFloorOverride: floorOverride,
         taperDays,
         keyTaperDays,
         baseProgression,
@@ -612,6 +625,7 @@ function CreateCampaignDialog({
       resetWeeks, targets, raceWeekReduction, taperFloorPct, taperShape,
       taperDays, keyTaperDays, baseProgression, buildProgression, baseQuality, buildQuality,
       overloadBefore, overloadLen, overloadKey, taperFrequencyMode, taperNeuro,
+      taperRestDays, taperSessionCut, floorOverride,
     ],
   );
 
@@ -644,7 +658,7 @@ function CreateCampaignDialog({
           reset_weeks: resetWeeks,
           transition_weeks: 0,
           race_week_reduction_pct: raceWeekReduction,
-          taper_floor_pct: taperFloorPct,
+          taper_floor_pct: floorOverride ? taperFloorPct : derivedFloor,
           taper_shape: taperShape,
           overload_weeks_before_race: overloadBefore,
           overload_block_weeks: overloadLen,
@@ -652,6 +666,8 @@ function CreateCampaignDialog({
           taper_strategy: taperStrategy,
           taper_frequency_mode: taperFrequencyMode,
           taper_neuromuscular: taperNeuro,
+          taper_rest_days_added: taperRestDays,
+          taper_session_reduction: taperSessionCut,
           taper_days: taperDays,
           key_taper_days: keyTaperDays,
           base_progression: baseProgression,
@@ -855,13 +871,36 @@ function CreateCampaignDialog({
             </div>
 
             <div className="grid sm:grid-cols-2 gap-3">
+              {/* Two independent dimensions, because they combine: two days
+                  off with barely shorter sessions and one day off with a big
+                  session cut reach a similar depth by different routes, and
+                  the route is what differs between athletes. */}
               <div>
-                <Label className="text-[11px]">Session frequency</Label>
-                <Select value={taperFrequencyMode} onValueChange={(v) => { setTaperFrequencyMode(v as any); setTaperStrategy("custom"); }}>
+                <Label className="text-[11px]">Extra rest days</Label>
+                <Select
+                  value={String(taperRestDays)}
+                  onValueChange={(v) => { setTaperRestDays(Number(v)); setTaperStrategy("custom"); }}
+                >
                   <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="fewer_days">Fewer training days</SelectItem>
-                    <SelectItem value="same_days_shorter">Same days, shorter sessions</SelectItem>
+                    <SelectItem value="0">None — same training days</SelectItem>
+                    <SelectItem value="1">One extra day off</SelectItem>
+                    <SelectItem value="2">Two extra days off</SelectItem>
+                    <SelectItem value="3">Three extra days off</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-[11px]">Session length</Label>
+                <Select
+                  value={taperSessionCut}
+                  onValueChange={(v) => { setTaperSessionCut(v as any); setTaperStrategy("custom"); }}
+                >
+                  <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="minimal">Barely shorter</SelectItem>
+                    <SelectItem value="moderate">Noticeably shorter</SelectItem>
+                    <SelectItem value="large">Substantially shorter</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -882,21 +921,41 @@ function CreateCampaignDialog({
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
                 <Label className="text-[11px]">Race week load</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    min={30}
-                    max={95}
-                    value={taperFloorPct}
-                    onChange={(e) => {
-                      setTaperFloorPct(Math.max(30, Math.min(95, Number(e.target.value) || 55)));
-                      // Any manual change means this is no longer the preset.
-                      setTaperStrategy("custom");
-                    }}
-                    className="h-8 w-20"
-                  />
-                  <span className="text-[11px] text-muted-foreground">% of a normal week</span>
-                </div>
+                {/* Shown as a RESULT by default. The structure below is the
+                    decision — a coach who knows the athlete needs two days off
+                    doesn't want to be told to add a third to hit a number. */}
+                {floorOverride ? (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={20}
+                      max={95}
+                      value={taperFloorPct}
+                      onChange={(e) => {
+                        setTaperFloorPct(Math.max(20, Math.min(95, Number(e.target.value) || 55)));
+                        setTaperStrategy("custom");
+                      }}
+                      className="h-8 w-20"
+                    />
+                    <span className="text-[11px] text-muted-foreground">% of a normal week</span>
+                  </div>
+                ) : (
+                  <div className="h-8 flex items-center gap-2">
+                    <span className="text-lg font-bold tabular-nums">{derivedFloor}%</span>
+                    <span className="text-[11px] text-muted-foreground">of a normal week</span>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!floorOverride) setTaperFloorPct(derivedFloor);
+                    setFloorOverride((v) => !v);
+                    setTaperStrategy("custom");
+                  }}
+                  className="text-[11px] text-muted-foreground hover:text-foreground underline mt-0.5"
+                >
+                  {floorOverride ? "Back to following the week structure" : "Set this number myself"}
+                </button>
               </div>
               <div>
                 <Label className="text-[11px]">Shape</Label>
