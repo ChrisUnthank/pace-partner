@@ -305,15 +305,26 @@ export function CampaignTimeline({
                       // Offset from the bar's own top, in its own height.
                       const rel = (1 - actualPct / w.loadPct) * 100;
                       const clamped = Math.max(-30, Math.min(96, rel));
-                      const over = actualPct > w.loadPct;
                       return (
                         <span
                           className="absolute left-0 right-0 pointer-events-none"
                           style={{ top: `${clamped}%` }}
                         >
+                          {/* White line with a dark edge, always.
+                              //
+                              // It was black when under and white when over,
+                              // which meant the mark changed colour according
+                              // to the thing it was measuring — and neither
+                              // read well on every phase fill. A white line
+                              // outlined in dark is legible on pale pink and
+                              // near-black alike, and the position already
+                              // says whether the week came in over or under. */}
                           <span
-                            className="block h-[2px] w-full"
-                            style={{ background: over ? "#ffffff" : "rgba(0,0,0,.55)" }}
+                            className="block h-[3px] w-full"
+                            style={{
+                              background: "#ffffff",
+                              boxShadow: "0 0 0 1px rgba(0,0,0,.6)",
+                            }}
                           />
                         </span>
                       );
@@ -380,7 +391,10 @@ export function CampaignTimeline({
         ))}
         {actualByWeek && actualByWeek.size > 0 && (
           <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
-            <span className="h-[2px] w-4 inline-block" style={{ background: "rgba(0,0,0,.55)" }} />
+            <span
+              className="h-[3px] w-4 inline-block"
+              style={{ background: "#ffffff", boxShadow: "0 0 0 1px rgba(0,0,0,.6)" }}
+            />
             Actual volume
           </span>
         )}
