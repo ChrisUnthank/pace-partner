@@ -11,9 +11,10 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { CalendarRange, ChevronRight, Flag, Plus, Sparkles, Target, Trash2 } from "lucide-react";
+import { CalendarRange, ChevronRight, Flag, Layers, Plus, Sparkles, Target, Trash2 } from "lucide-react";
 import { BucketTabStrip, COACHING_HUB_TABS } from "@/components/bucket-tab-strip";
-import { CampaignTimeline, PRIORITY_STYLE } from "@/components/campaign-timeline";
+import { CampaignTimeline, PRIORITY_STYLE, phaseStyle } from "@/components/campaign-timeline";
+import { FillBlockDialog, UnfillBlockDialog, type FillBlockTarget } from "@/components/campaign-fill-dialog";
 import { WeekEditDialog, BaselineDialog, PreviewWeekEditor } from "@/components/campaign-week-edit";
 import { EditCampaignDialog } from "@/components/campaign-edit";
 import { AddRacesPanel } from "@/components/campaign-race-picker";
@@ -222,7 +223,17 @@ function CampaignsPage() {
                   expanded={expandedId === c.id}
                   onToggle={() => setExpandedId(expandedId === c.id ? null : c.id)}
                   canWrite={isCoach || isManager || c.created_by === user?.id}
-                  onChanged={() => qc.invalidateQueries({ queryKey: ["campaigns", "all"] })}
+                  onChanged={() => {
+                    // A fill writes sessions and campaign_week_fills as well
+                    // as campaign rows, so invalidating the campaigns query
+                    // alone would leave the block list still saying "Not
+                    // filled" and the calendar without the new sessions.
+                    qc.invalidateQueries({ queryKey: ["campaigns", "all"] });
+                    qc.invalidateQueries({ queryKey: ["campaign-fills"] });
+                    qc.invalidateQueries({ queryKey: ["campaign-actuals"] });
+                    qc.invalidateQueries({ queryKey: ["campaign-fill-existing"] });
+                    qc.invalidateQueries({ queryKey: ["calendar"] });
+                  }}
                 />
               ))}
               {finished.length > 0 && (
@@ -323,7 +334,29 @@ function SavedCampaign({
   const [baselineOpen, setBaselineOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [fillTarget, setFillTarget] = useState<FillBlockTarget | null>(null);
+  const [unfillTarget, setUnfillTarget] = useState<{ label: string; weekIds: string[] } | null>(null);
   const baselineKm = campaign.baseline_weekly_km != null ? Number(campaign.baseline_weekly_km) : null;
+
+  // Which weeks already have a plan behind them.
+  //
+  // Read separately rather than joined onto the campaigns query, because that
+  // query fetches EVERY campaign the viewer can see and this is only needed
+  // for the one that's expanded. Joining it would pull every fill for every
+  // athlete on page load to serve one open panel.
+  const { data: fills } = useQuery({
+    queryKey: ["campaign-fills", campaign.id],
+    queryFn: async () => {
+      const weekIds = (campaign.campaign_weeks ?? []).map((w: any) => w.id);
+      if (weekIds.length === 0) return new Map<string, any>();
+      const { data, error } = await (supabase as any)
+        .from("campaign_week_fills")
+        .select("*")
+        .in("campaign_week_id", weekIds);
+      if (error) throw error;
+      return new Map((data ?? []).map((f: any) => [f.campaign_week_id, f]));
+    },
+  });
 
   // What actually happened. Derived, never stored — a campaign says what was
   // planned and sessions record what occurred, so storing an "actual" column
@@ -362,6 +395,9 @@ function SavedCampaign({
           isDeload: w.is_deload,
           isLocked: w.is_locked,
           id: w.id,
+          fillTemplateName: fills?.get(w.id)?.template_name ?? null,
+          fillTemplateWeek: fills?.get(w.id)?.template_week_number ?? null,
+          fillPlanId: fills?.get(w.id)?.athlete_plan_id ?? null,
           raceName:
             (campaign.campaign_targets ?? []).find((t: any) => {
               // UTC, matching the generator. Parsed as local midnight, a
@@ -383,7 +419,7 @@ function SavedCampaign({
               return d >= s && d < new Date(s.getTime() + 7 * 86400000);
             })?.priority ?? null,
         })),
-    [campaign],
+    [campaign, fills],
   );
 
   // Derived from the weeks, not read from campaign_blocks.
@@ -444,7 +480,98 @@ function SavedCampaign({
           actualByWeek={actualByWeek as any}
           onWeekClick={canWrite ? (w) => setEditingWeek(w) : undefined}
         />
+
+        {/* Blocks, as things you can act on.
+            //
+            // The timeline's block strip stays purely a picture — it is sized
+            // by week count, so a one-week block is a sliver with no room for
+            // a control, and hanging a button off it would work for long
+            // blocks and be unclickable for short ones. A list underneath
+            // gives every block the same affordance regardless of length. */}
+        {canWrite && blocks.length > 0 && (
+          <div className="rounded-md border">
+            <div className="flex items-center gap-2 border-b px-3 py-2 text-xs font-medium">
+              <Layers className="h-3.5 w-3.5" />
+              Fill blocks with sessions
+              <span className="ml-auto font-normal text-muted-foreground">
+                The campaign sets the shape; a plan template supplies the sessions.
+              </span>
+            </div>
+            <div className="divide-y">
+              {blocks.map((b: any) => {
+                const blockWeeks = (weeks as any[]).filter(
+                  (w) => w.weekStart >= b.startsOn && w.weekStart <= b.endsOn,
+                );
+                const filled = blockWeeks.filter((w) => w.fillTemplateName);
+                const names = [...new Set(filled.map((w) => w.fillTemplateName))];
+                return (
+                  <div key={`${b.blockOrder}-${b.startsOn}`} className="flex items-center gap-2 px-3 py-2 text-xs">
+                    <span
+                      className="h-3 w-3 shrink-0 rounded-sm"
+                      style={{ background: phaseStyle(b.phase).fill }}
+                    />
+                    <span className="w-28 shrink-0 truncate font-medium">{b.label}</span>
+                    <span className="w-14 shrink-0 text-muted-foreground">{b.weeks} wk</span>
+                    <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                      {filled.length === 0 ? (
+                        "Not filled"
+                      ) : filled.length === blockWeeks.length ? (
+                        <>Filled from {names.join(", ")}</>
+                      ) : (
+                        <>
+                          {filled.length} of {blockWeeks.length} weeks filled from {names.join(", ")}
+                        </>
+                      )}
+                    </span>
+                    {filled.length > 0 && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 shrink-0 px-2 text-xs"
+                        onClick={() =>
+                          setUnfillTarget({ label: b.label, weekIds: filled.map((w) => w.id).filter(Boolean) })
+                        }
+                      >
+                        Clear
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 shrink-0 px-2 text-xs"
+                      onClick={() =>
+                        setFillTarget({
+                          campaignId: campaign.id,
+                          athleteId: campaign.athlete_id,
+                          blockLabel: b.label,
+                          phase: b.phase,
+                          weeks: blockWeeks as any,
+                        })
+                      }
+                    >
+                      {filled.length > 0 ? "Refill" : "Fill"}
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
+
+      <FillBlockDialog
+        open={!!fillTarget}
+        onOpenChange={(v) => !v && setFillTarget(null)}
+        target={fillTarget}
+        onFilled={onChanged}
+      />
+      <UnfillBlockDialog
+        open={!!unfillTarget}
+        onOpenChange={(v) => !v && setUnfillTarget(null)}
+        blockLabel={unfillTarget?.label ?? ""}
+        campaignWeekIds={unfillTarget?.weekIds ?? []}
+        onDone={onChanged}
+      />
 
       <WeekEditDialog
         open={!!editingWeek}
