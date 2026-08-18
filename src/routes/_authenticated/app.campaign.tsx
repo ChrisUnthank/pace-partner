@@ -537,6 +537,9 @@ function CreateCampaignDialog({
   // The percentage follows the structure. Overriding is possible but is a
   // deliberate act, not the default way in.
   const [floorOverride, setFloorOverride] = useState(false);
+  // Existed as a column and was read by the generator, but no form ever wrote
+  // it — so every campaign has been deloading at the default 70%.
+  const [deloadPct, setDeloadPct] = useState(70);
   const derivedFloor = deriveTaperFloor(taperRestDays, taperSessionCut);
 
   /**
@@ -625,14 +628,14 @@ function CreateCampaignDialog({
         buildProgression,
         baseQualityPerWeek: baseQuality,
         buildQualityPerWeek: buildQuality,
-        loads: { raceWeekReduction },
+        loads: { raceWeekReduction, deload: deloadPct },
       }),
     [
       startsOn, loadWeeks, deloadWeeks, deloadsEnabled, taperWeeks, keyTaperWeeks,
       resetWeeks, targets, raceWeekReduction, taperFloorPct, taperShape,
       taperDays, keyTaperDays, baseProgression, buildProgression, baseQuality, buildQuality,
       overloadBefore, overloadLen, overloadKey, taperFrequencyMode, taperNeuro,
-      taperRestDays, taperSessionCut, floorOverride, endsOn,
+      taperRestDays, taperSessionCut, floorOverride, endsOn, deloadPct,
     ],
   );
 
@@ -679,6 +682,7 @@ function CreateCampaignDialog({
           reset_weeks: resetWeeks,
           transition_weeks: 0,
           race_week_reduction_pct: raceWeekReduction,
+          load_deload_pct: deloadPct,
           taper_floor_pct: floorOverride ? taperFloorPct : derivedFloor,
           taper_shape: taperShape,
           overload_weeks_before_race: overloadBefore,
@@ -1106,10 +1110,32 @@ function CreateCampaignDialog({
             </p>
           </div>
 
-          <label className="flex items-center gap-2 text-xs">
-            <input type="checkbox" checked={deloadsEnabled} onChange={(e) => setDeloadsEnabled(e.target.checked)} />
-            Deload on a fixed rhythm. Off means loading runs continuously and you add recovery yourself.
-          </label>
+          <div className="rounded-lg border p-3 space-y-2">
+            <label className="flex items-center gap-2 text-xs">
+              <input type="checkbox" checked={deloadsEnabled} onChange={(e) => setDeloadsEnabled(e.target.checked)} />
+              Deload on a fixed rhythm. Off means loading runs continuously and you add recovery yourself.
+            </label>
+            {deloadsEnabled && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <Label className="text-[11px]">Deload week load</Label>
+                <Input
+                  type="number"
+                  min={30}
+                  max={100}
+                  value={deloadPct}
+                  onChange={(e) => setDeloadPct(Math.max(30, Math.min(100, Number(e.target.value) || 70)))}
+                  className="h-8 w-20"
+                />
+                <span className="text-[11px] text-muted-foreground">
+                  % of a normal week
+                  {baselineNum ? ` — about ${Math.round((deloadPct / 100) * baselineNum)} km` : ""}
+                </span>
+              </div>
+            )}
+            {/* Separate from the taper deliberately: a deload is a recovery
+                week inside a training block, a taper is a sharpening. They
+                happen to be similar numbers and mean different things. */}
+          </div>
 
           {preview.weeks.length > 0 && (
             <div className="border rounded-lg p-3">
