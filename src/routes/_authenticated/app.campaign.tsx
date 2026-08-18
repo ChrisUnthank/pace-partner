@@ -532,6 +532,9 @@ function CreateCampaignDialog({
   // need the floor held higher.
   const [taperFloorPct, setTaperFloorPct] = useState(55);
   const [taperShape, setTaperShape] = useState<"linear" | "gentle" | "steep">("linear");
+  const [overloadBefore, setOverloadBefore] = useState(3);
+  const [overloadLen, setOverloadLen] = useState(1);
+  const [overloadKey, setOverloadKey] = useState(true);
   // Days, not weeks. Coaches taper in days and a Monday grid was distorting
   // it — see the generator for the arithmetic.
   const [taperDays, setTaperDays] = useState(14);
@@ -564,6 +567,9 @@ function CreateCampaignDialog({
         targets,
         taperFloorPct,
         taperShape,
+        overloadWeeksBeforeRace: overloadBefore,
+        overloadBlockWeeks: overloadLen,
+        overloadBeforeKey: overloadKey,
         taperDays,
         keyTaperDays,
         baseProgression,
@@ -576,6 +582,7 @@ function CreateCampaignDialog({
       startsOn, loadWeeks, deloadWeeks, deloadsEnabled, taperWeeks, keyTaperWeeks,
       resetWeeks, targets, raceWeekReduction, taperFloorPct, taperShape,
       taperDays, keyTaperDays, baseProgression, buildProgression, baseQuality, buildQuality,
+      overloadBefore, overloadLen, overloadKey,
     ],
   );
 
@@ -610,6 +617,9 @@ function CreateCampaignDialog({
           race_week_reduction_pct: raceWeekReduction,
           taper_floor_pct: taperFloorPct,
           taper_shape: taperShape,
+          overload_weeks_before_race: overloadBefore,
+          overload_block_weeks: overloadLen,
+          overload_before_key: overloadKey,
           taper_days: taperDays,
           key_taper_days: keyTaperDays,
           base_progression: baseProgression,
@@ -831,6 +841,23 @@ function CreateCampaignDialog({
                 Volume only — keeping intensity up through a taper is a matter of which sessions fill the week, not of
                 this number.
               </span>
+            </p>
+          </div>
+
+          <div className="rounded-lg border p-3 space-y-2">
+            <div className="text-xs font-medium">Overload blocks</div>
+            <div className="grid sm:grid-cols-3 gap-3">
+              <NumField label="Weeks before race" value={overloadBefore} onChange={setOverloadBefore} min={1} max={8} />
+              <NumField label="Block length (wk)" value={overloadLen} onChange={setOverloadLen} min={0} max={3} />
+              <label className="flex items-end gap-2 text-[11px] pb-2">
+                <input type="checkbox" checked={overloadKey} onChange={(e) => setOverloadKey(e.target.checked)} />
+                Also before key races
+              </label>
+            </div>
+            <p className="text-[11px] text-muted-foreground leading-snug">
+              The hardest training of the block, placed far enough out that the work is absorbed before the taper
+              starts. Sitting it against the taper asks the taper to shed that fatigue and sharpen at the same time.
+              Set the length to 0 to switch overload blocks off.
             </p>
           </div>
 
