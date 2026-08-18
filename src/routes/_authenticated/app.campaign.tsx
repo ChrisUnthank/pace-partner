@@ -573,6 +573,9 @@ function CreateCampaignDialog({
   // describing the athlete, not an afterthought on the saved view. The quick
   // control on the campaign card stays for adjusting it later.
   const [baselineKm, setBaselineKm] = useState<string>("");
+  // Optional. Blank means the campaign ends at the last race, which is the
+  // old behaviour; set it and the season runs on into transition weeks.
+  const [endsOn, setEndsOn] = useState<string>("");
   // Week loads set before the campaign exists. Held here and saved with
   // everything else; keyed by week NUMBER because within one unsaved draft the
   // numbering doesn't move.
@@ -597,6 +600,7 @@ function CreateCampaignDialog({
         postPeakRecoveryWeeks: 1,
         transitionWeeks: 0,
         targets,
+        endsOn: endsOn || null,
         taperFloorPct,
         taperShape,
         overloadWeeksBeforeRace: overloadBefore,
@@ -620,7 +624,7 @@ function CreateCampaignDialog({
       resetWeeks, targets, raceWeekReduction, taperFloorPct, taperShape,
       taperDays, keyTaperDays, baseProgression, buildProgression, baseQuality, buildQuality,
       overloadBefore, overloadLen, overloadKey, taperFrequencyMode, taperNeuro,
-      taperRestDays, taperSessionCut, floorOverride,
+      taperRestDays, taperSessionCut, floorOverride, endsOn,
     ],
   );
 
@@ -762,7 +766,7 @@ function CreateCampaignDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="grid sm:grid-cols-3 gap-3">
+          <div className="grid sm:grid-cols-4 gap-3">
             <div>
               <Label className="text-xs">Name</Label>
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="2026/27 track season" />
@@ -770,6 +774,13 @@ function CreateCampaignDialog({
             <div>
               <Label className="text-xs">Starts</Label>
               <Input type="date" value={startsOn} onChange={(e) => setStartsOn(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs">Ends (optional)</Label>
+              <Input type="date" value={endsOn} onChange={(e) => setEndsOn(e.target.value)} />
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                Blank ends at the last race. Set it to run on into transition weeks.
+              </p>
             </div>
             <div>
               <Label className="text-xs">Normal week (km)</Label>
