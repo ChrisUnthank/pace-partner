@@ -125,6 +125,18 @@ export interface CampaignSettings {
   /** Quality sessions per week. 0.5 = every second week. */
   baseQualityPerWeek?: number;
   buildQualityPerWeek?: number;
+  /**
+   * Explicit end date for the campaign.
+   *
+   * Without one the campaign ends at the last race, which has two problems: a
+   * season that finishes with transition weeks can't be expressed at all, and
+   * the whole shape shifts every time a race is added or moved. The window
+   * should be the coach's decision, with races placed INSIDE it.
+   *
+   * Ignored if it falls before the last race — a campaign can't end before
+   * the thing it's built around.
+   */
+  endsOn?: string | null;
   /** Down weeks at the START — the break after the previous season. */
   resetWeeks?: number;
   /** Recovery after a peak race before normal training resumes. */
@@ -458,7 +470,17 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
 
   const lastTarget = targets[targets.length - 1];
   const lastRaceIdx = weeksBetween(startMonday, mondayOf(lastTarget.raceDate));
-  const totalWeeks = lastRaceIdx + 1 + num(settings.transitionWeeks, 0, 0, 12);
+  // The window is the coach's, not the last race's. An explicit end extends
+  // the campaign past the final race; anything shorter than the races is
+  // ignored rather than truncating them.
+  const explicitEndIdx =
+    settings.endsOn && isValidIsoDate(settings.endsOn)
+      ? weeksBetween(startMonday, mondayOf(settings.endsOn))
+      : null;
+  const totalWeeks = Math.max(
+    lastRaceIdx + 1 + num(settings.transitionWeeks, 0, 0, 12),
+    explicitEndIdx != null ? explicitEndIdx + 1 : 0,
+  );
 
   // NaN-safe. `NaN < 3` is FALSE, so a NaN sailed straight past a plain
   // less-than check and reached `new Array(NaN)`, which throws
@@ -488,7 +510,8 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
   // this campaign rather than the tail of the last one.
   for (let i = 0; i < Math.min(resetWeeks, totalWeeks); i++) phases[i] = "reset";
 
-  // Trailing transition, only for campaigns that still use it.
+  // Everything after the final race is transition — the deliberate rest that
+  // ends a season, and the reason an explicit end date is worth having.
   for (let i = lastRaceIdx + 1; i < totalWeeks; i++) phases[i] = "transition";
 
   // Tapers. Length depends on what the race is FOR: a full taper before a
@@ -730,63 +753,12 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
   }
 
   // ---- blocks: contiguous runs of the same phase --------------------------
-  // Race weeks do NOT break a block.
-  //
-  // Treating every race as its own block produced 23 blocks for one track
-  // season, most of them a single week: "Base 2 (1wk) | Club 1500 (1wk) |
-  // Base 3 (1wk)". That is a list of weeks with labels, not a structure — and
-  // it misrepresents the training, since a club race during a base block is
-  // an event inside the block, not an interruption to it.
-  //
-  // Races are markers ON the timeline. Only a race that IS the point of a
-  // phase — a peak, sitting after its own taper — stands alone.
-  const blockPhase: Phase[] = weeks.map((w, i) => {
-    if (w.phase !== "race_week") return w.phase;
-    if (w.racePriority === "peak") return "race_week";
-    // Inherit the surrounding phase, preferring what came before.
-    for (let k = i - 1; k >= 0; k--) if (weeks[k].phase !== "race_week") return weeks[k].phase;
-    for (let k = i + 1; k < weeks.length; k++) if (weeks[k].phase !== "race_week") return weeks[k].phase;
-    return w.phase;
-  });
-
-  const blocks: GeneratedBlock[] = [];
-  let order = 1;
-  let cursor = 0;
-  const phaseCounts = new Map<Phase, number>();
-
-  while (cursor < weeks.length) {
-    const phase = blockPhase[cursor];
-    let end = cursor;
-    while (end + 1 < weeks.length && blockPhase[end + 1] === phase) end += 1;
-
-    const n = (phaseCounts.get(phase) ?? 0) + 1;
-    phaseCounts.set(phase, n);
-    const span = end - cursor + 1;
-    // Labels are written out rather than derived from the phase name, because
-    // two of them differ from it: 'reset' reads as "Down period", and 'peak'
-    // reads as "Overload" — the block is the heaviest TRAINING, not the race
-    // you're peaking for, and reusing the word for both confused exactly the
-    // people this is built for.
-    const baseLabel =
-      phase === "race_week"
-        ? weeks[cursor].raceName || "Race week"
-        : phase === "reset"
-          ? "Down period"
-          : phase === "peak"
-            ? "Overload"
-            : phase.charAt(0).toUpperCase() + phase.slice(1);
-    const willRepeat = blockPhase.filter((p) => p === phase).length > span;
-
-    blocks.push({
-      blockOrder: order++,
-      phase,
-      label: willRepeat && phase !== "race_week" ? `${baseLabel} ${n}` : baseLabel,
-      startsOn: weeks[cursor].weekStart,
-      endsOn: addDays(weeks[end].weekStart, 6),
-      weeks: span,
-    });
-    cursor = end + 1;
-  }
+  // Blocks come from deriveBlocks — the SAME function the saved-campaign view
+  // uses. There were two copies of this logic and they had already drifted:
+  // the deload split landed in one and not the other, so a freshly generated
+  // preview showed "Base 1 15wk" while the saved campaign showed proper
+  // four-week blocks. One implementation, one answer.
+  const blocks = deriveBlocks(weeks);
 
   if (!deloadsOn) {
     notes.push("Deloads are switched off, so loading weeks run continuously.");
@@ -874,7 +846,14 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
  * one-week slivers.
  */
 export function deriveBlocks(
-  weeks: { weekNumber: number; weekStart: string; phase: Phase; raceName?: string | null; racePriority?: string | null }[],
+  weeks: {
+    weekNumber: number;
+    weekStart: string;
+    phase: Phase;
+    isDeload?: boolean;
+    raceName?: string | null;
+    racePriority?: string | null;
+  }[],
 ): GeneratedBlock[] {
   if (weeks.length === 0) return [];
 
@@ -895,7 +874,19 @@ export function deriveBlocks(
   while (cursor < weeks.length) {
     const phase = blockPhase[cursor];
     let end = cursor;
-    while (end + 1 < weeks.length && blockPhase[end + 1] === phase) end += 1;
+    // A DELOAD ENDS A BLOCK.
+    //
+    // Without this, four-week cycles ran together into one bar — a "Build
+    // 11wk" with two deloads hatched inside it, which is not how a coach
+    // reads a season. Coaches think in 4-6 week blocks, and the deload is the
+    // last week of one, not a dip in the middle.
+    while (
+      end + 1 < weeks.length &&
+      blockPhase[end + 1] === phase &&
+      !weeks[end].isDeload // stop AFTER a deload, so it closes the block it belongs to
+    ) {
+      end += 1;
+    }
 
     const n = (seen.get(phase) ?? 0) + 1;
     seen.set(phase, n);
