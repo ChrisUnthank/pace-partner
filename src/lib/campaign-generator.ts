@@ -267,17 +267,46 @@ export function isValidIsoDate(iso: string | null | undefined): boolean {
   return !Number.isNaN(d.getTime());
 }
 
+/**
+ * A yyyy-mm-dd as UTC midnight.
+ *
+ * ALL date arithmetic here is UTC, deliberately. Local dates break twice:
+ *
+ *   toISOString() on a local midnight returns the previous day in any UTC+
+ *   zone, so Monday 14 September came back as the 13th;
+ *
+ *   and a span crossing a DST change is not a whole number of days. Melbourne
+ *   to March is 174.958 days, so `Math.floor(days / 7)` gave 24 weeks instead
+ *   of 25 and every date after the October change landed a week early.
+ *
+ * UTC has neither problem. These are calendar dates with no time component —
+ * a training week starts on a Monday wherever the athlete is — so there is
+ * nothing to gain from local time and two ways to get it wrong.
+ */
 function toDate(iso: string): Date {
-  return new Date(`${iso}T00:00:00`);
+  return new Date(`${iso}T00:00:00Z`);
 }
 
+/**
+ * A Date back to yyyy-mm-dd, using its LOCAL components.
+ *
+ * toISOString() converts to UTC first, and every date here is constructed as
+ * local midnight — which in any UTC+ zone is the previous afternoon in UTC.
+ * In Melbourne that meant Monday 14 September came back as 13 September, and
+ * because mondayOf() then walked back from a Sunday, whole weeks shifted.
+ *
+ * This is the `athletes.timezone` defaulting to UTC problem in a different
+ * disguise: anything that round-trips a date through UTC is wrong for an
+ * athlete who isn't in it.
+ */
 function isoOf(d: Date): string {
+  // Safe now that every Date here is UTC midnight.
   return d.toISOString().slice(0, 10);
 }
 
 function addDays(iso: string, days: number): string {
   const d = toDate(iso);
-  d.setDate(d.getDate() + days);
+  d.setUTCDate(d.getUTCDate() + days);
   return isoOf(d);
 }
 
@@ -287,14 +316,17 @@ export function mondayOf(iso: string): string {
   // callers treat an unparseable value as "not ready yet".
   if (!isValidIsoDate(iso)) return iso;
   const d = toDate(iso);
-  const dow = (d.getDay() + 6) % 7; // 0 = Monday
-  d.setDate(d.getDate() - dow);
+  const dow = (d.getUTCDay() + 6) % 7; // 0 = Monday
+  d.setUTCDate(d.getUTCDate() - dow);
   return isoOf(d);
 }
 
 function weeksBetween(startIso: string, endIso: string): number {
   const ms = toDate(endIso).getTime() - toDate(startIso).getTime();
-  return Math.floor(ms / (7 * 24 * 60 * 60 * 1000));
+  // ROUND, not floor. Both dates are Monday-aligned UTC midnights so the span
+  // is already a whole number of weeks; rounding means a stray hour from any
+  // future source can't silently drop one.
+  return Math.round(ms / (7 * 24 * 60 * 60 * 1000));
 }
 
 /**
@@ -363,8 +395,8 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
    */
   /** Mon=1 .. Sun=7 for an ISO date. */
   function dayOfWeek(iso: string): number {
-    const d = new Date(`${iso}T00:00:00`);
-    return ((d.getDay() + 6) % 7) + 1;
+    const d = toDate(iso);
+    return ((d.getUTCDay() + 6) % 7) + 1;
   }
 
   function taperLoad(weeksOut: number, len: number, peakLoad: number): number {
