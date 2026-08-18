@@ -17,7 +17,7 @@ import { CampaignTimeline, PRIORITY_STYLE } from "@/components/campaign-timeline
 import { WeekEditDialog, BaselineDialog, PreviewWeekEditor } from "@/components/campaign-week-edit";
 import { EditCampaignDialog } from "@/components/campaign-edit";
 import { AddRacesPanel } from "@/components/campaign-race-picker";
-import { generateCampaign, type CampaignTarget, type TargetPriority, isValidIsoDate, deriveTaperFloor } from "@/lib/campaign-generator";
+import { generateCampaign, deriveBlocks, type CampaignTarget, type TargetPriority, isValidIsoDate, deriveTaperFloor } from "@/lib/campaign-generator";
 import { useMyRoles, useMyAthlete, useAuthUser } from "@/lib/use-auth";
 
 export const Route = createFileRoute("/_authenticated/app/campaign")({
@@ -352,7 +352,12 @@ function SavedCampaign({
         .map((w: any) => ({
           weekNumber: w.week_number,
           weekStart: w.week_start,
-          phase: (campaign.campaign_blocks ?? []).find((b: any) => b.id === w.block_id)?.phase ?? "base",
+          // The override wins. Blocks are derived from the weeks below, so a
+          // changed week resplits the blocks around it automatically.
+          phase:
+            w.phase_override ??
+            ((campaign.campaign_blocks ?? []).find((b: any) => b.id === w.block_id)?.phase ?? "base"),
+          phaseOverride: w.phase_override ?? null,
           loadPct: Number(w.load_pct),
           isDeload: w.is_deload,
           isLocked: w.is_locked,
@@ -373,32 +378,13 @@ function SavedCampaign({
     [campaign],
   );
 
-  const blocks = useMemo(
-    () =>
-      [...(campaign.campaign_blocks ?? [])]
-        .sort((a: any, b: any) => a.block_order - b.block_order)
-        .map((b: any) => ({
-          blockOrder: b.block_order,
-          phase: b.phase,
-          // Campaigns created before the rename stored "Peak" as the block
-          // label. Remapped on read rather than migrated: it's a display
-          // string, and rewriting rows to change a word isn't worth the risk.
-          label: b.phase === "peak" ? "Overload" : (b.label ?? b.phase),
-          startsOn: b.starts_on,
-          endsOn: b.ends_on,
-          // COUNT the weeks that belong to this block rather than inferring
-          // it from the date span.
-          //
-          // The old arithmetic was Math.round(days / 7) + 1, and ends_on is
-          // the last week's START plus six days — so a 5-week block spans 34
-          // days, 34/7 = 4.857 rounds UP to 5, and +1 gave 6. Every block of
-          // any length reported one week too many, and flexGrow then sized it
-          // for a week that wasn't there, which is why a "6 week" label sat
-          // over five bars.
-          weeks: (campaign.campaign_weeks ?? []).filter((w: any) => w.block_id === b.id).length,
-        })),
-    [campaign],
-  );
+  // Derived from the weeks, not read from campaign_blocks.
+  //
+  // Once a single week's phase can be overridden, stored blocks and actual
+  // weeks drift apart — the stored block still claims six weeks of base while
+  // one of them is now an overload. Deriving keeps the strip honest and makes
+  // clearing an override merge the blocks back with no bookkeeping.
+  const blocks = useMemo(() => deriveBlocks(weeks as any), [weeks]);
 
   return (
     // No Card or title here — CampaignRow provides both. Repeating them would
