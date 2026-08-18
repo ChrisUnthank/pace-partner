@@ -632,6 +632,20 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
     );
   }
 
+  // What each race week WOULD have been, had there been no race in it.
+  //
+  // Race-week load was calculated as a percentage off the build-top figure no
+  // matter where the race fell, so a training race during a base block came
+  // out at 105% — heavier than the 100% base weeks either side of it. A race
+  // reduces the week it sits in; it does not replace it with a different
+  // block's load.
+  const hostPhase: Phase[] = phases.map((p, i) => {
+    if (p !== "race_week") return p;
+    for (let k = i - 1; k >= 0; k--) if (phases[k] !== "race_week") return phases[k];
+    for (let k = i + 1; k < phases.length; k++) if (phases[k] !== "race_week") return phases[k];
+    return "base";
+  });
+
   // ---- weeks -------------------------------------------------------------
   const weeks: GeneratedWeek[] = [];
   let sinceDeload = 0;
@@ -681,7 +695,18 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
       // A race week is NOT a deload. A training race often keeps its volume
       // entirely and only changes session type; the reduction is the coach's
       // setting, applied to a normal week rather than dropped to a deload.
-      const normal = L.buildTop;
+      // The load this week would have carried without the race in it.
+      const host = hostPhase[i];
+      const normal =
+        host === "build" || host === "peak"
+          ? ((settings.buildProgression ?? "progressive") === "flat"
+              ? L.buildTop
+              : rampe(L.buildStart, L.buildTop, "build"))
+          : host === "reset" || host === "transition"
+            ? L.reset
+            : ((settings.baseProgression ?? "progressive") === "flat"
+                ? L.baseTop
+                : rampe(L.baseStart, L.baseTop, "base"));
       // For a PEAK race, blend across the week rather than holding the taper
       // floor for all seven days.
       //
