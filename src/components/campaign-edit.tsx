@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { Plus, Trash2, Flag, Lock } from "lucide-react";
 import { CampaignTimeline, PRIORITY_STYLE } from "@/components/campaign-timeline";
+import { PreviewWeekEditor } from "@/components/campaign-week-edit";
 import { generateCampaign, type CampaignTarget, type TargetPriority, isValidIsoDate } from "@/lib/campaign-generator";
 import { AddRacesPanel } from "@/components/campaign-race-picker";
 
@@ -64,6 +65,17 @@ export function EditCampaignDialog({
   const [overloadLen, setOverloadLen] = useState(campaign?.overload_block_weeks ?? 1);
   const [targets, setTargets] = useState<CampaignTarget[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
+  // Baseline is editable here as well as on the campaign card. It's part of
+  // describing the athlete, so it belongs with the rest of the settings — the
+  // card keeps its own control for quick adjustment without opening this.
+  const [baselineKm, setBaselineKm] = useState<string>(
+    campaign?.baseline_weekly_km != null ? String(campaign.baseline_weekly_km) : "",
+  );
+  // Same override machinery as the create dialog: the preview is regenerated
+  // from settings, so a database write would be overwritten on the next
+  // keystroke. Held locally and saved with everything else.
+  const [weekOverrides, setWeekOverrides] = useState<Map<number, { loadPct: number; isDeload: boolean }>>(new Map());
+  const [editingPreviewWeek, setEditingPreviewWeek] = useState<any>(null);
   const [saving, setSaving] = useState(false);
 
   // Re-seed whenever a different campaign is opened, or the same one is
@@ -87,6 +99,8 @@ export function EditCampaignDialog({
     setBaseQuality(Number(campaign.base_quality_per_week ?? 0.5));
     setBuildQuality(Number(campaign.build_quality_per_week ?? 2));
     setRaceWeekReduction(campaign.race_week_reduction_pct ?? 15);
+    setBaselineKm(campaign.baseline_weekly_km != null ? String(campaign.baseline_weekly_km) : "");
+    setWeekOverrides(new Map());
     setOverloadBefore(campaign.overload_weeks_before_race ?? 3);
     setOverloadLen(campaign.overload_block_weeks ?? 1);
     setTargets(
@@ -132,6 +146,17 @@ export function EditCampaignDialog({
       taperShape, baseProgression, buildProgression, baseQuality, buildQuality, resetWeeks,
       targets, raceWeekReduction, overloadBefore, overloadLen,
     ],
+  );
+
+  const baselineNum = baselineKm.trim() === "" ? null : Number(baselineKm);
+
+  const previewWeeks = useMemo(
+    () =>
+      preview.weeks.map((w) => {
+        const o = weekOverrides.get(w.weekNumber);
+        return o ? { ...w, loadPct: o.loadPct, isDeload: o.isDeload, isLocked: true } : w;
+      }),
+    [preview.weeks, weekOverrides],
   );
 
   const lockedWeeks = useMemo(
@@ -189,6 +214,7 @@ export function EditCampaignDialog({
           build_quality_per_week: buildQuality,
           reset_weeks: resetWeeks,
           race_week_reduction_pct: raceWeekReduction,
+          baseline_weekly_km: baselineNum,
         })
         .eq("id", campaign.id);
       if (cErr) throw cErr;
@@ -235,7 +261,7 @@ export function EditCampaignDialog({
       // 4. Weeks written back, with preserved values winning over generated
       //    ones and is_locked set so the next regeneration protects them too.
       const { error: wErr } = await (supabase as any).from("campaign_weeks").insert(
-        preview.weeks.map((w) => {
+        previewWeeks.map((w) => {
           const keep = preserved.get(w.weekStart);
           return {
             campaign_id: campaign.id,
@@ -246,7 +272,9 @@ export function EditCampaignDialog({
             is_deload: keep ? keep.is_deload : w.isDeload,
             quality_sessions: keep ? keep.quality_sessions : w.qualitySessions,
             notes: keep ? keep.notes : null,
-            is_locked: !!keep,
+            // Locked if it was already a hand edit, or has just been changed
+            // in this dialog.
+            is_locked: !!keep || weekOverrides.has(w.weekNumber),
           };
         }),
       );
@@ -279,7 +307,7 @@ export function EditCampaignDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="grid sm:grid-cols-3 gap-3">
+          <div className="grid sm:grid-cols-4 gap-3">
             <div>
               <Label className="text-xs">Name</Label>
               <Input value={name} onChange={(e) => setName(e.target.value)} />
@@ -287,6 +315,17 @@ export function EditCampaignDialog({
             <div>
               <Label className="text-xs">Starts</Label>
               <Input type="date" value={startsOn} onChange={(e) => setStartsOn(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs">Normal week (km)</Label>
+              <Input
+                type="number"
+                min={0}
+                max={400}
+                value={baselineKm}
+                onChange={(e) => setBaselineKm(e.target.value)}
+                placeholder="e.g. 90"
+              />
             </div>
             <div>
               <Label className="text-xs">Status</Label>
@@ -434,9 +473,32 @@ export function EditCampaignDialog({
                 {lockedWeeks.length > 0 && ` · ${lockedWeeks.length} edited week${lockedWeeks.length === 1 ? "" : "s"} kept`}
               </div>
               <CampaignTimeline
-                weeks={preview.weeks}
+                weeks={previewWeeks}
                 blocks={preview.blocks}
-                baselineKm={campaign?.baseline_weekly_km != null ? Number(campaign.baseline_weekly_km) : null}
+                baselineKm={baselineNum}
+                onWeekClick={(w) => setEditingPreviewWeek(w)}
+              />
+              <PreviewWeekEditor
+                week={editingPreviewWeek}
+                baselineKm={baselineNum}
+                totalWeeks={previewWeeks.length}
+                onClose={() => setEditingPreviewWeek(null)}
+                onApply={(from, through, loadPct, isDeload) => {
+                  setWeekOverrides((prev) => {
+                    const next = new Map(prev);
+                    for (let n = from; n <= through; n++) next.set(n, { loadPct, isDeload });
+                    return next;
+                  });
+                  setEditingPreviewWeek(null);
+                }}
+                onClear={(n) => {
+                  setWeekOverrides((prev) => {
+                    const next = new Map(prev);
+                    next.delete(n);
+                    return next;
+                  });
+                  setEditingPreviewWeek(null);
+                }}
               />
             </div>
           )}
