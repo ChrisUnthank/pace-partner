@@ -49,6 +49,7 @@ export function EditCampaignDialog({
   const [status, setStatus] = useState<string>(campaign?.status ?? "draft");
   const [startsOn, setStartsOn] = useState(campaign?.starts_on ?? "");
   const [endsOn, setEndsOn] = useState(campaign?.ends_on ?? "");
+  const [transitionWeeks, setTransitionWeeks] = useState(campaign?.transition_weeks ?? 0);
   const [resetWeeks, setResetWeeks] = useState(campaign?.reset_weeks ?? 2);
   const [loadWeeks, setLoadWeeks] = useState(campaign?.load_weeks ?? 3);
   const [deloadWeeks, setDeloadWeeks] = useState(campaign?.deload_weeks ?? 1);
@@ -76,7 +77,7 @@ export function EditCampaignDialog({
   // Same override machinery as the create dialog: the preview is regenerated
   // from settings, so a database write would be overwritten on the next
   // keystroke. Held locally and saved with everything else.
-  const [weekOverrides, setWeekOverrides] = useState<Map<number, { loadPct: number; isDeload: boolean }>>(new Map());
+  const [weekOverrides, setWeekOverrides] = useState<Map<number, { loadPct: number; isDeload: boolean; phase?: string | null }>>(new Map());
   const [editingPreviewWeek, setEditingPreviewWeek] = useState<any>(null);
   const [saving, setSaving] = useState(false);
 
@@ -89,6 +90,7 @@ export function EditCampaignDialog({
     setStatus(campaign.status ?? "draft");
     setStartsOn(campaign.starts_on ?? "");
     setEndsOn(campaign.ends_on ?? "");
+    setTransitionWeeks(campaign.transition_weeks ?? 0);
     setResetWeeks(campaign.reset_weeks ?? 2);
     setLoadWeeks(campaign.load_weeks ?? 3);
     setDeloadWeeks(campaign.deload_weeks ?? 1);
@@ -141,15 +143,16 @@ export function EditCampaignDialog({
         buildQualityPerWeek: buildQuality,
         resetWeeks,
         postPeakRecoveryWeeks: 1,
-        transitionWeeks: 0,
+
         targets,
         endsOn: endsOn || null,
+        transitionWeeks,
         loads: { raceWeekReduction, deload: deloadPct },
       }),
     [
       startsOn, loadWeeks, deloadWeeks, deloadsEnabled, taperDays, keyTaperDays, taperFloorPct,
       taperShape, baseProgression, buildProgression, baseQuality, buildQuality, resetWeeks,
-      targets, raceWeekReduction, overloadBefore, overloadLen, endsOn, deloadPct,
+      targets, raceWeekReduction, overloadBefore, overloadLen, endsOn, deloadPct, transitionWeeks,
     ],
   );
 
@@ -159,7 +162,9 @@ export function EditCampaignDialog({
     () =>
       preview.weeks.map((w) => {
         const o = weekOverrides.get(w.weekNumber);
-        return o ? { ...w, loadPct: o.loadPct, isDeload: o.isDeload, isLocked: true } : w;
+        return o
+          ? { ...w, loadPct: o.loadPct, isDeload: o.isDeload, phase: (o.phase ?? w.phase) as any, isLocked: true }
+          : w;
       }),
     [preview.weeks, weekOverrides],
   );
@@ -207,6 +212,7 @@ export function EditCampaignDialog({
           deloads_enabled: deloadsEnabled,
           taper_weeks: Math.ceil(taperDays / 7),
           key_taper_weeks: Math.ceil(keyTaperDays / 7),
+          transition_weeks: transitionWeeks,
           taper_days: taperDays,
           key_taper_days: keyTaperDays,
           taper_floor_pct: taperFloorPct,
@@ -281,6 +287,7 @@ export function EditCampaignDialog({
             // Locked if it was already a hand edit, or has just been changed
             // in this dialog.
             is_locked: !!keep || weekOverrides.has(w.weekNumber),
+            phase_override: weekOverrides.get(w.weekNumber)?.phase ?? null,
           };
         }),
       );
@@ -425,6 +432,7 @@ export function EditCampaignDialog({
 
           <div className="grid sm:grid-cols-3 lg:grid-cols-6 gap-3">
             <Num label="Down weeks" value={resetWeeks} set={setResetWeeks} min={0} max={8} />
+            <Num label="Transition wk" value={transitionWeeks} set={setTransitionWeeks} min={0} max={8} />
             <Num label="Load weeks" value={loadWeeks} set={setLoadWeeks} min={1} max={6} />
             <Num label="Deload weeks" value={deloadWeeks} set={setDeloadWeeks} min={0} max={2} />
             <Num label="Peak taper (days)" value={taperDays} set={setTaperDays} min={3} max={35} />
@@ -494,10 +502,10 @@ export function EditCampaignDialog({
                 baselineKm={baselineNum}
                 totalWeeks={previewWeeks.length}
                 onClose={() => setEditingPreviewWeek(null)}
-                onApply={(from, through, loadPct, isDeload) => {
+                onApply={(from, through, loadPct, isDeload, phase) => {
                   setWeekOverrides((prev) => {
                     const next = new Map(prev);
-                    for (let n = from; n <= through; n++) next.set(n, { loadPct, isDeload });
+                    for (let n = from; n <= through; n++) next.set(n, { loadPct, isDeload, phase });
                     return next;
                   });
                   setEditingPreviewWeek(null);
