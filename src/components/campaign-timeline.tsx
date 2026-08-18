@@ -166,9 +166,20 @@ export function CampaignTimeline({
       <div className="w-full">
         <div className="w-full">
           {/* Race flags, above the bars */}
-          <div className="flex items-end gap-1 h-8">
+          {/* Every row is the SAME GRID.
+              //
+              // These were flex rows: weeks as flex-1 items, blocks sized by
+              // flexGrow. That cannot align, because the rows hold different
+              // numbers of items and therefore different numbers of gaps —
+              // flex shares out what remains AFTER gaps, so the block strip
+              // slides further from the bars the more blocks there are.
+              //
+              // One grid with one column per week fixes it by construction: a
+              // block simply spans its columns, and the gaps line up because
+              // there is only one set of them. */}
+          <div className="items-end h-8" style={{ display: "grid", gridTemplateColumns: `repeat(${weeks.length}, minmax(0, 1fr))`, gap: 4 }}>
             {weeks.map((w) => (
-              <div key={`flag-${w.weekNumber}`} className="flex-1 min-w-0 flex justify-center">
+              <div key={`flag-${w.weekNumber}`} className="min-w-0 flex justify-center">
                 {w.raceName && (
                   <span
                     className="inline-flex items-center gap-0.5 text-[10px] px-1 py-0.5 rounded"
@@ -186,7 +197,7 @@ export function CampaignTimeline({
           </div>
 
           {/* The bars themselves */}
-          <div className="flex items-end gap-1 h-40">
+          <div className="items-end h-40" style={{ display: "grid", gridTemplateColumns: `repeat(${weeks.length}, minmax(0, 1fr))`, gap: 4 }}>
             {weeks.map((w) => {
               const style = phaseStyle(w.phase);
               const pct = (w.loadPct / maxLoad) * 100;
@@ -198,7 +209,7 @@ export function CampaignTimeline({
                   // Not a button visually when there's nothing to click — an
                   // athlete viewing a coach's campaign shouldn't get hover
                   // affordances for an action that doesn't exist.
-                  className={`flex-1 min-w-0 flex flex-col justify-end h-full group relative ${
+                  className={`min-w-0 flex flex-col justify-end h-full group relative ${
                     onWeekClick ? "cursor-pointer" : "cursor-default"
                   }`}
                   disabled={!onWeekClick}
@@ -298,11 +309,11 @@ export function CampaignTimeline({
               into noise, so past 20 weeks only every other one is printed.
               The bars themselves stay one-per-week — it's the labels that
               thin out, not the data. */}
-          <div className="flex gap-1 mt-1">
+          <div className="mt-1" style={{ display: "grid", gridTemplateColumns: `repeat(${weeks.length}, minmax(0, 1fr))`, gap: 4 }}>
             {weeks.map((w, i) => (
               <div
                 key={`n-${w.weekNumber}`}
-                className="flex-1 min-w-0 text-center text-[10px] text-muted-foreground overflow-hidden"
+                className="min-w-0 text-center text-[10px] text-muted-foreground overflow-hidden"
               >
                 {weeks.length <= 20 || i % 2 === 0 ? `W${w.weekNumber}` : ""}
               </div>
@@ -310,20 +321,22 @@ export function CampaignTimeline({
           </div>
 
           {/* Block strip */}
-          <div className="flex gap-1 mt-1">
+          <div className="mt-1" style={{ display: "grid", gridTemplateColumns: `repeat(${weeks.length}, minmax(0, 1fr))`, gap: 4 }}>
             {weeks.map((w, i) => {
               const block = spans[i];
               // A week covered by a block that started earlier renders nothing
-              // — the block's own cell spans it via flexGrow.
+              // — the block's own cell spans those columns.
               if (!block) return null;
               return (
                 <div
                   key={`b-${w.weekNumber}`}
-                  // flexGrow proportional to the block's length, so blocks
-                  // stay aligned with their weeks at any container width.
-                  // Fixed pixel widths broke the moment the bars stopped
-                  // being 48px each.
-                  style={{ flexGrow: block.weeks, flexBasis: 0, background: phaseStyle(block.phase).fill }}
+                  // Spans exactly the columns its weeks occupy. Clamped to
+                  // what's left so a block whose stored length disagrees with
+                  // the weeks on screen can't overflow the grid.
+                  style={{
+                    gridColumn: `span ${Math.max(1, Math.min(block.weeks, weeks.length - i))}`,
+                    background: phaseStyle(block.phase).fill,
+                  }}
                   className="rounded text-[10px] text-white px-1.5 py-1 leading-tight overflow-hidden min-w-0"
                   title={phaseStyle(block.phase).blurb}
                 >
