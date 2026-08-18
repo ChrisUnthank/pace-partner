@@ -6,6 +6,7 @@ import {
   applyCollisionPolicy,
   computeCampaignWriteBacks,
   buildFillRows,
+  fillVolumeSummary,
   defaultAlignmentForPhase,
   isIsoDate,
   type FillTargetWeek,
@@ -205,6 +206,169 @@ describe("buildFillPlan — load bridging", () => {
     expect(p.slots.map((s) => s.volumePct)).toEqual([0, 0, 0]);
     expect(p.slots.map((s) => s.loadPct)).toEqual([100, 130, 70]); // carried, not applied
     expect(p.notes.some((n) => n.includes("Campaign load is turned off"))).toBe(true);
+  });
+});
+
+describe("buildFillPlan — absolute anchoring against the campaign baseline", () => {
+  // A 40 km/week template filling a campaign built on 60 km/week. Under the
+  // old relative bridge this produced 40 km weeks while the timeline said 60,
+  // and nothing anywhere said so.
+  const templateVol = new Map([
+    [1, 40000],
+    [2, 40000],
+    [3, 40000],
+  ]);
+
+  it("scales the template to hit the campaign's actual kilometres", () => {
+    const p = buildFillPlan({
+      weeks: blockOf(3, [100, 110, 70]),
+      templateDurationWeeks: 3,
+      alignment: "head",
+      shortfall: "repeat",
+      applyCampaignLoad: true,
+      baselineKm: 60,
+      templateWeekVolumeM: templateVol,
+    });
+    expect(p.slots.map((s) => s.anchor)).toEqual(["absolute", "absolute", "absolute"]);
+    expect(p.slots.map((s) => s.targetM)).toEqual([60000, 66000, 42000]);
+    // 40 km scaled to 60 km is +50%, not the -0% the relative bridge gave.
+    expect(p.slots[0].volumePct).toBeCloseTo(50);
+    expect(p.slots[1].volumePct).toBeCloseTo(65);
+    expect(p.slots[2].volumePct).toBeCloseTo(5);
+    p.slots.forEach((s) => expect(s.resultM).toBeCloseTo(s.targetM!, 5));
+  });
+
+  it("warns when the template is far off what the campaign asks for", () => {
+    const p = buildFillPlan({
+      weeks: blockOf(3, [100, 100, 100]),
+      templateDurationWeeks: 3,
+      alignment: "head",
+      shortfall: "repeat",
+      applyCampaignLoad: true,
+      baselineKm: 60,
+      templateWeekVolumeM: templateVol,
+    });
+    expect(p.notes.some((n) => n.includes("UNDER"))).toBe(true);
+  });
+
+  it("says nothing about a gap when the template already fits", () => {
+    const p = buildFillPlan({
+      weeks: blockOf(3, [100, 100, 100]),
+      templateDurationWeeks: 3,
+      alignment: "head",
+      shortfall: "repeat",
+      applyCampaignLoad: true,
+      baselineKm: 40,
+      templateWeekVolumeM: templateVol,
+    });
+    expect(p.notes.some((n) => n.includes("UNDER") || n.includes("OVER"))).toBe(false);
+    p.slots.forEach((s) => expect(s.volumePct).toBeCloseTo(0));
+  });
+
+  it("flags weeks needing extreme scaling", () => {
+    const p = buildFillPlan({
+      weeks: blockOf(2, [100, 100]),
+      templateDurationWeeks: 2,
+      alignment: "head",
+      shortfall: "repeat",
+      applyCampaignLoad: true,
+      baselineKm: 100,
+      templateWeekVolumeM: new Map([[1, 30000], [2, 30000]]),
+    });
+    expect(p.notes.some((n) => n.includes("more than 60%"))).toBe(true);
+  });
+
+  it("falls back to relative with no baseline, and says why", () => {
+    const p = buildFillPlan({
+      weeks: blockOf(2, [100, 120]),
+      templateDurationWeeks: 2,
+      alignment: "head",
+      shortfall: "repeat",
+      applyCampaignLoad: true,
+      baselineKm: null,
+      templateWeekVolumeM: templateVol,
+    });
+    expect(p.slots.map((s) => s.anchor)).toEqual(["relative", "relative"]);
+    expect(p.slots.map((s) => s.volumePct)).toEqual([0, 20]);
+    expect(p.notes.some((n) => n.includes("no weekly baseline"))).toBe(true);
+  });
+
+  it("falls back to relative for a template week with nothing measurable — never divides by zero", () => {
+    const p = buildFillPlan({
+      weeks: blockOf(2, [100, 110]),
+      templateDurationWeeks: 2,
+      alignment: "head",
+      shortfall: "repeat",
+      applyCampaignLoad: true,
+      baselineKm: 60,
+      templateWeekVolumeM: new Map([[1, 40000], [2, 0]]),
+    });
+    expect(p.slots[0].anchor).toBe("absolute");
+    expect(p.slots[1].anchor).toBe("relative");
+    expect(Number.isFinite(p.slots[1].volumePct)).toBe(true);
+  });
+
+  it("a repeat gets its OWN week's target, not the one it copies", () => {
+    const p = buildFillPlan({
+      weeks: blockOf(3, [100, 100, 130]),
+      templateDurationWeeks: 2,
+      alignment: "head",
+      shortfall: "repeat",
+      applyCampaignLoad: true,
+      baselineKm: 50,
+      templateWeekVolumeM: new Map([[1, 50000], [2, 50000]]),
+    });
+    expect(p.slots[2].templateWeekNumber).toBe(1);
+    expect(p.slots[2].targetM).toBe(65000);
+    expect(p.slots[2].volumePct).toBeCloseTo(30);
+  });
+
+  it("campaign load off means no scaling at all, whatever the baseline says", () => {
+    const p = buildFillPlan({
+      weeks: blockOf(2, [100, 130]),
+      templateDurationWeeks: 2,
+      alignment: "head",
+      shortfall: "repeat",
+      applyCampaignLoad: false,
+      baselineKm: 60,
+      templateWeekVolumeM: templateVol,
+    });
+    expect(p.slots.map((s) => s.anchor)).toEqual(["none", "none"]);
+    expect(p.slots.map((s) => s.volumePct)).toEqual([0, 0]);
+  });
+});
+
+describe("fillVolumeSummary", () => {
+  it("totals target against result and reports the gap", () => {
+    const p = buildFillPlan({
+      weeks: blockOf(3, [100, 110, 70]),
+      templateDurationWeeks: 3,
+      alignment: "head",
+      shortfall: "repeat",
+      applyCampaignLoad: true,
+      baselineKm: 60,
+      templateWeekVolumeM: new Map([[1, 40000], [2, 40000], [3, 40000]]),
+    });
+    const s = fillVolumeSummary(p.slots);
+    expect(s.rows).toHaveLength(3);
+    expect(s.totalTargetM).toBe(168000);
+    expect(s.totalResultM).toBeCloseTo(168000, 3);
+    expect(s.totalDeltaPct).toBeCloseTo(0);
+    expect(s.anyRelative).toBe(false);
+  });
+
+  it("reports relative weeks so the UI can caveat them", () => {
+    const p = buildFillPlan({
+      weeks: blockOf(2),
+      templateDurationWeeks: 2,
+      alignment: "head",
+      shortfall: "repeat",
+      applyCampaignLoad: true,
+      baselineKm: null,
+    });
+    const s = fillVolumeSummary(p.slots);
+    expect(s.anyRelative).toBe(true);
+    expect(s.totalDeltaPct).toBeNull();
   });
 });
 
