@@ -105,6 +105,17 @@ export interface CampaignSettings {
   overloadBlockWeeks?: number;
   /** Key races get their own overload block too, not just peaks. */
   overloadBeforeKey?: boolean;
+  /**
+   * How the taper week is STRUCTURED, as opposed to how much volume it holds.
+   *
+   * A traditional taper cuts days from the week; a short one keeps every day
+   * and shortens each session. Same weekly volume, entirely different week —
+   * and load_pct cannot tell them apart, so it's carried through as intent
+   * for whoever fills the block rather than folded into a number.
+   */
+  taperFrequencyMode?: "fewer_days" | "same_days_shorter";
+  /** Keep tone through the taper with frequent, very short speed inputs. */
+  taperNeuromuscular?: boolean;
   /** Quality sessions per week. 0.5 = every second week. */
   baseQualityPerWeek?: number;
   buildQualityPerWeek?: number;
@@ -719,6 +730,20 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
 
   if (!deloadsOn) {
     notes.push("Deloads are switched off, so loading weeks run continuously.");
+  }
+
+  // Taper structure, stated rather than computed. The campaign sets the
+  // volume; this says what the sessions inside it should look like, which is
+  // the half of a taper that a percentage can't express.
+  if (weeks.some((w) => w.phase === "taper")) {
+    const freq =
+      (settings.taperFrequencyMode ?? "fewer_days") === "same_days_shorter"
+        ? "Keep the same number of training days through the taper and shorten each session"
+        : "Reduce the number of training days through the taper";
+    const tone = settings.taperNeuromuscular
+      ? ", with frequent short speed inputs to hold neuromuscular tone."
+      : ", letting neuromuscular tone relax.";
+    notes.push(freq + tone);
   }
 
   // Flag races that fall MIDWEEK, where the taper runs materially longer than
