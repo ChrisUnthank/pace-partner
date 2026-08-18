@@ -546,6 +546,7 @@ function SavedCampaign({
                           blockLabel: b.label,
                           phase: b.phase,
                           weeks: blockWeeks as any,
+                          baselineKm,
                         })
                       }
                     >
