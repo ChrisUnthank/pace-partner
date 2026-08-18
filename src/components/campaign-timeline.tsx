@@ -208,7 +208,7 @@ export function CampaignTimeline({
                       : `${w.loadPct}%`
                   }${w.isDeload ? " · deload" : ""}${
                     w.qualitySessions
-                      ? ` · ${w.qualitySessions === 0.5 ? "quality every 2nd week" : `${w.qualitySessions} quality`}`
+                      ? ` · ${w.qualitySessions} quality session${w.qualitySessions === 1 ? "" : "s"}`
                       : ""
                   }${
                     actualByWeek?.get(w.weekStart)
@@ -242,10 +242,15 @@ export function CampaignTimeline({
                         w.isDeload
                           ? "repeating-linear-gradient(45deg, rgba(255,255,255,.35) 0 3px, transparent 3px 6px)"
                           : null,
+                        // Marks weeks that actually CARRY quality work. The
+                        // generator now distributes fractional densities, so
+                        // a week says 1 or 0 rather than 0.33 — which means a
+                        // stripe here is a real session, not an average, and
+                        // the gaps are real weeks without one.
                         w.qualitySessions && w.qualitySessions > 0
                           ? `repeating-linear-gradient(90deg, rgba(255,255,255,.28) 0 1.5px, transparent 1.5px ${Math.max(
-                              4,
-                              Math.round(14 / Math.max(0.5, w.qualitySessions)),
+                              5,
+                              Math.round(14 / w.qualitySessions),
                             )}px)`
                           : null,
                       ]
