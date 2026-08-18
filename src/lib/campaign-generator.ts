@@ -693,12 +693,19 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
       const dow = race ? dayOfWeek(race.raceDate) : 7;
       const postRaceDays = 7 - dow;
       const postRaceLoad = Math.round(taperFloor * 1.15); // easing back in
-      const raceUsesDays = race && (race.priority === "peak" ? taperDays != null : keyTaperDays != null);
+      // KEY and TUNE-UP race weeks follow their own taper curve too.
+      //
+      // Only peak races did. Everything else got a flat percentage off a
+      // normal week, which ignored the taper entirely — a key race with a
+      // five-day taper came out at 83% of a build week, barely below the
+      // block around it, because the five tapering days inside that week were
+      // never counted. Any race with a taper should reflect it.
+      const raceTaperDays = race ? taperDaysFor(race) : 0;
       loadPct =
-        race?.priority === "peak"
-          ? raceUsesDays
-            ? dayTaperWeekLoad(weekStart, race.raceDate, taperDaysFor(race), L.peak)
-            : Math.round((dow * taperFloor + postRaceDays * postRaceLoad) / 7)
+        race && raceTaperDays > 0
+          ? dayTaperWeekLoad(weekStart, race.raceDate, raceTaperDays, L.peak)
+          : race?.priority === "peak"
+            ? Math.round((dow * taperFloor + postRaceDays * postRaceLoad) / 7)
           : race?.priority === "key"
             ? Math.round(normal * (1 - (L.raceWeekReduction + 10) / 100))
             : race?.priority === "tune_up"
@@ -762,6 +769,25 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
 
   if (!deloadsOn) {
     notes.push("Deloads are switched off, so loading weeks run continuously.");
+  }
+
+  // A peak taper with no peak race does nothing, and that is easy to miss —
+  // the setting sits there looking as though it applies.
+  if (targets.length > 0 && !targets.some((t) => t.priority === "peak")) {
+    notes.push(
+      "No race is marked Peak, so the peak taper setting isn't being used. Key races use the key taper; tune-ups and training races aren't tapered for.",
+    );
+  }
+
+  // Overload placement and taper length can ask for the same week. They are
+  // separate settings — one says how long the taper runs, the other how far
+  // out the hard block sits — but if the block falls inside the taper it gets
+  // pushed earlier, which is not what the number says.
+  const peakTaperWeeks = Math.ceil((taperDays ?? taperWeeks * 7) / 7);
+  if (overloadLen > 0 && overloadBefore <= peakTaperWeeks && targets.some((t) => t.priority === "peak")) {
+    notes.push(
+      `The overload is set ${overloadBefore} week${overloadBefore === 1 ? "" : "s"} before the race, but the taper already covers about ${peakTaperWeeks}. The block has been moved earlier to sit clear of it — set it further out if you want it where you asked.`,
+    );
   }
 
   // Taper structure, stated rather than computed. The campaign sets the
