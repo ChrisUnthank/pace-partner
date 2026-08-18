@@ -970,7 +970,13 @@ function CreateCampaignDialog({
                 <Select value={String(baseQuality)} onValueChange={(v) => setBaseQuality(Number(v))}>
                   <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="0">None</SelectItem>
+                    <SelectItem value="0">None — pure aerobic</SelectItem>
+                    {/* Stored per-week, shown as an interval, because an
+                        interval is how the decision is actually made. The
+                        generator spreads anything under 1 across the weeks,
+                        so these mark the weeks that really carry the work. */}
+                    <SelectItem value="0.25">Once a month</SelectItem>
+                    <SelectItem value="0.33">Every third week</SelectItem>
                     <SelectItem value="0.5">Every second week</SelectItem>
                     <SelectItem value="1">One a week</SelectItem>
                     <SelectItem value="2">Two a week</SelectItem>
@@ -982,6 +988,7 @@ function CreateCampaignDialog({
                 <Select value={String(buildQuality)} onValueChange={(v) => setBuildQuality(Number(v))}>
                   <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="0.5">Every second week</SelectItem>
                     <SelectItem value="1">One a week</SelectItem>
                     <SelectItem value="2">Two a week</SelectItem>
                     <SelectItem value="3">Three a week</SelectItem>
