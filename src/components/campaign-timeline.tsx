@@ -101,7 +101,24 @@ export const PRIORITY_STYLE: Record<string, { fill: string; label: string }> = {
   training: { fill: "#8a8a8a", label: "Training" },
 };
 
-function fmtDate(iso: string): string {
+/**
+ * The week's actual span, Monday to Sunday.
+ *
+ * A start date alone makes you do the arithmetic to work out whether a race
+ * or a session falls inside the week you're hovering.
+ */
+function weekRange(iso: string): string {
+  const start = new Date(`${iso}T00:00:00`);
+  const end = new Date(start.getTime() + 6 * 24 * 60 * 60 * 1000);
+  const opts: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" };
+  const sameMonth = start.getMonth() === end.getMonth();
+  return `${start.toLocaleDateString(undefined, sameMonth ? { day: "numeric" } : opts)} – ${end.toLocaleDateString(
+    undefined,
+    { ...opts, year: start.getFullYear() === end.getFullYear() ? undefined : "numeric" },
+  )}`;
+}
+
+export function fmtDate(iso: string): string {
   const d = new Date(`${iso}T00:00:00`);
   return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
@@ -213,7 +230,7 @@ export function CampaignTimeline({
                     onWeekClick ? "cursor-pointer" : "cursor-default"
                   }`}
                   disabled={!onWeekClick}
-                  title={`Week ${w.weekNumber} · ${style.label} · ${
+                  title={`Week ${w.weekNumber} · ${weekRange(w.weekStart)} · ${style.label} · ${
                     baselineKm
                       ? `${Math.round((w.loadPct / 100) * baselineKm)} km (${w.loadPct}%)`
                       : `${w.loadPct}%`
