@@ -855,3 +855,66 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
 
   return { blocks, weeks, notes };
 }
+
+/**
+ * Blocks derived from weeks, rather than read from storage.
+ *
+ * A block is nothing more than a contiguous run of weeks sharing a phase. Once
+ * a single week can have its phase changed, stored blocks and actual weeks
+ * drift apart — so the weeks are authoritative and this rebuilds the blocks
+ * from them on read.
+ *
+ * The upshot is that overriding one week in the middle of a base block splits
+ * it into three automatically, and clearing the override merges them back,
+ * with no bookkeeping in between.
+ *
+ * Race weeks do NOT break a block unless the race is a peak: a club race
+ * during a base block is an event inside the block, not an interruption to it.
+ * Treating every race as its own block turned one real season into 23
+ * one-week slivers.
+ */
+export function deriveBlocks(
+  weeks: { weekNumber: number; weekStart: string; phase: Phase; raceName?: string | null; racePriority?: string | null }[],
+): GeneratedBlock[] {
+  if (weeks.length === 0) return [];
+
+  const blockPhase: Phase[] = weeks.map((w, i) => {
+    if (w.phase !== "race_week") return w.phase;
+    if (w.racePriority === "peak") return "race_week";
+    for (let k = i - 1; k >= 0; k--) if (weeks[k].phase !== "race_week") return weeks[k].phase;
+    for (let k = i + 1; k < weeks.length; k++) if (weeks[k].phase !== "race_week") return weeks[k].phase;
+    return w.phase;
+  });
+
+  const LABEL: Partial<Record<Phase, string>> = { reset: "Down period", peak: "Overload" };
+  const blocks: GeneratedBlock[] = [];
+  const seen = new Map<Phase, number>();
+  let order = 1;
+  let cursor = 0;
+
+  while (cursor < weeks.length) {
+    const phase = blockPhase[cursor];
+    let end = cursor;
+    while (end + 1 < weeks.length && blockPhase[end + 1] === phase) end += 1;
+
+    const n = (seen.get(phase) ?? 0) + 1;
+    seen.set(phase, n);
+    const span = end - cursor + 1;
+    const base =
+      phase === "race_week"
+        ? weeks[cursor].raceName || "Race week"
+        : (LABEL[phase] ?? phase.charAt(0).toUpperCase() + phase.slice(1));
+    const repeats = blockPhase.filter((p) => p === phase).length > span;
+
+    blocks.push({
+      blockOrder: order++,
+      phase,
+      label: repeats && phase !== "race_week" ? `${base} ${n}` : base,
+      startsOn: weeks[cursor].weekStart,
+      endsOn: weeks[end].weekStart,
+      weeks: span,
+    });
+    cursor = end + 1;
+  }
+  return blocks;
+}
