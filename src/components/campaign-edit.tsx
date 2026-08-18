@@ -60,6 +60,8 @@ export function EditCampaignDialog({
   const [baseQuality, setBaseQuality] = useState(Number(campaign?.base_quality_per_week ?? 0.5));
   const [buildQuality, setBuildQuality] = useState(Number(campaign?.build_quality_per_week ?? 2));
   const [raceWeekReduction, setRaceWeekReduction] = useState(campaign?.race_week_reduction_pct ?? 15);
+  const [overloadBefore, setOverloadBefore] = useState(campaign?.overload_weeks_before_race ?? 3);
+  const [overloadLen, setOverloadLen] = useState(campaign?.overload_block_weeks ?? 1);
   const [targets, setTargets] = useState<CampaignTarget[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -85,6 +87,8 @@ export function EditCampaignDialog({
     setBaseQuality(Number(campaign.base_quality_per_week ?? 0.5));
     setBuildQuality(Number(campaign.build_quality_per_week ?? 2));
     setRaceWeekReduction(campaign.race_week_reduction_pct ?? 15);
+    setOverloadBefore(campaign.overload_weeks_before_race ?? 3);
+    setOverloadLen(campaign.overload_block_weeks ?? 1);
     setTargets(
       [...(campaign.campaign_targets ?? [])]
         .sort((a: any, b: any) => String(a.race_date).localeCompare(String(b.race_date)))
@@ -111,6 +115,8 @@ export function EditCampaignDialog({
         keyTaperDays,
         taperFloorPct,
         taperShape,
+        overloadWeeksBeforeRace: overloadBefore,
+        overloadBlockWeeks: overloadLen,
         baseProgression,
         buildProgression,
         baseQualityPerWeek: baseQuality,
@@ -124,7 +130,7 @@ export function EditCampaignDialog({
     [
       startsOn, loadWeeks, deloadWeeks, deloadsEnabled, taperDays, keyTaperDays, taperFloorPct,
       taperShape, baseProgression, buildProgression, baseQuality, buildQuality, resetWeeks,
-      targets, raceWeekReduction,
+      targets, raceWeekReduction, overloadBefore, overloadLen,
     ],
   );
 
@@ -174,6 +180,8 @@ export function EditCampaignDialog({
           taper_days: taperDays,
           key_taper_days: keyTaperDays,
           taper_floor_pct: taperFloorPct,
+          overload_weeks_before_race: overloadBefore,
+          overload_block_weeks: overloadLen,
           taper_shape: taperShape,
           base_progression: baseProgression,
           build_progression: buildProgression,
@@ -373,6 +381,8 @@ export function EditCampaignDialog({
             <Num label="Peak taper (days)" value={taperDays} set={setTaperDays} min={3} max={35} />
             <Num label="Key taper (days)" value={keyTaperDays} set={setKeyTaperDays} min={2} max={21} />
             <Num label="Race wk −%" value={raceWeekReduction} set={setRaceWeekReduction} min={0} max={50} />
+            <Num label="Overload wk before" value={overloadBefore} set={setOverloadBefore} min={1} max={8} />
+            <Num label="Overload length" value={overloadLen} set={setOverloadLen} min={0} max={3} />
           </div>
 
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
