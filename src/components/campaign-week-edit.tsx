@@ -355,16 +355,31 @@ export function PreviewWeekEditor({
   onClear,
   onClose,
 }: {
-  week: { weekNumber: number; weekStart: string; loadPct: number; isDeload: boolean; isLocked?: boolean } | null;
+  week: {
+    weekNumber: number;
+    weekStart: string;
+    phase?: string;
+    loadPct: number;
+    isDeload: boolean;
+    isLocked?: boolean;
+  } | null;
   baselineKm: number | null;
   totalWeeks: number;
-  onApply: (fromWeek: number, throughWeek: number, loadPct: number, isDeload: boolean) => void;
+  onApply: (
+    fromWeek: number,
+    throughWeek: number,
+    loadPct: number,
+    isDeload: boolean,
+    phase: string | null,
+  ) => void;
   onClear: (weekNumber: number) => void;
   onClose: () => void;
 }) {
   const [loadPct, setLoadPct] = useState(100);
   const [isDeload, setIsDeload] = useState(false);
   const [through, setThrough] = useState(1);
+  // "follow" = no override; the week keeps whatever the generator gave it.
+  const [phase, setPhase] = useState<string>("follow");
 
   // Re-seed when a different week is opened. useEffect, not useMemo: this is
   // a side effect, and a memo is free to be discarded and recomputed.
@@ -373,6 +388,7 @@ export function PreviewWeekEditor({
     setLoadPct(week.loadPct);
     setIsDeload(week.isDeload);
     setThrough(week.weekNumber);
+    setPhase("follow");
   }, [week?.weekNumber, week?.loadPct, week?.isDeload]);
 
   if (!week) return null;
@@ -427,6 +443,28 @@ export function PreviewWeekEditor({
           Deload
         </label>
 
+        {/* Block type here as well as on the saved campaign. It was only
+            available after saving, so the case it exists for — a campaign
+            following on from another, where week 1 should be an overload —
+            could not be set up while building the campaign. */}
+        <label className="flex items-center gap-1.5 text-[11px]">
+          Type
+          <Select value={phase} onValueChange={setPhase}>
+            <SelectTrigger className="h-7 w-[130px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="follow">Leave as generated</SelectItem>
+              <SelectItem value="reset">Down period</SelectItem>
+              <SelectItem value="base">Base</SelectItem>
+              <SelectItem value="build">Build</SelectItem>
+              <SelectItem value="peak">Overload</SelectItem>
+              <SelectItem value="taper">Taper</SelectItem>
+              <SelectItem value="transition">Transition</SelectItem>
+            </SelectContent>
+          </Select>
+        </label>
+
         {/* "Three weeks at 100 then three at 110" is one decision about six
             weeks, not six decisions. Without a range it's tedious enough that
             nobody does it and the generated numbers stand by default. */}
@@ -449,7 +487,15 @@ export function PreviewWeekEditor({
         <Button
           size="sm"
           className="h-7 text-[11px]"
-          onClick={() => onApply(week.weekNumber, Math.max(week.weekNumber, through), loadPct, isDeload)}
+          onClick={() =>
+            onApply(
+              week.weekNumber,
+              Math.max(week.weekNumber, through),
+              loadPct,
+              isDeload,
+              phase === "follow" ? null : phase,
+            )
+          }
         >
           {span === 1 ? "Set this week" : `Set ${span} weeks`}
         </Button>
