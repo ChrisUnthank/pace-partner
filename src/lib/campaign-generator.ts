@@ -452,6 +452,8 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
     raceIso: string,
     days: number,
     preTaperLoad: number,
+    /** Overrides the campaign floor — used to solve for a target week load. */
+    floorOverrideValue?: number,
   ): number {
     // preTaperLoad is the load the week would otherwise carry. Passing the
     // OVERLOAD figure here was the bug behind "race weeks at overload
@@ -459,7 +461,8 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
     // the week inherited 115% from a block it wasn't in.
     const race = toDate(raceIso).getTime();
     const taperStart = race - days * DAY_MS;
-    const postRaceLoad = Math.round(taperFloor * 1.15);
+    const fl = floorOverrideValue ?? taperFloor;
+    const postRaceLoad = fl * 1.15;
     const ws = toDate(weekStartIso).getTime();
     let sum = 0;
     for (let k = 0; k < 7; k++) {
@@ -470,10 +473,12 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
         sum += preTaperLoad;
       } else {
         const p = (race - day) / DAY_MS / days; // 1 at taper start, 0 at race
-        sum += taperFloor + (preTaperLoad - taperFloor) * Math.pow(p, taperExp);
+        sum += fl + (preTaperLoad - fl) * Math.pow(p, taperExp);
       }
     }
-    return Math.round(sum / 7);
+    // Unrounded: the caller solves against this, and rounding here would put
+    // a step in an otherwise linear relationship.
+    return sum / 7;
   }
 
   const taperDays = settings.taperDays == null ? null : num(settings.taperDays, 14, 1, 60);
@@ -738,7 +743,7 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
       const configuredDays = t ? taperDaysFor(t) : 0;
       const usingDays = t && (t.priority === "peak" ? taperDays != null : keyTaperDays != null);
       if (usingDays && t) {
-        loadPct = dayTaperWeekLoad(weekStart, t.raceDate, configuredDays, loadForPhase(hostPhase[i], i));
+        loadPct = Math.round(dayTaperWeekLoad(weekStart, t.raceDate, configuredDays, loadForPhase(hostPhase[i], i)));
       } else {
         const weeksOut = nextRace - i;
         const len = t?.priority === "peak" ? taperWeeks : keyTaper;
@@ -779,9 +784,29 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
       // block around it, because the five tapering days inside that week were
       // never counted. Any race with a taper should reflect it.
       const raceTaperDays = race ? taperDaysFor(race) : 0;
+      // The figure the coach set is the WEEK's load, so solve for the race-day
+      // value that makes the week average come out at it.
+      //
+      // Setting it as the race-day floor gave a week of 84% when 75% was
+      // asked for — the week also holds pre-taper days and post-race days,
+      // which pull the average up. The label says "race week load", so the
+      // week is what it should mean.
+      //
+      // The week average is LINEAR in the floor (every term is either a
+      // constant or a fixed fraction of it), so two evaluations locate the
+      // answer exactly — no iteration.
+      const solveFloorForWeek = (target: number): number => {
+        const a0 = dayTaperWeekLoad(weekStart, race!.raceDate, raceTaperDays, normal, 0);
+        const a100 = dayTaperWeekLoad(weekStart, race!.raceDate, raceTaperDays, normal, 100);
+        if (Math.abs(a100 - a0) < 0.001) return taperFloor;
+        return Math.max(0, Math.min(150, ((target - a0) / (a100 - a0)) * 100));
+      };
+
       loadPct =
         race && raceTaperDays > 0
-          ? dayTaperWeekLoad(weekStart, race.raceDate, raceTaperDays, normal)
+          ? Math.round(
+              dayTaperWeekLoad(weekStart, race.raceDate, raceTaperDays, normal, solveFloorForWeek(taperFloor)),
+            )
           : race?.priority === "peak"
             ? Math.round((dow * taperFloor + postRaceDays * postRaceLoad) / 7)
           : race?.priority === "key"
