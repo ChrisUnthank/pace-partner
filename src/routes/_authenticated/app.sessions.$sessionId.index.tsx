@@ -2245,9 +2245,12 @@ function WorkoutStructureOrderEditor({ session, steps, qc }: { session: any; ste
     persistOrder(next);
   }
 
-  async function addBlock(kind: string) {
-    setSaving(true);
   // ---- Merge consecutive blocks into one set -----------------------------
+  //
+  // These sat INSIDE addBlock() — the insertion anchored on a line that
+  // happened to live in that function, so every hook and helper here was
+  // scoped to it and the JSX below referenced names that did not exist.
+  // "Cannot find name mergeCandidates" and eleven siblings.
   const [selectedForMerge, setSelectedForMerge] = useState<Set<string>>(new Set());
   const [mergeConfirm, setMergeConfirm] = useState(false);
 
@@ -2368,7 +2371,8 @@ function WorkoutStructureOrderEditor({ session, steps, qc }: { session: any; ste
     invalidateSession(qc, session.id, session.athlete_id);
   }
 
-
+  async function addBlock(kind: string) {
+    setSaving(true);
     const nextOrder = localSteps.reduce((max, s) => Math.max(max, s.step_order ?? 0), 0) + 1;
     const row = buildNewStepRow(session.id, kind, nextOrder);
     const { error } = await supabase.from("steps").insert(row as any);
