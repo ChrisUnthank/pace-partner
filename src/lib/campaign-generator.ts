@@ -444,7 +444,20 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
       // happens to sit exactly where the peak week would go. Losing the peak
       // block entirely because a minor race landed on it was the wrong
       // trade — the peak is the point of the campaign.
-      let peakIdx = raceIdx - Math.ceil(taperDaysFor(t) / 7) - 1;
+      // Sits immediately before the FIRST WEEK ACTUALLY MARKED as taper, not
+      // a fixed ceil(days/7) back from the race.
+      //
+      // Those differ: a 14-day taper into a Sunday race only touches one
+      // calendar week, because the second week ends exactly on the taper's
+      // first day. Assuming two left an unmarked week between the overload
+      // and the taper, which then filled as base — a base week sitting
+      // between the season's hardest block and the race.
+      let firstTaper = raceIdx;
+      for (let k = raceIdx - 1; k >= resetWeeks; k--) {
+        if (phases[k] === "taper") firstTaper = k;
+        else break;
+      }
+      let peakIdx = firstTaper - 1;
       while (peakIdx >= resetWeeks && (raceAt.has(peakIdx) || phases[peakIdx] === "taper")) peakIdx -= 1;
       if (peakIdx >= resetWeeks) {
         phases[peakIdx] = "peak";
@@ -643,12 +656,19 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
     const n = (phaseCounts.get(phase) ?? 0) + 1;
     phaseCounts.set(phase, n);
     const span = end - cursor + 1;
+    // Labels are written out rather than derived from the phase name, because
+    // two of them differ from it: 'reset' reads as "Down period", and 'peak'
+    // reads as "Overload" — the block is the heaviest TRAINING, not the race
+    // you're peaking for, and reusing the word for both confused exactly the
+    // people this is built for.
     const baseLabel =
       phase === "race_week"
         ? weeks[cursor].raceName || "Race week"
         : phase === "reset"
           ? "Down period"
-          : phase.charAt(0).toUpperCase() + phase.slice(1);
+          : phase === "peak"
+            ? "Overload"
+            : phase.charAt(0).toUpperCase() + phase.slice(1);
     const willRepeat = blockPhase.filter((p) => p === phase).length > span;
 
     blocks.push({
