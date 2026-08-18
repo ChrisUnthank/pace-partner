@@ -403,8 +403,13 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
     // TanStack Link with to={undefined}, which throws during render and takes
     // the page down. Buckets with no leaf at all are dropped rather than
     // rendered pointing nowhere.
-    ...visibleEntries.flatMap((e) => {
-      if (e.kind !== "bucket") return [e];
+    // Both branches return the SAME shape, including bucketActive. Returning
+    // a bare leaf from one branch and an augmented object from the other left
+    // TypeScript unable to reconcile them into one array type.
+    ...visibleEntries.flatMap((e): (NavLeaf & { bucketActive?: boolean })[] => {
+      if (e.kind !== "bucket") {
+        return [{ to: e.to, label: e.label, icon: e.icon, show: e.show }];
+      }
       const first = e.children.find((c) => !isHeading(c)) as NavLeaf | undefined;
       if (!first) return [];
       return [{ to: first.to, label: e.label, icon: e.icon, show: true, bucketActive: isBucketActive(e) }];
@@ -475,6 +480,11 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
 
             if (collapsed) {
               const first = bucket.children.find((c) => !isHeading(c)) as NavLeaf | undefined;
+              // A bucket with no leaf has nowhere to point. It shouldn't reach
+              // here — visibleEntries drops those — but `to={undefined}` makes
+              // TanStack's Link throw during render, so the guard costs
+              // nothing and removes a whole class of crash.
+              if (!first) return null;
               return (
                 <Link
                   key={bucket.id}
