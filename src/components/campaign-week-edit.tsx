@@ -301,3 +301,132 @@ export function BaselineDialog({
 }
 
 export { Unlock };
+
+/**
+ * Editing a week BEFORE the campaign is saved.
+ *
+ * WeekEditDialog above writes straight to the database, which is no use here:
+ * in the create dialog there is no campaign yet, and in the edit dialog the
+ * preview is regenerated from settings on every keystroke, so a write would be
+ * overwritten immediately. These changes are held by the caller and saved with
+ * everything else.
+ *
+ * Inline rather than a dialog, deliberately — the preview is the thing being
+ * adjusted, and covering it to change a number in it is the wrong way round.
+ * You want to watch the bar move.
+ */
+export function PreviewWeekEditor({
+  week,
+  baselineKm,
+  totalWeeks,
+  onApply,
+  onClear,
+  onClose,
+}: {
+  week: { weekNumber: number; weekStart: string; loadPct: number; isDeload: boolean; isLocked?: boolean } | null;
+  baselineKm: number | null;
+  totalWeeks: number;
+  onApply: (fromWeek: number, throughWeek: number, loadPct: number, isDeload: boolean) => void;
+  onClear: (weekNumber: number) => void;
+  onClose: () => void;
+}) {
+  const [loadPct, setLoadPct] = useState(100);
+  const [isDeload, setIsDeload] = useState(false);
+  const [through, setThrough] = useState(1);
+
+  // Re-seed when a different week is opened. useEffect, not useMemo: this is
+  // a side effect, and a memo is free to be discarded and recomputed.
+  useEffect(() => {
+    if (!week) return;
+    setLoadPct(week.loadPct);
+    setIsDeload(week.isDeload);
+    setThrough(week.weekNumber);
+  }, [week?.weekNumber, week?.loadPct, week?.isDeload]);
+
+  if (!week) return null;
+
+  const km = baselineKm ? Math.round((loadPct / 100) * baselineKm * 10) / 10 : null;
+  const span = Math.max(week.weekNumber, through) - week.weekNumber + 1;
+
+  return (
+    <div className="rounded-md border bg-muted/30 px-3 py-2.5 mt-2 space-y-2">
+      <div className="flex items-center gap-3 flex-wrap">
+        <span className="text-xs font-medium">
+          Week {week.weekNumber} · {week.weekStart}
+        </span>
+        {week.isLocked && <span className="text-[10px] text-muted-foreground">already set by hand</span>}
+        <Button size="sm" variant="ghost" className="h-7 text-[11px] ml-auto" onClick={onClose}>
+          Close
+        </Button>
+      </div>
+
+      <div className="flex items-center gap-3 flex-wrap">
+        <label className="flex items-center gap-1.5 text-[11px]">
+          Load
+          <Input
+            type="number"
+            min={20}
+            max={160}
+            value={loadPct}
+            onChange={(e) => setLoadPct(Math.max(20, Math.min(160, Number(e.target.value) || 100)))}
+            className="h-7 w-20"
+          />
+          %
+        </label>
+
+        {baselineKm ? (
+          <label className="flex items-center gap-1.5 text-[11px]">
+            or
+            <Input
+              type="number"
+              min={0}
+              value={km ?? 0}
+              onChange={(e) => setLoadPct(Math.round(((Number(e.target.value) || 0) / baselineKm) * 100))}
+              className="h-7 w-20"
+            />
+            km
+          </label>
+        ) : (
+          <span className="text-[10px] text-muted-foreground">Set a normal week in km to enter volume directly.</span>
+        )}
+
+        <label className="flex items-center gap-1.5 text-[11px]">
+          <input type="checkbox" checked={isDeload} onChange={(e) => setIsDeload(e.target.checked)} />
+          Deload
+        </label>
+
+        {/* "Three weeks at 100 then three at 110" is one decision about six
+            weeks, not six decisions. Without a range it's tedious enough that
+            nobody does it and the generated numbers stand by default. */}
+        <label className="flex items-center gap-1.5 text-[11px]">
+          through week
+          <Input
+            type="number"
+            min={week.weekNumber}
+            max={totalWeeks}
+            value={through}
+            onChange={(e) =>
+              setThrough(Math.max(week.weekNumber, Math.min(totalWeeks, Number(e.target.value) || week.weekNumber)))
+            }
+            className="h-7 w-20"
+          />
+        </label>
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <Button
+          size="sm"
+          className="h-7 text-[11px]"
+          onClick={() => onApply(week.weekNumber, Math.max(week.weekNumber, through), loadPct, isDeload)}
+        >
+          {span === 1 ? "Set this week" : `Set ${span} weeks`}
+        </Button>
+        {week.isLocked && (
+          <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => onClear(week.weekNumber)}>
+            Reset to generated
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
