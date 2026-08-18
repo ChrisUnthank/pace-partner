@@ -61,8 +61,19 @@ export const PHASE_STYLE: Record<Phase, { fill: string; label: string; blurb: st
   },
   peak: {
     fill: "#ff004c",
-    label: "Peak",
-    blurb: "The highest load of the campaign. Runs straight through — no deload inside it.",
+    // "Overload", not "Peak".
+    //
+    // The word was doing two jobs: a PEAK RACE is the one you want to be in
+    // form for, and a peak BLOCK was the hardest training week of the season.
+    // A coach reading "Peak" on a block reasonably assumes it means the
+    // former. The race tier keeps the name — that's how coaches talk — and
+    // the block takes the name that describes what it actually is.
+    //
+    // The stored phase value is still 'peak'; only the label changed, so no
+    // migration and no risk to existing campaigns.
+    label: "Overload",
+    blurb:
+      "The heaviest training of the campaign, sitting just before the taper. Runs straight through — no deload inside it. Not the race itself.",
   },
   taper: {
     fill: "#8f2440",
