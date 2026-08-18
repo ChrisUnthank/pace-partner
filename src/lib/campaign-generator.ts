@@ -395,6 +395,13 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
     return weekIndex % everyN === 0 ? 1 : 0;
   }
 
+  /** Ramp value for phase `ph` at week index `i`. */
+  function rampeAt(from: number, to: number, ph: Phase, i: number): number {
+    const total = phases.filter((p) => p === ph).length;
+    const nth = phases.slice(0, i + 1).filter((p) => p === ph).length;
+    return Math.round(from + ((to - from) * (nth - 1)) / Math.max(1, total - 1));
+  }
+
   const DAY_MS = 24 * 60 * 60 * 1000;
   const taperExp = taperShape === "gentle" ? 0.55 : taperShape === "steep" ? 1.8 : 1;
 
@@ -414,6 +421,10 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
     days: number,
     preTaperLoad: number,
   ): number {
+    // preTaperLoad is the load the week would otherwise carry. Passing the
+    // OVERLOAD figure here was the bug behind "race weeks at overload
+    // volume": with a short taper the pre-taper days dominate the average, so
+    // the week inherited 115% from a block it wasn't in.
     const race = toDate(raceIso).getTime();
     const taperStart = race - days * DAY_MS;
     const postRaceLoad = Math.round(taperFloor * 1.15);
@@ -639,6 +650,20 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
   // out at 105% — heavier than the 100% base weeks either side of it. A race
   // reduces the week it sits in; it does not replace it with a different
   // block's load.
+  /** What a week's phase would carry, ignoring any race or taper in it. */
+  function loadForPhase(ph: Phase, i: number): number {
+    if (ph === "peak") return L.peak;
+    if (ph === "reset" || ph === "transition") return L.reset;
+    if (ph === "build") {
+      return (settings.buildProgression ?? "progressive") === "flat"
+        ? L.buildTop
+        : rampeAt(L.buildStart, L.buildTop, "build", i);
+    }
+    return (settings.baseProgression ?? "progressive") === "flat"
+      ? L.baseTop
+      : rampeAt(L.baseStart, L.baseTop, "base", i);
+  }
+
   const hostPhase: Phase[] = phases.map((p, i) => {
     if (p !== "race_week") return p;
     for (let k = i - 1; k >= 0; k--) if (phases[k] !== "race_week") return phases[k];
@@ -668,11 +693,7 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
       sinceDeload = 0;
     }
 
-    const rampe = (from: number, to: number, ph: Phase) => {
-      const total = phases.filter((p) => p === ph).length;
-      const nth = phases.slice(0, i + 1).filter((p) => p === ph).length;
-      return Math.round(from + ((to - from) * (nth - 1)) / Math.max(1, total - 1));
-    };
+    const rampe = (from: number, to: number, ph: Phase) => rampeAt(from, to, ph, i);
 
     let loadPct: number;
     if (isDeload) loadPct = L.deload;
@@ -685,7 +706,7 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
       const configuredDays = t ? taperDaysFor(t) : 0;
       const usingDays = t && (t.priority === "peak" ? taperDays != null : keyTaperDays != null);
       if (usingDays && t) {
-        loadPct = dayTaperWeekLoad(weekStart, t.raceDate, configuredDays, L.peak);
+        loadPct = dayTaperWeekLoad(weekStart, t.raceDate, configuredDays, loadForPhase(hostPhase[i], i));
       } else {
         const weeksOut = nextRace - i;
         const len = t?.priority === "peak" ? taperWeeks : keyTaper;
@@ -728,7 +749,7 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
       const raceTaperDays = race ? taperDaysFor(race) : 0;
       loadPct =
         race && raceTaperDays > 0
-          ? dayTaperWeekLoad(weekStart, race.raceDate, raceTaperDays, L.peak)
+          ? dayTaperWeekLoad(weekStart, race.raceDate, raceTaperDays, normal)
           : race?.priority === "peak"
             ? Math.round((dow * taperFloor + postRaceDays * postRaceLoad) / 7)
           : race?.priority === "key"
