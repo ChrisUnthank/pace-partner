@@ -16,7 +16,7 @@ import { BucketTabStrip, COACHING_HUB_TABS } from "@/components/bucket-tab-strip
 import { CampaignTimeline, PRIORITY_STYLE } from "@/components/campaign-timeline";
 import { WeekEditDialog, BaselineDialog } from "@/components/campaign-week-edit";
 import { EditCampaignDialog } from "@/components/campaign-edit";
-import { AddRacesDialog } from "@/components/campaign-race-picker";
+import { AddRacesPanel } from "@/components/campaign-race-picker";
 import { generateCampaign, type CampaignTarget, type TargetPriority, isValidIsoDate } from "@/lib/campaign-generator";
 import { useMyRoles, useMyAthlete, useAuthUser } from "@/lib/use-auth";
 
@@ -58,14 +58,21 @@ function CampaignsPage() {
 
   const athleteId = selectedAthleteId || myAthlete?.id || roster?.[0]?.id || "";
 
+  // EVERY campaign the viewer can see, not just the selected athlete's.
+  //
+  // Filtering by the athlete dropdown meant a coach had to know which athlete
+  // a campaign belonged to before they could find it — the wrong way round,
+  // since the campaign is the thing you're looking for and the athlete is one
+  // of its attributes. RLS already scopes this to athletes the viewer can
+  // access, so no athlete filter is needed to keep it safe.
+  //
+  // The dropdown stays, but only to choose who a NEW campaign is for.
   const { data: campaigns, isLoading, isError, error } = useQuery({
-    queryKey: ["campaigns", athleteId],
-    enabled: !!athleteId,
+    queryKey: ["campaigns", "all"],
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("campaigns")
-        .select("*, campaign_targets(*), campaign_blocks(*), campaign_weeks(*)")
-        .eq("athlete_id", athleteId)
+        .select("*, athletes(name), campaign_targets(*), campaign_blocks(*), campaign_weeks(*)")
         .order("starts_on", { ascending: false });
       if (error) throw error;
       return (data ?? []) as any[];
@@ -129,7 +136,9 @@ function CampaignsPage() {
           {isCoach && (roster?.length ?? 0) > 0 && (
             <Select value={athleteId} onValueChange={setSelectedAthleteId}>
               <SelectTrigger className="w-[240px]">
-                <SelectValue placeholder="Choose an athlete" />
+                {/* Only decides who a NEW campaign is for — the list below
+                    shows every athlete's. */}
+                <SelectValue placeholder="New campaign for…" />
               </SelectTrigger>
               <SelectContent>
                 {(roster ?? []).map((a: any) => (
@@ -172,17 +181,9 @@ function CampaignsPage() {
           </Card>
         )}
 
-        {!isLoading && !isError && !athleteId && (
-          <Card>
-            <CardContent className="py-6">
-              <p className="text-sm text-muted-foreground">
-                No athlete selected. {isCoach ? "Choose one above to see their campaigns." : "This account isn't linked to an athlete profile."}
-              </p>
-            </CardContent>
-          </Card>
-        )}
 
-        {!isLoading && !isError && athleteId && (campaigns?.length ?? 0) === 0 && (
+
+        {!isLoading && !isError && (campaigns?.length ?? 0) === 0 && (
           <Card>
             <CardContent className="py-10 text-center space-y-2">
               <Sparkles className="h-6 w-6 mx-auto text-muted-foreground" />
@@ -198,7 +199,7 @@ function CampaignsPage() {
             key={c.id}
             campaign={c}
             canWrite={isCoach || isManager || c.created_by === user?.id}
-            onChanged={() => qc.invalidateQueries({ queryKey: ["campaigns", athleteId] })}
+            onChanged={() => qc.invalidateQueries({ queryKey: ["campaigns", "all"] })}
           />
         ))}
       </div>
@@ -209,7 +210,7 @@ function CampaignsPage() {
         athleteId={athleteId}
         onCreated={() => {
           setCreateOpen(false);
-          qc.invalidateQueries({ queryKey: ["campaigns", athleteId] });
+          qc.invalidateQueries({ queryKey: ["campaigns", "all"] });
         }}
       />
     </AppShell>
@@ -328,6 +329,10 @@ function SavedCampaign({
           </div>
         </div>
         <CardDescription>
+          {/* Athlete name first: with the list spanning everyone, whose season
+              this is matters more than when it runs. */}
+          {campaign.athletes?.name ? <span className="text-foreground font-medium">{campaign.athletes.name}</span> : null}
+          {campaign.athletes?.name ? " · " : ""}
           {campaign.starts_on} → {campaign.ends_on} · {weeks.length} weeks ·{" "}
           {(campaign.campaign_targets ?? []).length} race
           {(campaign.campaign_targets ?? []).length === 1 ? "" : "s"}
@@ -622,6 +627,17 @@ function CreateCampaignDialog({
                 </Button>
               </div>
             </div>
+            {/* Inline, inside the Races section — the draft stays put. */}
+            <AddRacesPanel
+              open={pickerOpen}
+              onClose={() => setPickerOpen(false)}
+              athleteId={athleteId}
+              existing={targets}
+              onAdd={(added) =>
+                setTargets((t) => [...t, ...added].sort((a, b) => a.raceDate.localeCompare(b.raceDate)))
+              }
+            />
+
             {targets.length === 0 && (
               <p className="text-xs text-muted-foreground">
                 Add at least one. Mark the race that matters most as a Peak — without one, no taper is built in.
@@ -815,24 +831,6 @@ function CreateCampaignDialog({
 
 
       </DialogContent>
-
-      {/* Mounted as a SIBLING of the outer Dialog, not inside its
-          DialogContent.
-          Nested Radix dialogs fight over the focus trap — the inner one
-          mounts inside a portal the outer one is still guarding, and opening
-          it threw, which unmounted the route and bounced back to the list. A
-          sibling shares no focus scope with it. */}
-      <AddRacesDialog
-          open={pickerOpen}
-          onOpenChange={setPickerOpen}
-          athleteId={athleteId}
-          existing={targets}
-          onAdd={(added) =>
-            setTargets((t) =>
-              [...t, ...added].sort((a, b) => a.raceDate.localeCompare(b.raceDate)),
-            )
-          }
-        />
     </Dialog>
   );
 }
