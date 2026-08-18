@@ -108,13 +108,16 @@ export const PRIORITY_STYLE: Record<string, { fill: string; label: string }> = {
  * or a session falls inside the week you're hovering.
  */
 function weekRange(iso: string): string {
-  const start = new Date(`${iso}T00:00:00`);
+  // UTC, matching the generator. A local-midnight Date plus six days crosses
+  // a DST boundary an hour short and can render the wrong day; these are
+  // calendar dates with no time component, so UTC is both simpler and right.
+  const start = new Date(`${iso}T00:00:00Z`);
   const end = new Date(start.getTime() + 6 * 24 * 60 * 60 * 1000);
-  const opts: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" };
-  const sameMonth = start.getMonth() === end.getMonth();
+  const opts: Intl.DateTimeFormatOptions = { day: "numeric", month: "short", timeZone: "UTC" };
+  const sameMonth = start.getUTCMonth() === end.getUTCMonth();
   return `${start.toLocaleDateString(undefined, sameMonth ? { day: "numeric" } : opts)} – ${end.toLocaleDateString(
     undefined,
-    { ...opts, year: start.getFullYear() === end.getFullYear() ? undefined : "numeric" },
+    { ...opts, year: start.getUTCFullYear() === end.getUTCFullYear() ? undefined : "numeric" },
   )}`;
 }
 
