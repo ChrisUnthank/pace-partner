@@ -14,6 +14,25 @@ import { Flag, Lock } from "lucide-react";
 // described the weeks accurately and the training not at all.
 // ----------------------------------------------------------------------------
 
+/**
+ * Style for a phase, tolerant of a value that isn't in the map.
+ *
+ * PHASE_STYLE is indexed with values that come from the database, and a saved
+ * campaign can hold a phase this build doesn't know — an older row, or a new
+ * phase added in a migration ahead of the client. `PHASE_STYLE[x].fill` on a
+ * miss reads `.fill` of undefined and throws during render, taking the page
+ * down for a cosmetic reason.
+ */
+export function phaseStyle(phase: string | null | undefined) {
+  return (
+    PHASE_STYLE[(phase ?? "base") as Phase] ?? {
+      fill: "#8a8a8a",
+      label: String(phase ?? "unknown"),
+      blurb: "",
+    }
+  );
+}
+
 export const PHASE_STYLE: Record<Phase, { fill: string; label: string; blurb: string }> = {
   // Built from the Strider accent (#FF004C) rather than the green/teal of the
   // app this was modelled on. The ramp carries meaning: muted grey for weeks
@@ -158,7 +177,7 @@ export function CampaignTimeline({
           {/* The bars themselves */}
           <div className="flex items-end gap-1 h-40">
             {weeks.map((w) => {
-              const style = PHASE_STYLE[w.phase];
+              const style = phaseStyle(w.phase);
               const pct = (w.loadPct / maxLoad) * 100;
               return (
                 <button
@@ -288,9 +307,9 @@ export function CampaignTimeline({
                   // stay aligned with their weeks at any container width.
                   // Fixed pixel widths broke the moment the bars stopped
                   // being 48px each.
-                  style={{ flexGrow: block.weeks, flexBasis: 0, background: PHASE_STYLE[block.phase].fill }}
+                  style={{ flexGrow: block.weeks, flexBasis: 0, background: phaseStyle(block.phase).fill }}
                   className="rounded text-[10px] text-white px-1.5 py-1 leading-tight overflow-hidden min-w-0"
-                  title={PHASE_STYLE[block.phase].blurb}
+                  title={phaseStyle(block.phase).blurb}
                 >
                   <div className="font-medium truncate">{block.label}</div>
                   <div className="opacity-80 truncate">{block.weeks} wk</div>
@@ -306,8 +325,8 @@ export function CampaignTimeline({
       <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1">
         {Array.from(new Set(blocks.map((b) => b.phase))).map((p) => (
           <span key={p} className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
-            <span className="h-2 w-2 rounded-full inline-block" style={{ background: PHASE_STYLE[p].fill }} />
-            {PHASE_STYLE[p].label}
+            <span className="h-2 w-2 rounded-full inline-block" style={{ background: phaseStyle(p).fill }} />
+            {phaseStyle(p).label}
           </span>
         ))}
         {actualByWeek && actualByWeek.size > 0 && (
