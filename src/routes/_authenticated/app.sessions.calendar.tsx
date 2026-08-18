@@ -13,7 +13,7 @@ import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { ChevronLeft, ChevronRight, List as ListIcon, Upload, CalendarPlus, PencilLine, Trophy, HeartPulse, CalendarRange } from "lucide-react";
+import { ChevronLeft, ChevronRight, List as ListIcon, Upload, CalendarPlus, PencilLine, Trophy, HeartPulse, CalendarRange, X } from "lucide-react";
 import {
   CalendarDayCell,
   WeekTotalCell,
@@ -22,7 +22,10 @@ import {
   type DayForecast,
   sessionColorClass,
   sessionShortLabel,
+  INTENT_BAR,
+  DAYTYPE_BAR,
 } from "@/components/calendar-day-cell";
+import { CalendarQuickAddRail, quickAddItemFor } from "@/components/calendar-quick-add-rail";
 import { resolvedTargetShortLabel } from "@/lib/target-resolution";
 import { sessionClassificationLabel, timeOfDayHintMs } from "@/lib/session-categories";
 import { metersFmt, secToClock } from "@/lib/format";
@@ -823,6 +826,16 @@ function CalendarPage() {
     targetStart: string;
   } | null>(null);
 
+  // --- Quick-add rail ---
+  // Which activity (a QUICK_ADD_ITEMS key) is currently loaded. Stays
+  // armed after each placement on purpose: laying out a week of easy runs
+  // should be one click per day, not one arm-and-click per day. Held in
+  // component state rather than the URL — it's a transient input mode, and
+  // a shared/bookmarked calendar link shouldn't arrive primed to write.
+  const [armedQuickAdd, setArmedQuickAdd] = useState<string | null>(null);
+  const [quickAddingDate, setQuickAddingDate] = useState<string | null>(null);
+  const armedItem = quickAddItemFor(armedQuickAdd);
+
   // Retrospective vitals logging — closes the gap where an athlete who
   // forgot to log resting HR/sleep on a given day had no way to go back and
   // fill it in. Works the same as Upload/Create Session above: pick a date,
@@ -881,6 +894,93 @@ function CalendarPage() {
     toast.success("Vitals saved");
     qc.invalidateQueries({ queryKey: ["calendar"] });
     setVitalsDate(null);
+  }
+
+  // Escape disarms the rail. Bound at the window rather than on the grid
+  // so it works wherever focus happens to be — after clicking three days
+  // in a row, focus is on a day cell, but after scrolling it may be
+  // nowhere in particular, and "press Esc to stop" has to be true either
+  // way or it isn't worth telling the coach.
+  useEffect(() => {
+    if (!armedQuickAdd) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setArmedQuickAdd(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [armedQuickAdd]);
+
+  // Switching athlete disarms. An arm left over from the previous athlete
+  // would place onto whoever is now selected on the very next click, with
+  // nothing on screen having changed to suggest that — the single worst
+  // failure this feature could have.
+  useEffect(() => {
+    setArmedQuickAdd(null);
+  }, [selectedAthleteId]);
+
+  // Places the armed activity on a day. Writes exactly the columns
+  // app.sessions.new.tsx writes for the equivalent choice — see
+  // QUICK_ADD_ITEMS for why `structure` is set on some items and left null
+  // on others.
+  //
+  // No steps are created. A quick-added session is a marker on the
+  // calendar saying "this is the day and this is the kind of work"; the
+  // blocks get built when the coach opens it. The Workout Structure editor
+  // renders its add-block buttons unconditionally, so a session with zero
+  // steps opens and edits normally.
+  async function quickAddSession(date: string) {
+    const item = quickAddItemFor(armedQuickAdd);
+    if (!item || !selectedAthleteId || !user) return;
+    if (quickAddingDate) return; // one write in flight at a time
+
+    setQuickAddingDate(date);
+    const { data, error } = await supabase
+      .from("sessions")
+      .insert({
+        athlete_id: selectedAthleteId,
+        created_by: user.id,
+        session_date: date,
+        title: item.title,
+        day_type: item.day_type,
+        intent: item.intent,
+        structure: item.structure,
+        is_long_run: item.is_long_run,
+        is_planned: true,
+        activity_type: item.activity_type,
+      } as any)
+      .select("id")
+      .single();
+    setQuickAddingDate(null);
+
+    if (error || !data) {
+      toast.error(error?.message ?? "Couldn't add that session");
+      return;
+    }
+
+    qc.invalidateQueries({ queryKey: ["calendar"] });
+
+    // Undo matters more here than anywhere else on this page: this is the
+    // only control in the app where a single stray click writes a row.
+    // The created session has no steps and no results, so deleting it
+    // cannot destroy anything the coach entered.
+    const newId = data.id as string;
+    toast.success(
+      `${item.label} added — ${parseISO(date).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}`,
+      {
+        action: {
+          label: "Undo",
+          onClick: async () => {
+            const { error: delErr } = await supabase.from("sessions").delete().eq("id", newId);
+            if (delErr) {
+              toast.error(delErr.message);
+              return;
+            }
+            qc.invalidateQueries({ queryKey: ["calendar"] });
+            toast.success("Removed");
+          },
+        },
+      },
+    );
   }
 
   // Matches BulkFitUpload's own mechanism exactly (src/components/bulk-fit-upload.tsx,
@@ -1149,8 +1249,41 @@ function CalendarPage() {
           </div>
         </div>
 
+        {/* Armed-state banner. The rail itself shows which pill is lit, but
+            the rail is 44px wide and collapsed most of the time — the
+            coach needs to be told, in words, that clicking a day is now
+            going to write something, and how to stop. */}
+        {armedItem && (
+          <div className="flex items-center gap-2 rounded-md border border-[var(--accent-red)]/40 bg-[var(--accent-red)]/5 px-3 py-1.5 text-xs">
+            <span className={cn("h-3.5 w-3.5 shrink-0 rounded-sm", armedItem.colorClass)} />
+            <span className="min-w-0">
+              Adding <span className="font-semibold">{armedItem.label}</span> — click any day to place it. Stays on for
+              the next day, and the next. Press <kbd className="rounded border px-1">Esc</kbd> or Done to stop.
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="ml-auto h-6 shrink-0 px-2 text-xs"
+              onClick={() => setArmedQuickAdd(null)}
+            >
+              <X className="mr-1 h-3 w-3" /> Done
+            </Button>
+          </div>
+        )}
+
         <Card onWheel={view === "week" ? handleGridWheel : undefined}>
-          <CardContent className={view === "month" ? "p-0" : "p-1 sm:p-1.5"}>
+          <CardContent className={cn("flex items-stretch", view === "month" ? "p-0" : "p-1 sm:p-1.5")}>
+            {canEdit && (
+              <CalendarQuickAddRail
+                armedKey={armedQuickAdd}
+                onArm={setArmedQuickAdd}
+                disabled={!selectedAthleteId || !!quickAddingDate}
+              />
+            )}
+            {/* min-w-0 at the flex-item level, not on inner content — the
+                grid inside will not shrink below its content otherwise and
+                the rail gets squeezed off. */}
+            <div className={cn("min-w-0 flex-1", canEdit && view !== "month" && "pl-1")}>
             {view === "month" ? (
               <div
                 ref={scrollContainerRef}
@@ -1200,6 +1333,9 @@ function CalendarPage() {
                                 weather={showWeekTotals ? (forecast?.get(iso) ?? null) : undefined}
                                 onMultiClick={(dd) => setSheetDay(dd)}
                                 onAdd={canEdit ? (date) => setAddMenuDate(date) : undefined}
+                                quickAddArmed={!!armedItem}
+                                quickAddPending={quickAddingDate === iso}
+                                onQuickAdd={canEdit ? quickAddSession : undefined}
                               />
                             );
                           })}
@@ -1239,6 +1375,9 @@ function CalendarPage() {
                             weather={forecast?.get(iso) ?? null}
                             onMultiClick={(dd) => setSheetDay(dd)}
                             onAdd={canEdit ? (date) => setAddMenuDate(date) : undefined}
+                            quickAddArmed={!!armedItem}
+                            quickAddPending={quickAddingDate === iso}
+                            onQuickAdd={canEdit ? quickAddSession : undefined}
                           />
                         );
                       })}
@@ -1248,6 +1387,7 @@ function CalendarPage() {
                 </div>
               </>
             )}
+            </div>
           </CardContent>
         </Card>
 
@@ -1564,19 +1704,33 @@ function CalendarPage() {
   );
 }
 
+// Colours are read from INTENT_BAR/DAYTYPE_BAR — the same two maps that
+// actually colour the day cells — rather than being listed again here.
+//
+// They HAD been listed again here, and had drifted: the legend claimed
+// Aerobic was teal and Recovery was sky, when the cells use sky for
+// Aerobic and teal for Recovery; and that Race was purple and Anaerobic
+// rose, when the cells use pink for Race and purple for Anaerobic. Those
+// two pairs were swapped outright, so a coach checking the legend to read
+// a bar got the wrong answer. It happened because DAYTYPE_BAR's race and
+// recovery values were deliberately changed to stop them colliding with
+// anaerobic and aerobic, and this list was never updated to match. Which
+// entries appear is still chosen by hand (time_trial has no colour, and
+// "training" is the absence of a day type, so neither belongs here) —
+// only the colours themselves are now single-sourced.
 function Legend() {
   const items: { label: string; cls: string }[] = [
-    { label: "Easy", cls: "bg-emerald-500" },
-    { label: "Aerobic", cls: "bg-teal-500" },
-    { label: "Tempo", cls: "bg-amber-500" },
-    { label: "Threshold", cls: "bg-orange-500" },
-    { label: "VO2", cls: "bg-red-500" },
-    { label: "Anaerobic", cls: "bg-rose-600" },
-    { label: "Speed", cls: "bg-fuchsia-500" },
-    { label: "Race", cls: "bg-purple-600" },
-    { label: "Recovery", cls: "bg-sky-400" },
-    { label: "Cross-train", cls: "bg-slate-400" },
-    { label: "Rest", cls: "bg-stone-300" },
+    { label: "Easy", cls: INTENT_BAR.easy },
+    { label: "Aerobic", cls: INTENT_BAR.aerobic },
+    { label: "Tempo", cls: INTENT_BAR.tempo },
+    { label: "Threshold", cls: INTENT_BAR.threshold },
+    { label: "VO2", cls: INTENT_BAR.vo2 },
+    { label: "Anaerobic", cls: INTENT_BAR.anaerobic },
+    { label: "Speed", cls: INTENT_BAR.speed },
+    { label: "Race", cls: DAYTYPE_BAR.race },
+    { label: "Recovery", cls: DAYTYPE_BAR.recovery },
+    { label: "Cross-train", cls: DAYTYPE_BAR.cross_training },
+    { label: "Rest", cls: DAYTYPE_BAR.rest },
   ];
   return (
     <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
@@ -1590,4 +1744,4 @@ function Legend() {
       </span>
     </div>
   );
-} 
+}
