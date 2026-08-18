@@ -84,7 +84,7 @@ export type DayForecast = {
 // it's viewed from. `speed` isn't zone-derived (the classifier never
 // produces it), so it keeps its own distinct color rather than borrowing
 // one of the six.
-const INTENT_BAR: Record<string, string> = {
+export const INTENT_BAR: Record<string, string> = {
   easy: "bg-emerald-400",
   aerobic: "bg-sky-400",
   tempo: "bg-amber-400",
@@ -93,7 +93,7 @@ const INTENT_BAR: Record<string, string> = {
   anaerobic: "bg-purple-600",
   speed: "bg-fuchsia-500",
 };
-const DAYTYPE_BAR: Record<string, string> = {
+export const DAYTYPE_BAR: Record<string, string> = {
   // pink-600 and teal-500 — chosen specifically to NOT collide with any
   // INTENT_BAR color above (race previously shared purple-600 with
   // anaerobic, recovery previously shared sky-400 with aerobic; a session
@@ -140,6 +140,9 @@ export function CalendarDayCell({
   weather,
   onMultiClick,
   onAdd,
+  quickAddArmed = false,
+  quickAddPending = false,
+  onQuickAdd,
 }: {
   day: DayData;
   inMonth: boolean;
@@ -150,8 +153,33 @@ export function CalendarDayCell({
   onMultiClick?: (day: DayData) => void;
   /** Opens the "add to this day" menu (upload file / create session / manual entry). Works on any day, not just empty ones — existing sessions stay reachable via their own pills/sheet. */
   onAdd?: (date: string) => void;
+  /**
+   * True while an activity is armed on the quick-add rail. Changes what a
+   * click on this cell MEANS — it places the armed activity instead of
+   * opening the day sheet — so it also changes how the cell looks, on
+   * purpose: a click that writes to the database shouldn't be
+   * indistinguishable from one that opens a panel.
+   *
+   * The session pills and the "+" button inside the cell already
+   * stopPropagation, so an armed rail never blocks opening an existing
+   * session or reaching the full add menu.
+   */
+  quickAddArmed?: boolean;
+  /** A quick-add for THIS day is in flight — suppresses double-placement. */
+  quickAddPending?: boolean;
+  onQuickAdd?: (date: string) => void;
 }) {
   const sessions = day.sessions;
+  const quickAddActive = quickAddArmed && !!onQuickAdd;
+  // One handler for both the pointer and keyboard paths so they can't
+  // drift — the armed branch must fire identically either way.
+  const handleActivate = () => {
+    if (quickAddActive) {
+      if (!quickAddPending) onQuickAdd!(day.date);
+      return;
+    }
+    onMultiClick?.(day);
+  };
   const dayNum = Number(day.date.slice(8, 10));
   const readinessCls = day.readiness_status ? READINESS_DOT[day.readiness_status] : null;
   const pbs = day.pbs ?? [];
@@ -210,14 +238,20 @@ export function CalendarDayCell({
       <div
         role="button"
         tabIndex={0}
-        onClick={() => sessions.length && onMultiClick?.(day)}
+        onClick={() => {
+          // An armed rail fires on ANY day, empty or not — unlike the
+          // sheet, which has nothing to show for an empty day.
+          if (quickAddActive || sessions.length) handleActivate();
+        }}
         onKeyDown={(e) => {
-          if ((e.key === "Enter" || e.key === " ") && sessions.length) onMultiClick?.(day);
+          if ((e.key === "Enter" || e.key === " ") && (quickAddActive || sessions.length)) handleActivate();
         }}
         className={cn(
           "h-16 w-full border rounded-md bg-background text-left flex flex-col overflow-hidden cursor-pointer",
           !inMonth && "opacity-50",
           isToday && "ring-1 ring-primary",
+          quickAddActive && "ring-1 ring-[var(--accent-red)]/40",
+          quickAddPending && "opacity-60",
         )}
       >
         {header}
@@ -241,14 +275,17 @@ export function CalendarDayCell({
     <div
       role="button"
       tabIndex={0}
-      onClick={() => onMultiClick?.(day)}
+      onClick={handleActivate}
       onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") onMultiClick?.(day);
+        if (e.key === "Enter" || e.key === " ") handleActivate();
       }}
       className={cn(
         "min-h-[110px] lg:min-h-[135px] border rounded-md bg-background flex flex-col overflow-hidden cursor-pointer hover:bg-accent/20 transition-colors",
         !inMonth && "opacity-50",
         isToday && "ring-1 ring-primary",
+        quickAddActive &&
+          "ring-1 ring-[var(--accent-red)]/40 hover:ring-2 hover:ring-[var(--accent-red)] hover:bg-[var(--accent-red)]/5",
+        quickAddPending && "opacity-60",
       )}
     >
       {header}
