@@ -48,6 +48,7 @@ export function EditCampaignDialog({
   const [name, setName] = useState(campaign?.name ?? "");
   const [status, setStatus] = useState<string>(campaign?.status ?? "draft");
   const [startsOn, setStartsOn] = useState(campaign?.starts_on ?? "");
+  const [endsOn, setEndsOn] = useState(campaign?.ends_on ?? "");
   const [resetWeeks, setResetWeeks] = useState(campaign?.reset_weeks ?? 2);
   const [loadWeeks, setLoadWeeks] = useState(campaign?.load_weeks ?? 3);
   const [deloadWeeks, setDeloadWeeks] = useState(campaign?.deload_weeks ?? 1);
@@ -86,6 +87,7 @@ export function EditCampaignDialog({
     setName(campaign.name ?? "");
     setStatus(campaign.status ?? "draft");
     setStartsOn(campaign.starts_on ?? "");
+    setEndsOn(campaign.ends_on ?? "");
     setResetWeeks(campaign.reset_weeks ?? 2);
     setLoadWeeks(campaign.load_weeks ?? 3);
     setDeloadWeeks(campaign.deload_weeks ?? 1);
@@ -139,12 +141,13 @@ export function EditCampaignDialog({
         postPeakRecoveryWeeks: 1,
         transitionWeeks: 0,
         targets,
+        endsOn: endsOn || null,
         loads: { raceWeekReduction },
       }),
     [
       startsOn, loadWeeks, deloadWeeks, deloadsEnabled, taperDays, keyTaperDays, taperFloorPct,
       taperShape, baseProgression, buildProgression, baseQuality, buildQuality, resetWeeks,
-      targets, raceWeekReduction, overloadBefore, overloadLen,
+      targets, raceWeekReduction, overloadBefore, overloadLen, endsOn,
     ],
   );
 
@@ -307,7 +310,7 @@ export function EditCampaignDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="grid sm:grid-cols-4 gap-3">
+          <div className="grid sm:grid-cols-5 gap-3">
             <div>
               <Label className="text-xs">Name</Label>
               <Input value={name} onChange={(e) => setName(e.target.value)} />
@@ -315,6 +318,10 @@ export function EditCampaignDialog({
             <div>
               <Label className="text-xs">Starts</Label>
               <Input type="date" value={startsOn} onChange={(e) => setStartsOn(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs">Ends (optional)</Label>
+              <Input type="date" value={endsOn} onChange={(e) => setEndsOn(e.target.value)} />
             </div>
             <div>
               <Label className="text-xs">Normal week (km)</Label>
