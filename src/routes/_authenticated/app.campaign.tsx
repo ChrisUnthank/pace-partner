@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Flag, Plus, Trash2, Target, CalendarRange, Sparkles } from "lucide-react";
+import { CalendarRange, ChevronRight, Flag, Plus, Sparkles, Target, Trash2 } from "lucide-react";
 import { BucketTabStrip, COACHING_HUB_TABS } from "@/components/bucket-tab-strip";
 import { CampaignTimeline, PRIORITY_STYLE } from "@/components/campaign-timeline";
 import { WeekEditDialog, BaselineDialog } from "@/components/campaign-week-edit";
@@ -25,7 +25,13 @@ export const Route = createFileRoute("/_authenticated/app/campaign")({
 });
 
 const PRIORITIES: { value: TargetPriority; label: string; help: string }[] = [
-  { value: "peak", label: "Peak", help: "The season's target. Full taper, and the campaign's highest load leads into it." },
+  {
+    value: "peak",
+    label: "Peak",
+    // Describes the ATHLETE'S state, which is what the word means to a coach,
+    // rather than the mechanics it triggers.
+    help: "The race you want to be in form for. Gets the full taper, with the season's heaviest training block leading into it.",
+  },
   { value: "key", label: "Key", help: "Races that matter — State champs and similar. Short taper." },
   { value: "tune_up", label: "Tune-up", help: "A few days easier. No taper week." },
   { value: "training", label: "Training", help: "Raced through. Volume held; adjust the week's sessions away from lactic work." },
@@ -45,6 +51,10 @@ function CampaignsPage() {
 
   const [selectedAthleteId, setSelectedAthleteId] = useState<string>("");
   const [createOpen, setCreateOpen] = useState(false);
+  // One expanded at a time. A page of full timelines is a lot of screen for
+  // something you are usually scanning past.
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [showFinished, setShowFinished] = useState(false);
 
   const { data: roster, isError: rosterError } = useQuery({
     queryKey: ["campaign-roster", isCoach],
@@ -194,14 +204,41 @@ function CampaignsPage() {
           </Card>
         )}
 
-        {(campaigns ?? []).map((c: any) => (
-          <SavedCampaign
-            key={c.id}
-            campaign={c}
-            canWrite={isCoach || isManager || c.created_by === user?.id}
-            onChanged={() => qc.invalidateQueries({ queryKey: ["campaigns", "all"] })}
-          />
-        ))}
+        {(() => {
+          const all = campaigns ?? [];
+          // Complete and abandoned are hidden: a season a year per athlete
+          // across a squad buries the live ones fast. Counted, not silently
+          // dropped — a list that quietly omits things is worse than a long
+          // one.
+          const finished = all.filter((c: any) => c.status === "complete" || c.status === "abandoned");
+          const live = all.filter((c: any) => c.status !== "complete" && c.status !== "abandoned");
+          const shown = showFinished ? all : live;
+          return (
+            <>
+              {shown.map((c: any) => (
+                <CampaignRow
+                  key={c.id}
+                  campaign={c}
+                  expanded={expandedId === c.id}
+                  onToggle={() => setExpandedId(expandedId === c.id ? null : c.id)}
+                  canWrite={isCoach || isManager || c.created_by === user?.id}
+                  onChanged={() => qc.invalidateQueries({ queryKey: ["campaigns", "all"] })}
+                />
+              ))}
+              {finished.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowFinished((v) => !v)}
+                  className="text-xs text-muted-foreground hover:text-foreground underline"
+                >
+                  {showFinished
+                    ? "Hide finished campaigns"
+                    : `Show ${finished.length} finished campaign${finished.length === 1 ? "" : "s"}`}
+                </button>
+              )}
+            </>
+          );
+        })()}
       </div>
 
       <CreateCampaignDialog
@@ -214,6 +251,60 @@ function CampaignsPage() {
         }}
       />
     </AppShell>
+  );
+}
+
+/**
+ * One campaign as a compact row, expanding to the full timeline.
+ *
+ * The summary carries what you'd actually scan for — whose it is, how long,
+ * how many races, and when the peak falls. Enough to tell two seasons apart
+ * without opening either.
+ */
+function CampaignRow({
+  campaign,
+  expanded,
+  onToggle,
+  canWrite,
+  onChanged,
+}: {
+  campaign: any;
+  expanded: boolean;
+  onToggle: () => void;
+  canWrite: boolean;
+  onChanged: () => void;
+}) {
+  const targets = campaign.campaign_targets ?? [];
+  const weekCount = (campaign.campaign_weeks ?? []).length;
+  const peak = targets
+    .filter((t: any) => t.priority === "peak")
+    .sort((a: any, b: any) => String(a.race_date).localeCompare(String(b.race_date)))[0];
+
+  return (
+    <Card>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full text-left px-6 py-3 hover:bg-accent/40 transition-colors rounded-lg"
+      >
+        <div className="flex items-center gap-3 flex-wrap">
+          <ChevronRight
+            className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${expanded ? "rotate-90" : ""}`}
+          />
+          <span className="font-medium">{campaign.athletes?.name ?? "Athlete"}</span>
+          <span className="text-sm">{campaign.name}</span>
+          <Badge variant={campaign.status === "active" ? "default" : "secondary"} className="text-[10px]">
+            {campaign.status}
+          </Badge>
+          <span className="text-[11px] text-muted-foreground ml-auto">
+            {weekCount} wk · {targets.length} race{targets.length === 1 ? "" : "s"}
+            {peak ? ` · peak ${peak.race_date}` : " · no peak set"}
+          </span>
+        </div>
+      </button>
+
+      {expanded && <SavedCampaign campaign={campaign} canWrite={canWrite} onChanged={onChanged} />}
+    </Card>
   );
 }
 
@@ -289,7 +380,10 @@ function SavedCampaign({
         .map((b: any) => ({
           blockOrder: b.block_order,
           phase: b.phase,
-          label: b.label ?? b.phase,
+          // Campaigns created before the rename stored "Peak" as the block
+          // label. Remapped on read rather than migrated: it's a display
+          // string, and rewriting rows to change a word isn't worth the risk.
+          label: b.phase === "peak" ? "Overload" : (b.label ?? b.phase),
           startsOn: b.starts_on,
           endsOn: b.ends_on,
           // COUNT the weeks that belong to this block rather than inferring
@@ -307,13 +401,11 @@ function SavedCampaign({
   );
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <CardTitle className="text-base flex items-center gap-2">
-            <CalendarRange className="h-4 w-4 text-[var(--accent-red)]" />
-            {campaign.name}
-          </CardTitle>
+    // No Card or title here — CampaignRow provides both. Repeating them would
+    // put a card inside a card and the name twice.
+    <>
+      <div className="px-6 pb-3">
+        <div className="flex items-center justify-end gap-2 flex-wrap">
           <div className="flex items-center gap-2">
             <Badge variant={campaign.status === "active" ? "default" : "secondary"}>{campaign.status}</Badge>
             {canWrite && (
@@ -328,17 +420,13 @@ function SavedCampaign({
             )}
           </div>
         </div>
-        <CardDescription>
-          {/* Athlete name first: with the list spanning everyone, whose season
-              this is matters more than when it runs. */}
-          {campaign.athletes?.name ? <span className="text-foreground font-medium">{campaign.athletes.name}</span> : null}
-          {campaign.athletes?.name ? " · " : ""}
-          {campaign.starts_on} → {campaign.ends_on} · {weeks.length} weeks ·{" "}
-          {(campaign.campaign_targets ?? []).length} race
-          {(campaign.campaign_targets ?? []).length === 1 ? "" : "s"}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
+        {/* Dates only — the row above already carries athlete, status, week
+            count and race count. */}
+        <p className="text-xs text-muted-foreground">
+          {campaign.starts_on} → {campaign.ends_on}
+        </p>
+      </div>
+      <div className="px-6 pb-6 space-y-3">
         <div className="flex items-center gap-3 flex-wrap text-[11px] text-muted-foreground">
           {canWrite ? (
             <>
@@ -362,7 +450,7 @@ function SavedCampaign({
           actualByWeek={actualByWeek as any}
           onWeekClick={canWrite ? (w) => setEditingWeek(w) : undefined}
         />
-      </CardContent>
+      </div>
 
       <WeekEditDialog
         open={!!editingWeek}
@@ -416,7 +504,7 @@ function SavedCampaign({
         current={baselineKm}
         onSaved={onChanged}
       />
-    </Card>
+    </>
   );
 }
 
