@@ -2305,6 +2305,70 @@ function WorkoutStructureOrderEditor({ session, steps, qc }: { session: any; ste
     };
   }, [localSteps, selectedForMerge]);
 
+  /**
+   * Puts a merged block back exactly as it was.
+   *
+   * Restores the removed steps with their ORIGINAL ids, which is what makes
+   * this faithful rather than approximate: every interval_result already
+   * carries the step_id it belonged to, so once the steps exist again the
+   * results reattach by id with no guessing about which rep came from which
+   * block.
+   *
+   * Recovery blocks and their results come back too — the merge drops them
+   * from the work total, but the snapshot kept them.
+   */
+  async function doUnmerge(step: any) {
+    const snap = step?.merge_snapshot;
+    if (!snap?.removedSteps?.length) return;
+    setSaving(true);
+    try {
+      // 1. The removed steps, ids and all.
+      const { error: insErr } = await (supabase as any)
+        .from("steps")
+        .insert(snap.removedSteps.map((st: any) => ({ ...st, merge_snapshot: null })));
+      if (insErr) throw insErr;
+
+      // 2. Results that were MOVED onto the survivor go home. Matched by the
+      //    id of the result itself, so a rep that has since been edited keeps
+      //    its edits and simply changes parent.
+      for (const r of snap.removedResults ?? []) {
+        const { error } = await (supabase as any)
+          .from("interval_results")
+          .update({ step_id: r.step_id })
+          .eq("id", r.id);
+        // A result that no longer exists — deleted with a recovery block —
+        // is recreated below rather than treated as a failure.
+        if (error) continue;
+      }
+
+      // 3. Anything that didn't survive gets recreated from the snapshot.
+      const ids = (snap.removedResults ?? []).map((r: any) => r.id);
+      if (ids.length > 0) {
+        const { data: present } = await (supabase as any).from("interval_results").select("id").in("id", ids);
+        const have = new Set((present ?? []).map((x: any) => x.id));
+        const missing = (snap.removedResults ?? []).filter((r: any) => !have.has(r.id));
+        if (missing.length > 0) {
+          const { error: reErr } = await (supabase as any).from("interval_results").insert(missing);
+          if (reErr) throw reErr;
+        }
+      }
+
+      // 4. The survivor's own values, and the snapshot cleared.
+      const { error: revErr } = await (supabase as any)
+        .from("steps")
+        .update({ ...(snap.survivorBefore ?? {}), merge_snapshot: null })
+        .eq("id", step.id);
+      if (revErr) throw revErr;
+
+      toast.success(`Unmerged — ${snap.removedSteps.length} block${snap.removedSteps.length === 1 ? "" : "s"} restored`);
+      invalidateSession(qc, session.id, session.athlete_id);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Couldn't unmerge.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function doMerge() {
     if (!mergeIsValid) return;
     setSaving(true);
@@ -2332,6 +2396,38 @@ function WorkoutStructureOrderEditor({ session, steps, qc }: { session: any; ste
       patch.recovery_between_reps_mode = rec.recovery_mode ?? "jog";
     }
 
+    // Capture everything the merge is about to consume, BEFORE consuming it.
+    // Read first: once the steps are deleted their rows and results are gone,
+    // and a snapshot taken afterwards would be a snapshot of nothing.
+    const removedIds = [...rest, ...mergeRecoverySteps].map((st) => st.id);
+    let snapshot: any = null;
+    if (removedIds.length > 0) {
+      const { data: removedResults } = await (supabase as any)
+        .from("interval_results")
+        .select("*")
+        .in("step_id", removedIds);
+      snapshot = {
+        version: 1,
+        mergedAt: new Date().toISOString(),
+        // Full rows, so unmerge recreates them rather than approximating.
+        removedSteps: [...rest, ...mergeRecoverySteps],
+        removedResults: removedResults ?? [],
+        // The survivor's own values, which the patch below overwrites.
+        survivorBefore: {
+          reps: keep.reps,
+          set_count: keep.set_count,
+          recovery_between_reps_target_kind: keep.recovery_between_reps_target_kind,
+          recovery_between_reps_seconds: keep.recovery_between_reps_seconds,
+          recovery_between_reps_distance_m: keep.recovery_between_reps_distance_m,
+          recovery_between_reps_mode: keep.recovery_between_reps_mode,
+        },
+        // Which results were MOVED onto the survivor, so unmerge can send
+        // them back rather than guessing from step_order.
+        movedResultStepIds: rest.map((st) => st.id),
+      };
+      patch.merge_snapshot = snapshot;
+    }
+
     const { error: upErr } = await (supabase as any).from("steps").update(patch).eq("id", keep.id);
     if (upErr) {
       toast.error(upErr.message);
@@ -2344,18 +2440,22 @@ function WorkoutStructureOrderEditor({ session, steps, qc }: { session: any; ste
     // would be destroying measurements to fix a label.
     const moveIds = [...rest, ...mergeRecoverySteps].map((st) => st.id);
     if (moveIds.length > 0) {
-      const { error: mvErr } = await (supabase as any)
-        .from("interval_results")
-        .update({ step_id: keep.id })
-        .in("step_id", rest.map((st) => st.id));
-      if (mvErr) {
-        toast.error(mvErr.message);
-        setSaving(false);
-        return;
+      // Tag each moved result with where it came from, so unmerge restores
+      // the original grouping instead of dumping them all on the first block.
+      for (const src of rest) {
+        const { error: mvErr1 } = await (supabase as any)
+          .from("interval_results")
+          .update({ step_id: keep.id })
+          .eq("step_id", src.id);
+        if (mvErr1) {
+          toast.error(mvErr1.message);
+          setSaving(false);
+          return;
+        }
       }
-      // Recovery blocks' own results are dropped with them: their distance is
-      // recovery, not work, and folding it into the set would inflate the
-      // work total.
+      // Recovery blocks' own results go with them: their distance is recovery,
+      // not work, and folding it into the set would inflate the work total.
+      // They are in the snapshot, so unmerge puts them back.
       const { error: delErr } = await (supabase as any).from("steps").delete().in("id", moveIds);
       if (delErr) {
         toast.error(delErr.message);
@@ -2472,6 +2572,31 @@ function WorkoutStructureOrderEditor({ session, steps, qc }: { session: any; ste
             </Button>
             <span className="text-[11px] text-muted-foreground">{mergeHint}</span>
           </div>
+
+          {/* Anything previously merged can be put back. Listed here rather
+              than as a control on the block itself, because after a merge the
+              block looks like any other and there'd be nothing to hint that
+              it could be undone. */}
+          {localSteps.filter((st) => st.merge_snapshot).length > 0 && (
+            <div className="pt-2 mt-1 border-t space-y-1.5">
+              <div className="text-[11px] text-muted-foreground">Previously merged — can be put back exactly:</div>
+              {localSteps
+                .filter((st) => st.merge_snapshot)
+                .map((st) => (
+                  <div key={`um-${st.id}`} className="flex items-center gap-2 flex-wrap">
+                    <Button size="sm" variant="ghost" disabled={saving} onClick={() => doUnmerge(st)}>
+                      Unmerge
+                    </Button>
+                    <span className="text-[11px] text-muted-foreground">
+                      {BLOCK_KIND_LABEL[st.kind] ?? st.kind}
+                      {st.reps > 1 ? ` · ${st.reps} reps` : ""} — absorbed{" "}
+                      {(st.merge_snapshot?.removedSteps ?? []).length} block
+                      {(st.merge_snapshot?.removedSteps ?? []).length === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -2507,8 +2632,12 @@ function WorkoutStructureOrderEditor({ session, steps, qc }: { session: any; ste
             <DialogTitle>Merge into one block?</DialogTitle>
             <DialogDescription>
               This combines the selected blocks into a single {mergeHint} block. The recorded reps are kept and moved
-              onto it — nothing measured is lost. Any recovery blocks in the selection become the recovery between
-              reps, and their own distance stops counting toward work.
+              onto it, and any recovery blocks in the selection become the recovery between reps — their own distance
+              stops counting toward work.
+              <br />
+              <span className="text-foreground">
+                Reversible: an Unmerge button appears afterwards and puts the blocks back exactly, results included.
+              </span>
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
