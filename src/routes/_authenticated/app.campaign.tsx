@@ -587,10 +587,14 @@ function CreateCampaignDialog({
   // Optional. Blank means the campaign ends at the last race, which is the
   // old behaviour; set it and the season runs on into transition weeks.
   const [endsOn, setEndsOn] = useState<string>("");
+  // Weeks after the final race. Was only reachable by setting an end date and
+  // counting back, so a campaign silently got however many weeks happened to
+  // fall between the last race and that date.
+  const [transitionWeeks, setTransitionWeeks] = useState(0);
   // Week loads set before the campaign exists. Held here and saved with
   // everything else; keyed by week NUMBER because within one unsaved draft the
   // numbering doesn't move.
-  const [weekOverrides, setWeekOverrides] = useState<Map<number, { loadPct: number; isDeload: boolean }>>(new Map());
+  const [weekOverrides, setWeekOverrides] = useState<Map<number, { loadPct: number; isDeload: boolean; phase?: string | null }>>(new Map());
   const [editingPreviewWeek, setEditingPreviewWeek] = useState<any>(null);
   const [saving, setSaving] = useState(false);
 
@@ -609,9 +613,9 @@ function CreateCampaignDialog({
         keyTaperWeeks,
         resetWeeks,
         postPeakRecoveryWeeks: 1,
-        transitionWeeks: 0,
         targets,
         endsOn: endsOn || null,
+        transitionWeeks,
         taperFloorPct,
         taperShape,
         overloadWeeksBeforeRace: overloadBefore,
@@ -635,7 +639,7 @@ function CreateCampaignDialog({
       resetWeeks, targets, raceWeekReduction, taperFloorPct, taperShape,
       taperDays, keyTaperDays, baseProgression, buildProgression, baseQuality, buildQuality,
       overloadBefore, overloadLen, overloadKey, taperFrequencyMode, taperNeuro,
-      taperRestDays, taperSessionCut, floorOverride, endsOn, deloadPct,
+      taperRestDays, taperSessionCut, floorOverride, endsOn, deloadPct, transitionWeeks,
     ],
   );
 
@@ -647,7 +651,9 @@ function CreateCampaignDialog({
     () =>
       preview.weeks.map((w) => {
         const o = weekOverrides.get(w.weekNumber);
-        return o ? { ...w, loadPct: o.loadPct, isDeload: o.isDeload, isLocked: true } : w;
+        return o
+          ? { ...w, loadPct: o.loadPct, isDeload: o.isDeload, phase: (o.phase ?? w.phase) as any, isLocked: true }
+          : w;
       }),
     [preview.weeks, weekOverrides],
   );
@@ -680,7 +686,7 @@ function CreateCampaignDialog({
           taper_weeks: taperWeeks,
           key_taper_weeks: keyTaperWeeks,
           reset_weeks: resetWeeks,
-          transition_weeks: 0,
+          transition_weeks: transitionWeeks,
           race_week_reduction_pct: raceWeekReduction,
           load_deload_pct: deloadPct,
           taper_floor_pct: floorOverride ? taperFloorPct : derivedFloor,
@@ -748,6 +754,7 @@ function CreateCampaignDialog({
           quality_sessions: w.qualitySessions,
           // A week set by hand is locked, so regenerating later leaves it be.
           is_locked: weekOverrides.has(w.weekNumber),
+          phase_override: weekOverrides.get(w.weekNumber)?.phase ?? null,
         })),
       );
       if (wErr) throw wErr;
@@ -893,6 +900,13 @@ function CreateCampaignDialog({
 
           <div className="grid sm:grid-cols-3 lg:grid-cols-6 gap-3">
             <NumField label="Down weeks" value={resetWeeks} onChange={setResetWeeks} min={0} max={8} />
+            <NumField
+              label="Transition weeks"
+              value={transitionWeeks}
+              onChange={setTransitionWeeks}
+              min={0}
+              max={8}
+            />
             <NumField label="Load weeks" value={loadWeeks} onChange={setLoadWeeks} min={1} max={6} />
             <NumField label="Deload weeks" value={deloadWeeks} onChange={setDeloadWeeks} min={0} max={2} />
             <NumField label="Peak taper (days)" value={taperDays} onChange={setTaperDays} min={3} max={35} />
@@ -1153,10 +1167,10 @@ function CreateCampaignDialog({
                 baselineKm={baselineNum}
                 totalWeeks={previewWeeks.length}
                 onClose={() => setEditingPreviewWeek(null)}
-                onApply={(from, through, loadPct, isDeload) => {
+                onApply={(from, through, loadPct, isDeload, phase) => {
                   setWeekOverrides((prev) => {
                     const next = new Map(prev);
-                    for (let n = from; n <= through; n++) next.set(n, { loadPct, isDeload });
+                    for (let n = from; n <= through; n++) next.set(n, { loadPct, isDeload, phase });
                     return next;
                   });
                   setEditingPreviewWeek(null);
