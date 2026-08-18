@@ -63,6 +63,12 @@ type TrainingLocation = {
   surrounding_terrain: string | null;
   altitude_m: number | null;
   notes: string | null;
+  // Added with the ownership model: null = a squad location (coach-created,
+  // visible to all, coach-editable); set = personal to that athlete, editable
+  // only by them. The column and the UI that reads it both landed, but this
+  // type didn't — an earlier edit added the field to a different declaration.
+  owner_athlete_id?: string | null;
+  created_by?: string | null;
 };
 
 function FitToPath({ path }: { path: [number, number][] }) {
