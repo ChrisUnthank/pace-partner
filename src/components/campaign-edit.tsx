@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { Plus, Trash2, Flag, Lock } from "lucide-react";
 import { CampaignTimeline, PRIORITY_STYLE } from "@/components/campaign-timeline";
 import { generateCampaign, type CampaignTarget, type TargetPriority, isValidIsoDate } from "@/lib/campaign-generator";
-import { AddRacesDialog } from "@/components/campaign-race-picker";
+import { AddRacesPanel } from "@/components/campaign-race-picker";
 
 // ----------------------------------------------------------------------------
 // Editing a saved campaign.
@@ -310,6 +310,17 @@ export function EditCampaignDialog({
                 </Button>
               </div>
             </div>
+            {/* Inline, inside the Races section — the draft stays put. */}
+            <AddRacesPanel
+              open={pickerOpen}
+              onClose={() => setPickerOpen(false)}
+              athleteId={campaign?.athlete_id}
+              existing={targets}
+              onAdd={(added) =>
+                setTargets((t) => [...t, ...added].sort((a, b) => a.raceDate.localeCompare(b.raceDate)))
+              }
+            />
+
             <div className="space-y-2">
               {targets.map((t, i) => (
                 <div key={i} className="flex items-center gap-2 flex-wrap">
@@ -445,19 +456,6 @@ export function EditCampaignDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
-
-      {/* Sibling of the outer Dialog, not a child of its content — see the
-          same fix in app.campaign.tsx. Nested Radix dialogs conflict over the
-          focus trap. */}
-      <AddRacesDialog
-          open={pickerOpen}
-          onOpenChange={setPickerOpen}
-          athleteId={campaign?.athlete_id}
-          existing={targets}
-          onAdd={(added) =>
-            setTargets((t) => [...t, ...added].sort((a, b) => a.raceDate.localeCompare(b.raceDate)))
-          }
-        />
     </Dialog>
   );
 }
