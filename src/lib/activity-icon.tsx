@@ -21,13 +21,24 @@ import {
 // doesn't look like a mismatched, bolted-on icon set. Imported individually
 // (not the whole package) so this stays properly tree-shaken — pulling in
 // one icon here doesn't bundle Tabler's other ~5,000 icons.
-import type { ComponentType } from "react";
+import type { ComponentType, CSSProperties } from "react";
 import { TbMountain, TbTreadmill, TbTrack } from "react-icons/tb";
 
 // Shared shape both LucideIcon and Tabler's IconType components actually
 // satisfy — broadened from the old LucideIcon-only return type so this
 // function can hand back either family through one consistent signature.
-type ResolvedIcon = ComponentType<{ className?: string; size?: number; "aria-hidden"?: boolean }>;
+// `style` is included because callers already pass it and both icon
+// families already forward it — analytics' TerrainTile colours its icon
+// with style={{ color }}, which works at runtime and was the only thing
+// tsc flagged in the whole repo. Type-only widening: no behaviour changes,
+// but it clears the one standing error, which matters because a tsc run
+// that is already red is a tsc run nobody reads.
+type ResolvedIcon = ComponentType<{
+  className?: string;
+  size?: number;
+  style?: CSSProperties;
+  "aria-hidden"?: boolean;
+}>;
 
 /**
  * Resolve an icon for a given terrain value — the single source of truth
