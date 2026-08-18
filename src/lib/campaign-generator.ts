@@ -324,6 +324,28 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
     return Math.round(taperFloor + (peakLoad - taperFloor) * Math.pow(p, exp));
   }
 
+  /**
+   * Quality sessions in a given week.
+   *
+   * Whole numbers pass straight through. A fraction below 1 is spread: 0.5
+   * lands on every second week, 0.33 on every third, 0.25 on every fourth —
+   * counted from the start of the campaign so the spacing stays even across
+   * block boundaries rather than restarting and bunching two together.
+   */
+  function qualityForWeek(phase: Phase, weekIndex: number): number | null {
+    const density =
+      phase === "build" || phase === "peak"
+        ? num(settings.buildQualityPerWeek, 2, 0, 5)
+        : phase === "base"
+          ? num(settings.baseQualityPerWeek, 0.5, 0, 5)
+          : NaN;
+    if (!Number.isFinite(density)) return null;
+    if (density <= 0) return 0;
+    if (density >= 1) return Math.round(density);
+    const everyN = Math.round(1 / density); // 0.5 -> 2, 0.33 -> 3, 0.25 -> 4
+    return weekIndex % everyN === 0 ? 1 : 0;
+  }
+
   const DAY_MS = 24 * 60 * 60 * 1000;
   const taperExp = taperShape === "gentle" ? 0.55 : taperShape === "steep" ? 1.8 : 1;
 
@@ -648,14 +670,15 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
       isDeload,
       raceName: race?.name ?? null,
       racePriority: race?.priority ?? null,
-      qualitySessions:
-        phase === "build"
-          ? (settings.buildQualityPerWeek ?? 2)
-          : phase === "base"
-            ? (settings.baseQualityPerWeek ?? 0.5)
-            : phase === "peak"
-              ? (settings.buildQualityPerWeek ?? 2)
-              : null,
+      // A COUNT for this week, not an average.
+      //
+      // The density setting is per-week — 0.33 means every third week — but
+      // storing 0.33 on every base week described something that never
+      // happens: no week contains a third of a session. Fractional densities
+      // are now distributed, so the weeks that carry quality say 1 and the
+      // rest say 0. The timeline then marks the weeks that actually have hard
+      // work in them, which is the question a coach is asking.
+      qualitySessions: qualityForWeek(phase, i),
       raceDayOfWeek: raceDow,
       // With a day-based taper the answer is simply the configured days; with
       // weeks it is the taper weeks plus the pre-race part of race week, which
