@@ -93,6 +93,18 @@ export interface CampaignSettings {
   /** 'flat' holds the block's top figure; deloads then provide the variation. */
   baseProgression?: "progressive" | "flat";
   buildProgression?: "progressive" | "flat";
+  /**
+   * Overload placement.
+   *
+   * weeksBefore is measured from the RACE, not from the taper, because what
+   * matters is how long the athlete has to absorb the work. Placing it
+   * against the taper made the taper shed the overload's fatigue and sharpen
+   * at the same time, and the athlete arrives flat.
+   */
+  overloadWeeksBeforeRace?: number;
+  overloadBlockWeeks?: number;
+  /** Key races get their own overload block too, not just peaks. */
+  overloadBeforeKey?: boolean;
   /** Quality sessions per week. 0.5 = every second week. */
   baseQualityPerWeek?: number;
   buildQualityPerWeek?: number;
@@ -271,6 +283,9 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
   const postPeak = num(settings.postPeakRecoveryWeeks, 1, 0, 6);
   const deloadsOn = settings.deloadsEnabled !== false && num(settings.deloadWeeks, 1, 0, 4) > 0;
   const taperFloor = num(settings.taperFloorPct, 55, 20, 100);
+  const overloadBefore = num(settings.overloadWeeksBeforeRace, 3, 1, 8);
+  const overloadLen = num(settings.overloadBlockWeeks, 1, 0, 3);
+  const overloadForKey = settings.overloadBeforeKey !== false;
   // The remaining three, coerced once so no use site handles a raw value.
   // taperWeeks reached taperDaysFor() unclamped and Infinity * 7 produced a
   // date arithmetic throw further down — the last hole in the fuzz.
@@ -428,11 +443,17 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
       const idx = raceIdx - i;
       const wkStart = toDate(addDays(startMonday, idx * 7)).getTime();
       const wkEnd = wkStart + 6 * DAY_MS;
-      // Skip a week with no taper days in it. <= not <: taperStart is the day
-      // BEFORE the first tapering day, so a week ending exactly on it holds
-      // none. Without this a 7-day taper into a Sunday race labelled the
-      // previous week "taper" while leaving it at full peak load.
-      if (wkEnd <= taperStartMs) continue;
+      // A week needs at least THREE tapering days to be called a taper week.
+      //
+      // Counting any overlap at all produced weeks labelled "Taper" sitting
+      // at 114% — a 7-day taper into a Saturday race puts one tapering day in
+      // the previous week, which averages out to barely a reduction. A block
+      // labelled taper that isn't tapering is worse than no label.
+      const taperDaysInWeek = Math.max(
+        0,
+        Math.min(7, Math.round((wkEnd - Math.max(wkStart, taperStartMs)) / DAY_MS)),
+      );
+      if (taperDaysInWeek < 3) continue;
       // A taper is never overwritten by another race's week — a club race
       // inside a Nationals taper doesn't cancel the taper, it just happens
       // during it. Without this, training races were eating taper weeks and
@@ -444,24 +465,38 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
       // happens to sit exactly where the peak week would go. Losing the peak
       // block entirely because a minor race landed on it was the wrong
       // trade — the peak is the point of the campaign.
-      // Sits immediately before the FIRST WEEK ACTUALLY MARKED as taper, not
-      // a fixed ceil(days/7) back from the race.
-      //
-      // Those differ: a 14-day taper into a Sunday race only touches one
-      // calendar week, because the second week ends exactly on the taper's
-      // first day. Assuming two left an unmarked week between the overload
-      // and the taper, which then filled as base — a base week sitting
-      // between the season's hardest block and the race.
-      let firstTaper = raceIdx;
-      for (let k = raceIdx - 1; k >= resetWeeks; k--) {
-        if (phases[k] === "taper") firstTaper = k;
-        else break;
+      // Placement is handled below, for every target that earns one — not
+      // just this peak, and not against the taper.
+    }
+  }
+
+  // Overload blocks — one per peak, and per key race when enabled.
+  //
+  // Positioned `overloadBefore` weeks back from the RACE, so there are normal
+  // training weeks between the block and the taper for the work to be
+  // absorbed. Placing it against the taper asked the taper to shed that
+  // fatigue and sharpen simultaneously.
+  //
+  // Skips any week already claimed by a taper, a race or another overload,
+  // walking back until it finds a free one — two races close together
+  // shouldn't produce overlapping hard blocks.
+  if (overloadLen > 0) {
+    for (const [raceIdx, t] of raceAt) {
+      if (t.priority !== "peak" && !(t.priority === "key" && overloadForKey)) continue;
+      let idx = raceIdx - overloadBefore;
+      while (
+        idx >= resetWeeks &&
+        (raceAt.has(idx) || phases[idx] === "taper" || phases[idx] === "peak" || phases[idx] === "reset")
+      ) {
+        idx -= 1;
       }
-      let peakIdx = firstTaper - 1;
-      while (peakIdx >= resetWeeks && (raceAt.has(peakIdx) || phases[peakIdx] === "taper")) peakIdx -= 1;
-      if (peakIdx >= resetWeeks) {
-        phases[peakIdx] = "peak";
-        peakIdxs.push(peakIdx);
+      if (idx < resetWeeks) continue;
+      for (let k = 0; k < overloadLen; k++) {
+        const at = idx - k;
+        if (at < resetWeeks) break;
+        if (raceAt.has(at) || phases[at] === "taper" || phases[at] === "peak") continue;
+        phases[at] = "peak";
+        peakIdxs.push(at);
       }
     }
   }
