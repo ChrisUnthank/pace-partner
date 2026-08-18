@@ -249,6 +249,10 @@ export function CampaignTimeline({
                       : ""
                   }${w.raceName ? ` · ${w.raceName}` : ""}${
                     w.isLocked ? " · edited" : ""
+                  }${
+                    (w as any).fillTemplateName
+                      ? ` · filled from ${(w as any).fillTemplateName} wk ${(w as any).fillTemplateWeek}`
+                      : ""
                   }`}
                 >
                   <div
