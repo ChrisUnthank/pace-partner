@@ -110,14 +110,23 @@ const ZONE_LABEL: Record<string, string> = Object.fromEntries(ZONE_META.map((z) 
  */
 function zoneForPace(pace: number, zp: any): string | null {
   if (!zp) return null;
-  const bounds: { key: string; max: number | null }[] = [
+  // The annotation lives on the LITERAL, not on the filtered result.
+  // Declaring `const bounds: {max: number|null}[] = [...].filter(predicate)`
+  // widened the narrowed type straight back again — the annotation wins over
+  // the predicate, so b.max stayed nullable and the comparison below was
+  // still unguarded.
+  const raw: { key: string; max: number | null }[] = [
     { key: "z1", max: zp.pace_z1_max_sec_per_km },
     { key: "z2", max: zp.pace_z2_max_sec_per_km },
     { key: "z3", max: zp.pace_z3_max_sec_per_km },
     { key: "z4", max: zp.pace_z4_max_sec_per_km },
     { key: "z5", max: zp.pace_z5_max_sec_per_km },
     { key: "z6", max: zp.pace_z6_max_sec_per_km },
-  ].filter((b) => b.max != null) as { key: string; max: number }[];
+  ];
+  // A type PREDICATE, not a cast. `as` silences the checker while leaving
+  // b.max nullable in reality; the predicate actually narrows it, so a null
+  // boundary cannot reach the comparison below and quietly compare as false.
+  const bounds = raw.filter((b): b is { key: string; max: number } => b.max != null);
   if (bounds.length === 0) return null;
   for (const b of bounds) {
     if (pace >= b.max) return b.key;
