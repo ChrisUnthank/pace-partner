@@ -196,6 +196,10 @@ export interface GeneratedWeek {
    * whether eleven days is too many depends on the athlete.
    */
   taperDaysIntoRace?: number | null;
+  /** Carried on saved weeks that a plan template has filled. Set from
+   *  campaign_week_fills; absent on a freshly generated preview. */
+  fillTemplateName?: string | null;
+  fillTemplateWeek?: number | null;
 }
 
 export interface GeneratedBlock {
