@@ -64,6 +64,7 @@ export function EditCampaignDialog({
   const [raceWeekReduction, setRaceWeekReduction] = useState(campaign?.race_week_reduction_pct ?? 15);
   const [overloadBefore, setOverloadBefore] = useState(campaign?.overload_weeks_before_race ?? 3);
   const [overloadLen, setOverloadLen] = useState(campaign?.overload_block_weeks ?? 1);
+  const [deloadPct, setDeloadPct] = useState(campaign?.load_deload_pct ?? 70);
   const [targets, setTargets] = useState<CampaignTarget[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   // Baseline is editable here as well as on the campaign card. It's part of
@@ -105,6 +106,7 @@ export function EditCampaignDialog({
     setWeekOverrides(new Map());
     setOverloadBefore(campaign.overload_weeks_before_race ?? 3);
     setOverloadLen(campaign.overload_block_weeks ?? 1);
+    setDeloadPct(campaign.load_deload_pct ?? 70);
     setTargets(
       [...(campaign.campaign_targets ?? [])]
         .sort((a: any, b: any) => String(a.race_date).localeCompare(String(b.race_date)))
@@ -142,12 +144,12 @@ export function EditCampaignDialog({
         transitionWeeks: 0,
         targets,
         endsOn: endsOn || null,
-        loads: { raceWeekReduction },
+        loads: { raceWeekReduction, deload: deloadPct },
       }),
     [
       startsOn, loadWeeks, deloadWeeks, deloadsEnabled, taperDays, keyTaperDays, taperFloorPct,
       taperShape, baseProgression, buildProgression, baseQuality, buildQuality, resetWeeks,
-      targets, raceWeekReduction, overloadBefore, overloadLen, endsOn,
+      targets, raceWeekReduction, overloadBefore, overloadLen, endsOn, deloadPct,
     ],
   );
 
@@ -210,6 +212,7 @@ export function EditCampaignDialog({
           taper_floor_pct: taperFloorPct,
           overload_weeks_before_race: overloadBefore,
           overload_block_weeks: overloadLen,
+          load_deload_pct: deloadPct,
           taper_shape: taperShape,
           base_progression: baseProgression,
           build_progression: buildProgression,
@@ -429,6 +432,7 @@ export function EditCampaignDialog({
             <Num label="Race wk −%" value={raceWeekReduction} set={setRaceWeekReduction} min={0} max={50} />
             <Num label="Overload wk before" value={overloadBefore} set={setOverloadBefore} min={1} max={8} />
             <Num label="Overload length" value={overloadLen} set={setOverloadLen} min={0} max={3} />
+            <Num label="Deload load %" value={deloadPct} set={setDeloadPct} min={30} max={100} />
           </div>
 
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
