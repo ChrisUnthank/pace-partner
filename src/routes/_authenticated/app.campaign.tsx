@@ -535,6 +535,33 @@ function CreateCampaignDialog({
   const [overloadBefore, setOverloadBefore] = useState(3);
   const [overloadLen, setOverloadLen] = useState(1);
   const [overloadKey, setOverloadKey] = useState(true);
+  const [taperStrategy, setTaperStrategy] = useState<"traditional" | "high_response" | "custom">("traditional");
+  const [taperFrequencyMode, setTaperFrequencyMode] = useState<"fewer_days" | "same_days_shorter">("fewer_days");
+  const [taperNeuro, setTaperNeuro] = useState(false);
+
+  /**
+   * Applying an archetype sets the numbers; changing a number afterwards
+   * moves the strategy to "custom".
+   *
+   * A preset that silently overrode later edits would be worse than no preset
+   * — the coach would change the taper length and watch it snap back.
+   */
+  function applyTaperStrategy(v: "traditional" | "high_response" | "custom") {
+    setTaperStrategy(v);
+    if (v === "traditional") {
+      setTaperDays(17);
+      setTaperFloorPct(35);
+      setTaperShape("linear");
+      setTaperFrequencyMode("fewer_days");
+      setTaperNeuro(false);
+    } else if (v === "high_response") {
+      setTaperDays(9);
+      setTaperFloorPct(50);
+      setTaperShape("gentle");
+      setTaperFrequencyMode("same_days_shorter");
+      setTaperNeuro(true);
+    }
+  }
   // Days, not weeks. Coaches taper in days and a Monday grid was distorting
   // it — see the generator for the arithmetic.
   const [taperDays, setTaperDays] = useState(14);
@@ -570,6 +597,8 @@ function CreateCampaignDialog({
         overloadWeeksBeforeRace: overloadBefore,
         overloadBlockWeeks: overloadLen,
         overloadBeforeKey: overloadKey,
+        taperFrequencyMode,
+        taperNeuromuscular: taperNeuro,
         taperDays,
         keyTaperDays,
         baseProgression,
@@ -582,7 +611,7 @@ function CreateCampaignDialog({
       startsOn, loadWeeks, deloadWeeks, deloadsEnabled, taperWeeks, keyTaperWeeks,
       resetWeeks, targets, raceWeekReduction, taperFloorPct, taperShape,
       taperDays, keyTaperDays, baseProgression, buildProgression, baseQuality, buildQuality,
-      overloadBefore, overloadLen, overloadKey,
+      overloadBefore, overloadLen, overloadKey, taperFrequencyMode, taperNeuro,
     ],
   );
 
@@ -620,6 +649,9 @@ function CreateCampaignDialog({
           overload_weeks_before_race: overloadBefore,
           overload_block_weeks: overloadLen,
           overload_before_key: overloadKey,
+          taper_strategy: taperStrategy,
+          taper_frequency_mode: taperFrequencyMode,
+          taper_neuromuscular: taperNeuro,
           taper_days: taperDays,
           key_taper_days: keyTaperDays,
           base_progression: baseProgression,
@@ -805,6 +837,48 @@ function CreateCampaignDialog({
 
           <div className="rounded-lg border p-3 space-y-2">
             <div className="text-xs font-medium">How this athlete tapers</div>
+            <div>
+              <Label className="text-[11px]">Strategy</Label>
+              <Select value={taperStrategy} onValueChange={(v) => applyTaperStrategy(v as any)}>
+                <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="traditional">Traditional — long, stepped down</SelectItem>
+                  <SelectItem value="high_response">High-response — short, load held then dropped</SelectItem>
+                  <SelectItem value="custom">Custom</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Traditional runs 14–21 days, stepping volume down and letting tone relax. High-response runs 7–10
+                days, holding volume later then dropping it sharply, with tone kept up. Picking one sets the numbers
+                below — change any of them and it becomes Custom.
+              </p>
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <Label className="text-[11px]">Session frequency</Label>
+                <Select value={taperFrequencyMode} onValueChange={(v) => { setTaperFrequencyMode(v as any); setTaperStrategy("custom"); }}>
+                  <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="fewer_days">Fewer training days</SelectItem>
+                    <SelectItem value="same_days_shorter">Same days, shorter sessions</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <label className="flex items-end gap-2 text-[11px] pb-2">
+                <input
+                  type="checkbox"
+                  checked={taperNeuro}
+                  onChange={(e) => { setTaperNeuro(e.target.checked); setTaperStrategy("custom"); }}
+                />
+                Hold tone with frequent short speed inputs
+              </label>
+            </div>
+            <p className="text-[11px] text-muted-foreground leading-snug">
+              These two are about what fills the week, not how much of it there is — a percentage can't tell a
+              five-day week from a seven-day one. They're carried through as guidance for whoever builds the
+              sessions.
+            </p>
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
                 <Label className="text-[11px]">Race week load</Label>
@@ -814,7 +888,11 @@ function CreateCampaignDialog({
                     min={30}
                     max={95}
                     value={taperFloorPct}
-                    onChange={(e) => setTaperFloorPct(Math.max(30, Math.min(95, Number(e.target.value) || 55)))}
+                    onChange={(e) => {
+                      setTaperFloorPct(Math.max(30, Math.min(95, Number(e.target.value) || 55)));
+                      // Any manual change means this is no longer the preset.
+                      setTaperStrategy("custom");
+                    }}
                     className="h-8 w-20"
                   />
                   <span className="text-[11px] text-muted-foreground">% of a normal week</span>
@@ -822,7 +900,10 @@ function CreateCampaignDialog({
               </div>
               <div>
                 <Label className="text-[11px]">Shape</Label>
-                <Select value={taperShape} onValueChange={(v) => setTaperShape(v as any)}>
+                <Select value={taperShape} onValueChange={(v) => {
+                  setTaperShape(v as any);
+                  setTaperStrategy("custom");
+                }}>
                   <SelectTrigger className="h-8">
                     <SelectValue />
                   </SelectTrigger>
