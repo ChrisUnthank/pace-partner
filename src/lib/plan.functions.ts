@@ -245,6 +245,19 @@ export const previewPlanAssignment = createServerFn({ method: "POST" })
  * falls back to resolving the template fresh with no progression, exactly
  * the original one-step behavior, so nothing else calling this function
  * needs to change.
+ *
+ * CAMPAIGN LINKAGE (all optional, all no-ops when omitted — the direct
+ * assign flow is unchanged):
+ *
+ *   campaignId          stamped on athlete_plans so the plan knows which
+ *                       season it was created to serve.
+ *   campaignFillRows    campaign_week_fills rows from buildFillRows(), minus
+ *                       athlete_plan_id, which only exists once the plan is
+ *                       inserted here. Upserted on campaign_week_id so a
+ *                       refill replaces rather than accumulating.
+ *   campaignWriteBacks  weeks whose load the coach changed during the fill
+ *                       review, bringing the campaign back into agreement
+ *                       with what was actually prescribed.
  */
 export const assignPlanToAthlete = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -255,6 +268,16 @@ export const assignPlanToAthlete = createServerFn({ method: "POST" })
       startDate: string;
       goalId?: string | null;
       drafts?: PlanAssignDraft[];
+      campaignId?: string | null;
+      campaignFillRows?: {
+        campaign_week_id: string;
+        plan_template_id: string | null;
+        template_name: string | null;
+        template_week_number: number;
+        is_repeat: boolean;
+        load_pct_applied: number;
+      }[];
+      campaignWriteBacks?: { campaignWeekId: string; toLoadPct: number }[];
     }) => d,
   )
   .handler(async ({ data, context }) => {
@@ -285,6 +308,7 @@ export const assignPlanToAthlete = createServerFn({ method: "POST" })
         start_date: data.startDate,
         duration_weeks: template.duration_weeks,
         created_by: context.userId,
+        campaign_id: data.campaignId ?? null,
       } as any)
       .select()
       .single();
@@ -344,7 +368,156 @@ export const assignPlanToAthlete = createServerFn({ method: "POST" })
       created++;
     }
 
-    return { ok: true, planId: planRow.id, sessionsCreated: created };
+    // ---- Campaign linkage -------------------------------------------------
+    //
+    // Deliberately AFTER the sessions. A fill record or a rewritten campaign
+    // week describing training that failed to be created would be worse than
+    // no record at all — the campaign would assert a filled week with nothing
+    // underneath it.
+    //
+    // Neither of these throws. By this point every session exists, and
+    // failing the whole call would tell the coach the fill failed when the
+    // training is sitting on their calendar. They're reported back instead so
+    // the UI can say precisely what did and didn't land.
+    const warnings: string[] = [];
+
+    if (data.campaignFillRows && data.campaignFillRows.length > 0) {
+      // Upsert, not insert: campaign_week_fills is UNIQUE on campaign_week_id,
+      // so refilling a week replaces its record rather than colliding.
+      const { error: fillErr } = await (sb as any)
+        .from("campaign_week_fills")
+        .upsert(
+          data.campaignFillRows.map((r) => ({ ...r, athlete_plan_id: planRow.id })) as any,
+          { onConflict: "campaign_week_id" },
+        );
+      if (fillErr) {
+        warnings.push(
+          `Sessions were created, but the campaign's record of which weeks are filled could not be written (${fillErr.message}). The timeline will show these weeks as unfilled.`,
+        );
+      }
+    }
+
+    if (data.campaignWriteBacks && data.campaignWriteBacks.length > 0) {
+      let failed = 0;
+      for (const wb of data.campaignWriteBacks) {
+        // One at a time rather than an upsert: campaign_weeks has a BEFORE
+        // UPDATE trigger that sets is_locked whenever load_pct changes, and
+        // an upsert would need every NOT NULL column restated to avoid
+        // overwriting week_start or phase with nulls.
+        const { error: wbErr } = await sb
+          .from("campaign_weeks")
+          .update({ load_pct: wb.toLoadPct } as any)
+          .eq("id", wb.campaignWeekId);
+        if (wbErr) failed++;
+      }
+      if (failed > 0) {
+        warnings.push(
+          `${failed} of ${data.campaignWriteBacks.length} campaign week loads could not be updated. The timeline still shows the old figures for those weeks.`,
+        );
+      }
+    }
+
+    return { ok: true, planId: planRow.id, sessionsCreated: created, warnings };
+  });
+
+/**
+ * Removes a fill: deletes the sessions a plan put on a set of campaign weeks,
+ * clears their fill records, and abandons the plan once nothing is left of it.
+ *
+ * Same restraint as cancelAthletePlan — anything already completed, or dated
+ * in the past, is left alone. That is real training history regardless of
+ * which plan prescribed it, and a coach refilling a block in week 4 of 6 must
+ * not lose the three weeks the athlete has already run.
+ */
+export const unfillCampaignWeeks = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { campaignWeekIds: string[] }) => d)
+  .handler(async ({ data, context }) => {
+    const sb = context.supabase;
+    if (!data.campaignWeekIds || data.campaignWeekIds.length === 0) {
+      return { ok: true, sessionsDeleted: 0, weeksCleared: 0, keptCompleted: 0 };
+    }
+
+    const { data: fills, error: fillsErr } = await (sb as any)
+      .from("campaign_week_fills")
+      .select("id, athlete_plan_id, campaign_week_id, campaign_weeks(week_start)")
+      .in("campaign_week_id", data.campaignWeekIds);
+    if (fillsErr) throw fillsErr;
+    if (!fills || fills.length === 0) {
+      return { ok: true, sessionsDeleted: 0, weeksCleared: 0, keptCompleted: 0 };
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const planIds = [...new Set((fills as any[]).map((f) => f.athlete_plan_id))];
+
+    // The date ranges this unfill actually covers — a plan can span weeks
+    // beyond the ones being cleared (a fill of one block, then another block
+    // from the same plan), so deleting by plan alone would take out sessions
+    // in weeks the coach is keeping.
+    const weekStarts = (fills as any[])
+      .map((f) => f.campaign_weeks?.week_start as string | undefined)
+      .filter((s): s is string => !!s);
+    const inRange = (date: string) =>
+      weekStarts.some((ws) => {
+        const start = Date.parse(`${ws}T00:00:00Z`);
+        const d = Date.parse(`${date}T00:00:00Z`);
+        return d >= start && d < start + 7 * 86400000;
+      });
+
+    let sessionsDeleted = 0;
+    let keptCompleted = 0;
+
+    for (const planId of planIds) {
+      const { data: planSessions } = await sb
+        .from("athlete_plan_sessions")
+        .select("session_id, sessions(session_date, completed_at)")
+        .eq("athlete_plan_id", planId);
+
+      for (const ps of (planSessions ?? []) as any[]) {
+        const date = ps.sessions?.session_date as string | undefined;
+        if (!date || !inRange(date)) continue;
+        if (ps.sessions?.completed_at || date < today) {
+          keptCompleted++;
+          continue;
+        }
+
+        const { data: steps } = await sb.from("steps").select("id").eq("session_id", ps.session_id);
+        const stepIds = (steps ?? []).map((s: any) => s.id);
+        if (stepIds.length > 0) {
+          await sb.from("interval_results").delete().in("step_id", stepIds);
+        }
+        await sb.from("steps").delete().eq("session_id", ps.session_id);
+        await sb.from("sessions").delete().eq("id", ps.session_id);
+        sessionsDeleted++;
+      }
+    }
+
+    const { error: delErr } = await (sb as any)
+      .from("campaign_week_fills")
+      .delete()
+      .in("campaign_week_id", data.campaignWeekIds);
+    if (delErr) throw delErr;
+
+    // A plan with no fills left is a plan that no longer describes anything.
+    // Abandoned rather than deleted — athlete_plan_sessions still points at
+    // any completed sessions that were kept above, and that provenance is
+    // worth more than a tidy table.
+    for (const planId of planIds) {
+      const { count } = await (sb as any)
+        .from("campaign_week_fills")
+        .select("id", { count: "exact", head: true })
+        .eq("athlete_plan_id", planId);
+      if ((count ?? 0) === 0) {
+        await sb.from("athlete_plans").update({ status: "abandoned" } as any).eq("id", planId);
+      }
+    }
+
+    return {
+      ok: true,
+      sessionsDeleted,
+      weeksCleared: data.campaignWeekIds.length,
+      keptCompleted,
+    };
   });
 
 /**
