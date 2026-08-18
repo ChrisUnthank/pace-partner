@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Target, CalendarRange, Check } from "lucide-react";
@@ -100,15 +99,15 @@ function RaceRow({
   );
 }
 
-export function AddRacesDialog({
+export function AddRacesPanel({
   open,
-  onOpenChange,
+  onClose,
   athleteId,
   existing,
   onAdd,
 }: {
   open: boolean;
-  onOpenChange: (v: boolean) => void;
+  onClose: () => void;
   athleteId: string;
   /** Already on the campaign, so they can be shown as added rather than offered twice. */
   existing: CampaignTarget[];
@@ -197,25 +196,34 @@ export function AddRacesDialog({
     // it than to wonder why a picked race never appeared.
     const clean = out.filter((t) => !!toIsoDate(t.raceDate));
     if (clean.length === 0) {
-      onOpenChange(false);
+      onClose();
       return;
     }
     onAdd(clean);
     setPicked(new Set());
-    onOpenChange(false);
+    onClose();
   }
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto brand-scrollbar">
-        <DialogHeader>
-          <DialogTitle>Add races</DialogTitle>
-          <DialogDescription>
-            From this athlete's goals and the squad race schedule. Picked races stay linked to their source, so the
-            campaign knows where the date came from.
-          </DialogDescription>
-        </DialogHeader>
+  if (!open) return null;
 
+  return (
+    // An inline PANEL, not a dialog.
+    //
+    // As a nested dialog it fought Radix's dismissable layers: closing the
+    // picker also dismissed the create dialog behind it, dropping an unsaved
+    // draft back to the campaigns list. Making it a sibling didn't help —
+    // both layers still shared a dismiss scope.
+    //
+    // A panel has no layer at all, so there is nothing to conflict over, and
+    // the draft stays exactly where it was.
+    <div className="rounded-lg border bg-muted/20 p-3 space-y-4 max-h-[45vh] overflow-y-auto brand-scrollbar">
+      <div>
+        <div className="text-sm font-medium">Add races</div>
+        <p className="text-[11px] text-muted-foreground">
+          From this athlete's goals and the squad race schedule. Picked races stay linked to their source, so the
+          campaign knows where the date came from.
+        </p>
+      </div>
         <div className="space-y-4">
           <div>
             <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
@@ -283,15 +291,15 @@ export function AddRacesDialog({
           </p>
         </div>
 
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button onClick={add} disabled={picked.size === 0}>
-            Add {picked.size > 0 ? `${picked.size} race${picked.size === 1 ? "" : "s"}` : "races"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+
+      <div className="flex items-center justify-end gap-2">
+        <Button variant="ghost" size="sm" onClick={onClose}>
+          Done
+        </Button>
+        <Button size="sm" onClick={add} disabled={picked.size === 0}>
+          Add {picked.size > 0 ? `${picked.size} race${picked.size === 1 ? "" : "s"}` : "races"}
+        </Button>
+      </div>
+    </div>
   );
 }
