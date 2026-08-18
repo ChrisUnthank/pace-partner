@@ -3394,7 +3394,18 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
       parsed = data.kind === "gpx" ? parseGPX(new TextDecoder().decode(buf)) : await parseFIT(arrayBuffer);
     } catch (e: any) {
       parseError = String(e?.message ?? e);
-      parsed = { points: [], laps: [], totalDistanceM: 0, totalTimeS: 0, startedAt: null, sport: null };
+      // subSport was added to ParsedFile when sub_sport parsing landed, and
+      // this parse-FAILURE fallback was the one construction site missed.
+      // A file that fails to parse has no sub_sport to report.
+      parsed = {
+        points: [],
+        laps: [],
+        totalDistanceM: 0,
+        totalTimeS: 0,
+        startedAt: null,
+        sport: null,
+        subSport: null,
+      };
     }
 
     const activityType = mapFitSport(parsed.sport ?? undefined);
