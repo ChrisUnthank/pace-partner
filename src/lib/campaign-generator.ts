@@ -114,6 +114,12 @@ export interface CampaignSettings {
    * for whoever fills the block rather than folded into a number.
    */
   taperFrequencyMode?: "fewer_days" | "same_days_shorter";
+  /** Extra non-training days in a taper week, on top of normal rest. */
+  taperRestDaysAdded?: number;
+  /** How much each remaining session shortens. */
+  taperSessionReduction?: "minimal" | "moderate" | "large";
+  /** Set only when the coach wants a floor that differs from the structure. */
+  taperFloorOverride?: boolean;
   /** Keep tone through the taper with frequent, very short speed inputs. */
   taperNeuromuscular?: boolean;
   /** Quality sessions per week. 0.5 = every second week. */
@@ -217,6 +223,32 @@ export interface GeneratedCampaign {
  * as expected, but plenty of malformed strings parse to something plausible
  * and would pass a parse-only check.
  */
+/**
+ * Race-week volume implied by the STRUCTURE of the week.
+ *
+ * The structure is the real decision. A coach thinks "two days off, sessions
+ * a bit shorter" — the percentage is what falls out of that, not a separate
+ * choice to be reconciled against it.
+ *
+ * An earlier version had the coach set both and warned when they disagreed,
+ * which put the burden the wrong way round: told that two days off implies
+ * 64% rather than the 35% they typed, the answer is almost never "add a third
+ * rest day". They know how many days off the athlete needs. The number should
+ * follow.
+ *
+ * Session factors are deliberately coarse. They describe an intent — barely,
+ * noticeably, substantially — and pretending to more precision than that
+ * would be inventing it.
+ */
+export function deriveTaperFloor(
+  restDaysAdded: number,
+  sessionReduction: "minimal" | "moderate" | "large",
+): number {
+  const factor = { minimal: 0.9, moderate: 0.75, large: 0.55 }[sessionReduction] ?? 0.75;
+  const rest = Math.max(0, Math.min(3, Math.round(restDaysAdded)));
+  return Math.max(20, Math.min(95, Math.round(100 * ((7 - rest) / 7) * factor)));
+}
+
 export function isValidIsoDate(iso: string | null | undefined): boolean {
   if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return false;
   const d = new Date(`${iso}T00:00:00`);
@@ -293,7 +325,12 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
   const keyTaper = num(settings.keyTaperWeeks, 1, 0, 6);
   const postPeak = num(settings.postPeakRecoveryWeeks, 1, 0, 6);
   const deloadsOn = settings.deloadsEnabled !== false && num(settings.deloadWeeks, 1, 0, 4) > 0;
-  const taperFloor = num(settings.taperFloorPct, 55, 20, 100);
+  // Derived from the structure unless the coach has overridden it. An
+  // override is a deliberate act — "I want this deeper than the structure
+  // suggests" — and is respected as stated.
+  const taperFloor = settings.taperFloorOverride
+    ? num(settings.taperFloorPct, 55, 20, 100)
+    : deriveTaperFloor(num(settings.taperRestDaysAdded, 1, 0, 3), settings.taperSessionReduction ?? "moderate");
   const overloadBefore = num(settings.overloadWeeksBeforeRace, 3, 1, 8);
   const overloadLen = num(settings.overloadBlockWeeks, 1, 0, 3);
   const overloadForKey = settings.overloadBeforeKey !== false;
@@ -759,14 +796,29 @@ export function generateCampaign(settings: CampaignSettings): GeneratedCampaign 
   // volume; this says what the sessions inside it should look like, which is
   // the half of a taper that a percentage can't express.
   if (weeks.some((w) => w.phase === "taper")) {
-    const freq =
-      (settings.taperFrequencyMode ?? "fewer_days") === "same_days_shorter"
-        ? "Keep the same number of training days through the taper and shorten each session"
-        : "Reduce the number of training days through the taper";
+    const rest = num(settings.taperRestDaysAdded, 1, 0, 3);
+    const cut = settings.taperSessionReduction ?? "moderate";
+    const cutWords = { minimal: "barely shorter", moderate: "noticeably shorter", large: "substantially shorter" }[cut];
+    const restWords =
+      rest === 0
+        ? "Keep the usual number of training days"
+        : `Add ${rest} rest day${rest === 1 ? "" : "s"} to the week`;
     const tone = settings.taperNeuromuscular
-      ? ", with frequent short speed inputs to hold neuromuscular tone."
-      : ", letting neuromuscular tone relax.";
-    notes.push(freq + tone);
+      ? " Hold neuromuscular tone with frequent, very short speed inputs."
+      : " Let neuromuscular tone relax.";
+    notes.push(`${restWords}, with each remaining session ${cutWords}.${tone}`);
+
+    // Only worth a word when the coach has deliberately overridden the
+    // derived figure. Without an override there is nothing to reconcile —
+    // the number IS the structure.
+    if (settings.taperFloorOverride) {
+      const derived = deriveTaperFloor(rest, cut);
+      if (Math.abs(derived - taperFloor) > 10) {
+        notes.push(
+          `Race week is set to ${taperFloor}% by hand; the week you've described works out closer to ${derived}%. That's fine if it's deliberate.`,
+        );
+      }
+    }
   }
 
   // Flag races that fall MIDWEEK, where the taper runs materially longer than
