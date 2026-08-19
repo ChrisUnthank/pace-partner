@@ -17,6 +17,12 @@ import { CampaignTimeline, PRIORITY_STYLE, phaseStyle } from "@/components/campa
 import { FillBlockDialog, UnfillBlockDialog, type FillBlockTarget } from "@/components/campaign-fill-dialog";
 import { CampaignBlockSessions } from "@/components/campaign-block-sessions";
 import {
+  CampaignSettingsFields,
+  defaultCampaignSettings,
+  campaignSettingsToRow,
+  type CampaignSettings,
+} from "@/components/campaign-settings-fields";
+import {
   plannedZoneMix,
   measuredZoneMix,
   sumZoneSeconds,
@@ -785,69 +791,11 @@ function CreateCampaignDialog({
 }) {
   const [name, setName] = useState("");
   const [startsOn, setStartsOn] = useState(todayIso());
-  const [resetWeeks, setResetWeeks] = useState(2);
-  const [loadWeeks, setLoadWeeks] = useState(3);
-  const [deloadWeeks, setDeloadWeeks] = useState(1);
-  const [deloadsEnabled, setDeloadsEnabled] = useState(true);
-  const [taperWeeks, setTaperWeeks] = useState(2);
-  const [keyTaperWeeks, setKeyTaperWeeks] = useState(1);
-  // Taper depth and shape are athlete traits, not universal truths. Some
-  // sharpen on a deep taper; others lose fitness across two light weeks and
-  // need the floor held higher.
-  const [taperFloorPct, setTaperFloorPct] = useState(55);
-  const [taperShape, setTaperShape] = useState<"linear" | "gentle" | "steep">("linear");
-  const [overloadBefore, setOverloadBefore] = useState(3);
-  const [overloadLen, setOverloadLen] = useState(1);
-  const [overloadKey, setOverloadKey] = useState(true);
-  const [taperStrategy, setTaperStrategy] = useState<"traditional" | "high_response" | "custom">("traditional");
-  const [taperFrequencyMode, setTaperFrequencyMode] = useState<"fewer_days" | "same_days_shorter">("fewer_days");
-  const [taperNeuro, setTaperNeuro] = useState(false);
-  const [taperRestDays, setTaperRestDays] = useState(1);
-  const [taperSessionCut, setTaperSessionCut] = useState<"minimal" | "moderate" | "large">("moderate");
-  // The percentage follows the structure. Overriding is possible but is a
-  // deliberate act, not the default way in.
-  const [floorOverride, setFloorOverride] = useState(false);
-  // Existed as a column and was read by the generator, but no form ever wrote
-  // it — so every campaign has been deloading at the default 70%.
-  const [deloadPct, setDeloadPct] = useState(70);
-  const derivedFloor = deriveTaperFloor(taperRestDays, taperSessionCut);
-
-  /**
-   * Applying an archetype sets the numbers; changing a number afterwards
-   * moves the strategy to "custom".
-   *
-   * A preset that silently overrode later edits would be worse than no preset
-   * — the coach would change the taper length and watch it snap back.
-   */
-  function applyTaperStrategy(v: "traditional" | "high_response" | "custom") {
-    setTaperStrategy(v);
-    if (v === "traditional") {
-      setTaperDays(17);
-      setTaperFloorPct(35);
-      setTaperShape("linear");
-      setTaperFrequencyMode("fewer_days");
-      setTaperNeuro(false);
-      setTaperRestDays(2);
-      setTaperSessionCut("moderate");
-    } else if (v === "high_response") {
-      setTaperDays(9);
-      setTaperFloorPct(50);
-      setTaperShape("gentle");
-      setTaperFrequencyMode("same_days_shorter");
-      setTaperNeuro(true);
-      setTaperRestDays(0);
-      setTaperSessionCut("large");
-    }
-  }
-  // Days, not weeks. Coaches taper in days and a Monday grid was distorting
-  // it — see the generator for the arithmetic.
-  const [taperDays, setTaperDays] = useState(14);
-  const [keyTaperDays, setKeyTaperDays] = useState(7);
-  const [baseProgression, setBaseProgression] = useState<"progressive" | "flat">("progressive");
-  const [buildProgression, setBuildProgression] = useState<"progressive" | "flat">("progressive");
-  const [baseQuality, setBaseQuality] = useState(0.5);
-  const [buildQuality, setBuildQuality] = useState(2);
-  const [raceWeekReduction, setRaceWeekReduction] = useState(15);
+  // Everything the generator's rhythm needs, in one object shared with the
+  // edit dialog via CampaignSettingsFields. Previously eighteen separate
+  // useStates here and eighteen more in campaign-edit.tsx, which is how the
+  // edit dialog ended up rendering a third of them.
+  const [settings, setSettings] = useState<CampaignSettings>(defaultCampaignSettings());
   const [targets, setTargets] = useState<CampaignTarget[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   // Baseline belongs at the point the campaign is described — it's part of
@@ -876,41 +824,37 @@ function CreateCampaignDialog({
     () =>
       generateCampaign({
         startsOn,
-        loadWeeks,
-        deloadWeeks,
-        deloadsEnabled,
-        taperWeeks,
-        keyTaperWeeks,
-        resetWeeks,
+        loadWeeks: settings.loadWeeks,
+        deloadWeeks: settings.deloadWeeks,
+        deloadsEnabled: settings.deloadsEnabled,
+        taperWeeks: Math.ceil(settings.taperDays / 7),
+        keyTaperWeeks: Math.ceil(settings.keyTaperDays / 7),
+        resetWeeks: settings.resetWeeks,
         postPeakRecoveryWeeks: 1,
         targets,
         endsOn: endsOn || null,
-        transitionWeeks,
-        taperFloorPct,
-        taperShape,
-        overloadWeeksBeforeRace: overloadBefore,
-        overloadBlockWeeks: overloadLen,
-        overloadBeforeKey: overloadKey,
-        taperFrequencyMode,
-        taperNeuromuscular: taperNeuro,
-        taperRestDaysAdded: taperRestDays,
-        taperSessionReduction: taperSessionCut,
-        taperFloorOverride: floorOverride,
-        taperDays,
-        keyTaperDays,
-        baseProgression,
-        buildProgression,
-        baseQualityPerWeek: baseQuality,
-        buildQualityPerWeek: buildQuality,
-        loads: { raceWeekReduction, deload: deloadPct },
+        transitionWeeks: settings.transitionWeeks,
+        taperFloorPct: settings.floorOverride
+          ? settings.taperFloorPct
+          : deriveTaperFloor(settings.taperRestDays, settings.taperSessionCut),
+        taperShape: settings.taperShape,
+        overloadWeeksBeforeRace: settings.overloadBefore,
+        overloadBlockWeeks: settings.overloadLen,
+        overloadBeforeKey: settings.overloadKey,
+        taperFrequencyMode: settings.taperFrequencyMode,
+        taperNeuromuscular: settings.taperNeuro,
+        taperRestDaysAdded: settings.taperRestDays,
+        taperSessionReduction: settings.taperSessionCut,
+        taperFloorOverride: settings.floorOverride,
+        taperDays: settings.taperDays,
+        keyTaperDays: settings.keyTaperDays,
+        baseProgression: settings.baseProgression,
+        buildProgression: settings.buildProgression,
+        baseQualityPerWeek: settings.baseQuality,
+        buildQualityPerWeek: settings.buildQuality,
+        loads: { raceWeekReduction: settings.raceWeekReduction, deload: settings.deloadPct },
       }),
-    [
-      startsOn, loadWeeks, deloadWeeks, deloadsEnabled, taperWeeks, keyTaperWeeks,
-      resetWeeks, targets, raceWeekReduction, taperFloorPct, taperShape,
-      taperDays, keyTaperDays, baseProgression, buildProgression, baseQuality, buildQuality,
-      overloadBefore, overloadLen, overloadKey, taperFrequencyMode, taperNeuro,
-      taperRestDays, taperSessionCut, floorOverride, endsOn, deloadPct, transitionWeeks,
-    ],
+    [startsOn, settings, targets, endsOn],
   );
 
   const baselineNum = baselineKm.trim() === "" ? null : Number(baselineKm);
@@ -950,31 +894,12 @@ function CreateCampaignDialog({
           baseline_weekly_km: baselineNum,
           starts_on: previewWeeks[0].weekStart,
           ends_on: endsOn,
-          load_weeks: loadWeeks,
-          deload_weeks: deloadWeeks,
-          deloads_enabled: deloadsEnabled,
-          taper_weeks: taperWeeks,
-          key_taper_weeks: keyTaperWeeks,
-          reset_weeks: resetWeeks,
-          transition_weeks: transitionWeeks,
-          race_week_reduction_pct: raceWeekReduction,
-          load_deload_pct: deloadPct,
-          taper_floor_pct: floorOverride ? taperFloorPct : derivedFloor,
-          taper_shape: taperShape,
-          overload_weeks_before_race: overloadBefore,
-          overload_block_weeks: overloadLen,
-          overload_before_key: overloadKey,
-          taper_strategy: taperStrategy,
-          taper_frequency_mode: taperFrequencyMode,
-          taper_neuromuscular: taperNeuro,
-          taper_rest_days_added: taperRestDays,
-          taper_session_reduction: taperSessionCut,
-          taper_days: taperDays,
-          key_taper_days: keyTaperDays,
-          base_progression: baseProgression,
-          build_progression: buildProgression,
-          base_quality_per_week: baseQuality,
-          build_quality_per_week: buildQuality,
+          // Same mapper the edit dialog saves through, so the two cannot
+          // write different column sets for the same form.
+          ...campaignSettingsToRow(settings),
+          taper_floor_pct: settings.floorOverride
+            ? settings.taperFloorPct
+            : deriveTaperFloor(settings.taperRestDays, settings.taperSessionCut),
           status: "draft",
         })
         .select()
@@ -1168,258 +1093,7 @@ function CreateCampaignDialog({
             )}
           </div>
 
-          <div className="grid sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            <NumField label="Down weeks" value={resetWeeks} onChange={setResetWeeks} min={0} max={8} />
-            <NumField
-              label="Transition weeks"
-              value={transitionWeeks}
-              onChange={setTransitionWeeks}
-              min={0}
-              max={8}
-            />
-            <NumField label="Load weeks" value={loadWeeks} onChange={setLoadWeeks} min={1} max={6} />
-            <NumField label="Deload weeks" value={deloadWeeks} onChange={setDeloadWeeks} min={0} max={2} />
-            <NumField label="Peak taper (days)" value={taperDays} onChange={setTaperDays} min={3} max={35} />
-            <NumField label="Key taper (days)" value={keyTaperDays} onChange={setKeyTaperDays} min={2} max={21} />
-            <NumField label="Race wk −%" value={raceWeekReduction} onChange={setRaceWeekReduction} min={0} max={50} />
-          </div>
-
-          <div className="rounded-lg border p-3 space-y-2">
-            <div className="text-xs font-medium">How this athlete tapers</div>
-            <div>
-              <Label className="text-[11px]">Strategy</Label>
-              <Select value={taperStrategy} onValueChange={(v) => applyTaperStrategy(v as any)}>
-                <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="traditional">Traditional — long, stepped down</SelectItem>
-                  <SelectItem value="high_response">High-response — short, load held then dropped</SelectItem>
-                  <SelectItem value="custom">Custom</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-[11px] text-muted-foreground mt-1">
-                Traditional runs 14–21 days, stepping volume down and letting tone relax. High-response runs 7–10
-                days, holding volume later then dropping it sharply, with tone kept up. Picking one sets the numbers
-                below — change any of them and it becomes Custom.
-              </p>
-            </div>
-
-            <div className="grid sm:grid-cols-2 gap-3">
-              {/* Two independent dimensions, because they combine: two days
-                  off with barely shorter sessions and one day off with a big
-                  session cut reach a similar depth by different routes, and
-                  the route is what differs between athletes. */}
-              <div>
-                <Label className="text-[11px]">Extra rest days</Label>
-                <Select
-                  value={String(taperRestDays)}
-                  onValueChange={(v) => { setTaperRestDays(Number(v)); setTaperStrategy("custom"); }}
-                >
-                  <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="0">None — same training days</SelectItem>
-                    <SelectItem value="1">One extra day off</SelectItem>
-                    <SelectItem value="2">Two extra days off</SelectItem>
-                    <SelectItem value="3">Three extra days off</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-[11px]">Session length</Label>
-                <Select
-                  value={taperSessionCut}
-                  onValueChange={(v) => { setTaperSessionCut(v as any); setTaperStrategy("custom"); }}
-                >
-                  <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="minimal">Barely shorter</SelectItem>
-                    <SelectItem value="moderate">Noticeably shorter</SelectItem>
-                    <SelectItem value="large">Substantially shorter</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <label className="flex items-end gap-2 text-[11px] pb-2">
-                <input
-                  type="checkbox"
-                  checked={taperNeuro}
-                  onChange={(e) => { setTaperNeuro(e.target.checked); setTaperStrategy("custom"); }}
-                />
-                Hold tone with frequent short speed inputs
-              </label>
-            </div>
-            <p className="text-[11px] text-muted-foreground leading-snug">
-              These two are about what fills the week, not how much of it there is — a percentage can't tell a
-              five-day week from a seven-day one. They're carried through as guidance for whoever builds the
-              sessions.
-            </p>
-            <div className="grid sm:grid-cols-2 gap-3">
-              <div>
-                <Label className="text-[11px]">Race week load</Label>
-                {/* Shown as a RESULT by default. The structure below is the
-                    decision — a coach who knows the athlete needs two days off
-                    doesn't want to be told to add a third to hit a number. */}
-                {floorOverride ? (
-                  <div className="flex items-center gap-2">
-                    <Input
-                      type="number"
-                      min={20}
-                      max={95}
-                      value={taperFloorPct}
-                      onChange={(e) => {
-                        setTaperFloorPct(Math.max(20, Math.min(95, Number(e.target.value) || 55)));
-                        setTaperStrategy("custom");
-                      }}
-                      className="h-8 w-20"
-                    />
-                    <span className="text-[11px] text-muted-foreground">% of a normal week</span>
-                  </div>
-                ) : (
-                  <div className="h-8 flex items-center gap-2">
-                    <span className="text-lg font-bold tabular-nums">{derivedFloor}%</span>
-                    <span className="text-[11px] text-muted-foreground">of a normal week</span>
-                  </div>
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!floorOverride) setTaperFloorPct(derivedFloor);
-                    setFloorOverride((v) => !v);
-                    setTaperStrategy("custom");
-                  }}
-                  className="text-[11px] text-muted-foreground hover:text-foreground underline mt-0.5"
-                >
-                  {floorOverride ? "Back to following the week structure" : "Set this number myself"}
-                </button>
-              </div>
-              <div>
-                <Label className="text-[11px]">Shape</Label>
-                <Select value={taperShape} onValueChange={(v) => {
-                  setTaperShape(v as any);
-                  setTaperStrategy("custom");
-                }}>
-                  <SelectTrigger className="h-8">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="linear">Even — steps down steadily</SelectItem>
-                    <SelectItem value="gentle">Gentle — holds load, drops late</SelectItem>
-                    <SelectItem value="steep">Steep — sheds early, coasts in</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <p className="text-[11px] text-muted-foreground leading-snug">
-              An athlete who sharpens on a deep taper wants a low race-week figure; one who loses fitness across two
-              light weeks wants it held higher. Shape decides whether the drop comes early or late.{" "}
-              <span className="text-foreground">
-                Volume only — keeping intensity up through a taper is a matter of which sessions fill the week, not of
-                this number.
-              </span>
-            </p>
-          </div>
-
-          <div className="rounded-lg border p-3 space-y-2">
-            <div className="text-xs font-medium">Overload blocks</div>
-            <div className="grid sm:grid-cols-3 gap-3">
-              <NumField label="Weeks before race" value={overloadBefore} onChange={setOverloadBefore} min={1} max={8} />
-              <NumField label="Block length (wk)" value={overloadLen} onChange={setOverloadLen} min={0} max={3} />
-              <label className="flex items-end gap-2 text-[11px] pb-2">
-                <input type="checkbox" checked={overloadKey} onChange={(e) => setOverloadKey(e.target.checked)} />
-                Also before key races
-              </label>
-            </div>
-            <p className="text-[11px] text-muted-foreground leading-snug">
-              The hardest training of the block, placed far enough out that the work is absorbed before the taper
-              starts. Sitting it against the taper asks the taper to shed that fatigue and sharpen at the same time.
-              Set the length to 0 to switch overload blocks off.
-            </p>
-          </div>
-
-          <div className="rounded-lg border p-3 space-y-2">
-            <div className="text-xs font-medium">How this athlete builds</div>
-            <div className="grid sm:grid-cols-2 gap-3">
-              <div>
-                <Label className="text-[11px]">Base load</Label>
-                <Select value={baseProgression} onValueChange={(v) => setBaseProgression(v as any)}>
-                  <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="progressive">Climbs across the block</SelectItem>
-                    <SelectItem value="flat">Flat — deloads do the varying</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-[11px]">Build load</Label>
-                <Select value={buildProgression} onValueChange={(v) => setBuildProgression(v as any)}>
-                  <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="progressive">Climbs across the block</SelectItem>
-                    <SelectItem value="flat">Flat — deloads do the varying</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-[11px]">Quality in base</Label>
-                <Select value={String(baseQuality)} onValueChange={(v) => setBaseQuality(Number(v))}>
-                  <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="0">None — pure aerobic</SelectItem>
-                    {/* Stored per-week, shown as an interval, because an
-                        interval is how the decision is actually made. The
-                        generator spreads anything under 1 across the weeks,
-                        so these mark the weeks that really carry the work. */}
-                    <SelectItem value="0.25">Once a month</SelectItem>
-                    <SelectItem value="0.33">Every third week</SelectItem>
-                    <SelectItem value="0.5">Every second week</SelectItem>
-                    <SelectItem value="1">One a week</SelectItem>
-                    <SelectItem value="2">Two a week</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-[11px]">Quality in build</Label>
-                <Select value={String(buildQuality)} onValueChange={(v) => setBuildQuality(Number(v))}>
-                  <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="0.5">Every second week</SelectItem>
-                    <SelectItem value="1">One a week</SelectItem>
-                    <SelectItem value="2">Two a week</SelectItem>
-                    <SelectItem value="3">Three a week</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <p className="text-[11px] text-muted-foreground leading-snug">
-              Quality density shows on the timeline as vertical stripes — denser means more. It records HOW OFTEN hard
-              work appears, not what it is; the session itself comes from whatever template fills the week.
-            </p>
-          </div>
-
-          <div className="rounded-lg border p-3 space-y-2">
-            <label className="flex items-center gap-2 text-xs">
-              <input type="checkbox" checked={deloadsEnabled} onChange={(e) => setDeloadsEnabled(e.target.checked)} />
-              Deload on a fixed rhythm. Off means loading runs continuously and you add recovery yourself.
-            </label>
-            {deloadsEnabled && (
-              <div className="flex items-center gap-2 flex-wrap">
-                <Label className="text-[11px]">Deload week load</Label>
-                <Input
-                  type="number"
-                  min={30}
-                  max={100}
-                  value={deloadPct}
-                  onChange={(e) => setDeloadPct(Math.max(30, Math.min(100, Number(e.target.value) || 70)))}
-                  className="h-8 w-20"
-                />
-                <span className="text-[11px] text-muted-foreground">
-                  % of a normal week
-                  {baselineNum ? ` — about ${Math.round((deloadPct / 100) * baselineNum)} km` : ""}
-                </span>
-              </div>
-            )}
-            {/* Separate from the taper deliberately: a deload is a recovery
-                week inside a training block, a taper is a sharpening. They
-                happen to be similar numbers and mean different things. */}
-          </div>
+          <CampaignSettingsFields value={settings} onChange={setSettings} baselineKm={baselineNum} />
 
           {preview.weeks.length > 0 && (
             <div className="border rounded-lg p-3">
