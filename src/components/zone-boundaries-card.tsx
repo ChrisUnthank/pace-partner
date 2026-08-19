@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { secToClock, clockToSec, paceFmt, metersFmt } from "@/lib/format";
-import { bulkRecomputeSessionClassification } from "@/lib/session-files.functions";
+import { bulkRecomputeSessionClassification, listSessionsForRebuild } from "@/lib/session-files.functions";
 import { RefreshCw, Loader2, Calculator } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { Input } from "@/components/ui/input";
@@ -221,6 +221,8 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
   // edit (not just a basis switch) can just as easily make past
   // classifications stale.
   const bulkRecompute = useServerFn(bulkRecomputeSessionClassification);
+  const listForRebuild = useServerFn(listSessionsForRebuild);
+  const [recomputeProgress, setRecomputeProgress] = useState<{ done: number; total: number } | null>(null);
   const [recomputePromptOpen, setRecomputePromptOpen] = useState(false);
   const [recomputing, setRecomputing] = useState(false);
   const [recomputeResult, setRecomputeResult] = useState<{ total: number; succeeded: number; errors: { sessionId: string; message: string }[] } | null>(null);
@@ -234,17 +236,71 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
   const [recomputeUntil, setRecomputeUntil] = useState(new Date().toISOString().slice(0, 10));
   const [recomputeAllTime, setRecomputeAllTime] = useState(false);
 
+  /** Batch size. Small enough that one call finishes well inside a token's
+   *  life, large enough that the round-trip overhead stays negligible. */
+  const REBUILD_BATCH = 5;
+
+  function isAuthFailure(message: string): boolean {
+    // Storage answers an unauthenticated request with "Bucket not found"
+    // rather than a 401, so an expired token shows up under two different
+    // names depending on which service noticed first. Both mean the same
+    // thing and both are worth one retry after a refresh.
+    const m = message.toLowerCase();
+    return m.includes("jwt") || m.includes("bucket not found") || m.includes("token");
+  }
+
   async function runBulkRecompute() {
     setRecomputing(true);
     setRecomputeResult(null);
+    setRecomputeProgress(null);
     try {
-      const result = await bulkRecompute({
+      // Listed first, then rebuilt in small batches.
+      //
+      // A single call covering a wide range outlives its own access token: the
+      // rebuilds after that point fail, and because they fail on auth rather
+      // than on data, re-running gets the same distance before dying again.
+      // Batching lets the token be refreshed between groups and lets a batch
+      // that dies on auth be retried once rather than lost.
+      const { sessions } = await listForRebuild({
         data: {
           athleteId,
           since: recomputeAllTime ? undefined : recomputeSince,
           until: recomputeAllTime ? undefined : recomputeUntil,
         },
       });
+
+      const ids = sessions.map((s: any) => s.id);
+      let succeeded = 0;
+      const errors: { sessionId: string; message: string }[] = [];
+      setRecomputeProgress({ done: 0, total: ids.length });
+
+      for (let i = 0; i < ids.length; i += REBUILD_BATCH) {
+        const batch = ids.slice(i, i + REBUILD_BATCH);
+
+        // Cheap and idempotent when the token is still good.
+        await supabase.auth.refreshSession().catch(() => {});
+
+        let res = await bulkRecompute({ data: { athleteId, sessionIds: batch } }).catch((e: any) => ({
+          total: batch.length,
+          succeeded: 0,
+          errors: batch.map((id: string) => ({ sessionId: id, message: e?.message ?? "Failed" })),
+        }));
+
+        if (res.errors.length > 0 && res.errors.every((e: any) => isAuthFailure(e.message))) {
+          await supabase.auth.refreshSession().catch(() => {});
+          res = await bulkRecompute({ data: { athleteId, sessionIds: batch } }).catch((e: any) => ({
+            total: batch.length,
+            succeeded: 0,
+            errors: batch.map((id: string) => ({ sessionId: id, message: e?.message ?? "Failed" })),
+          }));
+        }
+
+        succeeded += res.succeeded;
+        errors.push(...res.errors);
+        setRecomputeProgress({ done: Math.min(i + REBUILD_BATCH, ids.length), total: ids.length });
+      }
+
+      const result = { total: ids.length, succeeded, errors };
       setRecomputeResult(result);
       if (result.total === 0) {
         toast.success("No uploaded-file sessions to recompute in that range.");
@@ -262,6 +318,7 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
       toast.error(err?.message ?? "Recompute failed");
     } finally {
       setRecomputing(false);
+      setRecomputeProgress(null);
     }
   }
 
@@ -540,15 +597,34 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
         <AlertDialog open={recomputePromptOpen} onOpenChange={(open) => !recomputing && setRecomputePromptOpen(open)}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Recompute past sessions?</AlertDialogTitle>
+              <AlertDialogTitle>Rebuild past sessions from their files?</AlertDialogTitle>
               <AlertDialogDescription asChild>
                 <div className="space-y-3">
                   <p>
-                    Every past session built from an uploaded FIT/GPX file was classified (intent, title, zone time)
-                    against whichever basis and boundaries were active at the time. Changing the basis or a boundary
-                    value doesn't retroactively fix those — this re-runs classification for uploaded-file sessions
-                    in the range below, using the current settings. Manually-entered sessions with no uploaded file
-                    aren't affected — there's nothing to reclassify there.
+                    Re-reads each session's uploaded FIT/GPX files and rebuilds everything derived from them, using
+                    the current basis and boundaries. Manually-entered sessions with no uploaded file aren't touched
+                    — there's nothing to rebuild there.
+                  </p>
+                  {/* The description used to say "re-runs classification",
+                      which undersold it: this also rewrites distance, elapsed
+                      and moving time, the warmup/work/cooldown split and every
+                      rep result. A coach running it to fix zone boundaries had
+                      no way to know it would also discard their hand edits. */}
+                  <div className="rounded-md border p-2 text-xs space-y-1">
+                    <div>
+                      <span className="font-medium">Rebuilt:</span> intent, title and time in zone · total distance,
+                      elapsed and moving time · the warmup/work/cooldown split · every rep result.
+                    </div>
+                    <div className="text-amber-600 dark:text-amber-500">
+                      <span className="font-medium">Discarded:</span> hand edits to workout structure, manually
+                      corrected rep times, and lactate readings on those reps. Session RPE, feel, notes, fuelling and
+                      gear are kept.
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Runs one session at a time, so a wide range can take a while or time out. A month or two per run
+                    is a safer size than a whole year, and re-running is harmless — it rebuilds from the same files
+                    and reaches the same result.
                   </p>
                   <div className={`grid grid-cols-2 gap-3 ${recomputeAllTime ? "opacity-50 pointer-events-none" : ""}`}>
                     <div>
@@ -581,6 +657,27 @@ export function ZoneBoundariesCard({ athleteId, profile }: { athleteId: string; 
                       date. Slower, and will also touch older sessions outside the range above.
                     </span>
                   </label>
+                  {recomputeProgress && recomputeProgress.total > 0 && (
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs">
+                        <span>
+                          Rebuilding {recomputeProgress.done} of {recomputeProgress.total}
+                        </span>
+                        <span className="text-muted-foreground">
+                          {Math.round((recomputeProgress.done / recomputeProgress.total) * 100)}%
+                        </span>
+                      </div>
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                        <div
+                          className="h-full bg-[var(--accent-red)] transition-[width]"
+                          style={{ width: `${(recomputeProgress.done / recomputeProgress.total) * 100}%` }}
+                        />
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        Runs in batches of 5 so no single request outlives its login token. Safe to leave open.
+                      </p>
+                    </div>
+                  )}
                   {recomputeResult && recomputeResult.errors.length > 0 && (
                     <div className="border rounded-md p-2 text-xs text-destructive space-y-1 max-h-32 overflow-y-auto">
                       {recomputeResult.errors.map((e, i) => (
