@@ -931,18 +931,80 @@ function computeStoppedSecondsPerLap(laps: ParsedLap[], points: MergedPoint[]): 
 // raw elapsed time (last point's timestamp minus first) always includes
 // every real-world stop by definition; moving time is what a coach
 // actually means by "pace" when scanning the calendar.
+//
+// PER FILE, not across the whole merged set. Between two files of the same
+// session — a warmup recorded separately from the work, with the watch off in
+// between — the gap is not a stop, it is a period that was never recorded at
+// all. Counting it as a stop is harmless while it is only subtracted from a
+// wall-clock elapsed figure, and wrong the moment elapsed itself stops
+// including it. See computeRecordedSeconds.
 function computeTotalStoppedSeconds(points: MergedPoint[]): number {
   if (points.length < 2) return 0;
-  const sorted = [...points].sort((a, b) => a.elapsed_s - b.elapsed_s);
-  let total = 0;
-  let prev: MergedPoint | null = null;
-  for (const p of sorted) {
-    if (prev && p.timestamp && prev.timestamp) {
-      const gapS = (new Date(p.timestamp).getTime() - new Date(prev.timestamp).getTime()) / 1000;
-      if (gapS >= STOP_GAP_THRESHOLD_S) total += gapS;
-    }
-    prev = p;
+  const byFile = new Map<string, MergedPoint[]>();
+  for (const p of points) {
+    const key = String(p.file_id ?? "");
+    const list = byFile.get(key) ?? [];
+    list.push(p);
+    byFile.set(key, list);
   }
+
+  let total = 0;
+  for (const filePoints of byFile.values()) {
+    const sorted = [...filePoints].sort((a, b) => a.elapsed_s - b.elapsed_s);
+    let prev: MergedPoint | null = null;
+    for (const p of sorted) {
+      if (prev && p.timestamp && prev.timestamp) {
+        const gapS = (new Date(p.timestamp).getTime() - new Date(prev.timestamp).getTime()) / 1000;
+        if (gapS >= STOP_GAP_THRESHOLD_S) total += gapS;
+      }
+      prev = p;
+    }
+  }
+  return total;
+}
+
+/**
+ * How long the watch was actually RECORDING, summed across every file.
+ *
+ * This is what total_time_seconds should be, and for a single-file session it
+ * is identical to the old calculation. It differs — enormously — on the
+ * multi-file sessions that interval days produce.
+ *
+ * THE BUG THIS FIXES. The merge re-bases every file's elapsed_s against the
+ * EARLIEST file's start, using wall clock. So the last merged point's
+ * elapsed_s is the span from the beginning of the warmup file to the end of
+ * the cooldown file — including any time the watch was switched off in
+ * between. On a real session of Jackson's: warmup 19:11, work 20:17, cooldown
+ * 21:53, totalling 1:01:21 of running, stored as an elapsed time of 2:01:28.
+ * An hour of standing on a track with the watch off was being recorded as
+ * session duration, and it produced an "elapsed pace" of 7:40/km on a session
+ * whose slowest segment was 5:25/km.
+ *
+ * That figure feeds session_training_load(), which is RPE x duration — so
+ * every multi-file interval session has been carrying close to double the
+ * load it earned.
+ *
+ * Summing per-file spans keeps every stop that happened WHILE recording —
+ * standing recoveries between reps included, since the watch keeps logging
+ * points through them and no gap appears. It removes only the time nothing was
+ * being measured, which was never the athlete's session in any sense.
+ */
+function computeRecordedSeconds(points: MergedPoint[]): number {
+  if (points.length === 0) return 0;
+  const spanByFile = new Map<string, { min: number; max: number }>();
+  for (const p of points) {
+    const key = String(p.file_id ?? "");
+    const e = Number(p.elapsed_s ?? 0);
+    if (!Number.isFinite(e)) continue;
+    const cur = spanByFile.get(key);
+    if (!cur) spanByFile.set(key, { min: e, max: e });
+    else {
+      if (e < cur.min) cur.min = e;
+      if (e > cur.max) cur.max = e;
+    }
+  }
+  let total = 0;
+  for (const { min, max } of spanByFile.values()) total += Math.max(0, max - min);
   return total;
 }
 
@@ -2091,9 +2153,12 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
       mergedPoints.length > 0
         ? Number(mergedPoints[mergedPoints.length - 1].distance_m ?? 0)
         : parsedFiles.reduce((s, p) => s + Number(p.parsed.totalDistanceM ?? 0), 0);
+    // Recorded time, not the wall-clock span across files — see
+    // computeRecordedSeconds for why those differ by an hour on a
+    // separately-recorded warmup/work/cooldown session.
     const totalTimeS =
       mergedPoints.length > 0
-        ? Number(mergedPoints[mergedPoints.length - 1].elapsed_s ?? 0)
+        ? computeRecordedSeconds(mergedPoints)
         : parsedFiles.reduce((s, p) => s + Number(p.parsed.totalTimeS ?? 0), 0);
     const totalMovingTimeS = Math.max(0, totalTimeS - totalStoppedS);
     const { avgHr, maxHr, avgTemp } = summarizeImportedPoints(mergedPoints);
@@ -2272,9 +2337,11 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
       ? Number(mergedPoints[mergedPoints.length - 1].distance_m ?? 0)
       : parsedFiles.reduce((s, p) => s + Number(p.parsed.totalDistanceM ?? 0), 0);
 
+  // Recorded time, not the wall-clock span across files — see
+  // computeRecordedSeconds. On a single-file session these are identical.
   const totalTimeS =
     mergedPoints.length > 0
-      ? Number(mergedPoints[mergedPoints.length - 1].elapsed_s ?? 0)
+      ? computeRecordedSeconds(mergedPoints)
       : parsedFiles.reduce((s, p) => s + Number(p.parsed.totalTimeS ?? 0), 0);
 
   // "Total Time" (totalTimeS above) intentionally stays as true elapsed
