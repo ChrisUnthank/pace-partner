@@ -9,7 +9,19 @@ import { toast } from "sonner";
 import { Plus, Trash2, Flag, Lock } from "lucide-react";
 import { CampaignTimeline, PRIORITY_STYLE } from "@/components/campaign-timeline";
 import { PreviewWeekEditor } from "@/components/campaign-week-edit";
-import { generateCampaign, type CampaignTarget, type TargetPriority, isValidIsoDate } from "@/lib/campaign-generator";
+import {
+  generateCampaign,
+  deriveTaperFloor,
+  isValidIsoDate,
+  type CampaignTarget,
+  type TargetPriority,
+} from "@/lib/campaign-generator";
+import {
+  CampaignSettingsFields,
+  campaignSettingsFromRow,
+  campaignSettingsToRow,
+  type CampaignSettings,
+} from "@/components/campaign-settings-fields";
 import { AddRacesPanel } from "@/components/campaign-race-picker";
 
 // ----------------------------------------------------------------------------
@@ -49,23 +61,12 @@ export function EditCampaignDialog({
   const [status, setStatus] = useState<string>(campaign?.status ?? "draft");
   const [startsOn, setStartsOn] = useState(campaign?.starts_on ?? "");
   const [endsOn, setEndsOn] = useState(campaign?.ends_on ?? "");
-  const [transitionWeeks, setTransitionWeeks] = useState(campaign?.transition_weeks ?? 0);
-  const [resetWeeks, setResetWeeks] = useState(campaign?.reset_weeks ?? 2);
-  const [loadWeeks, setLoadWeeks] = useState(campaign?.load_weeks ?? 3);
-  const [deloadWeeks, setDeloadWeeks] = useState(campaign?.deload_weeks ?? 1);
-  const [deloadsEnabled, setDeloadsEnabled] = useState(campaign?.deloads_enabled ?? true);
-  const [taperDays, setTaperDays] = useState(campaign?.taper_days ?? 14);
-  const [keyTaperDays, setKeyTaperDays] = useState(campaign?.key_taper_days ?? 7);
-  const [taperFloorPct, setTaperFloorPct] = useState(campaign?.taper_floor_pct ?? 55);
-  const [taperShape, setTaperShape] = useState(campaign?.taper_shape ?? "linear");
-  const [baseProgression, setBaseProgression] = useState(campaign?.base_progression ?? "progressive");
-  const [buildProgression, setBuildProgression] = useState(campaign?.build_progression ?? "progressive");
-  const [baseQuality, setBaseQuality] = useState(Number(campaign?.base_quality_per_week ?? 0.5));
-  const [buildQuality, setBuildQuality] = useState(Number(campaign?.build_quality_per_week ?? 2));
-  const [raceWeekReduction, setRaceWeekReduction] = useState(campaign?.race_week_reduction_pct ?? 15);
-  const [overloadBefore, setOverloadBefore] = useState(campaign?.overload_weeks_before_race ?? 3);
-  const [overloadLen, setOverloadLen] = useState(campaign?.overload_block_weeks ?? 1);
-  const [deloadPct, setDeloadPct] = useState(campaign?.load_deload_pct ?? 70);
+  // One object rather than eighteen useStates, shared with the create dialog
+  // via CampaignSettingsFields. The previous shape held state for every
+  // setting but rendered controls for only a third of them, so an edit wrote
+  // defaults back over the taper archetype, quality density and overload
+  // placement the coach had chosen at creation.
+  const [settings, setSettings] = useState<CampaignSettings>(() => campaignSettingsFromRow(campaign));
   const [targets, setTargets] = useState<CampaignTarget[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   // Baseline is editable here as well as on the campaign card. It's part of
@@ -90,25 +91,9 @@ export function EditCampaignDialog({
     setStatus(campaign.status ?? "draft");
     setStartsOn(campaign.starts_on ?? "");
     setEndsOn(campaign.ends_on ?? "");
-    setTransitionWeeks(campaign.transition_weeks ?? 0);
-    setResetWeeks(campaign.reset_weeks ?? 2);
-    setLoadWeeks(campaign.load_weeks ?? 3);
-    setDeloadWeeks(campaign.deload_weeks ?? 1);
-    setDeloadsEnabled(campaign.deloads_enabled ?? true);
-    setTaperDays(campaign.taper_days ?? 14);
-    setKeyTaperDays(campaign.key_taper_days ?? 7);
-    setTaperFloorPct(campaign.taper_floor_pct ?? 55);
-    setTaperShape(campaign.taper_shape ?? "linear");
-    setBaseProgression(campaign.base_progression ?? "progressive");
-    setBuildProgression(campaign.build_progression ?? "progressive");
-    setBaseQuality(Number(campaign.base_quality_per_week ?? 0.5));
-    setBuildQuality(Number(campaign.build_quality_per_week ?? 2));
-    setRaceWeekReduction(campaign.race_week_reduction_pct ?? 15);
+    setSettings(campaignSettingsFromRow(campaign));
     setBaselineKm(campaign.baseline_weekly_km != null ? String(campaign.baseline_weekly_km) : "");
     setWeekOverrides(new Map());
-    setOverloadBefore(campaign.overload_weeks_before_race ?? 3);
-    setOverloadLen(campaign.overload_block_weeks ?? 1);
-    setDeloadPct(campaign.load_deload_pct ?? 70);
     setTargets(
       [...(campaign.campaign_targets ?? [])]
         .sort((a: any, b: any) => String(a.race_date).localeCompare(String(b.race_date)))
@@ -126,34 +111,32 @@ export function EditCampaignDialog({
     () =>
       generateCampaign({
         startsOn,
-        loadWeeks,
-        deloadWeeks,
-        deloadsEnabled,
-        taperWeeks: Math.ceil(taperDays / 7),
-        keyTaperWeeks: Math.ceil(keyTaperDays / 7),
-        taperDays,
-        keyTaperDays,
-        taperFloorPct,
-        taperShape,
-        overloadWeeksBeforeRace: overloadBefore,
-        overloadBlockWeeks: overloadLen,
-        baseProgression,
-        buildProgression,
-        baseQualityPerWeek: baseQuality,
-        buildQualityPerWeek: buildQuality,
-        resetWeeks,
+        loadWeeks: settings.loadWeeks,
+        deloadWeeks: settings.deloadWeeks,
+        deloadsEnabled: settings.deloadsEnabled,
+        taperWeeks: Math.ceil(settings.taperDays / 7),
+        keyTaperWeeks: Math.ceil(settings.keyTaperDays / 7),
+        taperDays: settings.taperDays,
+        keyTaperDays: settings.keyTaperDays,
+        taperFloorPct: settings.floorOverride
+          ? settings.taperFloorPct
+          : deriveTaperFloor(settings.taperRestDays, settings.taperSessionCut),
+        taperShape: settings.taperShape,
+        overloadWeeksBeforeRace: settings.overloadBefore,
+        overloadBlockWeeks: settings.overloadLen,
+        baseProgression: settings.baseProgression,
+        buildProgression: settings.buildProgression,
+        baseQualityPerWeek: settings.baseQuality,
+        buildQualityPerWeek: settings.buildQuality,
+        resetWeeks: settings.resetWeeks,
         postPeakRecoveryWeeks: 1,
 
         targets,
         endsOn: endsOn || null,
-        transitionWeeks,
-        loads: { raceWeekReduction, deload: deloadPct },
+        transitionWeeks: settings.transitionWeeks,
+        loads: { raceWeekReduction: settings.raceWeekReduction, deload: settings.deloadPct },
       }),
-    [
-      startsOn, loadWeeks, deloadWeeks, deloadsEnabled, taperDays, keyTaperDays, taperFloorPct,
-      taperShape, baseProgression, buildProgression, baseQuality, buildQuality, resetWeeks,
-      targets, raceWeekReduction, overloadBefore, overloadLen, endsOn, deloadPct, transitionWeeks,
-    ],
+    [startsOn, settings, targets, endsOn],
   );
 
   const baselineNum = baselineKm.trim() === "" ? null : Number(baselineKm);
@@ -200,6 +183,37 @@ export function EditCampaignDialog({
         });
       }
 
+      // 1b. Preserve the fill records, also keyed by date.
+      //
+      // Saving this dialog deletes campaign_blocks, which CASCADES to
+      // campaign_weeks, which CASCADES again to campaign_week_fills. So any
+      // edit — even renaming the campaign — wiped every record of which weeks
+      // had been filled, while leaving the sessions themselves sitting on the
+      // calendar. The block list then read "Not filled" over a block full of
+      // training: the campaign confidently contradicting its own sessions,
+      // which is the state this project treats as worse than missing data.
+      //
+      // Keyed by week_start rather than week_number because a regeneration can
+      // renumber weeks — inserting a down period shifts every number after it
+      // while the dates, and the sessions sitting on them, stay put.
+      const fillsByWeekStart = new Map<string, any>();
+      {
+        const weekIds = (campaign.campaign_weeks ?? []).map((w: any) => w.id);
+        const startById = new Map<string, string>(
+          (campaign.campaign_weeks ?? []).map((w: any) => [w.id, w.week_start]),
+        );
+        if (weekIds.length > 0) {
+          const { data: existingFills } = await (supabase as any)
+            .from("campaign_week_fills")
+            .select("*")
+            .in("campaign_week_id", weekIds);
+          for (const f of existingFills ?? []) {
+            const ws = startById.get(f.campaign_week_id);
+            if (ws) fillsByWeekStart.set(ws, f);
+          }
+        }
+      }
+
       const { error: cErr } = await (supabase as any)
         .from("campaigns")
         .update({
@@ -207,25 +221,11 @@ export function EditCampaignDialog({
           status,
           starts_on: preview.weeks[0].weekStart,
           ends_on: preview.weeks[preview.weeks.length - 1].weekStart,
-          load_weeks: loadWeeks,
-          deload_weeks: deloadWeeks,
-          deloads_enabled: deloadsEnabled,
-          taper_weeks: Math.ceil(taperDays / 7),
-          key_taper_weeks: Math.ceil(keyTaperDays / 7),
-          transition_weeks: transitionWeeks,
-          taper_days: taperDays,
-          key_taper_days: keyTaperDays,
-          taper_floor_pct: taperFloorPct,
-          overload_weeks_before_race: overloadBefore,
-          overload_block_weeks: overloadLen,
-          load_deload_pct: deloadPct,
-          taper_shape: taperShape,
-          base_progression: baseProgression,
-          build_progression: buildProgression,
-          base_quality_per_week: baseQuality,
-          build_quality_per_week: buildQuality,
-          reset_weeks: resetWeeks,
-          race_week_reduction_pct: raceWeekReduction,
+          // Every setting, from one mapper shared with the create dialog.
+          // Listing them by hand here is what let taper_strategy,
+          // taper_rest_days_added, taper_session_reduction, taper_neuromuscular
+          // and overload_before_key be silently dropped on every edit.
+          ...campaignSettingsToRow(settings),
           baseline_weekly_km: baselineNum,
         })
         .eq("id", campaign.id);
@@ -293,11 +293,63 @@ export function EditCampaignDialog({
       );
       if (wErr) throw wErr;
 
+      // 5. Fills restored onto whichever new week now holds the same date.
+      //
+      // Only where the date survived. A week that no longer exists in the new
+      // structure has no fill to restore — but its SESSIONS are still on the
+      // calendar, so the coach is told the number rather than left to discover
+      // it. Re-read rather than reused from the insert above, because the new
+      // week ids are what the fill rows have to point at.
+      let fillsRestored = 0;
+      let fillsLost = 0;
+      if (fillsByWeekStart.size > 0) {
+        const { data: newWeeks } = await (supabase as any)
+          .from("campaign_weeks")
+          .select("id, week_start")
+          .eq("campaign_id", campaign.id);
+        const idByStart = new Map<string, string>((newWeeks ?? []).map((w: any) => [w.week_start, w.id]));
+
+        const rows: any[] = [];
+        for (const [weekStart, f] of fillsByWeekStart) {
+          const newId = idByStart.get(weekStart);
+          if (!newId) {
+            fillsLost++;
+            continue;
+          }
+          rows.push({
+            campaign_week_id: newId,
+            athlete_plan_id: f.athlete_plan_id,
+            plan_template_id: f.plan_template_id,
+            template_name: f.template_name,
+            template_week_number: f.template_week_number,
+            is_repeat: f.is_repeat,
+            load_pct_applied: f.load_pct_applied,
+            filled_at: f.filled_at,
+            filled_by: f.filled_by,
+          });
+        }
+        if (rows.length > 0) {
+          const { error: fErr } = await (supabase as any)
+            .from("campaign_week_fills")
+            .upsert(rows, { onConflict: "campaign_week_id" });
+          // Not fatal: the campaign itself saved correctly and the sessions
+          // are untouched. Losing the fill RECORD is a display problem, and
+          // failing the whole save over it would be worse than reporting it.
+          if (fErr) fillsLost += rows.length;
+          else fillsRestored = rows.length;
+        }
+      }
+
       const kept = preview.weeks.filter((w) => preserved.has(w.weekStart)).length;
       toast.success(
         kept > 0
           ? `Campaign updated — ${kept} edited week${kept === 1 ? "" : "s"} kept as ${kept === 1 ? "it was" : "they were"}.`
           : "Campaign updated",
+        fillsLost > 0
+          ? {
+              description: `${fillsLost} filled week${fillsLost === 1 ? "" : "s"} no longer ${fillsLost === 1 ? "has a" : "have"} matching date${fillsLost === 1 ? "" : "s"} in the new structure. Their sessions are still on the calendar — clear or refill those blocks to bring the two back into agreement.`,
+            }
+          : undefined,
       );
       onSaved();
       onOpenChange(false);
@@ -430,60 +482,7 @@ export function EditCampaignDialog({
             </div>
           </div>
 
-          <div className="grid sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            <Num label="Down weeks" value={resetWeeks} set={setResetWeeks} min={0} max={8} />
-            <Num label="Transition wk" value={transitionWeeks} set={setTransitionWeeks} min={0} max={8} />
-            <Num label="Load weeks" value={loadWeeks} set={setLoadWeeks} min={1} max={6} />
-            <Num label="Deload weeks" value={deloadWeeks} set={setDeloadWeeks} min={0} max={2} />
-            <Num label="Peak taper (days)" value={taperDays} set={setTaperDays} min={3} max={35} />
-            <Num label="Key taper (days)" value={keyTaperDays} set={setKeyTaperDays} min={2} max={21} />
-            <Num label="Race wk −%" value={raceWeekReduction} set={setRaceWeekReduction} min={0} max={50} />
-            <Num label="Overload wk before" value={overloadBefore} set={setOverloadBefore} min={1} max={8} />
-            <Num label="Overload length" value={overloadLen} set={setOverloadLen} min={0} max={3} />
-            <Num label="Deload load %" value={deloadPct} set={setDeloadPct} min={30} max={100} />
-          </div>
-
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <div>
-              <Label className="text-[11px]">Race week load %</Label>
-              <Input
-                type="number" min={30} max={95} value={taperFloorPct}
-                onChange={(e) => setTaperFloorPct(Math.max(30, Math.min(95, Number(e.target.value) || 55)))}
-                className="h-8"
-              />
-            </div>
-            <div>
-              <Label className="text-[11px]">Taper shape</Label>
-              <Select value={taperShape} onValueChange={setTaperShape}>
-                <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="linear">Even</SelectItem>
-                  <SelectItem value="gentle">Gentle — drops late</SelectItem>
-                  <SelectItem value="steep">Steep — sheds early</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-[11px]">Base load</Label>
-              <Select value={baseProgression} onValueChange={setBaseProgression}>
-                <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="progressive">Climbs</SelectItem>
-                  <SelectItem value="flat">Flat</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-[11px]">Build load</Label>
-              <Select value={buildProgression} onValueChange={setBuildProgression}>
-                <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="progressive">Climbs</SelectItem>
-                  <SelectItem value="flat">Flat</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+          <CampaignSettingsFields value={settings} onChange={setSettings} baselineKm={baselineNum} />
 
           {preview.weeks.length > 0 && (
             <div className="border rounded-lg p-3">
