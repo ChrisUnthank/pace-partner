@@ -3714,11 +3714,67 @@ export const rebuildSessionClassification = createServerFn({ method: "POST" })
 // session. Continues past individual failures (a corrupt/missing storage
 // file shouldn't block reclassifying the rest of the athlete's history)
 // and reports exactly which sessions failed so they're not silently lost.
-export const bulkRecomputeSessionClassification = createServerFn({ method: "POST" })
+//
+// CHUNKING. `sessionIds`, when supplied, is used INSTEAD of the date range and
+// is the path the client now takes: it lists the work first, then sends small
+// batches. One long-running call cannot outlive its own access token — a
+// full-history run took longer than the JWT's lifetime and every rebuild after
+// that point failed, reported as "JWT expired" from PostgREST and, confusingly,
+// as "Bucket not found" from Storage, which is what an unauthenticated storage
+// request looks like from the outside. Short calls let the client refresh
+// between batches and retry a batch that fails on auth.
+export const listSessionsForRebuild = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { athleteId: string; since?: string; until?: string }) => d)
   .handler(async ({ data, context }) => {
     const sb = context.supabase;
+
+    let q = sb.from("sessions").select("id, session_date, title").eq("athlete_id", data.athleteId);
+    if (data.since) q = q.gte("session_date", data.since);
+    if (data.until) q = q.lte("session_date", data.until);
+    const { data: sessionsInRange } = await q.order("session_date");
+
+    const byId = new Map<string, any>((sessionsInRange ?? []).map((s: any) => [s.id, s]));
+
+    const { data: fileRows } = await sb
+      .from("session_files")
+      .select("session_id")
+      .eq("athlete_id", data.athleteId);
+
+    const seen = new Set<string>();
+    const sessions: { id: string; session_date: string; title: string | null }[] = [];
+    for (const r of fileRows ?? []) {
+      const id = (r as any).session_id;
+      if (!id || seen.has(id) || !byId.has(id)) continue;
+      seen.add(id);
+      const row = byId.get(id);
+      sessions.push({ id, session_date: row.session_date, title: row.title ?? null });
+    }
+    sessions.sort((a, b) => (a.session_date < b.session_date ? -1 : a.session_date > b.session_date ? 1 : 0));
+
+    return { sessions };
+  });
+
+export const bulkRecomputeSessionClassification = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { athleteId: string; since?: string; until?: string; sessionIds?: string[] }) => d)
+  .handler(async ({ data, context }) => {
+    const sb = context.supabase;
+
+    // Explicit batch from the client wins over the range.
+    if (data.sessionIds && data.sessionIds.length > 0) {
+      let succeeded = 0;
+      const errors: { sessionId: string; message: string }[] = [];
+      for (const sessionId of data.sessionIds) {
+        try {
+          await rebuildSessionFromAllFiles(sb, sessionId);
+          succeeded++;
+        } catch (err: any) {
+          errors.push({ sessionId, message: err?.message ?? "Failed" });
+        }
+      }
+      return { total: data.sessionIds.length, succeeded, errors };
+    }
 
     // Bounded by default — since/until being present (from the date
     // picker on the client) restricts this to sessions dated in that
