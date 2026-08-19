@@ -25,6 +25,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import { MapContainer, TileLayer, Polyline } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import {
@@ -153,6 +154,8 @@ function SessionDetail() {
   const mergeSession = useServerFn(mergeSessionIntoAnother);
   const rebuildClassification = useServerFn(rebuildSessionClassification);
   const [rebuilding, setRebuilding] = useState(false);
+  // Recompute discards work. It has to say so before it runs.
+  const [confirmRebuild, setConfirmRebuild] = useState(false);
   const { user } = useAuthUser();
   const { data: roles = [] } = useMyRoles();
   const isCoach = roles.includes("coach");
@@ -1018,6 +1021,75 @@ function SessionDetail() {
 
   return (
     <AppShell fullWidth>
+      {/* Recompute explained before it runs.
+          //
+          // The button previously said "Recompute classification" and did it
+          // immediately. What it actually does is re-read the uploaded files
+          // and DELETE everything derived from them — points, zone time,
+          // fatigue, rep results, and the steps themselves on an imported
+          // session — before rebuilding. That is the right tool for a bad
+          // import and the wrong one to press casually, and the label gave no
+          // way to tell which situation you were in. */}
+      <Dialog open={confirmRebuild} onOpenChange={(v) => !rebuilding && setConfirmRebuild(v)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Recompute this session from its files?</DialogTitle>
+            <DialogDescription>
+              Re-reads the uploaded FIT/GPX files and rebuilds everything derived from them.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <div>
+              <div className="font-medium">Rebuilt from the files</div>
+              <ul className="mt-1 list-disc pl-5 text-muted-foreground space-y-0.5 text-xs">
+                <li>Total distance, elapsed time and moving time</li>
+                <li>GPS and sensor points, time in zone, fatigue</li>
+                <li>Intent and structure — the classification itself</li>
+                <li>Warmup/work/cooldown split, and every rep result</li>
+              </ul>
+            </div>
+            <div>
+              <div className="font-medium text-amber-600 dark:text-amber-500">Discarded</div>
+              <ul className="mt-1 list-disc pl-5 text-muted-foreground space-y-0.5 text-xs">
+                <li>Hand edits to the workout structure, including merged blocks</li>
+                <li>Manually entered or corrected rep times and distances</li>
+                <li>Lactate readings and per-rep notes attached to those reps</li>
+              </ul>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Session-level things are kept: RPE, feel, notes, fuelling, gear and race status. A planned session with
+              its own coach-built structure keeps that structure — only imported sessions have their steps rebuilt.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setConfirmRebuild(false)} disabled={rebuilding}>
+              Cancel
+            </Button>
+            <Button
+              disabled={rebuilding}
+              onClick={async () => {
+                setRebuilding(true);
+                try {
+                  await rebuildClassification({ data: { sessionId } });
+                  toast.success("Rebuilt from source files");
+                  await clearReviewDismissed();
+                  qc.invalidateQueries({ queryKey: ["session", sessionId] });
+                  qc.invalidateQueries({ queryKey: ["steps", sessionId] });
+                  qc.invalidateQueries({ queryKey: ["results", sessionId] });
+                  qc.invalidateQueries({ queryKey: ["raw-points", sessionId] });
+                  setConfirmRebuild(false);
+                } catch (err: any) {
+                  toast.error(err?.message ?? "Rebuild failed");
+                }
+                setRebuilding(false);
+              }}
+            >
+              {rebuilding ? "Rebuilding…" : "Recompute"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="space-y-6">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3">
@@ -1393,23 +1465,10 @@ function SessionDetail() {
                   size="sm"
                   variant="outline"
                   disabled={rebuilding}
-                  onClick={async () => {
-                    setRebuilding(true);
-                    try {
-                      await rebuildClassification({ data: { sessionId } });
-                      toast.success("Classification rebuilt from source files");
-                      await clearReviewDismissed();
-                      qc.invalidateQueries({ queryKey: ["session", sessionId] });
-                      qc.invalidateQueries({ queryKey: ["steps", sessionId] });
-                      qc.invalidateQueries({ queryKey: ["results", sessionId] });
-                      qc.invalidateQueries({ queryKey: ["raw-points", sessionId] });
-                    } catch (err: any) {
-                      toast.error(err?.message ?? "Rebuild failed");
-                    }
-                    setRebuilding(false);
-                  }}
+                  title="Re-reads this session's uploaded files and rebuilds everything derived from them"
+                  onClick={() => setConfirmRebuild(true)}
                 >
-                  {rebuilding ? "Rebuilding…" : "↻ Recompute classification"}
+                  {rebuilding ? "Rebuilding…" : "↻ Recompute from files"}
                 </Button>
                 {session.completed_at && (
                   <Button
@@ -3294,7 +3353,21 @@ function StepBlock({
                     )}
 
                     {isOpen && (
-                      <div className="space-y-2 mt-2">
+                      // Capped and scrolled once a set runs long.
+                      //
+                      // A 20 x 400m block rendered every rep inline, so the
+                      // card grew past the viewport and reps 14 to 20 sat
+                      // below everything after it — including the lactate
+                      // summary and fuelling note, which are part of the same
+                      // block. Twelve reps is about what fits before the card
+                      // stops being readable; below that the cap does nothing,
+                      // so short sessions are unchanged.
+                      <div
+                        className={cn(
+                          "space-y-2 mt-2",
+                          reps.length > 12 && "max-h-[28rem] overflow-y-auto brand-scrollbar pr-1",
+                        )}
+                      >
                         {reps.map((rep) => {
                           const r = results.find((x) => x.rep_number === rep && (x.set_number ?? 1) === setN);
 
@@ -3314,7 +3387,12 @@ function StepBlock({
           )}
 
           {isRecovery && (
-            <div className="space-y-2">
+            <div
+              className={cn(
+                "space-y-2",
+                reps.length > 12 && "max-h-[28rem] overflow-y-auto brand-scrollbar pr-1",
+              )}
+            >
               {reps.map((rep) => {
                 const r = results.find((x) => x.rep_number === rep);
                 return <RepRow key={rep} step={step} rep={rep} result={r} onSave={(p) => saveRep(1, rep, p)} />;
