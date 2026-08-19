@@ -1,9 +1,11 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, AlertTriangle, Loader2, Minus } from "lucide-react";
 import { estimateSessionVolume, sumVolumes, formatKm, formatDuration } from "@/lib/session-volume";
+import { plannedZoneMix, measuredZoneMix, sumZoneSeconds, emptyZoneSeconds, type ZoneSeconds } from "@/lib/zone-mix";
+import { ZoneColumn, ZoneBar, ZoneLegend, HardShareLabel } from "@/components/zone-column";
 import { cn } from "@/lib/utils";
 
 // ----------------------------------------------------------------------------
@@ -101,6 +103,8 @@ export function CampaignBlockSessions({
   weeks: BlockWeek[];
   baselineKm: number | null;
 }) {
+  const [view, setView] = useState<"sessions" | "zones">("sessions");
+
   const range = useMemo(() => {
     if (weeks.length === 0) return null;
     const sorted = [...weeks].sort((a, b) => (a.weekStart < b.weekStart ? -1 : 1));
@@ -123,7 +127,11 @@ export function CampaignBlockSessions({
       if (error) throw error;
 
       const ids = (sessions ?? []).map((s: any) => s.id);
-      if (ids.length === 0) return { sessions: [], stepsBySession: new Map<string, any[]>() };
+      if (ids.length === 0) return {
+          sessions: [] as any[],
+          stepsBySession: new Map<string, any[]>(),
+          zonesBySession: new Map<string, any[]>(),
+        };
 
       // Steps in one query rather than per session — a six-week block is
       // easily forty sessions, and forty round trips to render a panel is
@@ -141,7 +149,27 @@ export function CampaignBlockSessions({
         list.push(st);
         stepsBySession.set(st.session_id, list);
       }
-      return { sessions: (sessions ?? []) as any[], stepsBySession };
+
+      // Measured zone time, for sessions that have actually been run.
+      //
+      // Fetched per session rather than from athlete_zone_time_weekly so a
+      // block whose weeks are partly done and partly ahead can show measured
+      // time for the former and planned for the latter, in the same column.
+      // The weekly view would force one basis on the whole week.
+      const { data: zoneRows, error: zoneErr } = await supabase
+        .from("session_zone_time")
+        .select("session_id, zone, seconds, source")
+        .in("session_id", ids);
+      if (zoneErr) throw zoneErr;
+
+      const zonesBySession = new Map<string, any[]>();
+      for (const z of (zoneRows ?? []) as any[]) {
+        const list = zonesBySession.get(z.session_id) ?? [];
+        list.push(z);
+        zonesBySession.set(z.session_id, list);
+      }
+
+      return { sessions: (sessions ?? []) as any[], stepsBySession, zonesBySession };
     },
   });
 
@@ -164,7 +192,31 @@ export function CampaignBlockSessions({
       const total = sumVolumes(volumes);
       const targetM =
         baselineKm != null && baselineKm > 0 ? baselineKm * 1000 * (Number(w.loadPct) / 100) : null;
-      return { week: w, sessions, volumes, total, targetM };
+
+      // Measured where the session has been run, planned where it has not.
+      //
+      // Per session rather than per week, so a part-completed week reads
+      // honestly instead of having to pick one basis for all of it. `mixBasis`
+      // records whether the week is measured, planned, or a mix of both — the
+      // label above the column says which, because a planned mix is an
+      // intention and a measured one is what happened.
+      let anyMeasured = false;
+      let anyPlanned = false;
+      const mixes: ZoneSeconds[] = sessions.map((sess: any) => {
+        const rows = data?.zonesBySession.get(sess.id) ?? [];
+        if (rows.length > 0) {
+          anyMeasured = true;
+          return measuredZoneMix(rows).seconds;
+        }
+        const planned = plannedZoneMix(sess, data?.stepsBySession.get(sess.id) ?? []);
+        if (planned.basis === "planned") anyPlanned = true;
+        return planned.seconds;
+      });
+      const zones = mixes.length > 0 ? sumZoneSeconds(mixes) : emptyZoneSeconds();
+      const mixBasis =
+        anyMeasured && anyPlanned ? "mixed" : anyMeasured ? "measured" : anyPlanned ? "planned" : "none";
+
+      return { week: w, sessions, volumes, total, targetM, mixes, zones, mixBasis };
     });
   }, [weeks, data, baselineKm]);
 
@@ -173,6 +225,14 @@ export function CampaignBlockSessions({
     () => byWeek.reduce((a, r) => a + (r.targetM ?? 0), 0),
     [byWeek],
   );
+  const blockZones = useMemo(() => sumZoneSeconds(byWeek.map((r) => r.zones)), [byWeek]);
+
+  const blockBasisLabel = useMemo(() => {
+    const kinds = new Set(byWeek.filter((r) => r.sessions.length > 0).map((r) => r.mixBasis));
+    if (kinds.size === 1 && kinds.has("measured")) return "measured";
+    if (kinds.size === 1 && kinds.has("planned")) return "planned";
+    return "mixed";
+  }, [byWeek]);
 
   if (isLoading) {
     return (
@@ -200,9 +260,74 @@ export function CampaignBlockSessions({
           {blockTarget > 0 && <> against a target of {formatKm(blockTarget, 0)}</>}
           {blockTotal.totalSeconds > 0 && <> · {formatDuration(blockTotal.totalSeconds)}</>}
         </span>
-        <VolumeVerdictBadge className="ml-auto" actualM={blockTotal.totalM} targetM={blockTarget > 0 ? blockTarget : null} />
+        <VolumeVerdictBadge actualM={blockTotal.totalM} targetM={blockTarget > 0 ? blockTarget : null} />
+        <div className="ml-auto flex shrink-0 rounded-md border">
+          {(["sessions", "zones"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setView(m)}
+              className={cn(
+                "px-2 py-0.5 text-[11px] capitalize transition-colors first:rounded-l-md last:rounded-r-md",
+                view === m ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
       </div>
 
+      {view === "zones" ? (
+        <div className="space-y-3 px-3 py-3">
+          <div className="flex items-baseline gap-2 text-xs">
+            <span className="font-medium">Intensity distribution</span>
+            <HardShareLabel zones={blockZones} />
+            <span className="ml-auto text-[10px] text-muted-foreground">
+              {blockBasisLabel}
+            </span>
+          </div>
+
+          {/* One column per week, each full height and split by share.
+              Proportional rather than absolute on purpose — the question is
+              how much of a week is hard, and a taller column would let a light
+              week of all-threshold running look safer than a big easy week. */}
+          <div
+            className="grid gap-1.5"
+            style={{ gridTemplateColumns: `repeat(${byWeek.length}, minmax(0, 1fr))` }}
+          >
+            {byWeek.map((row) => (
+              <ZoneColumn
+                key={row.week.weekNumber}
+                zones={row.zones}
+                height={72}
+                label={`W${row.week.weekNumber}`}
+              />
+            ))}
+          </div>
+
+          <div className="space-y-1">
+            {byWeek.map((row) => (
+              <div key={row.week.weekNumber} className="flex items-center gap-2 text-[11px]">
+                <span className="w-8 shrink-0 font-medium">W{row.week.weekNumber}</span>
+                <ZoneBar zones={row.zones} className="min-w-0 flex-1" />
+                <HardShareLabel zones={row.zones} className="w-20 shrink-0 text-right" />
+              </div>
+            ))}
+          </div>
+
+          <ZoneLegend zones={blockZones} />
+
+          <p className="text-[11px] text-muted-foreground">
+            {blockBasisLabel === "planned"
+              ? "Nothing here has been run yet, so this is what the sessions are MEANT to be — zones come from each step's target, or from the session's intent where no zone is set. What the athlete actually does may look very different, and comparing the two once the block is done is the useful part."
+              : blockBasisLabel === "measured"
+                ? "Measured from real pace against this athlete's own zone boundaries."
+                : "Weeks already run show measured time in zone; weeks still ahead show what their sessions are planned to be. Those are different things and the mix is deliberate — it is the block as it currently stands."}
+          </p>
+        </div>
+      ) : (
+        <>
       {byWeek.map((row) => (
         <div key={row.week.weekNumber} className="border-b last:border-b-0">
           <div className="flex items-center gap-2 px-3 py-1.5 text-xs">
@@ -230,6 +355,7 @@ export function CampaignBlockSessions({
                     done
                   </Badge>
                 )}
+                <ZoneBar zones={row.mixes[i]} className="w-16 shrink-0" />
                 <span className="w-16 shrink-0 text-right text-muted-foreground">
                   {row.volumes[i].isEmpty ? "—" : formatKm(row.volumes[i].totalM, 1)}
                 </span>
@@ -242,7 +368,10 @@ export function CampaignBlockSessions({
         </div>
       ))}
 
-      {blockTotal.estimatedFromTimeM > blockTotal.totalM * 0.15 && (
+        </>
+      )}
+
+      {view === "sessions" && blockTotal.estimatedFromTimeM > blockTotal.totalM * 0.15 && (
         <p className="px-3 py-2 text-[11px] text-muted-foreground">
           {Math.round((blockTotal.estimatedFromTimeM / blockTotal.totalM) * 100)}% of this distance is converted from
           time-based targets at an assumed pace rather than prescribed in kilometres.
