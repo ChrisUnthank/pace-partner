@@ -299,6 +299,10 @@ export function YearlyLoadStrip({
       }
       const zonePct = zonePercentages(zones);
       const zoneTotal = totalZoneSeconds(zones);
+      // Minutes, matching the Activity Time tab's own unit — the stack's
+      // total height is then the week's total time, and the segments are how
+      // that time was spent.
+      const zoneMin = (k: keyof typeof zones) => (zones[k] ?? 0) / 60;
 
       return {
         week: w.start,
@@ -306,15 +310,21 @@ export function YearlyLoadStrip({
         monthLabel,
         isFuture: w.isFuture,
         value: metric === "load" ? Math.round(b.load) : metric === "time" ? b.time : Math.round(b.distance * 10) / 10,
-        // Percentages, not seconds — every column is full height and split by
-        // share, so a light week of all-threshold work cannot look safer than
-        // a big week of easy running. Volume has its own three tabs.
-        z1: zonePct.z1,
-        z2: zonePct.z2,
-        z3: zonePct.z3,
-        z4: zonePct.z4,
-        z5: zonePct.z5,
-        z6: zonePct.z6,
+        // ABSOLUTE minutes, not percentages.
+        //
+        // An earlier version stacked to 100% so every column was the same
+        // height. That answered "what was the mix" but broke the thing this
+        // strip is for — you could no longer see that one week was three
+        // times the size of the next, and the zones tab looked like a
+        // different chart from the other three. Stacking real minutes keeps
+        // both readings: height is volume, the split is distribution.
+        z1: zoneMin("z1"),
+        z2: zoneMin("z2"),
+        z3: zoneMin("z3"),
+        z4: zoneMin("z4"),
+        z5: zoneMin("z5"),
+        z6: zoneMin("z6"),
+        zonePct,
         zoneSeconds: zones,
         zoneTotal,
         hardPct: hardSharePct(zones),
@@ -392,7 +402,7 @@ export function YearlyLoadStrip({
                   axisLine={false}
                   height={20}
                 />
-                <YAxis hide domain={metric === "zones" ? [0, 100] : [0, "auto"]} />
+                <YAxis hide domain={[0, "auto"]} />
                 <Tooltip
                   cursor={{ fill: "rgba(148,163,184,0.15)" }}
                   labelFormatter={() => ""}
@@ -403,10 +413,13 @@ export function YearlyLoadStrip({
                       : "";
                     if (metric === "zones") {
                       if (!p || !p.zoneTotal) return ["no zone data", label];
-                      const pct = Number(v);
-                      if (pct <= 0) return [null as any, null as any];
-                      const mins = Math.round(((p.zoneSeconds?.[_n as string] ?? 0) as number) / 60);
-                      return [`${pct.toFixed(0)}% · ${mins}m`, ZONE_LABELS[_n as keyof typeof ZONE_LABELS] ?? _n];
+                      const mins = Number(v);
+                      if (!(mins > 0)) return [null as any, null as any];
+                      const pct = p.zonePct?.[_n as string] ?? 0;
+                      return [
+                        `${Math.round(mins)}m · ${pct.toFixed(0)}%`,
+                        ZONE_LABELS[_n as keyof typeof ZONE_LABELS] ?? _n,
+                      ];
                     }
                     const val =
                       metric === "time" ? fmtTime(Number(v)) : metric === "distance" ? `${v} km` : `${v} TL`;
@@ -478,7 +491,7 @@ export function YearlyLoadStrip({
               )}
               <p className="text-[10px] text-muted-foreground mt-1">
                 {metric === "zones"
-                  ? "Each column is one week split by share, not volume — so a light week of hard running cannot look easier than a big week of easy running. History is measured from real pace against this athlete's own zone boundaries; the faded weeks ahead are what their planned sessions are MEANT to be, taken from each step's target or the session's intent."
+                  ? "Column height is the week's total time, same as the other tabs; the split is where that time was spent. History is measured from real pace against this athlete's own zone boundaries; the faded weeks ahead are what their planned sessions are MEANT to be, taken from each step's target or the session's intent — so a short bar there means little planned, not an easy week."
                   : "Faded, dashed-outline bars are the next 4 weeks — already planned, not yet completed."}
               </p>
             </>
