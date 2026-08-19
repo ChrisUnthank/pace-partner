@@ -16,7 +16,8 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { todayISO } from "@/lib/format";
 import { toast } from "sonner";
-import { Plus, ChevronDown, ChevronUp, Archive, ArchiveRestore, Trash2, Bandage } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Plus, ChevronDown, ChevronUp, Archive, ArchiveRestore, Trash2, Bandage, Thermometer } from "lucide-react";
 import { BucketTabStrip, healthTabsFor } from "@/components/bucket-tab-strip";
 import { AthleteSubnav } from "@/components/athlete-subnav";
 import { CoachAthletePicker } from "@/components/coach-athlete-picker";
@@ -128,7 +129,7 @@ function InjuriesPage() {
             </div>
           </div>
           <Button size="sm" onClick={() => setShowNewForm((v) => !v)}>
-            <Plus className="h-4 w-4 mr-1" /> {showNewForm ? "Cancel" : "Log new injury"}
+            <Plus className="h-4 w-4 mr-1" /> {showNewForm ? "Cancel" : "Log injury or illness"}
           </Button>
         </div>
         <BucketTabStrip items={healthTabsFor(selectedAthleteId)} active="/app/injuries" />
@@ -139,25 +140,66 @@ function InjuriesPage() {
   );
 }
 
+export const ILLNESS_TYPE_LABEL: Record<string, string> = {
+  respiratory_upper: "Respiratory — head cold / throat",
+  respiratory_lower: "Respiratory — chest",
+  respiratory_other: "Respiratory — unspecified",
+  asthma: "Asthma",
+  allergies: "Allergies / hay fever",
+  gastrointestinal: "Stomach / gut",
+  fever: "Fever",
+  viral: "Viral / flu-like",
+  other: "Other",
+};
+
+/** Conditions that are usually standing facts rather than episodes. Only a
+ *  default for the chronic toggle — seasonal hay fever that genuinely clears
+ *  each year is still an ordinary illness, so the coach can always override. */
+const USUALLY_CHRONIC = new Set(["asthma", "allergies"]);
+
+export const TRAINING_IMPACT_LABEL: Record<string, string> = {
+  none: "Trained as normal",
+  modified: "Trained around it",
+  stopped: "No training",
+};
+
 function NewInjuryForm({ athleteId, onSaved }: { athleteId: string; onSaved: () => void }) {
   const qc = useQueryClient();
+  // One form, two shapes. An illness has no body part and no side; an injury
+  // has no symptom category. Everything else — onset, severity, impact,
+  // notes — is common, which is why these share a record rather than a
+  // separate table.
+  const [kind, setKind] = useState<"injury" | "illness">("injury");
   const [bodyPart, setBodyPart] = useState("");
   const [region, setRegion] = useState<string | null>(null);
   const [side, setSide] = useState<string>("n/a");
+  const [illnessType, setIllnessType] = useState<string>("respiratory_upper");
+  const [belowNeck, setBelowNeck] = useState<"unknown" | "yes" | "no">("unknown");
+  const [isChronic, setIsChronic] = useState(false);
+  const [impact, setImpact] = useState<string>("modified");
   const [severity, setSeverity] = useState("");
   const [onsetDate, setOnsetDate] = useState(todayISO());
   const [notes, setNotes] = useState("");
 
+  const isIllness = kind === "illness";
+
   async function save() {
-    if (!bodyPart.trim()) {
+    if (!isIllness && !bodyPart.trim()) {
       toast.error("Body part is required");
       return;
     }
     const { error } = await supabase.from("injuries").insert({
       athlete_id: athleteId,
-      body_part: bodyPart.trim(),
-      body_region: region,
-      side,
+      kind,
+      // Nulled rather than left blank for the other kind, so a later query
+      // filtering on body_part never picks up an illness with an empty string.
+      body_part: isIllness ? null : bodyPart.trim(),
+      body_region: isIllness ? null : region,
+      side: isIllness ? "n/a" : side,
+      illness_type: isIllness ? illnessType : null,
+      symptoms_below_neck: isIllness && belowNeck !== "unknown" ? belowNeck === "yes" : null,
+      is_chronic: isIllness ? isChronic : false,
+      training_impact: impact,
       status: "active",
       severity: severity === "" ? null : Number(severity),
       onset_date: onsetDate,
@@ -167,7 +209,7 @@ function NewInjuryForm({ athleteId, onSaved }: { athleteId: string; onSaved: () 
       toast.error(error.message);
       return;
     }
-    toast.success("Injury logged");
+    toast.success(isIllness ? "Illness logged" : "Injury logged");
     qc.invalidateQueries({ queryKey: ["injuries", athleteId] });
     onSaved();
   }
@@ -175,34 +217,116 @@ function NewInjuryForm({ athleteId, onSaved }: { athleteId: string; onSaved: () 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">New injury</CardTitle>
+        <CardTitle className="text-base">New {isIllness ? "illness" : "injury"}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div>
-          <Label className="text-xs">Tap the general area — this sets side too (optional, still editable below)</Label>
-          <div className="mt-2">
-            <BodyMapPicker value={region ? { region, side: side as any } : null} onChange={(v) => { setRegion(v.region); setSide(v.side); }} />
-          </div>
+        <div className="flex rounded-md border w-fit">
+          {(["injury", "illness"] as const).map((k) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setKind(k)}
+              className={cn(
+                "px-3 py-1 text-xs capitalize transition-colors first:rounded-l-md last:rounded-r-md",
+                kind === k ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {k}
+            </button>
+          ))}
         </div>
-        <div className="grid sm:grid-cols-2 gap-3">
-          <div>
-            <Label className="text-xs">Body part</Label>
-            <Input value={bodyPart} onChange={(e) => setBodyPart(e.target.value)} placeholder="e.g. Achilles, calf, hamstring" />
+
+        {isIllness ? (
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs">What kind</Label>
+              <Select
+                value={illnessType}
+                onValueChange={(v) => {
+                  setIllnessType(v);
+                  // Suggested, not forced — asthma is a standing condition far
+                  // more often than not, and having to tick it every time is
+                  // the sort of friction that stops things being recorded.
+                  setIsChronic(USUALLY_CHRONIC.has(v));
+                }}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {Object.entries(ILLNESS_TYPE_LABEL).map(([v, label]) => (
+                    <SelectItem key={v} value={v}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Symptoms below the neck</Label>
+              <Select value={belowNeck} onValueChange={(v) => setBelowNeck(v as any)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="unknown">Not recorded</SelectItem>
+                  <SelectItem value="no">No — head and throat only</SelectItem>
+                  <SelectItem value="yes">Yes — chest, gut or aching</SelectItem>
+                </SelectContent>
+              </Select>
+              {/* Recorded, not acted on. It is the question a coach asks
+                  before deciding whether to train through something, and the
+                  answer is worth far more written down at the time than
+                  reconstructed a fortnight later. What it should mean is the
+                  coach's call, so nothing here decides it for them. */}
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Worth capturing now — it is the detail nobody remembers afterwards.
+              </p>
+            </div>
+            <div className="sm:col-span-2">
+              <label className="flex items-start gap-2 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isChronic}
+                  onChange={(e) => setIsChronic(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  Ongoing condition rather than an episode
+                  <span className="block text-muted-foreground">
+                    Asthma and allergies do not resolve — they flare and settle. Ticking this keeps them out of the
+                    current-problems list, where they would otherwise sit as "Active" forever.
+                  </span>
+                </span>
+              </label>
+            </div>
           </div>
-          <div>
-            <Label className="text-xs">Side</Label>
-            <Select value={side} onValueChange={setSide}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="left">Left</SelectItem>
-                <SelectItem value="right">Right</SelectItem>
-                <SelectItem value="both">Both</SelectItem>
-                <SelectItem value="n/a">N/A</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+        ) : (
+          <>
+            <div>
+              <Label className="text-xs">Tap the general area — this sets side too (optional, still editable below)</Label>
+              <div className="mt-2">
+                <BodyMapPicker value={region ? { region, side: side as any } : null} onChange={(v) => { setRegion(v.region); setSide(v.side); }} />
+              </div>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Body part</Label>
+                <Input value={bodyPart} onChange={(e) => setBodyPart(e.target.value)} placeholder="e.g. Achilles, calf, hamstring" />
+              </div>
+              <div>
+                <Label className="text-xs">Side</Label>
+                <Select value={side} onValueChange={setSide}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="left">Left</SelectItem>
+                    <SelectItem value="right">Right</SelectItem>
+                    <SelectItem value="both">Both</SelectItem>
+                    <SelectItem value="n/a">N/A</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </>
+        )}
+
+        <div className="grid sm:grid-cols-3 gap-3">
           <div>
             <Label className="text-xs">Onset date</Label>
             <Input type="date" value={onsetDate} max={todayISO()} onChange={(e) => setOnsetDate(e.target.value)} />
@@ -211,10 +335,22 @@ function NewInjuryForm({ athleteId, onSaved }: { athleteId: string; onSaved: () 
             <Label className="text-xs">Severity (1–5, optional)</Label>
             <Input type="number" min={1} max={5} value={severity} onChange={(e) => setSeverity(e.target.value)} placeholder="3" />
           </div>
+          <div>
+            <Label className="text-xs">Training</Label>
+            <Select value={impact} onValueChange={setImpact}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {Object.entries(TRAINING_IMPACT_LABEL).map(([v, label]) => (
+                  <SelectItem key={v} value={v}>{label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
+
         <Textarea placeholder="Describe what's going on" value={notes} onChange={(e) => setNotes(e.target.value)} />
         <Button onClick={save} className="w-full">
-          Save injury
+          Save {isIllness ? "illness" : "injury"}
         </Button>
       </CardContent>
     </Card>
@@ -407,14 +543,17 @@ function InjuryCard({ injury, athleteId, defaultOpen }: { injury: any; athleteId
   }
 
   async function saveDetails() {
-    if (!eBodyPart.trim()) {
+    // Only injuries need one. An illness has no body part by construction, so
+    // the old unconditional guard made every illness record unsaveable the
+    // moment anyone opened it to edit.
+    if (injury.kind !== "illness" && !eBodyPart.trim()) {
       toast.error("Body part is required");
       return;
     }
     const { error } = await supabase
       .from("injuries")
       .update({
-        body_part: eBodyPart.trim(),
+        body_part: injury.kind === "illness" ? null : eBodyPart.trim(),
         body_region: eRegion,
         side: eSide,
         severity: eSeverity === "" ? null : Number(eSeverity),
@@ -497,10 +636,12 @@ function InjuryCard({ injury, athleteId, defaultOpen }: { injury: any; athleteId
       .insert({
         athlete_id: athleteId,
         category: "appointment",
-        title: `${appt.hcp_name || "Healthcare"} — ${injury.body_part}`,
+        title: `${appt.hcp_name || "Healthcare"} — ${injury.body_part ?? ILLNESS_TYPE_LABEL[injury.illness_type ?? ""] ?? "Illness"}`,
         specific_date: specificDate,
         start_time: startTime,
-        notes: appt.notes || `Linked to injury: ${injury.body_part}`,
+        notes:
+          appt.notes ||
+          `Linked to ${injury.kind === "illness" ? "illness" : "injury"}: ${injury.body_part ?? ILLNESS_TYPE_LABEL[injury.illness_type ?? ""] ?? ""}`,
         injury_id: injury.id,
       } as any)
       .select("id")
@@ -543,10 +684,16 @@ function InjuryCard({ injury, athleteId, defaultOpen }: { injury: any; athleteId
             ) : (
               <ChevronDown className="h-4 w-4 text-muted-foreground" />
             )}
-            <BodyMapIcon region={injury.body_region} side={injury.side} size="lg" />
+            {injury.kind === "illness" ? (
+              <Thermometer className="h-6 w-6 shrink-0 text-muted-foreground" />
+            ) : (
+              <BodyMapIcon region={injury.body_region} side={injury.side} size="lg" />
+            )}
             <div>
               <CardTitle className="text-base capitalize">
-                {injury.body_part} {injury.side && injury.side !== "n/a" ? `(${injury.side})` : ""}
+                {injury.kind === "illness"
+                  ? (ILLNESS_TYPE_LABEL[injury.illness_type ?? ""] ?? "Illness")
+                  : `${injury.body_part ?? "Unspecified"} ${injury.side && injury.side !== "n/a" ? `(${injury.side})` : ""}`}
               </CardTitle>
               <CardDescription>
                 Since{" "}
@@ -604,7 +751,25 @@ function InjuryCard({ injury, athleteId, defaultOpen }: { injury: any; athleteId
                 <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>Edit</Button>
               </div>
               <div className="grid sm:grid-cols-2 gap-x-4 gap-y-1 text-muted-foreground">
-                <div><span className="text-foreground font-medium capitalize">{injury.body_part}</span> {injury.body_region && `· ${regionLabel(injury.body_region)}`}</div>
+                <div>
+                  {injury.kind === "illness" ? (
+                    <>
+                      <span className="text-foreground font-medium">
+                        {ILLNESS_TYPE_LABEL[injury.illness_type ?? ""] ?? "Illness"}
+                      </span>
+                      {injury.symptoms_below_neck != null &&
+                        ` · ${injury.symptoms_below_neck ? "below the neck" : "head and throat only"}`}
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-foreground font-medium capitalize">{injury.body_part}</span>{" "}
+                      {injury.body_region && `· ${regionLabel(injury.body_region)}`}
+                    </>
+                  )}
+                  {injury.training_impact && injury.training_impact !== "modified" && (
+                    <> · {TRAINING_IMPACT_LABEL[injury.training_impact] ?? injury.training_impact}</>
+                  )}
+                </div>
                 <div>Side: {injury.side && injury.side !== "n/a" ? injury.side : "N/A"}</div>
                 <div>Onset: {new Date(injury.onset_date + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</div>
                 <div>Severity: {injury.severity != null ? `${injury.severity}/5` : "—"}</div>
