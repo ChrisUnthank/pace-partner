@@ -4,6 +4,18 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { ChevronDown, ChevronUp } from "lucide-react";
+import {
+  ZONE_KEYS,
+  ZONE_COLORS,
+  ZONE_LABELS,
+  measuredZoneMix,
+  plannedZoneMix,
+  sumZoneSeconds,
+  emptyZoneSeconds,
+  zonePercentages,
+  hardSharePct,
+  totalZoneSeconds,
+} from "@/lib/zone-mix";
 import { cn } from "@/lib/utils";
 
 /**
@@ -38,12 +50,13 @@ import { cn } from "@/lib/utils";
  * clicked week via its existing custom-range mechanism.
  */
 
-type Metric = "distance" | "time" | "load";
+type Metric = "distance" | "time" | "load" | "zones";
 
 const METRIC_LABELS: Record<Metric, string> = {
   distance: "Distance",
   time: "Activity Time",
   load: "Training Load",
+  zones: "Intensity Mix",
 };
 
 // Category-based load estimate, mirroring session_training_load()'s own
@@ -163,6 +176,29 @@ export function YearlyLoadStrip({
 
   const plannedSessionIds = useMemo(() => (plannedSessions as any[]).map((s) => s.id), [plannedSessions]);
 
+  // Measured time in zone, week by week.
+  //
+  // Read from athlete_zone_time_weekly rather than per session: this covers
+  // 52 weeks, which is several hundred sessions, and the weekly rollup is
+  // already grouped the way this strip needs. The campaign block panel does
+  // read per session, because there a part-completed week has to show
+  // measured and planned side by side — over a year that distinction lands on
+  // the boundary between history and the four planned weeks instead, and the
+  // strip already draws those differently.
+  const { data: zoneRows = [] } = useQuery({
+    queryKey: ["yearly-strip-zones", athleteId, rangeStart],
+    enabled: !!athleteId && metric === "zones",
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("athlete_zone_time_weekly")
+        .select("week_start, zone, source, seconds")
+        .eq("athlete_id", athleteId)
+        .gte("week_start", rangeStart);
+      if (error) return [];
+      return data ?? [];
+    },
+  });
+
   // Step-level targets for planned sessions that have no total of their
   // own yet (the normal case — totals usually only populate once a
   // session's actually run).
@@ -172,7 +208,13 @@ export function YearlyLoadStrip({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("steps")
-        .select("session_id, reps, set_count, target_distance_m, target_time_seconds")
+        // kind/target_zone/target_mode and the recovery fields are read by
+        // plannedZoneMix — without them every step would fall back to the
+        // session intent and a threshold session's warmup would be counted
+        // as threshold time.
+        .select(
+          "session_id, kind, reps, set_count, target_distance_m, target_time_seconds, target_mode, target_zone, recovery_target_kind, recovery_target_seconds, recovery_target_distance_m, recovery_between_reps_seconds, recovery_between_sets_seconds",
+        )
         .in("session_id", plannedSessionIds);
       if (error) return [];
       return data ?? [];
@@ -243,21 +285,67 @@ export function YearlyLoadStrip({
       // days of a month — gives one tick per month across the year.
       const monthLabel =
         w.startDate.getDate() <= 7 ? w.startDate.toLocaleDateString(undefined, { month: "short" }) : "";
+
+      // Zone mix: measured for history, planned for the weeks ahead.
+      let zones = emptyZoneSeconds();
+      if (w.isFuture) {
+        const sessions = (plannedSessions as any[]).filter((s) => weekKey(s.session_date) === w.start);
+        zones = sumZoneSeconds(
+          sessions.map((s) => plannedZoneMix(s, stepsBySession.get(s.id) ?? []).seconds),
+        );
+      } else {
+        const rows = (zoneRows as any[]).filter((r) => r.week_start === w.start);
+        zones = measuredZoneMix(rows).seconds;
+      }
+      const zonePct = zonePercentages(zones);
+      const zoneTotal = totalZoneSeconds(zones);
+
       return {
         week: w.start,
         end: w.end,
         monthLabel,
         isFuture: w.isFuture,
         value: metric === "load" ? Math.round(b.load) : metric === "time" ? b.time : Math.round(b.distance * 10) / 10,
+        // Percentages, not seconds — every column is full height and split by
+        // share, so a light week of all-threshold work cannot look safer than
+        // a big week of easy running. Volume has its own three tabs.
+        z1: zonePct.z1,
+        z2: zonePct.z2,
+        z3: zonePct.z3,
+        z4: zonePct.z4,
+        z5: zonePct.z5,
+        z6: zonePct.z6,
+        zoneSeconds: zones,
+        zoneTotal,
+        hardPct: hardSharePct(zones),
       };
     });
-  }, [weeks, loadRows, sessionRows, plannedSessions, plannedSteps, metric]);
+  }, [weeks, loadRows, sessionRows, plannedSessions, plannedSteps, metric, zoneRows]);
 
   // Total only counts actual history — mixing in planned future weeks
   // would overstate what's actually been done.
   const yearTotal = data.filter((d) => !d.isFuture).reduce((s, d) => s + d.value, 0);
+
+  // Adding up percentages would be meaningless, so the zones tab reports the
+  // year's actual Z3+ share instead — recomputed from the summed seconds, not
+  // averaged from the weekly percentages, which would weight a 30-minute week
+  // the same as a fifteen-hour one.
+  const yearZones = useMemo(
+    () => sumZoneSeconds(data.filter((d) => !d.isFuture).map((d) => d.zoneSeconds)),
+    [data],
+  );
+  const yearHardPct = hardSharePct(yearZones);
+
   const totalLabel =
-    metric === "time" ? fmtTime(yearTotal) : metric === "distance" ? `${Math.round(yearTotal)} km` : `${Math.round(yearTotal)} TL`;
+    metric === "zones"
+      ? yearHardPct == null
+        ? "no zone data"
+        : `${yearHardPct.toFixed(0)}% at Z3+`
+      : metric === "time"
+        ? fmtTime(yearTotal)
+        : metric === "distance"
+          ? `${Math.round(yearTotal)} km`
+          : `${Math.round(yearTotal)} TL`;
 
   return (
     <div className="border rounded-md px-3 py-2">
@@ -304,7 +392,7 @@ export function YearlyLoadStrip({
                   axisLine={false}
                   height={20}
                 />
-                <YAxis hide domain={[0, "auto"]} />
+                <YAxis hide domain={metric === "zones" ? [0, 100] : [0, "auto"]} />
                 <Tooltip
                   cursor={{ fill: "rgba(148,163,184,0.15)" }}
                   labelFormatter={() => ""}
@@ -313,37 +401,87 @@ export function YearlyLoadStrip({
                     const label = p
                       ? `${new Date(p.week + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short" })} – ${new Date(p.end + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short" })}${p.isFuture ? " · planned" : ""}`
                       : "";
+                    if (metric === "zones") {
+                      if (!p || !p.zoneTotal) return ["no zone data", label];
+                      const pct = Number(v);
+                      if (pct <= 0) return [null as any, null as any];
+                      const mins = Math.round(((p.zoneSeconds?.[_n as string] ?? 0) as number) / 60);
+                      return [`${pct.toFixed(0)}% · ${mins}m`, ZONE_LABELS[_n as keyof typeof ZONE_LABELS] ?? _n];
+                    }
                     const val =
                       metric === "time" ? fmtTime(Number(v)) : metric === "distance" ? `${v} km` : `${v} TL`;
                     return [val, label];
                   }}
                 />
-                <Bar
-                  dataKey="value"
-                  radius={[2, 2, 0, 0]}
-                  onClick={(d: any) => {
-                    if (onWeekClick && d?.week) onWeekClick(d.week, d.end);
-                  }}
-                  cursor={onWeekClick ? "pointer" : undefined}
-                >
-                  {data.map((d) => (
-                    <Cell
-                      key={d.week}
-                      fill={d.week === currentWeekStart ? "var(--accent-red)" : "#38bdf8"}
-                      fillOpacity={d.week === currentWeekStart ? 1 : d.isFuture ? 0.3 : 0.75}
-                      stroke={d.isFuture ? "#38bdf8" : undefined}
-                      strokeDasharray={d.isFuture ? "3 2" : undefined}
-                      strokeOpacity={d.isFuture ? 0.6 : undefined}
-                    />
-                  ))}
-                </Bar>
+                {metric === "zones" ? (
+                  // One stacked series per zone, z1 first so it renders at the
+                  // bottom — a stack founded on speed would read backwards.
+                  ZONE_KEYS.map((z, i) => (
+                    <Bar
+                      key={z}
+                      dataKey={z}
+                      stackId="zones"
+                      radius={i === ZONE_KEYS.length - 1 ? [2, 2, 0, 0] : undefined}
+                      onClick={(d: any) => {
+                        if (onWeekClick && d?.week) onWeekClick(d.week, d.end);
+                      }}
+                      cursor={onWeekClick ? "pointer" : undefined}
+                    >
+                      {data.map((d) => (
+                        <Cell
+                          key={d.week}
+                          fill={ZONE_COLORS[z]}
+                          // Planned weeks stay visually distinct from history
+                          // here exactly as they do on the volume tabs — the
+                          // difference matters more on this tab, not less,
+                          // since a planned mix is an intention.
+                          fillOpacity={d.isFuture ? 0.35 : 0.9}
+                        />
+                      ))}
+                    </Bar>
+                  ))
+                ) : (
+                  <Bar
+                    dataKey="value"
+                    radius={[2, 2, 0, 0]}
+                    onClick={(d: any) => {
+                      if (onWeekClick && d?.week) onWeekClick(d.week, d.end);
+                    }}
+                    cursor={onWeekClick ? "pointer" : undefined}
+                  >
+                    {data.map((d) => (
+                      <Cell
+                        key={d.week}
+                        fill={d.week === currentWeekStart ? "var(--accent-red)" : "#38bdf8"}
+                        fillOpacity={d.week === currentWeekStart ? 1 : d.isFuture ? 0.3 : 0.75}
+                        stroke={d.isFuture ? "#38bdf8" : undefined}
+                        strokeDasharray={d.isFuture ? "3 2" : undefined}
+                        strokeOpacity={d.isFuture ? 0.6 : undefined}
+                      />
+                    ))}
+                  </Bar>
+                )}
               </BarChart>
             </ResponsiveContainer>
           </div>
           {!compact && (
-            <p className="text-[10px] text-muted-foreground mt-1">
-              Faded, dashed-outline bars are the next 4 weeks — already planned, not yet completed.
-            </p>
+            <>
+              {metric === "zones" && (
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                  {ZONE_KEYS.map((z) => (
+                    <span key={z} className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+                      <span className="h-2 w-2 rounded-full" style={{ background: ZONE_COLORS[z] }} />
+                      {ZONE_LABELS[z]}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <p className="text-[10px] text-muted-foreground mt-1">
+                {metric === "zones"
+                  ? "Each column is one week split by share, not volume — so a light week of hard running cannot look easier than a big week of easy running. History is measured from real pace against this athlete's own zone boundaries; the faded weeks ahead are what their planned sessions are MEANT to be, taken from each step's target or the session's intent."
+                  : "Faded, dashed-outline bars are the next 4 weeks — already planned, not yet completed."}
+              </p>
+            </>
           )}
         </>
       )}
