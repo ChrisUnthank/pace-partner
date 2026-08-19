@@ -15,6 +15,7 @@ import { CalendarRange, ChevronRight, Flag, Layers, Plus, Sparkles, Target, Tras
 import { BucketTabStrip, COACHING_HUB_TABS } from "@/components/bucket-tab-strip";
 import { CampaignTimeline, PRIORITY_STYLE, phaseStyle } from "@/components/campaign-timeline";
 import { FillBlockDialog, UnfillBlockDialog, type FillBlockTarget } from "@/components/campaign-fill-dialog";
+import { CampaignBlockSessions } from "@/components/campaign-block-sessions";
 import { WeekEditDialog, BaselineDialog, PreviewWeekEditor } from "@/components/campaign-week-edit";
 import { EditCampaignDialog } from "@/components/campaign-edit";
 import { AddRacesPanel } from "@/components/campaign-race-picker";
@@ -232,6 +233,7 @@ function CampaignsPage() {
                     qc.invalidateQueries({ queryKey: ["campaign-fills"] });
                     qc.invalidateQueries({ queryKey: ["campaign-actuals"] });
                     qc.invalidateQueries({ queryKey: ["campaign-fill-existing"] });
+                    qc.invalidateQueries({ queryKey: ["campaign-block-sessions"] });
                     qc.invalidateQueries({ queryKey: ["calendar"] });
                   }}
                 />
@@ -336,6 +338,10 @@ function SavedCampaign({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [fillTarget, setFillTarget] = useState<FillBlockTarget | null>(null);
   const [unfillTarget, setUnfillTarget] = useState<{ label: string; weekIds: string[] } | null>(null);
+  // One block open at a time, keyed by its start date rather than its label
+  // or order — both of those change when a week's phase is overridden and
+  // the blocks resplit, which would silently reopen a different block.
+  const [openBlockStart, setOpenBlockStart] = useState<string | null>(null);
   const baselineKm = campaign.baseline_weekly_km != null ? Number(campaign.baseline_weekly_km) : null;
 
   // Which weeks already have a plan behind them.
@@ -504,25 +510,37 @@ function SavedCampaign({
                 );
                 const filled = blockWeeks.filter((w) => w.fillTemplateName);
                 const names = [...new Set(filled.map((w) => w.fillTemplateName))];
+                const isOpen = openBlockStart === b.startsOn;
                 return (
-                  <div key={`${b.blockOrder}-${b.startsOn}`} className="flex items-center gap-2 px-3 py-2 text-xs">
-                    <span
-                      className="h-3 w-3 shrink-0 rounded-sm"
-                      style={{ background: phaseStyle(b.phase).fill }}
-                    />
-                    <span className="w-28 shrink-0 truncate font-medium">{b.label}</span>
-                    <span className="w-14 shrink-0 text-muted-foreground">{b.weeks} wk</span>
-                    <span className="min-w-0 flex-1 truncate text-muted-foreground">
-                      {filled.length === 0 ? (
-                        "Not filled"
-                      ) : filled.length === blockWeeks.length ? (
-                        <>Filled from {names.join(", ")}</>
-                      ) : (
-                        <>
-                          {filled.length} of {blockWeeks.length} weeks filled from {names.join(", ")}
-                        </>
-                      )}
-                    </span>
+                  <div key={`${b.blockOrder}-${b.startsOn}`}>
+                  <div className="flex items-center gap-2 px-3 py-2 text-xs">
+                    <button
+                      type="button"
+                      className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                      onClick={() => setOpenBlockStart(isOpen ? null : b.startsOn)}
+                      title="Show the sessions on these dates"
+                    >
+                      <ChevronRight
+                        className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${isOpen ? "rotate-90" : ""}`}
+                      />
+                      <span
+                        className="h-3 w-3 shrink-0 rounded-sm"
+                        style={{ background: phaseStyle(b.phase).fill }}
+                      />
+                      <span className="w-28 shrink-0 truncate font-medium">{b.label}</span>
+                      <span className="w-14 shrink-0 text-muted-foreground">{b.weeks} wk</span>
+                      <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                        {filled.length === 0 ? (
+                          "Not filled"
+                        ) : filled.length === blockWeeks.length ? (
+                          <>Filled from {names.join(", ")}</>
+                        ) : (
+                          <>
+                            {filled.length} of {blockWeeks.length} weeks filled from {names.join(", ")}
+                          </>
+                        )}
+                      </span>
+                    </button>
                     {filled.length > 0 && (
                       <Button
                         size="sm"
@@ -553,6 +571,14 @@ function SavedCampaign({
                       {filled.length > 0 ? "Refill" : "Fill"}
                     </Button>
                   </div>
+                  {isOpen && (
+                    <CampaignBlockSessions
+                      athleteId={campaign.athlete_id}
+                      weeks={blockWeeks as any}
+                      baselineKm={baselineKm}
+                    />
+                  )}
+                  </div>
                 );
               })}
             </div>
@@ -564,7 +590,14 @@ function SavedCampaign({
         open={!!fillTarget}
         onOpenChange={(v) => !v && setFillTarget(null)}
         target={fillTarget}
-        onFilled={onChanged}
+        onFilled={() => {
+          // Open the block that was just filled. The whole complaint about
+          // the first version was that the sessions vanished the moment they
+          // were created — landing back on a collapsed row would repeat it.
+          const startsOn = fillTarget?.weeks?.[0]?.weekStart ?? null;
+          if (startsOn) setOpenBlockStart(startsOn);
+          onChanged();
+        }}
       />
       <UnfillBlockDialog
         open={!!unfillTarget}
