@@ -33,20 +33,34 @@ export function ZoneColumn({
   height = 64,
   label,
   className,
+  fillPct,
 }: {
   zones: ZoneSeconds;
   height?: number;
   /** Shown under the column. */
   label?: string;
   className?: string;
+  /**
+   * How much of the track this column fills, 0–100. Omit for a full-height
+   * proportional column.
+   *
+   * Supplied, the column carries TWO readings at once: its height is the
+   * week's volume relative to the biggest week on screen, and its internal
+   * split is where that volume went. Full-height columns answer only the
+   * second, which makes a light week of hard running look identical to a big
+   * one — fine when volume is shown right alongside, misleading when it is
+   * the only column on screen.
+   */
+  fillPct?: number;
 }) {
   const total = totalZoneSeconds(zones);
   const pct = zonePercentages(zones);
+  const fill = fillPct == null ? 100 : Math.max(0, Math.min(100, fillPct));
 
   return (
     <div className={cn("flex min-w-0 flex-col items-center gap-1", className)}>
       <div
-        className="flex w-full flex-col-reverse overflow-hidden rounded-sm bg-muted"
+        className="flex w-full flex-col justify-end overflow-hidden rounded-sm bg-muted/60"
         style={{ height }}
         title={
           total <= 0
@@ -56,14 +70,16 @@ export function ZoneColumn({
                 .join("\n")
         }
       >
-        {/* flex-col-reverse so z1 sits at the bottom — a stack that put the
-            hardest zone underneath would read as a foundation of speed. */}
-        {total > 0 &&
-          ZONE_KEYS.map((k) =>
-            (zones[k] ?? 0) > 0 ? (
-              <div key={k} style={{ height: `${pct[k]}%`, background: ZONE_COLORS[k] }} />
-            ) : null,
-          )}
+        <div className="flex w-full flex-col-reverse overflow-hidden rounded-sm" style={{ height: `${fill}%` }}>
+          {/* flex-col-reverse so z1 sits at the bottom — a stack that put the
+              hardest zone underneath would read as a foundation of speed. */}
+          {total > 0 &&
+            ZONE_KEYS.map((k) =>
+              (zones[k] ?? 0) > 0 ? (
+                <div key={k} style={{ height: `${pct[k]}%`, background: ZONE_COLORS[k] }} />
+              ) : null,
+            )}
+        </div>
       </div>
       {label && <span className="w-full truncate text-center text-[10px] text-muted-foreground">{label}</span>}
     </div>
