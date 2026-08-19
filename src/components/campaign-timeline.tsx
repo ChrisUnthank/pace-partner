@@ -1,6 +1,15 @@
 import { useMemo } from "react";
 import type { GeneratedWeek, GeneratedBlock, Phase } from "@/lib/campaign-generator";
 import { Flag, Lock } from "lucide-react";
+import {
+  ZONE_KEYS,
+  ZONE_COLORS,
+  ZONE_LABELS,
+  zonePercentages,
+  totalZoneSeconds,
+  hardSharePct,
+  type ZoneSeconds,
+} from "@/lib/zone-mix";
 
 // ----------------------------------------------------------------------------
 // The season, as bars.
@@ -137,10 +146,22 @@ export function CampaignTimeline({
   // TypeScript would have caught it; esbuild strips types without checking
   // them, which is why it compiled cleanly and failed only in the browser.
   actualByWeek,
+  zonesByWeek,
+  colorBy = "phase",
 }: {
   weeks: GeneratedWeek[];
   blocks: GeneratedBlock[];
   onWeekClick?: (week: GeneratedWeek) => void;
+  /**
+   * Time in zone per week start. Only needed when colorBy is "zones".
+   *
+   * Bar HEIGHT is untouched by this — it stays driven by the week's load_pct,
+   * so the season's shape reads identically whichever fill is showing and the
+   * two views can be flipped between without the chart moving. Only what the
+   * bar is filled with changes: one phase colour, or the week's zone split.
+   */
+  zonesByWeek?: Map<string, ZoneSeconds>;
+  colorBy?: "phase" | "zones";
   /** When set, tooltips read in km rather than percent. */
   baselineKm?: number | null;
   /**
@@ -253,13 +274,24 @@ export function CampaignTimeline({
                     (w as any).fillTemplateName
                       ? ` · filled from ${(w as any).fillTemplateName} wk ${(w as any).fillTemplateWeek}`
                       : ""
-                  }`}
+                  }${(() => {
+                    if (colorBy !== "zones") return "";
+                    const z = zonesByWeek?.get(w.weekStart);
+                    if (!z || totalZoneSeconds(z) <= 0) return " · no sessions to read zones from";
+                    const zp = zonePercentages(z);
+                    const hard = hardSharePct(z);
+                    return `\n${ZONE_KEYS.filter((k) => (z[k] ?? 0) > 0)
+                      .map((k) => `${ZONE_LABELS[k]} ${zp[k].toFixed(0)}%`)
+                      .join(" · ")}\n${hard == null ? "" : `${hard.toFixed(0)}% at Z3+`}`;
+                  })()}`}
                 >
                   <div
-                    className="w-full rounded-t transition-opacity group-hover:opacity-80 relative"
+                    className="w-full rounded-t transition-opacity group-hover:opacity-80 relative overflow-hidden"
                     style={{
                       height: `${pct}%`,
-                      background: style.fill,
+                      // Phase colour, or nothing when the zone stack is about
+                      // to be painted over it.
+                      background: colorBy === "zones" ? "var(--muted)" : style.fill,
                       // Deloads read as a dip in the bar chart already, but a
                       // hatched fill makes them identifiable at a glance
                       // without counting heights.
@@ -273,7 +305,7 @@ export function CampaignTimeline({
                       // at 24px wide a bar can't hold three legible marks,
                       // but "denser stripes = more quality" reads instantly
                       // and survives any bar width.
-                      backgroundImage: [
+                      backgroundImage: colorBy === "zones" ? undefined : [
                         w.isDeload
                           ? "repeating-linear-gradient(45deg, rgba(255,255,255,.35) 0 3px, transparent 3px 6px)"
                           : null,
@@ -293,6 +325,24 @@ export function CampaignTimeline({
                         .join(", ") || undefined,
                     }}
                   >
+                    {colorBy === "zones" &&
+                      (() => {
+                        const z = zonesByWeek?.get(w.weekStart);
+                        if (!z || totalZoneSeconds(z) <= 0) return null;
+                        const zp = zonePercentages(z);
+                        // Fills the bar the height already set by load_pct, so
+                        // the season's shape is unchanged and only the colour
+                        // carries the new information.
+                        return (
+                          <span className="absolute inset-0 flex flex-col-reverse">
+                            {ZONE_KEYS.map((k) =>
+                              (z[k] ?? 0) > 0 ? (
+                                <span key={k} style={{ height: `${zp[k]}%`, background: ZONE_COLORS[k] }} />
+                              ) : null,
+                            )}
+                          </span>
+                        );
+                      })()}
                     {w.isLocked && (
                       <Lock className="h-3 w-3 absolute top-1 left-1/2 -translate-x-1/2 text-white/80" />
                     )}
@@ -387,12 +437,19 @@ export function CampaignTimeline({
       {/* Legend. Only phases actually present — a legend listing phases the
           campaign doesn't contain is noise. */}
       <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1">
-        {Array.from(new Set(blocks.map((b) => b.phase))).map((p) => (
-          <span key={p} className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
-            <span className="h-2 w-2 rounded-full inline-block" style={{ background: phaseStyle(p).fill }} />
-            {phaseStyle(p).label}
-          </span>
-        ))}
+        {colorBy === "zones"
+          ? ZONE_KEYS.map((z) => (
+              <span key={z} className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <span className="h-2 w-2 rounded-full inline-block" style={{ background: ZONE_COLORS[z] }} />
+                {ZONE_LABELS[z]}
+              </span>
+            ))
+          : Array.from(new Set(blocks.map((b) => b.phase))).map((p) => (
+              <span key={p} className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <span className="h-2 w-2 rounded-full inline-block" style={{ background: phaseStyle(p).fill }} />
+                {phaseStyle(p).label}
+              </span>
+            ))}
         {actualByWeek && actualByWeek.size > 0 && (
           <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
             <span
