@@ -16,11 +16,19 @@ import { BucketTabStrip, COACHING_HUB_TABS } from "@/components/bucket-tab-strip
 import { CampaignTimeline, PRIORITY_STYLE, phaseStyle } from "@/components/campaign-timeline";
 import { FillBlockDialog, UnfillBlockDialog, type FillBlockTarget } from "@/components/campaign-fill-dialog";
 import { CampaignBlockSessions } from "@/components/campaign-block-sessions";
+import {
+  plannedZoneMix,
+  measuredZoneMix,
+  sumZoneSeconds,
+  emptyZoneSeconds,
+  type ZoneSeconds,
+} from "@/lib/zone-mix";
 import { WeekEditDialog, BaselineDialog, PreviewWeekEditor } from "@/components/campaign-week-edit";
 import { EditCampaignDialog } from "@/components/campaign-edit";
 import { AddRacesPanel } from "@/components/campaign-race-picker";
 import { generateCampaign, deriveBlocks, type CampaignTarget, type TargetPriority, isValidIsoDate, deriveTaperFloor } from "@/lib/campaign-generator";
 import { useMyRoles, useMyAthlete, useAuthUser } from "@/lib/use-auth";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/app/campaign")({
   component: CampaignsPage,
@@ -342,6 +350,7 @@ function SavedCampaign({
   // or order — both of those change when a week's phase is overridden and
   // the blocks resplit, which would silently reopen a different block.
   const [openBlockStart, setOpenBlockStart] = useState<string | null>(null);
+  const [timelineColorBy, setTimelineColorBy] = useState<"phase" | "zones">("phase");
   const baselineKm = campaign.baseline_weekly_km != null ? Number(campaign.baseline_weekly_km) : null;
 
   // Which weeks already have a plan behind them.
@@ -376,8 +385,78 @@ function SavedCampaign({
     },
   });
 
-  const actualByWeek = useMemo(
-    () =>
+  // Time in zone across the campaign, measured where sessions have been run
+  // and planned where they have not.
+  //
+  // Only fetched when the zone view is actually on. A campaign can be a year
+  // long, which is several hundred sessions and all of their steps — not
+  // something to pull on every page load to serve a view most visits never
+  // open.
+  const { data: zoneData } = useQuery({
+    queryKey: ["campaign-zones", campaign.id],
+    enabled: timelineColorBy === "zones",
+    queryFn: async () => {
+      const { data: sessions, error } = await supabase
+        .from("sessions")
+        .select("id, session_date, intent, day_type")
+        .eq("athlete_id", campaign.athlete_id)
+        .gte("session_date", campaign.starts_on)
+        .lte("session_date", campaign.ends_on);
+      if (error) throw error;
+      const ids = (sessions ?? []).map((s: any) => s.id);
+      if (ids.length === 0) return { sessions: [] as any[], steps: [] as any[], zones: [] as any[] };
+
+      const [{ data: steps }, { data: zones }] = await Promise.all([
+        supabase.from("steps").select("*").in("session_id", ids),
+        supabase.from("session_zone_time").select("session_id, zone, seconds, source").in("session_id", ids),
+      ]);
+      return { sessions: (sessions ?? []) as any[], steps: (steps ?? []) as any[], zones: (zones ?? []) as any[] };
+    },
+  });
+
+  const zonesByWeek = useMemo(() => {
+    const out = new Map<string, ZoneSeconds>();
+    if (!zoneData) return out;
+
+    const stepsBySession = new Map<string, any[]>();
+    for (const st of zoneData.steps) {
+      const list = stepsBySession.get(st.session_id) ?? [];
+      list.push(st);
+      stepsBySession.set(st.session_id, list);
+    }
+    const zonesBySession = new Map<string, any[]>();
+    for (const z of zoneData.zones) {
+      const list = zonesBySession.get(z.session_id) ?? [];
+      list.push(z);
+      zonesBySession.set(z.session_id, list);
+    }
+
+    // Monday of the session's week, in UTC — the same basis campaign_weeks
+    // .week_start uses. Local midnight here would put a Sunday session in the
+    // wrong week for anyone east of Greenwich.
+    const mondayOfUtc = (iso: string) => {
+      const d = new Date(`${iso}T00:00:00Z`);
+      const dow = (d.getUTCDay() + 6) % 7;
+      return new Date(d.getTime() - dow * 86400000).toISOString().slice(0, 10);
+    };
+
+    const byWeek = new Map<string, ZoneSeconds[]>();
+    for (const sess of zoneData.sessions) {
+      const wk = mondayOfUtc(sess.session_date);
+      const measured = zonesBySession.get(sess.id);
+      const mix =
+        measured && measured.length > 0
+          ? measuredZoneMix(measured).seconds
+          : plannedZoneMix(sess, stepsBySession.get(sess.id) ?? []).seconds;
+      const list = byWeek.get(wk) ?? [];
+      list.push(mix);
+      byWeek.set(wk, list);
+    }
+    for (const [wk, list] of byWeek) out.set(wk, sumZoneSeconds(list));
+    return out;
+  }, [zoneData]);
+
+  const actualByWeek = useMemo(    () =>
       new Map(
         (actuals ?? []).map((a: any) => [a.week_start, { km: Number(a.actual_km), sessions: Number(a.sessions) }]),
       ),
@@ -477,6 +556,26 @@ function SavedCampaign({
               <span>Built by your coach — hover any week for its detail.</span>
             </>
           )}
+          {/* Fill only. Bar heights stay on load_pct in both modes, so the
+              season's shape does not move when this is flipped and the two
+              readings can be compared directly. */}
+          <div className="ml-auto flex shrink-0 rounded-md border">
+            {(["phase", "zones"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setTimelineColorBy(m)}
+                className={cn(
+                  "px-2 py-0.5 text-[11px] capitalize transition-colors first:rounded-l-md last:rounded-r-md",
+                  timelineColorBy === m
+                    ? "bg-foreground text-background"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {m === "phase" ? "Phase" : "Zones"}
+              </button>
+            ))}
+          </div>
         </div>
 
         <CampaignTimeline
@@ -484,8 +583,18 @@ function SavedCampaign({
           blocks={blocks as any}
           baselineKm={baselineKm}
           actualByWeek={actualByWeek as any}
+          zonesByWeek={zonesByWeek}
+          colorBy={timelineColorBy}
           onWeekClick={canWrite ? (w) => setEditingWeek(w) : undefined}
         />
+
+        {timelineColorBy === "zones" && (
+          <p className="text-[11px] text-muted-foreground">
+            Bar heights are unchanged — still the week's planned load. Only the fill differs: weeks already run show
+            measured time in zone, weeks ahead show what their sessions are planned to be. A bar left grey has no
+            sessions on it yet.
+          </p>
+        )}
 
         {/* Blocks, as things you can act on.
             //
