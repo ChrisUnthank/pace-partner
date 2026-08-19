@@ -1,6 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
-import { Apple, Bandage, Bath, CalendarDays, CalendarRange, ClipboardList, Clock, FlaskConical, Footprints, HeartPulse, IdCard, NotebookPen, TestTube2, Ticket } from "lucide-react";
+import { Apple, Bandage, Bath, CalendarDays, CalendarRange, ClipboardList, Clock, FlaskConical, Footprints, HeartPulse, IdCard, NotebookPen, TestTube2, Ticket , Droplet } from "lucide-react";
 
 export type BucketTabItem = {
   to: string;
@@ -60,7 +60,8 @@ export const HEALTH_TABS: BucketTabItem[] = [
   { to: "/app/daily-log", label: "Daily Log", icon: ClipboardList },
   { to: "/app/diet-fuel", label: "Diet & Fuel", icon: Apple },
   { to: "/app/recovery", label: "Recovery", icon: Bath },
-  { to: "/app/injuries", label: "Injury Management", icon: Bandage },
+  { to: "/app/injuries", label: "Injury & Illness", icon: Bandage },
+  { to: "/app/bloods", label: "Bloods", icon: Droplet },
   { to: "/app/bicarb", label: "Bicarb", icon: FlaskConical },
   { to: "/app/lactate", label: "Lactate", icon: TestTube2 },
 ];
