@@ -4,7 +4,14 @@ import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, AlertTriangle, Loader2, Minus } from "lucide-react";
 import { estimateSessionVolume, sumVolumes, formatKm, formatDuration } from "@/lib/session-volume";
-import { plannedZoneMix, measuredZoneMix, sumZoneSeconds, emptyZoneSeconds, type ZoneSeconds } from "@/lib/zone-mix";
+import {
+  plannedZoneMix,
+  measuredZoneMix,
+  sumZoneSeconds,
+  totalZoneSeconds,
+  emptyZoneSeconds,
+  type ZoneSeconds,
+} from "@/lib/zone-mix";
 import { ZoneColumn, ZoneBar, ZoneLegend, HardShareLabel } from "@/components/zone-column";
 import { cn } from "@/lib/utils";
 
@@ -227,6 +234,13 @@ export function CampaignBlockSessions({
   );
   const blockZones = useMemo(() => sumZoneSeconds(byWeek.map((r) => r.zones)), [byWeek]);
 
+  // Tallest week on screen sets the scale, so the zone columns take the same
+  // shape as the block's volume rather than flattening it away.
+  const maxWeekSeconds = useMemo(
+    () => Math.max(0, ...byWeek.map((r) => totalZoneSeconds(r.zones))),
+    [byWeek],
+  );
+
   const blockBasisLabel = useMemo(() => {
     const kinds = new Set(byWeek.filter((r) => r.sessions.length > 0).map((r) => r.mixBasis));
     if (kinds.size === 1 && kinds.has("measured")) return "measured";
@@ -301,6 +315,9 @@ export function CampaignBlockSessions({
                 key={row.week.weekNumber}
                 zones={row.zones}
                 height={72}
+                fillPct={
+                  maxWeekSeconds > 0 ? (totalZoneSeconds(row.zones) / maxWeekSeconds) * 100 : 0
+                }
                 label={`W${row.week.weekNumber}`}
               />
             ))}
