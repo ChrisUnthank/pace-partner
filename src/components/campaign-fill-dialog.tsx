@@ -27,7 +27,8 @@ import {
   type FillTargetWeek,
   type RemappableDraft,
 } from "@/lib/campaign-fill";
-import { estimateStepsVolume, sumVolumes, formatKm, formatDuration } from "@/lib/session-volume";
+import { estimateStepsVolume, sumVolumes, formatKm } from "@/lib/session-volume";
+import { VolumeVerdictBadge } from "@/components/campaign-block-sessions";
 import { phaseStyle } from "@/components/campaign-timeline";
 import { cn } from "@/lib/utils";
 
@@ -557,25 +558,42 @@ export function FillBlockDialog({
                       </div>
                     ))}
                   </div>
-                  {volume.totalTargetM > 0 && (
-                    <div className="flex items-center gap-2 border-t px-3 py-1.5 text-xs">
+                  <div className="flex items-center gap-2 border-t px-3 py-1.5 text-xs">
                       <span className="font-medium">Block total</span>
                       <span className="ml-auto text-muted-foreground">
-                        target {formatKm(volume.totalTargetM, 0)}
+                        {volume.totalTargetM > 0 ? `target ${formatKm(volume.totalTargetM, 0)}` : "no target"}
                       </span>
                       <span className="w-14 text-right font-medium">{formatKm(volume.totalResultM, 0)}</span>
-                      <span className="w-[76px] text-right text-muted-foreground">
-                        {volume.totalDeltaPct == null
-                          ? ""
-                          : `${volume.totalDeltaPct >= 0 ? "+" : ""}${volume.totalDeltaPct.toFixed(0)}%`}
+                      <span className="flex w-[76px] justify-end">
+                        {/* An explicit verdict, not an absent warning.
+                            //
+                            // This previously said nothing at all when the
+                            // volumes lined up, which asks the coach to read
+                            // silence as confirmation — and silence is also
+                            // what a broken calculation looks like. */}
+                        <VolumeVerdictBadge
+                          actualM={volume.totalResultM}
+                          targetM={volume.totalTargetM > 0 ? volume.totalTargetM : null}
+                        />
                       </span>
-                    </div>
-                  )}
+                  </div>
                 </div>
 
                 {loadingDrafts && (
                   <p className="flex items-center gap-2 text-[11px] text-muted-foreground">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" /> Measuring the template…
+                  </p>
+                )}
+
+                {!(target.baselineKm && target.baselineKm > 0) && (
+                  <p className="flex gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-2.5 text-[11px]">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" />
+                    <span>
+                      This campaign has no weekly baseline, so there is no kilometre figure to check the template
+                      against — the campaign's percentages get applied to whatever volume the template happens to hold.
+                      Set a baseline on the campaign ("Set weekly baseline", just above the timeline) and this will
+                      scale each week to a real target instead.
+                    </span>
                   </p>
                 )}
 
@@ -648,17 +666,16 @@ export function FillBlockDialog({
                   ? `${formatKm(volume.totalResultM, 0)} against a campaign target of ${formatKm(volume.totalTargetM, 0)}`
                   : `${formatKm(volume.totalResultM, 0)} — no campaign baseline to compare against`}
               </span>
-              {volume.totalDeltaPct != null && Math.abs(volume.totalDeltaPct) >= 5 && (
-                <Badge variant="outline" className="ml-auto h-5 px-1.5 text-[10px]">
-                  {volume.totalDeltaPct >= 0 ? "+" : ""}
-                  {volume.totalDeltaPct.toFixed(0)}%
-                </Badge>
-              )}
               {skippedM > 0 && (
-                <span className="ml-auto text-muted-foreground">
-                  {formatKm(skippedM, 0)} dropped to skipped days
+                <span className="text-muted-foreground">
+                  · {formatKm(skippedM, 0)} dropped to skipped days
                 </span>
               )}
+              <VolumeVerdictBadge
+                className="ml-auto shrink-0"
+                actualM={volume.totalResultM}
+                targetM={volume.totalTargetM > 0 ? volume.totalTargetM : null}
+              />
             </div>
 
             {collisions.length > 0 && (
