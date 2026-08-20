@@ -27,12 +27,7 @@ import {
 } from "@/components/calendar-day-cell";
 import { CalendarQuickAddRail, quickAddItemFor } from "@/components/calendar-quick-add-rail";
 import { estimateStepsVolume } from "@/lib/session-volume";
-import {
-  isActiveOn,
-  healthEventShortLabel,
-  healthEventColorClass,
-  healthKindNoun,
-} from "@/lib/health-events";
+import { healthStateOn } from "@/lib/health-events";
 import { resolvedTargetShortLabel } from "@/lib/target-resolution";
 import { sessionClassificationLabel, timeOfDayHintMs } from "@/lib/session-categories";
 import { metersFmt, secToClock } from "@/lib/format";
@@ -900,31 +895,32 @@ function CalendarPage() {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("injuries")
-        .select("id, kind, body_part, side, illness_type, onset_date, resolved_date, is_chronic, status, training_impact, training_modifications")
+        .select("id, kind, body_part, side, illness_type, onset_date, resolved_date, expected_resolved_date, is_chronic, status, severity, notes, training_impact, training_modifications")
         .eq("athlete_id", selectedAthleteId)
         .eq("archived", false)
         .lte("onset_date", rangeEnd)
-        .or(`resolved_date.is.null,resolved_date.gte.${rangeStart}`);
+        .or(`resolved_date.is.null,resolved_date.gte.${rangeStart}`)
+        .or(`expected_resolved_date.is.null,expected_resolved_date.gte.${rangeStart}`);
       if (error) throw error;
       return (data ?? []) as any[];
     },
   });
 
   const healthByDate = useMemo(() => {
-    const map = new Map<string, { label: string; colorClass: string; kind: string }[]>();
+    const map = new Map<string, any[]>();
     if (healthEvents.length === 0) return map;
+    const today = toISO(new Date());
     for (const d of gridDays) {
       const day = toISO(d);
-      const hits = healthEvents.filter((h: any) => isActiveOn(h, day));
+      // Carries the RECORD plus its state for that day, not a pre-rendered
+      // strip — the popover needs the notes, severity, dates and training
+      // impact, and a display-only shape would have thrown all of that away
+      // one step before it was wanted.
+      const hits = healthEvents
+        .map((h: any) => ({ ...h, state: healthStateOn(h, day, { today }) }))
+        .filter((h: any) => h.state !== null);
       if (hits.length === 0) continue;
-      map.set(
-        day,
-        hits.map((h: any) => ({
-          label: healthEventShortLabel(h),
-          colorClass: healthEventColorClass(h),
-          kind: healthKindNoun(h),
-        })),
-      );
+      map.set(day, hits);
     }
     return map;
   }, [healthEvents, gridDays]);
@@ -1437,6 +1433,7 @@ function CalendarPage() {
                                 onMultiClick={(dd) => setSheetDay(dd)}
                                 onAdd={canEdit ? (date) => setAddMenuDate(date) : undefined}
                                 health={healthByDate.get(iso)}
+                                onHealthChanged={() => qc.invalidateQueries({ queryKey: ["calendar-health"] })}
                                 quickAddArmed={!!armedItem}
                                 quickAddPending={quickAddingDate === iso}
                                 onQuickAdd={canEdit ? quickAddSession : undefined}
@@ -1487,6 +1484,7 @@ function CalendarPage() {
                             onMultiClick={(dd) => setSheetDay(dd)}
                             onAdd={canEdit ? (date) => setAddMenuDate(date) : undefined}
                             health={healthByDate.get(iso)}
+                            onHealthChanged={() => qc.invalidateQueries({ queryKey: ["calendar-health"] })}
                             quickAddArmed={!!armedItem}
                             quickAddPending={quickAddingDate === iso}
                             onQuickAdd={canEdit ? quickAddSession : undefined}
