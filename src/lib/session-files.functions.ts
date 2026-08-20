@@ -581,7 +581,11 @@ type ParsedLap = {
   avg_heart_rate: number | null;
   max_heart_rate: number | null;
   avg_cadence: number | null;
-  kind?: "warmup" | "work" | "recovery" | "cooldown";
+  // "strides" included because steps.kind allows it and the session page
+  // offers it in the reassign dropdown — but the lap type did not, so lap
+  // classification had no way to produce one. Strides could only ever be set
+  // by hand after the fact, which is why a strides file arrived as warmup.
+  kind?: "warmup" | "work" | "recovery" | "cooldown" | "strides";
   sourceFileIndex?: number;
 };
 
@@ -1014,6 +1018,8 @@ function computeRecordedSeconds(points: MergedPoint[]): number {
 // Falls back to the lap's raw pace when no stopped-time map is available
 // (e.g. callers that haven't been updated to pass one), which matches the
 // previous unconditional behavior exactly.
+
+
 function classificationPaceSecPerKm(lap: ParsedLap, stoppedSecondsByLapIndex?: Map<number, number>): number | null {
   const stopped = stoppedSecondsByLapIndex?.get(lap.index) ?? 0;
   const movingTime = Math.max(0, lap.total_elapsed_time - stopped);
@@ -1088,10 +1094,27 @@ function classifyLaps(
           raceFileIndex = idx;
         }
       }
+      // Pre-race files are warmup — EXCEPT a strides set, which is its own
+      // thing and was previously swallowed whole.
+      //
+      // This branch used to map every file before the race to "warmup" with
+      // no path to "strides" at all. Uploading a warmup jog and a separate
+      // 4 x 250m strides file produced one undifferentiated warmup block, so
+      // the strides vanished from the session, from the zone mix, and from
+      // any later question about what the athlete did before the gun.
+      //
+      // Post-race files stay wholly cooldown: a cooldown split across two
+      // recordings by a toilet stop is still a cooldown, and nothing about
+      // the second half makes it a different kind of running.
+      const preRaceLaps = laps.filter((l) => (l.sourceFileIndex ?? 0) < raceFileIndex);
+      const strideLapIndexes = detectStrideLaps(preRaceLaps, stoppedSecondsByLapIndex);
+
       return laps.map((lap) => {
         const idx = lap.sourceFileIndex ?? 0;
         if (idx === raceFileIndex) return { ...lap, kind: "work" as const };
-        if (idx < raceFileIndex) return { ...lap, kind: "warmup" as const };
+        if (idx < raceFileIndex) {
+          return { ...lap, kind: strideLapIndexes.has(lap.index) ? ("strides" as const) : ("warmup" as const) };
+        }
         return { ...lap, kind: "cooldown" as const };
       });
     }
@@ -1230,6 +1253,71 @@ function classifyLaps(
 // Returns the set of lap indices judged to be "work", plus whether a
 // genuine two-cluster contrast was found at all (a real continuous run with
 // a couple of incidental pauses shouldn't be fragmented into fake reps).
+/**
+ * Which of a race's pre-race laps are strides rather than warmup jogging.
+ *
+ * WHAT THIS IS FOR, AND WHAT IT IS NOT
+ *
+ * The point is SEPARATION, not the label. A warmup jog and a strides set
+ * arriving as one undifferentiated warmup block leaves nothing for a coach to
+ * reclassify — there is only one step. Split into two, the kind on each is a
+ * dropdown away (Warmup / Work / Recovery / Cooldown / Strides), and a coach
+ * who prefers to read them as two warmup steps can say so.
+ *
+ * So this is deliberately a DEFAULT rather than a determination. It errs
+ * toward leaving things as warmup: a false "strides" on an ordinary jog is
+ * more annoying to undo than a missed split, because undoing it means
+ * merging two steps back together rather than picking a different word.
+ *
+ * Reuses splitLapsByPaceContrast rather than inventing a second heuristic —
+ * the "is this fast bit meaningfully faster than that slow bit" judgement is
+ * already made there, tuned, and commented, and a parallel implementation
+ * would be one more thing to drift.
+ */
+const STRIDES_FILE_MAX_M = 4000;
+const STRIDE_LAP_MAX_M = 600;
+
+function detectStrideLaps(
+  preRaceLaps: ParsedLap[],
+  stoppedSecondsByLapIndex?: Map<number, number>,
+): Set<number> {
+  const result = new Set<number>();
+  if (preRaceLaps.length === 0) return result;
+
+  // Per file. Strides are usually their own recording, but a warmup jog that
+  // finishes with pickups in the SAME file is just as common, and that case
+  // splits correctly here too.
+  const byFile = new Map<number, ParsedLap[]>();
+  for (const lap of preRaceLaps) {
+    const idx = lap.sourceFileIndex ?? 0;
+    const list = byFile.get(idx) ?? [];
+    list.push(lap);
+    byFile.set(idx, list);
+  }
+
+  for (const fileLaps of byFile.values()) {
+    const totalM = fileLaps.reduce((sum, l) => sum + (Number(l.total_distance) || 0), 0);
+    // A long recording is a run, whatever pace variation it contains. Without
+    // this a jog with a couple of traffic-light pauses could show enough
+    // contrast to have its faster half called strides.
+    if (totalM > STRIDES_FILE_MAX_M) continue;
+
+    const { workIndices, isGenuine } = splitLapsByPaceContrast(fileLaps, stoppedSecondsByLapIndex);
+    if (!isGenuine) continue;
+
+    // Strides are SHORT and REPEATED. One fast lap is a surge or a lap-button
+    // slip; a single long fast lap is a tempo effort, not a stride.
+    const candidates = fileLaps.filter(
+      (l) => workIndices.has(l.index) && (Number(l.total_distance) || 0) <= STRIDE_LAP_MAX_M,
+    );
+    if (candidates.length < 2) continue;
+
+    for (const lap of candidates) result.add(lap.index);
+  }
+
+  return result;
+}
+
 function splitLapsByPaceContrast(
   candidates: ParsedLap[],
   stoppedSecondsByLapIndex?: Map<number, number>,
@@ -2034,12 +2122,26 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   const safePlannedSteps = plannedStepsAll ?? [];
   const hasManualPlan = Boolean(sess.is_planned) && safePlannedSteps.length > 0;
 
-  if (existingStepIds.length > 0) {
-    await sb.from("interval_results").delete().in("step_id", existingStepIds);
+  // Blocks a person added by hand are not regenerable — nothing in the files
+  // describes them, so deleting them destroys the only copy. A race the watch
+  // missed, typed in afterwards, was being discarded by "Recompute from
+  // files" for exactly this reason.
+  //
+  // Their rep results are spared too: those hold the entered distance and
+  // time, and clearing them would leave the block present but empty, which is
+  // arguably worse than losing it outright — the session would look complete
+  // and quietly total less.
+  const manualStepIds = safePlannedSteps
+    .filter((st: any) => st.manually_added)
+    .map((st: any) => st.id);
+  const regeneratedStepIds = existingStepIds.filter((id: string) => !manualStepIds.includes(id));
+
+  if (regeneratedStepIds.length > 0) {
+    await sb.from("interval_results").delete().in("step_id", regeneratedStepIds);
   }
 
-  if (!hasManualPlan && existingStepIds.length > 0) {
-    await sb.from("steps").delete().eq("session_id", sessionId);
+  if (!hasManualPlan && regeneratedStepIds.length > 0) {
+    await sb.from("steps").delete().in("id", regeneratedStepIds);
   }
 
   if (safeFiles.length === 0) {
@@ -2230,6 +2332,11 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   const workLaps = classifiedLaps.filter((l) => l.kind === "work");
   const warmupLaps = classifiedLaps.filter((l) => l.kind === "warmup");
   const cooldownLaps = classifiedLaps.filter((l) => l.kind === "cooldown");
+  // Strides belong to neither. Without this they would be filtered out of
+  // both sets and silently dropped from the session — which is worse than
+  // the merging that prompted the change, because at least a merged strides
+  // set is still in the distance total.
+  const strideLaps = classifiedLaps.filter((l) => l.kind === "strides");
 
   // detectedTrack still only fires from the distance-consistency check when
   // terrain is genuinely unset (never overrides a coach's own choice by
@@ -2321,6 +2428,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
   const warmupMetrics = summarizeLapsMetrics(warmupLaps, mergedPoints, stoppedSecondsByLapIndex);
   const cooldownMetrics = summarizeLapsMetrics(cooldownLaps, mergedPoints, stoppedSecondsByLapIndex);
   const workMetrics = summarizeLapsMetrics(workLaps, mergedPoints, stoppedSecondsByLapIndex);
+  const strideMetrics = summarizeLapsMetrics(strideLaps, mergedPoints, stoppedSecondsByLapIndex);
 
   // Same fix as isContinuous below: "intervals" means genuine recovery
   // breaks occurred, not "more than one work lap exists". A watch
@@ -2479,6 +2587,38 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
         });
       }
 
+      // Strides as their own step, between the warmup and the race.
+      //
+      // Written as reps rather than one merged block — 4 x 250m is what the
+      // athlete did and what a coach wants to see, and a single 1000m block
+      // would read as a continuous effort. Per-rep distance is the median so
+      // one short final stride does not drag the figure down.
+      //
+      // The kind is a DEFAULT, not a verdict: the session page's reassign
+      // dropdown offers Warmup / Work / Recovery / Cooldown / Strides on
+      // every step, so a coach who would rather see this as a second warmup
+      // step can say so. The value here is that it is a separate step at all
+      // — merged into the warmup there was nothing to reassign.
+      if (strideLaps.length >= 2 && Number(strideMetrics.distance ?? 0) > 0) {
+        const perRep = [...strideLaps]
+          .map((l) => Number(l.total_distance ?? 0))
+          .filter((d) => d > 0)
+          .sort((a, b) => a - b);
+        const medianRep = perRep.length > 0 ? perRep[Math.floor(perRep.length / 2)] : 0;
+        stepsToInsert.push({
+          session_id: sessionId,
+          step_order: stepOrder++,
+          kind: "strides",
+          reps: strideLaps.length,
+          set_count: 1,
+          target_kind: medianRep > 0 ? "distance" : "time",
+          target_distance_m: medianRep > 0 ? Math.round(medianRep) : null,
+          target_time_seconds:
+            medianRep > 0 ? null : Math.round(Number(strideMetrics.time ?? 0) / strideLaps.length) || null,
+          counts_toward_distance: true,
+        });
+      }
+
       const pushWorkStep = (blockPairs: WorkRecoveryPair[]) => {
         const distanceGroups = splitBlockIntoDistanceGroups(blockPairs);
 
@@ -2631,7 +2771,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
           (detectedTrack ? "track" : null) ||
           effectiveLocation?.surface ||
           null;
-      } else if (step.kind === "warmup" || step.kind === "cooldown") {
+      } else if (step.kind === "warmup" || step.kind === "cooldown" || step.kind === "strides") {
         // Location first: surrounding_terrain describes what you run to and
         // from a venue on, which is exactly what a warm up is.
         //
@@ -2655,7 +2795,15 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
           learnedTerrain[step.kind] ??
           effectiveLocation?.surrounding_terrain ??
           effectiveLocation?.surface ??
-          (step.kind === "warmup" ? dominantTerrain(warmupLaps) : dominantTerrain(cooldownLaps)) ??
+          (step.kind === "warmup"
+            ? dominantTerrain(warmupLaps)
+            : step.kind === "strides"
+              ? // Strides are commonly done on a different surface from the
+                // jog that preceded them — grass or track before a road race
+                // — so they get their own laps rather than borrowing the
+                // warmup's.
+                dominantTerrain(strideLaps)
+              : dominantTerrain(cooldownLaps)) ??
           null;
       }
     }
@@ -3970,14 +4118,94 @@ export const mergeSessionIntoAnother = createServerFn({ method: "POST" })
       throw new Error("Both sessions must belong to the same athlete.");
     }
 
-    // Move the actual recorded files across — these are the only thing worth
-    // keeping from the source session. Everything else on the source is
-    // derived data that gets regenerated fresh for the target below.
-    const { error: moveErr } = await sb
+    // ── Does the source have files, or is it hand-entered? ───────────────
+    //
+    // This function used to assume files, always. It moved session_files
+    // across and then DELETED the source's steps, interval_results and
+    // performances as "derived data that gets regenerated" — true of an
+    // imported session, catastrophically false of a manual one, where those
+    // rows are the only record of the session and nothing regenerates them.
+    //
+    // That assumption is why the merge picker was restricted to
+    // source = 'fit_import': the restriction was honest about what the
+    // function could safely do. But it also blocked the case that most needs
+    // merging — a race not recorded on a watch, entered by hand, sitting
+    // beside the warmup and cooldown files from the same morning.
+    const { data: sourceFiles } = await sb
       .from("session_files")
-      .update({ session_id: targetSessionId })
+      .select("id")
       .eq("session_id", sourceSessionId);
-    if (moveErr) throw moveErr;
+    const sourceHasFiles = (sourceFiles ?? []).length > 0;
+
+    if (sourceHasFiles) {
+      const { error: moveErr } = await sb
+        .from("session_files")
+        .update({ session_id: targetSessionId })
+        .eq("session_id", sourceSessionId);
+      if (moveErr) throw moveErr;
+    }
+
+    if (!sourceHasFiles) {
+      // Hand-entered source: its STEPS are the session. Carried across rather
+      // than deleted, appended after whatever the target already holds so a
+      // manually-entered race lands between an imported warmup and cooldown
+      // in the order they were actually done.
+      //
+      // interval_results are keyed on step_id, so they follow their steps
+      // without being touched — which is what keeps the entered distance and
+      // time attached to the race rather than being recomputed away.
+      const { data: targetSteps } = await sb
+        .from("steps")
+        .select("step_order")
+        .eq("session_id", targetSessionId);
+      const maxOrder = (targetSteps ?? []).reduce(
+        (m: number, st: any) => Math.max(m, Number(st.step_order) || 0),
+        0,
+      );
+
+      const { data: movingSteps } = await sb
+        .from("steps")
+        .select("id, step_order")
+        .eq("session_id", sourceSessionId)
+        .order("step_order");
+
+      for (const [i, st] of (movingSteps ?? []).entries()) {
+        await sb
+          .from("steps")
+          .update({ session_id: targetSessionId, step_order: maxOrder + 1 + i })
+          .eq("id", (st as any).id);
+      }
+
+      // A race result belongs to the race, wherever the race now lives.
+      // Deleting it — which is what happened before — threw away the finish
+      // time the whole manual entry existed to record.
+      await sb
+        .from("performances")
+        .update({ session_id: targetSessionId })
+        .eq("session_id", sourceSessionId);
+
+      // The target keeps whatever the coach set on the manual race where it
+      // is more specific than the target's own guess. A session holding a
+      // race is a race day, and the imported warmup/cooldown session will
+      // have classified itself as ordinary training.
+      const { data: srcFull } = await sb
+        .from("sessions")
+        .select("day_type, race_step_id")
+        .eq("id", sourceSessionId)
+        .maybeSingle();
+      if ((srcFull as any)?.day_type === "race") {
+        await sb
+          .from("sessions")
+          .update({
+            day_type: "race",
+            // race_step_id, not race_id — the link is to the step within the
+            // race schedule, which is what carries the distance and the
+            // event. Kept only when the source actually had one.
+            ...((srcFull as any).race_step_id ? { race_step_id: (srcFull as any).race_step_id } : {}),
+          } as any)
+          .eq("id", targetSessionId);
+      }
+    }
 
     // Clean up the source session's derived data before deleting it, same
     // set of tables deleteSession clears.
@@ -3996,12 +4224,65 @@ export const mergeSessionIntoAnother = createServerFn({ method: "POST" })
     const { error: delErr } = await sb.from("sessions").delete().eq("id", sourceSessionId);
     if (delErr) throw delErr;
 
-    // Rebuild the target from its now-combined set of files — this is what
-    // actually re-classifies warmup/work/cooldown correctly across all of
-    // them, including the newly-merged-in file.
-    await rebuildSessionFromAllFiles(sb, targetSessionId);
+    if (sourceHasFiles) {
+      // Rebuild the target from its now-combined set of files — this is what
+      // actually re-classifies warmup/work/cooldown correctly across all of
+      // them, including the newly-merged-in file.
+      await rebuildSessionFromAllFiles(sb, targetSessionId);
+    } else {
+      // Deliberately NOT rebuilt.
+      //
+      // rebuildSessionFromAllFiles deletes every step and regenerates them
+      // from the files, which would erase the hand-entered race that was just
+      // moved in — the one thing this merge existed to preserve.
+      //
+      // So the totals are recomputed from the rep results instead, across the
+      // combined set of steps. Same basis the detail page uses after any rep
+      // edit: what the session contains, rather than what its files say.
+      const { data: allSteps } = await sb
+        .from("steps")
+        .select("id, kind")
+        .eq("session_id", targetSessionId);
+      const kindById = new Map((allSteps ?? []).map((st: any) => [st.id, st.kind]));
+      const ids = (allSteps ?? []).map((st: any) => st.id);
 
-    return { ok: true };
+      if (ids.length > 0) {
+        const { data: reps } = await sb
+          .from("interval_results")
+          .select("step_id, actual_distance_m, actual_time_seconds")
+          .in("step_id", ids);
+
+        let totalDistance = 0;
+        let totalTime = 0;
+        let workDistance = 0;
+        let workTime = 0;
+        for (const r of (reps ?? []) as any[]) {
+          const d = Number(r.actual_distance_m) || 0;
+          const t = Number(r.actual_time_seconds) || 0;
+          totalDistance += d;
+          totalTime += t;
+          const kind = kindById.get(r.step_id);
+          if (kind === "work" || kind === "strides") {
+            workDistance += d;
+            workTime += t;
+          }
+        }
+
+        await sb
+          .from("sessions")
+          .update({
+            total_distance_m: totalDistance || null,
+            total_time_seconds: totalTime || null,
+            work_distance_m: workDistance || null,
+            work_time_s: workTime || null,
+            work_avg_pace_sec_per_km:
+              workDistance > 0 && workTime > 0 ? (workTime / workDistance) * 1000 : null,
+          } as any)
+          .eq("id", targetSessionId);
+      }
+    }
+
+    return { ok: true, mergedManualEntry: !sourceHasFiles };
   });
 
 export const deleteSession = createServerFn({ method: "POST" })
