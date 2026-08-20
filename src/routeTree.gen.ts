@@ -23,6 +23,7 @@ import { Route as AuthenticatedAppAthleteInfoRouteImport } from './routes/_authe
 import { Route as AuthenticatedAppAthletesRouteImport } from './routes/_authenticated/app.athletes'
 import { Route as AuthenticatedAppBicarbRouteImport } from './routes/_authenticated/app.bicarb'
 import { Route as AuthenticatedAppBiomechanicsRouteImport } from './routes/_authenticated/app.biomechanics'
+import { Route as AuthenticatedAppBloodsRouteImport } from './routes/_authenticated/app.bloods'
 import { Route as AuthenticatedAppBrandingRouteImport } from './routes/_authenticated/app.branding'
 import { Route as AuthenticatedAppCalculatorsRouteImport } from './routes/_authenticated/app.calculators'
 import { Route as AuthenticatedAppCampaignRouteImport } from './routes/_authenticated/app.campaign'
@@ -162,6 +163,11 @@ const AuthenticatedAppBiomechanicsRoute =
     path: '/app/biomechanics',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAppBloodsRoute = AuthenticatedAppBloodsRouteImport.update({
+  id: '/app/bloods',
+  path: '/app/bloods',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedAppBrandingRoute =
   AuthenticatedAppBrandingRouteImport.update({
     id: '/app/branding',
@@ -550,6 +556,7 @@ export interface FileRoutesByFullPath {
   '/app/athletes': typeof AuthenticatedAppAthletesRouteWithChildren
   '/app/bicarb': typeof AuthenticatedAppBicarbRoute
   '/app/biomechanics': typeof AuthenticatedAppBiomechanicsRoute
+  '/app/bloods': typeof AuthenticatedAppBloodsRoute
   '/app/branding': typeof AuthenticatedAppBrandingRoute
   '/app/calculators': typeof AuthenticatedAppCalculatorsRouteWithChildren
   '/app/campaign': typeof AuthenticatedAppCampaignRoute
@@ -628,6 +635,7 @@ export interface FileRoutesByTo {
   '/app/athlete-info': typeof AuthenticatedAppAthleteInfoRoute
   '/app/bicarb': typeof AuthenticatedAppBicarbRoute
   '/app/biomechanics': typeof AuthenticatedAppBiomechanicsRoute
+  '/app/bloods': typeof AuthenticatedAppBloodsRoute
   '/app/branding': typeof AuthenticatedAppBrandingRoute
   '/app/campaign': typeof AuthenticatedAppCampaignRoute
   '/app/checkout': typeof AuthenticatedAppCheckoutRoute
@@ -704,6 +712,7 @@ export interface FileRoutesById {
   '/_authenticated/app/athletes': typeof AuthenticatedAppAthletesRouteWithChildren
   '/_authenticated/app/bicarb': typeof AuthenticatedAppBicarbRoute
   '/_authenticated/app/biomechanics': typeof AuthenticatedAppBiomechanicsRoute
+  '/_authenticated/app/bloods': typeof AuthenticatedAppBloodsRoute
   '/_authenticated/app/branding': typeof AuthenticatedAppBrandingRoute
   '/_authenticated/app/calculators': typeof AuthenticatedAppCalculatorsRouteWithChildren
   '/_authenticated/app/campaign': typeof AuthenticatedAppCampaignRoute
@@ -785,6 +794,7 @@ export interface FileRouteTypes {
     | '/app/athletes'
     | '/app/bicarb'
     | '/app/biomechanics'
+    | '/app/bloods'
     | '/app/branding'
     | '/app/calculators'
     | '/app/campaign'
@@ -863,6 +873,7 @@ export interface FileRouteTypes {
     | '/app/athlete-info'
     | '/app/bicarb'
     | '/app/biomechanics'
+    | '/app/bloods'
     | '/app/branding'
     | '/app/campaign'
     | '/app/checkout'
@@ -938,6 +949,7 @@ export interface FileRouteTypes {
     | '/_authenticated/app/athletes'
     | '/_authenticated/app/bicarb'
     | '/_authenticated/app/biomechanics'
+    | '/_authenticated/app/bloods'
     | '/_authenticated/app/branding'
     | '/_authenticated/app/calculators'
     | '/_authenticated/app/campaign'
@@ -1114,6 +1126,13 @@ declare module '@tanstack/react-router' {
       path: '/app/biomechanics'
       fullPath: '/app/biomechanics'
       preLoaderRoute: typeof AuthenticatedAppBiomechanicsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/app/bloods': {
+      id: '/_authenticated/app/bloods'
+      path: '/app/bloods'
+      fullPath: '/app/bloods'
+      preLoaderRoute: typeof AuthenticatedAppBloodsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/app/branding': {
@@ -1696,6 +1715,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAppAthletesRoute: typeof AuthenticatedAppAthletesRouteWithChildren
   AuthenticatedAppBicarbRoute: typeof AuthenticatedAppBicarbRoute
   AuthenticatedAppBiomechanicsRoute: typeof AuthenticatedAppBiomechanicsRoute
+  AuthenticatedAppBloodsRoute: typeof AuthenticatedAppBloodsRoute
   AuthenticatedAppBrandingRoute: typeof AuthenticatedAppBrandingRoute
   AuthenticatedAppCalculatorsRoute: typeof AuthenticatedAppCalculatorsRouteWithChildren
   AuthenticatedAppCampaignRoute: typeof AuthenticatedAppCampaignRoute
@@ -1751,6 +1771,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAppAthletesRoute: AuthenticatedAppAthletesRouteWithChildren,
   AuthenticatedAppBicarbRoute: AuthenticatedAppBicarbRoute,
   AuthenticatedAppBiomechanicsRoute: AuthenticatedAppBiomechanicsRoute,
+  AuthenticatedAppBloodsRoute: AuthenticatedAppBloodsRoute,
   AuthenticatedAppBrandingRoute: AuthenticatedAppBrandingRoute,
   AuthenticatedAppCalculatorsRoute:
     AuthenticatedAppCalculatorsRouteWithChildren,
