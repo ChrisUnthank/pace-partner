@@ -535,8 +535,13 @@ function SessionDetail() {
         .select("id, title, total_distance_m, total_time_seconds, day_type, source")
         .eq("athlete_id", session!.athlete_id)
         .eq("session_date", session!.session_date)
-        .eq("source", "fit_import")
-        .neq("day_type", "race")
+        // Manual and race sessions used to be excluded here, because the
+        // merge server function only knew how to move FILES and deleted
+        // everything else on the source. It now carries a hand-entered
+        // session's steps, rep results and race result across instead, so the
+        // case this was blocking — a race not recorded on a watch, sitting
+        // beside its own uploaded warmup and cooldown — is exactly the one
+        // worth offering.
         .neq("id", sessionId);
       if (error) throw error;
       return data ?? [];
@@ -1051,7 +1056,7 @@ function SessionDetail() {
             <div>
               <div className="font-medium text-amber-600 dark:text-amber-500">Discarded</div>
               <ul className="mt-1 list-disc pl-5 text-muted-foreground space-y-0.5 text-xs">
-                <li>Hand edits to the workout structure, including merged blocks</li>
+                <li>Hand edits to blocks that came from the files — reordering, merging, kind changes</li>
                 <li>Manually entered or corrected rep times and distances</li>
                 <li>Lactate readings and per-rep notes attached to those reps</li>
               </ul>
@@ -1059,6 +1064,10 @@ function SessionDetail() {
             <p className="text-xs text-muted-foreground">
               Session-level things are kept: RPE, feel, notes, fuelling, gear and race status. A planned session with
               its own coach-built structure keeps that structure — only imported sessions have their steps rebuilt.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Blocks you added yourself are also kept, with whatever you entered in them. Nothing in the files
+              describes them, so there is nothing to rebuild them from — a race the watch missed stays put.
             </p>
           </div>
           <DialogFooter>
@@ -1536,12 +1545,27 @@ function SessionDetail() {
                   ? "Another uploaded session"
                   : `${visibleSameDaySessions.length} other uploaded sessions`}{" "}
                 found for this athlete on the same day — could be a split-off warmup or cooldown from this same upload,
-                or a genuine double day (e.g. separate AM/PM runs).
+                a race entered by hand because the watch missed it, or a genuine double day (e.g. separate AM/PM runs).
+                Merging moves the other session's blocks, rep results and any race result into this one.
               </p>
               {visibleSameDaySessions.map((s: any) => (
                 <div key={s.id} className="flex items-center justify-between gap-3 text-sm border rounded-md px-3 py-2">
                   <div className="min-w-0">
                     <span className="font-medium">{s.title ?? "Untitled session"}</span>
+                    {/* Says what KIND of session this is, now that manual and
+                        race sessions can appear here too. Merging a race is a
+                        more consequential act than absorbing a stray cooldown
+                        upload, and the two should not look identical. */}
+                    {s.day_type === "race" && (
+                      <Badge variant="outline" className="ml-2 h-5 px-1.5 text-[10px]">
+                        race
+                      </Badge>
+                    )}
+                    {s.source !== "fit_import" && (
+                      <Badge variant="secondary" className="ml-1.5 h-5 px-1.5 text-[10px]">
+                        entered by hand
+                      </Badge>
+                    )}
                     <span className="text-muted-foreground ml-2">
                       {s.total_distance_m ? metersFmt(s.total_distance_m) : "—"}
                       {s.total_time_seconds ? ` · ${secToClock(s.total_time_seconds)}` : ""}
@@ -1930,7 +1954,11 @@ function SessionDetail() {
                 disabled={(steps ?? []).length < 2}
                 onClick={() => setStructureEditMode((v) => !v)}
               >
-                {structureEditMode ? "Done reordering" : "Reorder blocks"}
+                {/* Named for both jobs. Adding a block — including a work
+                    block typed in by hand for a race the watch missed — has
+                    always lived behind this button, but "Reorder blocks" gave
+                    no reason to look here for it. */}
+                {structureEditMode ? "Done editing" : "Add / reorder blocks"}
               </Button>
             </div>
           </div>
@@ -2213,6 +2241,9 @@ function buildNewStepRow(sessionId: string, kind: string, stepOrder: number) {
     target_pace_sec_per_km: null,
     is_ladder: false,
     counts_toward_distance: true,
+    // Nothing generated this block, so nothing should regenerate over it —
+    // and its distance is additional to whatever the files already recorded.
+    manually_added: true,
     recovery_between_reps_seconds: kind === "work" ? (d.recovery_between_reps_seconds ?? null) : null,
     recovery_between_reps_mode: kind === "work" ? (d.recovery_between_reps_mode ?? null) : null,
     recovery_between_reps_target_kind: kind === "work" ? (d.recovery_between_reps_target_kind ?? "time") : "time",
@@ -3002,11 +3033,15 @@ function StepBlock({
   // manually-created sessions (no GPS track at all) those totals are
   // backfilled from the reps since there's no other source of truth.
   async function recomputeSessionAggregatesFromReps() {
-    const { data: steps } = await supabase.from("steps").select("id, kind").eq("session_id", session.id);
+    const { data: steps } = await supabase
+      .from("steps")
+      .select("id, kind, manually_added")
+      .eq("session_id", session.id);
     if (!steps || steps.length === 0) return;
 
     const stepIds = steps.map((s: any) => s.id);
     const kindByStepId = new Map(steps.map((s: any) => [s.id, s.kind]));
+    const manualStepIds = new Set(steps.filter((s: any) => s.manually_added).map((s: any) => s.id));
 
     const { data: allResults } = await supabase
       .from("interval_results")
@@ -3019,9 +3054,17 @@ function StepBlock({
     let easyTime = 0;
     let totalDistance = 0;
     let totalTime = 0;
+    // Tracked separately: on an imported session these are the only figures
+    // not already inside the file-derived total.
+    let manualDistance = 0;
+    let manualTime = 0;
 
     for (const r of allResults ?? []) {
       const kind = kindByStepId.get((r as any).step_id);
+      if (manualStepIds.has((r as any).step_id)) {
+        manualDistance += Number((r as any).actual_distance_m) || 0;
+        manualTime += Number((r as any).actual_time_seconds) || 0;
+      }
       const d = Number((r as any).actual_distance_m) || 0;
       const t = Number((r as any).actual_time_seconds) || 0;
       totalDistance += d;
@@ -3043,8 +3086,21 @@ function StepBlock({
     };
 
     if (session.source !== "fit_import") {
+      // Manual session: the reps ARE the session, so they are the total.
       sessionPatch.total_distance_m = totalDistance || null;
       sessionPatch.total_time_seconds = totalTime || null;
+    } else if (manualDistance > 0 || manualTime > 0) {
+      // Imported session with blocks added by hand — a race the watch missed,
+      // or a warmup nobody remembered to start.
+      //
+      // The file-derived total stays as the base and the hand-added blocks are
+      // added ON TOP. Recomputing the whole total from reps instead would
+      // understate the session badly, because warmup and cooldown laps from a
+      // file carry no rep rows to sum.
+      const fileDistance = Number(session.total_distance_m) || 0;
+      const fileTime = Number(session.total_time_seconds) || 0;
+      sessionPatch.total_distance_m = fileDistance + manualDistance || null;
+      sessionPatch.total_time_seconds = fileTime + manualTime || null;
     }
 
     const { error: aggErr } = await supabase.from("sessions").update(sessionPatch).eq("id", session.id);
