@@ -173,6 +173,22 @@ function SessionDetail() {
   // to block order only; rep editing still happens in the normal view.
   const [structureEditMode, setStructureEditMode] = useState(false);
 
+  // Adding a block from the normal view, where it can be edited immediately.
+  async function addBlockFromView(kind: string) {
+    try {
+      await insertBlock(sessionId, kind, steps ?? []);
+    } catch (err: any) {
+      toast.error(err?.message ?? "Could not add block");
+      return;
+    }
+    toast.success("Block added at the end — open it to set the distance and time");
+    // Expanded so the new block is ready to fill in rather than needing to be
+    // found and opened first.
+    setAllOpen(true);
+    qc.invalidateQueries({ queryKey: ["steps", sessionId] });
+    qc.invalidateQueries({ queryKey: ["session", sessionId] });
+  }
+
   // ✅ FIT upload setup
   const uploadFile = useServerFn(uploadAndParseSessionFile);
   const [uploading, setUploading] = useState(false);
@@ -1948,17 +1964,39 @@ function SessionDetail() {
                   {allOpen ? "Collapse all" : "Expand all"}
                 </Button>
               )}
+              {/* Adding lives HERE, in the normal view, not inside reorder
+                  mode.
+                  //
+                  // Two things were wrong with it being in there. Reorder mode
+                  // shows a flat list with no expanding and no rep fields, so
+                  // a block added from it could not then be filled in — you
+                  // had to leave the mode to touch what you had just created.
+                  // And the button was disabled below two steps, so a session
+                  // with one block, or none, could never get another: exactly
+                  // the empty-session case that most needs it. */}
+              {!structureEditMode && (
+                <Select value="" onValueChange={(kind) => addBlockFromView(kind)}>
+                  <SelectTrigger className="h-8 w-[130px] text-xs">
+                    <span className="text-muted-foreground">+ Add block</span>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(["warmup", "strides", "work", "recovery", "cooldown"] as const).map((k) => (
+                      <SelectItem key={k} value={k}>
+                        {BLOCK_KIND_LABEL[k]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
               <Button
                 size="sm"
                 variant={structureEditMode ? "default" : "outline"}
+                // Reordering genuinely needs two blocks to reorder. Adding
+                // does not, which is why it is no longer behind this.
                 disabled={(steps ?? []).length < 2}
                 onClick={() => setStructureEditMode((v) => !v)}
               >
-                {/* Named for both jobs. Adding a block — including a work
-                    block typed in by hand for a race the watch missed — has
-                    always lived behind this button, but "Reorder blocks" gave
-                    no reason to look here for it. */}
-                {structureEditMode ? "Done editing" : "Add / reorder blocks"}
+                {structureEditMode ? "Done reordering" : "Reorder blocks"}
               </Button>
             </div>
           </div>
@@ -2202,17 +2240,21 @@ function defaultFieldsForKind(kind: string) {
     return { reps: 1, set_count: 1, recovery_mode: "jog", recovery_target_kind: "time", recovery_target_seconds: 90 };
   }
   if (kind === "work") {
+    // Empty on purpose.
+    //
+    // This used to default to 6 x 400m off 90 seconds. Nobody said that
+    // happened — it was a plausible-looking session invented at the moment a
+    // block was added, and on a completed session it reads as a record of
+    // what the athlete did. Someone adding a work block for a race the watch
+    // missed got a 6 x 400m interval session instead, and had to notice and
+    // undo every one of those numbers.
+    //
+    // One rep and no distance reads as "fill this in", which is the truth.
     return {
-      reps: 6,
+      reps: 1,
       set_count: 1,
       target_kind: "distance",
-      target_distance_m: 400,
-      recovery_between_reps_seconds: 90,
-      recovery_between_reps_mode: "jog",
-      recovery_between_reps_target_kind: "time",
-      recovery_between_sets_seconds: 180,
-      recovery_between_sets_mode: "walk",
-      recovery_between_sets_target_kind: "time",
+      target_distance_m: null,
     };
   }
   if (kind === "strides") {
@@ -2220,6 +2262,20 @@ function defaultFieldsForKind(kind: string) {
   }
   // warmup / cooldown
   return { reps: 1, set_count: 1, target_kind: "time", target_time_seconds: 600 };
+}
+
+/**
+ * Inserts a new block. Shared by the normal Workout structure view and the
+ * reorder editor so the two cannot drift — one of them silently writing a
+ * different column set than the other is exactly how this file has gone wrong
+ * before.
+ */
+export async function insertBlock(sessionId: string, kind: string, existingSteps: any[]) {
+  const nextOrder = (existingSteps ?? []).reduce((max: number, st: any) => Math.max(max, st.step_order ?? 0), 0) + 1;
+  const row = buildNewStepRow(sessionId, kind, nextOrder);
+  const { data, error } = await supabase.from("steps").insert(row as any).select("id").single();
+  if (error) throw error;
+  return data?.id as string | undefined;
 }
 
 // Builds a full `steps` insert row for a newly-added block, matching the
@@ -2563,15 +2619,15 @@ function WorkoutStructureOrderEditor({ session, steps, qc }: { session: any; ste
 
   async function addBlock(kind: string) {
     setSaving(true);
-    const nextOrder = localSteps.reduce((max, s) => Math.max(max, s.step_order ?? 0), 0) + 1;
-    const row = buildNewStepRow(session.id, kind, nextOrder);
-    const { error } = await supabase.from("steps").insert(row as any);
-    setSaving(false);
-    if (error) {
-      toast.error(error.message);
+    try {
+      await insertBlock(session.id, kind, localSteps);
+    } catch (err: any) {
+      setSaving(false);
+      toast.error(err?.message ?? "Could not add block");
       return;
     }
-    toast.success(`${BLOCK_KIND_LABEL[kind]} added at the end — drag it into position, then set its reps/targets below`);
+    setSaving(false);
+    toast.success(`${BLOCK_KIND_LABEL[kind]} added at the end — drag it into position, then set its reps and targets`);
     invalidateStructure();
   }
 
