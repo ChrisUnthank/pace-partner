@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  stepPaceSecPerKm,
   estimateStepsVolume,
   estimateSessionVolume,
   sumVolumes,
@@ -177,5 +178,65 @@ describe("sumVolumes / helpers", () => {
     expect(formatKm(12345)).toBe("12.3 km");
     expect(formatDuration(3900)).toBe("1h 05m");
     expect(formatDuration(1800)).toBe("30m");
+  });
+});
+
+
+describe("prescribed pace beats the assumed table", () => {
+  // The bug this locks down: a planned 10 km easy run was estimated at
+  // 5:30/km — the population figure — while the calendar pill beside it read
+  // "Z2 · 4:05–4:43/km" from the athlete's own zone profile. Every easy run
+  // came out about eleven minutes long, and a week of them put the weekly
+  // total out by nearly an hour.
+  const JOSH_Z2: [number, number] = [245, 283]; // 4:05–4:43/km
+  const resolve = () => JOSH_Z2;
+
+  it("uses the middle of a prescribed band, not the generic table", () => {
+    expect(stepPaceSecPerKm({ kind: "work" }, "easy", resolve)).toBe(264);
+    // Without a resolver it falls back, which is the old behaviour.
+    expect(stepPaceSecPerKm({ kind: "work" }, "easy")).toBe(330);
+  });
+
+  it("an explicit pace on the step beats even the zone profile", () => {
+    expect(stepPaceSecPerKm({ kind: "work", target_pace_sec_per_km: 250 }, "easy", resolve)).toBe(250);
+  });
+
+  it("falls back when the profile cannot resolve the target", () => {
+    expect(stepPaceSecPerKm({ kind: "work" }, "easy", () => null)).toBe(330);
+    // A band with an unusable bound is not a band.
+    expect(stepPaceSecPerKm({ kind: "work" }, "easy", () => [NaN, 280] as any)).toBe(330);
+    expect(stepPaceSecPerKm({ kind: "work" }, "easy", () => [0, 0])).toBe(330);
+  });
+
+  it("the 10 km easy run comes back at the athlete's pace, not the table's", () => {
+    const steps = [{ kind: "work", reps: 1, target_kind: "distance", target_distance_m: 10000 }];
+
+    const generic = estimateStepsVolume(steps, "easy");
+    expect(Math.round(generic.totalSeconds / 60)).toBe(55); // what was on screen
+
+    const real = estimateStepsVolume(steps, "easy", resolve);
+    expect(Math.round(real.totalSeconds / 60)).toBe(44); // 10 km at 4:24/km
+    // Distance is unaffected — only the time was ever wrong.
+    expect(real.totalM).toBe(generic.totalM);
+  });
+
+  it("a session's own distance never changes, whichever pace is used", () => {
+    const steps = [
+      { kind: "warmup", target_kind: "distance", target_distance_m: 3000 },
+      { kind: "work", reps: 5, target_kind: "distance", target_distance_m: 1000 },
+      { kind: "cooldown", target_kind: "distance", target_distance_m: 2000 },
+    ];
+    expect(estimateStepsVolume(steps, "threshold").totalM).toBe(
+      estimateStepsVolume(steps, "threshold", resolve).totalM,
+    );
+  });
+
+  it("a time-based target converts to MORE distance at a faster pace", () => {
+    const steps = [{ kind: "work", target_kind: "time", target_time_seconds: 1800 }];
+    const generic = estimateStepsVolume(steps, "easy");
+    const real = estimateStepsVolume(steps, "easy", resolve);
+    expect(real.totalM).toBeGreaterThan(generic.totalM);
+    // Time is what was prescribed, so it is identical either way.
+    expect(real.totalSeconds).toBe(generic.totalSeconds);
   });
 });
