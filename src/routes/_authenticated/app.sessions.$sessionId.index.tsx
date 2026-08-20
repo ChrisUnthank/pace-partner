@@ -26,6 +26,8 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { measureRunShape, shouldAskAboutProgression, stepPrescribesProgression } from "@/lib/run-shape";
+import { paceClock } from "@/lib/target-resolution";
 import { MapContainer, TileLayer, Polyline } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import {
@@ -51,6 +53,7 @@ import {
   Droplet,
   AlertTriangle,
   Landmark,
+  TrendingUp,
 } from "lucide-react";
 import {
   DndContext,
@@ -172,6 +175,7 @@ function SessionDetail() {
   // blocks can all move relative to each other — no anchoring). Scoped
   // to block order only; rep editing still happens in the normal view.
   const [structureEditMode, setStructureEditMode] = useState(false);
+
 
   // Adding a block from the normal view, where it can be edited immediately.
   async function addBlockFromView(kind: string) {
@@ -514,6 +518,7 @@ function SessionDetail() {
     return thinned;
   }, [rawPointsForConfidence]);
 
+
   const splitReconstruction = useMemo(() => {
     if (!rawPointsForConfidence.length) return null;
     const officialDistance = session?.day_type === "race" ? (race?.distance_m ?? null) : null;
@@ -650,6 +655,51 @@ function SessionDetail() {
       return data ?? [];
     },
   });
+
+  // ── Was this run meant to be progressive? ──────────────────────────────
+  //
+  // Measured from the points, answered by a person. The measurement cannot
+  // tell a deliberate build from going out too conservatively — nothing can —
+  // so its only job is deciding whether the question is worth putting.
+  const runShape = useMemo(
+    () =>
+      measureRunShape(
+        (rawPointsForConfidence ?? [])
+          .filter((p: any) => p.distance_m != null && p.elapsed_s != null)
+          .map((p: any) => ({ distanceM: Number(p.distance_m), elapsedS: Number(p.elapsed_s) })),
+      ),
+    [rawPointsForConfidence],
+  );
+
+  const prescribedProgression = useMemo(
+    () => (steps ?? []).some((st: any) => st.kind === "work" && stepPrescribesProgression(st)),
+    [steps],
+  );
+
+  const askAboutProgression =
+    session?.structure === "continuous" &&
+    !!session?.completed_at &&
+    shouldAskAboutProgression(runShape, (session as any)?.progression_intent ?? null, prescribedProgression);
+
+  async function answerProgression(intent: "intended" | "not_intended") {
+    const { error } = await (supabase as any)
+      .from("sessions")
+      .update({
+        progression_intent: intent,
+        // Either the coach or the athlete can answer — they know different
+        // things, and which of them said so keeps a later disagreement
+        // legible rather than leaving an anonymous verdict.
+        progression_answered_by: user?.id ?? null,
+        progression_answered_at: new Date().toISOString(),
+      })
+      .eq("id", sessionId);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(intent === "intended" ? "Recorded as a progression run" : "Recorded — the pace rise wasn't planned");
+    qc.invalidateQueries({ queryKey: ["session", sessionId] });
+  }
 
   const { data: fileCount = 0 } = useQuery({
     queryKey: ["session-file-count", sessionId],
@@ -1954,6 +2004,55 @@ function SessionDetail() {
               </CardContent>
             </Card>
           )}
+
+        {/* Asked only when the answer changes something.
+            //
+            // Silent when a prescription already answers it, when someone has
+            // answered before (including "no" — re-asking would make the
+            // answer worthless), and when the pace rise is the ordinary 1-3%
+            // of settling into an easy run. A prompt that keeps returning is
+            // one people learn to dismiss unread. */}
+        {askAboutProgression && (
+          <Card className="border-[var(--accent-red)]/40 bg-[var(--accent-red)]/5">
+            <CardContent className="pt-4 space-y-3">
+              <div className="flex items-start gap-2">
+                <TrendingUp className="h-4 w-4 shrink-0 text-[var(--accent-red)] mt-0.5" />
+                <div className="min-w-0 space-y-1">
+                  <p className="text-sm font-medium">Was this meant to be a progression run?</p>
+                  <p className="text-xs text-muted-foreground">
+                    The second half was{" "}
+                    <span className="font-medium text-foreground">
+                      {runShape.negativeSplitPct!.toFixed(0)}% faster
+                    </span>{" "}
+                    than the first
+                    {runShape.fasterTransitions === runShape.totalTransitions
+                      ? ", getting quicker throughout"
+                      : ""}
+                    . A build and going out too conservatively look identical in the data, so this is worth saying
+                    out loud rather than guessing at.
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {runShape.segments
+                      .map((seg) => paceClock(seg.paceSecPerKm))
+                      .join("  →  ")}
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" onClick={() => answerProgression("intended")}>
+                  Yes — planned build
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => answerProgression("not_intended")}>
+                  No — it just drifted
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Either of you can answer. "No" is recorded too — it is the only reliable record that a run went
+                harder than it was meant to.
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
         <div>
           <div className="flex items-center justify-between mb-2">
