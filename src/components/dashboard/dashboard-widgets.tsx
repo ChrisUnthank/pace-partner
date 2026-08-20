@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { healthEventLabel, healthKindNoun } from "@/lib/health-events";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
@@ -817,11 +818,15 @@ export function AthleteAttentionWidget({ athleteId }: { athleteId: string }) {
   const { data: injuries } = useQuery({
     queryKey: ["home-injuries", athleteId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("injuries")
-        .select("body_part, side, status")
+        .select("body_part, side, status, kind, illness_type, is_chronic")
         .eq("athlete_id", athleteId)
-        .neq("status", "resolved");
+        .neq("status", "resolved")
+        // Chronic conditions are excluded: asthma is not news, and a
+        // permanent entry in a "Worth a look" card trains people to stop
+        // reading it.
+        .neq("is_chronic", true);
       if (error) throw error;
       return (data ?? []) as any[];
     },
@@ -888,8 +893,10 @@ export function AthleteAttentionWidget({ athleteId }: { athleteId: string }) {
       <CardContent className="space-y-2 text-sm">
         {(injuries ?? []).map((i: any, idx: number) => (
           <div key={idx} className="flex items-center justify-between gap-2">
+            {/* Was "Active injury — {body_part}", which for an illness
+                rendered the wrong noun followed by nothing at all. */}
             <span className="capitalize truncate">
-              Active injury — {i.body_part} {i.side && i.side !== "n/a" ? `(${i.side})` : ""}
+              Active {healthKindNoun(i)} — {healthEventLabel(i)}
             </span>
             <Link to="/app/injuries" className="text-xs text-[var(--accent-red)] hover:underline shrink-0">
               Open →
