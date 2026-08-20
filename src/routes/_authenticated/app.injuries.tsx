@@ -166,6 +166,7 @@ function NewInjuryForm({ athleteId, onSaved }: { athleteId: string; onSaved: () 
   const [impact, setImpact] = useState<string>("modified");
   const [severity, setSeverity] = useState("");
   const [onsetDate, setOnsetDate] = useState(todayISO());
+  const [expectedDate, setExpectedDate] = useState("");
   const [notes, setNotes] = useState("");
 
   const isIllness = kind === "illness";
@@ -194,6 +195,7 @@ function NewInjuryForm({ athleteId, onSaved }: { athleteId: string; onSaved: () 
       status: "active",
       severity: severity === "" ? null : Number(severity),
       onset_date: onsetDate,
+      expected_resolved_date: expectedDate || null,
       notes: notes || null,
     } as any);
     if (error) {
@@ -317,7 +319,7 @@ function NewInjuryForm({ athleteId, onSaved }: { athleteId: string; onSaved: () 
           </>
         )}
 
-        <div className="grid sm:grid-cols-3 gap-3">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <div>
             <Label className="text-xs">Onset date</Label>
             <Input type="date" value={onsetDate} max={todayISO()} onChange={(e) => setOnsetDate(e.target.value)} />
@@ -325,6 +327,23 @@ function NewInjuryForm({ athleteId, onSaved }: { athleteId: string; onSaved: () 
           <div>
             <Label className="text-xs">Severity (1–5, optional)</Label>
             <Input type="number" min={1} max={5} value={severity} onChange={(e) => setSeverity(e.target.value)} placeholder="3" />
+          </div>
+          <div>
+            <Label className="text-xs">Expected to clear (optional)</Label>
+            <Input
+              type="date"
+              value={expectedDate}
+              min={onsetDate}
+              onChange={(e) => setExpectedDate(e.target.value)}
+            />
+            {/* A forecast, and labelled as one. Left blank the calendar marks
+                every future day, which is honest when nobody knows — but it
+                is worth offering, because an unbounded marker on a whole
+                season tells a coach nothing about any of it. */}
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Stops the calendar marking every future day. A best guess, not a record — marking it resolved is what
+              actually ends it.
+            </p>
           </div>
           <div>
             <Label className="text-xs">Training</Label>
@@ -469,6 +488,7 @@ function InjuryCard({ injury, athleteId, defaultOpen }: { injury: any; athleteId
   const [eSide, setESide] = useState<string>(injury.side ?? "n/a");
   const [eSeverity, setESeverity] = useState<string>(injury.severity != null ? String(injury.severity) : "");
   const [eOnsetDate, setEOnsetDate] = useState<string>(injury.onset_date ?? todayISO());
+  const [eExpected, setEExpected] = useState<string>(injury.expected_resolved_date ?? "");
   const [eNotes, setENotes] = useState<string>(injury.notes ?? "");
 
   // Healthcare provider tracking — whether the athlete is currently seeing
@@ -527,6 +547,10 @@ function InjuryCard({ injury, athleteId, defaultOpen }: { injury: any; athleteId
     // date left over from a previous resolve/re-open cycle.
     if (status === "resolved" && !injury.resolved_date) patch.resolved_date = todayISO();
     if (status !== "resolved") patch.resolved_date = null;
+    // A forecast is spent once the thing has actually ended. Leaving it set
+    // would have the record carrying two different end dates, and any reader
+    // choosing between them would be guessing.
+    if (status === "resolved") patch.expected_resolved_date = null;
     const { error } = await supabase.from("injuries").update(patch).eq("id", injury.id);
     if (error) {
       toast.error(error.message);
@@ -576,6 +600,7 @@ function InjuryCard({ injury, athleteId, defaultOpen }: { injury: any; athleteId
         side: eSide,
         severity: eSeverity === "" ? null : Number(eSeverity),
         onset_date: eOnsetDate,
+        expected_resolved_date: eExpected || null,
         notes: eNotes || null,
       } as any)
       .eq("id", injury.id);
@@ -748,6 +773,15 @@ function InjuryCard({ injury, athleteId, defaultOpen }: { injury: any; athleteId
                 <div>
                   <Label className="text-xs">Onset date</Label>
                   <Input type="date" value={eOnsetDate} max={todayISO()} onChange={(e) => setEOnsetDate(e.target.value)} />
+                </div>
+                <div>
+                  <Label className="text-xs">Expected to clear</Label>
+                  <Input
+                    type="date"
+                    value={eExpected}
+                    min={eOnsetDate}
+                    onChange={(e) => setEExpected(e.target.value)}
+                  />
                 </div>
                 <div>
                   <Label className="text-xs">Severity (1–5, optional)</Label>
