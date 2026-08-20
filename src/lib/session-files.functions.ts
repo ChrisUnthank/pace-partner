@@ -3359,7 +3359,11 @@ async function findMatchingSameDaySession(
   athleteId: string,
   sessionDate: string,
   newFileStartMs: number | null,
+  localHour?: number | null,
+  fileActivityType?: string | null,
 ): Promise<any | null> {
+  // Imported sessions first — these are the ones with files to compare
+  // against, so the time-gap logic below only ever applies to them.
   const { data: candidates } = await sb
     .from("sessions")
     .select("id, session_date, day_type")
@@ -3367,7 +3371,9 @@ async function findMatchingSameDaySession(
     .eq("session_date", sessionDate)
     .eq("source", "fit_import");
 
-  if (!candidates || candidates.length === 0) return null;
+  if (!candidates || candidates.length === 0) {
+    return findPlannedSessionForDate(sb, athleteId, sessionDate, localHour, fileActivityType);
+  }
 
   // If the new file has no parseable start time, fall back to the previous
   // (looser) behavior of just using the first same-day session — we can't
@@ -3412,7 +3418,91 @@ async function findMatchingSameDaySession(
   // anything else recorded that day as part of it.
   const maxGap = bestMatch.day_type === "race" ? RACE_DAY_MAX_GAP_MS : SAME_SESSION_MAX_GAP_MS;
 
-  return bestGap <= maxGap ? bestMatch : null;
+  if (bestGap <= maxGap) return bestMatch;
+
+  // Outside the window, so this is not another file for that session — but
+  // it may still be the thing a planned session was waiting for. A morning
+  // easy run and an afternoon planned race are a real and ordinary day.
+  return findPlannedSessionForDate(sb, athleteId, sessionDate, localHour, fileActivityType);
+}
+
+/**
+ * A planned session on this date waiting for its file.
+ *
+ * THE BUG THIS FIXES. findMatchingSameDaySession only ever looked at
+ * sessions with source = 'fit_import'. Everything a coach plans ahead —
+ * a race from the Race Schedule, a manual entry, a session from a campaign
+ * fill or a plan template — is source 'manual', so NONE of it was ever
+ * a candidate. Uploading the file for a planned race created a brand new
+ * training session beside it and left the planned one sitting there empty.
+ *
+ * That one omission produced every symptom of it:
+ *   - the race was not marked as a race, because the new session was created
+ *     with day_type 'training' from scratch;
+ *   - the work step was not classified as race work, because classifyLaps is
+ *     told `sess.day_type === "race"` and it was not;
+ *   - the performance appeared twice, once from the planned race and once
+ *     from the session created on top of it;
+ *   - the group flyover found no GPS, because the performance points at the
+ *     planned session and the GPS went to the other one.
+ *
+ * Deliberately only reached when no imported session matches on time: a
+ * second file for a session already underway must still join THAT session
+ * rather than being adopted by a different planned one.
+ */
+async function findPlannedSessionForDate(
+  sb: any,
+  athleteId: string,
+  sessionDate: string,
+  localHour?: number | null,
+  fileActivityType?: string | null,
+): Promise<any | null> {
+  const { data: planned } = await sb
+    .from("sessions")
+    .select("id, session_date, day_type, time_of_day, is_planned, completed_at, activity_type")
+    .eq("athlete_id", athleteId)
+    .eq("session_date", sessionDate)
+    .neq("source", "fit_import")
+    .is("completed_at", null);
+
+  if (!planned || planned.length === 0) return null;
+
+  const usable = planned.filter((p: any) => {
+    // Rest days are planned absences. Attaching a file to one would turn "no
+    // training" into a session, which is not what the day said.
+    if (p.day_type === "rest") return false;
+
+    // A file must not adopt a planned session for a DIFFERENT SPORT.
+    //
+    // Found in the live data before this shipped: Josh has planned Gym
+    // Sessions on 10 and 13 July, both days he also ran. Without this check
+    // the run's file would have been adopted by the gym session — rewriting
+    // a planned strength session as a run and losing both records at once.
+    // A cross-training day alongside a run is an ordinary week, not a
+    // mismatch to be reconciled.
+    if (p.activity_type && fileActivityType && p.activity_type !== fileActivityType) return false;
+
+    // Belt and braces for older rows with no activity_type: a cross-training
+    // day never takes a run file.
+    if (p.day_type === "cross_training" && (!fileActivityType || fileActivityType === "run")) return false;
+
+    return true;
+  });
+  if (usable.length === 0) return null;
+  if (usable.length === 1) return usable[0];
+
+  // Several planned sessions on one day — a genuine double. Match the file's
+  // own local hour against the planned time_of_day rather than taking the
+  // first, or a morning upload would claim the evening session.
+  if (localHour != null) {
+    const bucket = localHour < 12 ? "morning" : localHour < 16 ? "afternoon" : "evening";
+    const byBucket = usable.find((p: any) => p.time_of_day === bucket);
+    if (byBucket) return byBucket;
+  }
+
+  // A race outranks an ordinary session when nothing else separates them —
+  // it is the one whose classification most depends on being matched.
+  return usable.find((p: any) => p.day_type === "race") ?? usable[0];
 }
 
 // Converts a UTC instant into the athlete's local calendar date and hour-of-day.
@@ -3500,10 +3590,45 @@ export const uploadAndParseSessionFile = createServerFn({ method: "POST" })
       sess = existing;
     } else {
       const newFileStartMs = parsed.startedAt ? new Date(parsed.startedAt).getTime() : null;
-      const existingSameDay = await findMatchingSameDaySession(sb, data.athleteId, sessionDate, newFileStartMs);
+      const existingSameDay = await findMatchingSameDaySession(
+        sb,
+        data.athleteId,
+        sessionDate,
+        newFileStartMs,
+        localHour,
+        activityType,
+      );
 
       if (existingSameDay) {
-        sess = existingSameDay;
+        // Adopting a PLANNED session: it has no files yet, so it is still
+        // sitting there as a prescription. Mark it done and let it take
+        // imports from here on.
+        //
+        // Everything the coach chose is left alone — day_type, intent,
+        // structure, title, is_long_run, and any race linkage. Only the
+        // fields that describe "has this happened" change. Overwriting the
+        // planning fields would defeat the point of matching at all: the
+        // whole reason to find the planned race is to keep the fact that it
+        // is a race.
+        if (!existingSameDay.completed_at) {
+          const { data: adopted } = await sb
+            .from("sessions")
+            .update({
+              completed_at: new Date().toISOString(),
+              is_planned: false,
+              // Makes subsequent files that day match it through the normal
+              // time-gap path rather than being adopted a second time.
+              source: "fit_import",
+              data_source: data.kind === "fit" ? "fit_upload" : "gpx_upload",
+              time_of_day: (localHour < 12 ? "morning" : localHour < 16 ? "afternoon" : "evening") as any,
+            } as any)
+            .eq("id", existingSameDay.id)
+            .select()
+            .single();
+          sess = adopted ?? existingSameDay;
+        } else {
+          sess = existingSameDay;
+        }
       } else {
         const { data: inserted, error: sessError } = await sb
           .from("sessions")
