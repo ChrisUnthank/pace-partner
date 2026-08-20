@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { metersFmt, secToClock, toLocalISODate } from "@/lib/format";
+import { estimateStepsVolume } from "@/lib/session-volume";
 import { sessionClassificationLabel, SESSION_INTENTS, INTENT_LABEL, DAY_TYPE_LABEL, timeOfDayHintMs } from "@/lib/session-categories";
 import { Plus, Upload, Users, Search, Eye, Trash2, Download, RefreshCw, X, CalendarDays, HeartPulse, Fingerprint } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -316,6 +317,50 @@ function SessionsList() {
   // loaded, rather than one query per row. Manually-created sessions with no
   // uploaded file simply have no time to show, which is correct.
   const sessionIds = useMemo(() => sessions.map((s: any) => s.id), [sessions]);
+
+  // Planned distance for sessions that have not been run.
+  //
+  // sessions.total_distance_m stays null until a file is uploaded, so a
+  // session created by a plan or a campaign fill had no distance to show
+  // anywhere in this list — the whole of a filled block read as blank. The
+  // figure lives in the steps, and it needs ALL of them: warmup and cooldown
+  // included, or a threshold session reads as 5 km when it is 11 on the road.
+  //
+  // Batched across the loaded page rather than one query per row, same as the
+  // start-times query above.
+  const plannedIds = useMemo(
+    () => sessions.filter((s: any) => !s.completed_at).map((s: any) => s.id),
+    [sessions],
+  );
+  const { data: plannedVolumes } = useQuery({
+    queryKey: ["sessions-planned-volume", plannedIds.join(",")],
+    enabled: plannedIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("steps")
+        .select(
+          "session_id, kind, reps, set_count, target_distance_m, target_time_seconds, counts_toward_distance, recovery_target_kind, recovery_target_distance_m, recovery_target_seconds, recovery_between_reps_seconds, recovery_between_sets_seconds",
+        )
+        .in("session_id", plannedIds);
+      if (error) throw error;
+      const bySession = new Map<string, any[]>();
+      for (const st of data ?? []) {
+        const list = bySession.get((st as any).session_id) ?? [];
+        list.push(st);
+        bySession.set((st as any).session_id, list);
+      }
+      const out = new Map<string, { distanceM: number; timeS: number }>();
+      for (const sess of sessions) {
+        if (sess.completed_at) continue;
+        const steps = bySession.get(sess.id);
+        if (!steps || steps.length === 0) continue;
+        const vol = estimateStepsVolume(steps, sess.is_long_run ? "long" : (sess.intent ?? sess.day_type ?? "easy"));
+        if (vol.isEmpty) continue;
+        out.set(sess.id, { distanceM: vol.totalM, timeS: vol.totalSeconds });
+      }
+      return out;
+    },
+  });
   const { data: sessionStartTimes } = useQuery({
     queryKey: ["session-start-times", sessionIds.join(",")],
     enabled: sessionIds.length > 0,
@@ -934,16 +979,28 @@ function SessionsList() {
                               </div>
                             </div>
                             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm pl-[26px] lg:pl-0 lg:shrink-0">
-                              {s.total_distance_m && (
+                              {s.total_distance_m ? (
                                 <span className="text-muted-foreground whitespace-nowrap">
                                   {metersFmt(s.total_distance_m)}
                                 </span>
-                              )}
-                              {s.total_time_seconds && (
+                              ) : plannedVolumes?.get(s.id)?.distanceM ? (
+                                // Prefixed "~" because it is estimated from
+                                // the session's targets, not measured — a
+                                // time-based target only becomes a distance
+                                // once a pace is assumed.
+                                <span className="text-muted-foreground whitespace-nowrap" title="Planned — estimated from this session's targets">
+                                  ~{metersFmt(plannedVolumes.get(s.id)!.distanceM)}
+                                </span>
+                              ) : null}
+                              {s.total_time_seconds ? (
                                 <span className="text-muted-foreground whitespace-nowrap">
                                   {secToClock(s.total_time_seconds)}
                                 </span>
-                              )}
+                              ) : plannedVolumes?.get(s.id)?.timeS ? (
+                                <span className="text-muted-foreground whitespace-nowrap" title="Planned — estimated from this session's targets">
+                                  ~{secToClock(plannedVolumes.get(s.id)!.timeS)}
+                                </span>
+                              ) : null}
                               {(() => {
                                 const vitalsLogged = vitalsLoggedSet?.has(`${s.athlete_id}|${s.session_date}`) ?? false;
                                 const rpeLogged = s.rpe != null;
