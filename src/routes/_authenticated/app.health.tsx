@@ -7,6 +7,7 @@ import { useMyAthlete, useMyRoles, useCoachRoster } from "@/lib/use-auth";
 import { useEffectiveRole } from "@/lib/view-mode";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { healthEventLabel } from "@/lib/health-events";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { AthleteSubnav } from "@/components/athlete-subnav";
@@ -331,9 +332,9 @@ function InjurySummary({ athleteId }: { athleteId: string }) {
   const { data } = useQuery({
     queryKey: ["health-overview-injuries", athleteId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("injuries")
-        .select("body_part, side, status")
+        .select("body_part, side, status, kind, illness_type, is_chronic, training_impact, training_modifications")
         .eq("athlete_id", athleteId)
         .neq("status", "resolved")
         .order("onset_date", { ascending: false });
@@ -343,16 +344,14 @@ function InjurySummary({ athleteId }: { athleteId: string }) {
   });
 
   return (
-    <SummaryTile icon={Bandage} title="Injury Management" to="/app/injuries" athleteId={athleteId}>
+    <SummaryTile icon={Bandage} title="Injury & Illness" to="/app/injuries" athleteId={athleteId}>
       {!data || data.length === 0 ? (
-        <p className="text-muted-foreground">No active injuries.</p>
+        <p className="text-muted-foreground">Nothing active.</p>
       ) : (
         <div className="space-y-1">
           {data.slice(0, 3).map((i, idx) => (
             <div key={idx} className="flex items-center justify-between gap-2">
-              <span className="capitalize font-medium">
-                {i.body_part} {i.side && i.side !== "n/a" ? `(${i.side})` : ""}
-              </span>
+              <span className="capitalize font-medium truncate">{healthEventLabel(i)}</span>
               <Badge variant={i.status === "active" ? "destructive" : "secondary"} className="text-[10px] shrink-0">
                 {i.status}
               </Badge>
