@@ -33,6 +33,16 @@ export type CalendarSession = {
   // session's first work step + the athlete's zone profile. Null/absent
   // for completed sessions (they show actuals instead) and Open targets.
   targetLabel?: string | null;
+  /**
+   * Distance and time a planned session's steps add up to.
+   *
+   * Deliberately NOT total_distance_m, which stays null until a file is
+   * uploaded. Estimated: a time-based target only becomes a distance once a
+   * pace is assumed, so it is rendered in muted type with a "~" rather than
+   * alongside recorded figures as though it were one.
+   */
+  plannedDistanceM?: number | null;
+  plannedTimeS?: number | null;
 };
 
 // A PB that landed on this day — sourced from `performances` (is_pb =
@@ -413,6 +423,13 @@ function SessionPill({
         {isFuturePlanned && s.targetLabel && (
           <span className="block text-[10px] leading-tight text-[var(--accent-red)] truncate">{s.targetLabel}</span>
         )}
+        {isFuturePlanned && (s.plannedDistanceM || s.plannedTimeS) && (
+          <span className="block text-[10px] leading-tight text-muted-foreground tabular-nums truncate">
+            ~{s.plannedDistanceM ? metersFmt(s.plannedDistanceM) : null}
+            {s.plannedDistanceM && s.plannedTimeS ? " · " : null}
+            {s.plannedTimeS ? secToClock(s.plannedTimeS) : null}
+          </span>
+        )}
         {!isFuturePlanned && (distanceM || timeS) && (
           <span className="block text-[10px] leading-tight text-muted-foreground tabular-nums">
             {distanceM ? metersFmt(distanceM) : null}
@@ -442,12 +459,24 @@ export function WeekTotalCell({
   distanceM,
   timeS,
   sessionCount,
+  plannedDistanceM = 0,
+  plannedTimeS = 0,
+  plannedCount = 0,
 }: {
   distanceM: number;
   timeS: number;
   sessionCount: number;
+  /**
+   * Planned volume still to come, kept separate from the actual figures and
+   * never added to them. A part-done week has to show both without letting
+   * you mistake 40 km run for 40 km still ahead.
+   */
+  plannedDistanceM?: number;
+  plannedTimeS?: number;
+  plannedCount?: number;
 }) {
   const hasData = sessionCount > 0 && (distanceM > 0 || timeS > 0);
+  const hasPlanned = plannedCount > 0 && (plannedDistanceM > 0 || plannedTimeS > 0);
   return (
     <div className="min-h-[110px] lg:min-h-[135px] border rounded-md bg-muted/30 flex flex-col overflow-hidden">
       <div className="px-1.5 pt-1">
@@ -464,8 +493,26 @@ export function WeekTotalCell({
               {sessionCount} session{sessionCount === 1 ? "" : "s"}
             </span>
           </>
+        ) : hasPlanned ? (
+          // Nothing run yet. The planned figure is shown in muted type with
+          // the word "planned" under it — a future week showing a bold total
+          // reads as achievement.
+          <>
+            <span className="text-sm font-bold tabular-nums leading-tight text-muted-foreground">
+              {metersFmt(plannedDistanceM)}
+            </span>
+            <span className="text-[10px] text-muted-foreground tabular-nums leading-tight mt-0.5">
+              {secToClock(plannedTimeS)}
+            </span>
+            <span className="text-[9px] text-muted-foreground mt-1">planned</span>
+          </>
         ) : (
           <span className="text-[10px] text-muted-foreground">—</span>
+        )}
+        {hasData && hasPlanned && (
+          <span className="text-[9px] text-muted-foreground mt-0.5">
+            +{metersFmt(plannedDistanceM)} planned
+          </span>
         )}
       </div>
     </div>
