@@ -444,16 +444,38 @@ function RaceAnalysisPage() {
               <div className="col-span-3 border rounded p-2 space-y-1">
                 <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
                   <AlertTriangle className="h-3.5 w-3.5" />
-                  GPS corrections applied
+                  {reconstruction.reconstructionAbandoned ? "GPS reconstruction not used" : "GPS corrections applied"}
                 </div>
+                {reconstruction.reconstructionAbandoned && (
+                  // Said plainly rather than left implied. The panel below
+                  // still lists what was DETECTED, and without this line a
+                  // coach would reasonably assume those corrections are in the
+                  // numbers above — when in fact they were discarded and the
+                  // raw trace was scaled onto the official distance instead.
+                  <p className="text-[11px] text-muted-foreground">
+                    The corrections below added up to more than a quarter of the official distance, which means the
+                    reconstruction was wrong rather than the course. They have been discarded — the splits above come
+                    from the raw GPS scaled to the official distance. The anomalies are listed for reference only.
+                  </p>
+                )}
                 {reconstruction.anomalies.map((a, i) => (
                   <div key={i} className="text-xs text-muted-foreground flex justify-between">
                     <span>
-                      {secToClock(a.startElapsed)}–{secToClock(a.endElapsed)} · {a.type}
+                      {secToClock(a.startElapsed)}–{secToClock(a.endElapsed)} ·{" "}
+                      {a.type === "gap" ? "recording gap" : a.type}
                     </span>
                     <span className="tabular-nums">
-                      {a.rawDeltaM.toFixed(0)}m → {a.correctedDeltaM.toFixed(0)}m ({a.adjustmentM >= 0 ? "+" : ""}
-                      {a.adjustmentM.toFixed(0)}m)
+                      {a.type === "gap" ? (
+                        // Nothing was recorded here, so nothing is claimed.
+                        // This period used to be filled at race pace, which is
+                        // how 35 minutes of a watch being off became 8.7km.
+                        <span>not recorded · nothing added</span>
+                      ) : (
+                        <>
+                          {a.rawDeltaM.toFixed(0)}m → {a.correctedDeltaM.toFixed(0)}m ({a.adjustmentM >= 0 ? "+" : ""}
+                          {a.adjustmentM.toFixed(0)}m)
+                        </>
+                      )}
                     </span>
                   </div>
                 ))}
