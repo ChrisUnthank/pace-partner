@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { todayISO } from "@/lib/format";
 import { toast } from "sonner";
 import { Trash2, TestTube2 } from "lucide-react";
-import { BucketTabStrip, healthTabsFor } from "@/components/bucket-tab-strip";
+import { BucketTabStrip, healthTabsFor, labTabsFor } from "@/components/bucket-tab-strip";
 import { AthleteSubnav } from "@/components/athlete-subnav";
 import { CoachAthletePicker } from "@/components/coach-athlete-picker";
 import { ResponsiveContainer, ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
@@ -122,7 +122,11 @@ function LactatePage() {
             </p>
           </div>
         </div>
-        <BucketTabStrip items={healthTabsFor(selectedAthleteId)} active="/app/lactate" />
+        <BucketTabStrip items={healthTabsFor(selectedAthleteId)} active="/app/bloods" />
+        {/* Second strip for the three pages behind "Lab". The parent
+            entry stays highlighted so it is clear where you are in the
+            wider Health & Vitals group. */}
+        <BucketTabStrip items={labTabsFor(selectedAthleteId)} active="/app/lactate" />
         <LactateCurveCard athleteId={selectedAthleteId} />
         <NewSpotCheckForm athleteId={selectedAthleteId} />
         <LactateHistory athleteId={selectedAthleteId} />
