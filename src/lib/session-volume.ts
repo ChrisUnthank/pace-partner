@@ -80,6 +80,46 @@ export function assumedPaceSecPerKm(key: string | null | undefined): number {
   return v === undefined ? FALLBACK_PACE_SEC_PER_KM : v;
 }
 
+/**
+ * Resolves a step to a pace, preferring what was PRESCRIBED over what is
+ * assumed.
+ *
+ * The generic table above is a population guess. It is 5:30/km for easy
+ * running, which for a competitive middle-distance athlete whose own Z2 is
+ * 4:05–4:43 is 20–25% slow — and the app already knows that, because the
+ * calendar renders "Z2 · 4:05–4:43/km" on the very same line as the duration
+ * it had just estimated at 5:30 pace. Every planned easy run read about
+ * eleven minutes long, and a week of them put the weekly total out by nearly
+ * an hour.
+ *
+ * So: use the step's own target when it has one, and fall back to the table
+ * only when there is genuinely nothing to go on. A prescribed pace is data;
+ * the table is a guess, and a guess should never override data.
+ *
+ * The MIDDLE of a prescribed band is used rather than either end. A range is
+ * a range because the athlete may run anywhere in it, and picking an end
+ * would bias every total in one direction.
+ */
+export function stepPaceSecPerKm(
+  step: any,
+  fallbackKey: string | null | undefined,
+  resolvePace?: (step: any) => [number, number] | null,
+): number {
+  // An explicit pace on the step beats everything.
+  const explicit = Number(step?.target_pace_sec_per_km);
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+
+  // Then whatever the athlete's own zone profile resolves this target to.
+  if (resolvePace) {
+    const band = resolvePace(step);
+    if (band && Number.isFinite(band[0]) && Number.isFinite(band[1]) && band[0] > 0 && band[1] > 0) {
+      return (band[0] + band[1]) / 2;
+    }
+  }
+
+  return assumedPaceSecPerKm(fallbackKey);
+}
+
 export interface SessionVolume {
   /** Distance from steps that are the point of the session. */
   workM: number;
@@ -177,10 +217,18 @@ function recoveryVolume(step: any): { m: number; seconds: number; estimatedM: nu
  * vocabulary closely enough that one map serves all three, and an unknown key
  * falls back rather than throwing.
  */
-export function estimateStepsVolume(steps: any[] | null | undefined, paceKey?: string | null): SessionVolume {
+export function estimateStepsVolume(
+  steps: any[] | null | undefined,
+  paceKey?: string | null,
+  /**
+   * Resolves a step's prescribed pace band from the athlete's zone profile.
+   * Pass target-resolution.ts's resolver here; omitted, the coarse table is
+   * used and every figure is a population guess rather than this athlete's.
+   */
+  resolvePace?: (step: any) => [number, number] | null,
+): SessionVolume {
   if (!steps || steps.length === 0) return { ...EMPTY };
 
-  const workPace = assumedPaceSecPerKm(paceKey);
   let workM = 0;
   let supportM = 0;
   let totalSeconds = 0;
@@ -194,8 +242,10 @@ export function estimateStepsVolume(steps: any[] | null | undefined, paceKey?: s
 
     const mult = repetitions(step);
     const isWork = step.kind === "work" || step.kind === "strides";
-    // Warmup and cooldown are usually easy running whatever the session is.
-    const pace = isWork ? workPace : assumedPaceSecPerKm("easy");
+    // Warmup and cooldown are easy running whatever the session is built
+    // around — but they still go through the resolver, because they carry
+    // their own targets often enough to be worth reading.
+    const pace = stepPaceSecPerKm(step, isWork ? paceKey : "easy", resolvePace);
 
     const dist = num(step.target_distance_m);
     const secs = num(step.target_time_seconds);
