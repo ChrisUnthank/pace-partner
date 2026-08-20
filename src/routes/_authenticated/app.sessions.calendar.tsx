@@ -28,7 +28,7 @@ import {
 import { CalendarQuickAddRail, quickAddItemFor } from "@/components/calendar-quick-add-rail";
 import { estimateStepsVolume } from "@/lib/session-volume";
 import { healthStateOn } from "@/lib/health-events";
-import { resolvedTargetShortLabel } from "@/lib/target-resolution";
+import { resolvedTargetShortLabel, resolveStepTarget } from "@/lib/target-resolution";
 import { sessionClassificationLabel, timeOfDayHintMs } from "@/lib/session-categories";
 import { metersFmt, secToClock } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -453,6 +453,10 @@ function CalendarPage() {
           const vol = estimateStepsVolume(
             stepsBySession.get(s.id) ?? [],
             s.is_long_run ? "long" : (s.intent ?? s.day_type ?? "easy"),
+            // The athlete's own zone paces, not the generic table. Without
+            // this a planned easy run was estimated at 5:30/km while the pill
+            // beside it read "Z2 · 4:05–4:43/km".
+            (st) => resolveStepTarget(st, zoneProfile as any).paceRangeSecPerKm,
           );
           if (!vol.isEmpty) {
             plannedDistanceM = vol.totalM > 0 ? vol.totalM : null;
