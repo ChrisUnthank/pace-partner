@@ -45,7 +45,7 @@ export interface RawTrackPoint {
   [key: string]: any;
 }
 
-export type AnomalyType = "dropout" | "spike" | "jitter";
+export type AnomalyType = "dropout" | "spike" | "jitter" | "gap";
 
 export interface AnomalySegment {
   startIndex: number;
@@ -85,6 +85,40 @@ export interface ReconstructionOptions {
   genericSmoothingThreshold?: number;
   /** Fraction of total race time used to decide if anomalies are "dominant" near start/finish. Default 0.15 (15%) */
   edgeWindowFraction?: number;
+  /**
+   * Seconds above which a silent interval is a RECORDING GAP, not a GPS
+   * dropout. Default 120.
+   *
+   * A dropout is the watch still recording while the signal is degraded — it
+   * produces points, just poor ones. An interval with no points across two
+   * minutes is something else: the watch was paused, stopped, or between
+   * files. Nothing was measured because nothing was recording, and filling it
+   * at race pace invents distance that was never run.
+   *
+   * On a real race this fired at 52:13–1:27:00 — 2087 silent seconds with 0m
+   * of GPS, reconstructed as 8729m at 3:59/km. That alone was 87% of a 10km
+   * race, conjured out of a gap between two files.
+   */
+  recordingGapSeconds?: number;
+  /**
+   * Hard ceiling on what any single anomaly may add, as a fraction of the
+   * official distance. Default 0.15 (15%).
+   *
+   * The existing cap is `ref * dt * 3`, which scales WITH the gap — so the
+   * longer the silence, the more distance it is licensed to invent. That is
+   * backwards: a longer unexplained gap deserves less trust, not more.
+   */
+  maxSingleCorrectionFraction?: number;
+  /**
+   * Above this fraction of official distance, reconstruction is judged to
+   * have failed and is abandoned in favour of scaling the raw GPS. Default
+   * 0.25 (25%).
+   *
+   * Distributing an 18km correction across a 10km race does not rescue the
+   * numbers, it spreads the error into every split while presenting a total
+   * that looks correct.
+   */
+  reconstructionSanityFraction?: number;
 }
 
 const DEFAULTS: Required<ReconstructionOptions> = {
@@ -94,6 +128,9 @@ const DEFAULTS: Required<ReconstructionOptions> = {
   medianWindow: 21,
   genericSmoothingThreshold: 0.03,
   edgeWindowFraction: 0.15,
+  recordingGapSeconds: 120,
+  maxSingleCorrectionFraction: 0.15,
+  reconstructionSanityFraction: 0.25,
 };
 
 function median(values: number[]): number {
@@ -175,10 +212,22 @@ function rollingMedianSpeed(intervals: Interval[], window: number, excludeMask?:
 function classifyAndCorrect(
   intervals: Interval[],
   opts: Required<ReconstructionOptions>,
+  officialDistanceM?: number | null,
 ): { correctedDeltas: number[]; flags: (AnomalyType | null)[] } {
+  // Absolute ceiling on any one correction. Falls back to a generous fixed
+  // figure when there is no official distance to size it against — still far
+  // tighter than a cap that grows with the gap it is meant to constrain.
+  const singleCap =
+    officialDistanceM && officialDistanceM > 0
+      ? officialDistanceM * opts.maxSingleCorrectionFraction
+      : 2000;
   const roughClassify = (refSpeeds: number[]) =>
     intervals.map((iv, i) => {
       const ref = refSpeeds[i];
+      // A recording gap is excluded from the reference calculation as well as
+      // from correction — its zero speed would otherwise drag down the median
+      // that every neighbouring correction is measured against.
+      if (iv.dt > opts.recordingGapSeconds) return true;
       if (iv.dd < 0) return true;
       if (ref > 0 && iv.v < ref * opts.dropoutSpeedRatio) return true;
       if (ref > 0 && iv.v > ref * opts.spikeSpeedRatio && iv.v > opts.spikeAbsoluteFloorMps) return true;
@@ -195,10 +244,23 @@ function classifyAndCorrect(
   intervals.forEach((iv, i) => {
     const ref = refSpeeds[i];
     const expected = ref * iv.dt;
+
+    // ── Recording gap: nothing was measured, so nothing is inferred ──────
+    //
+    // Kept exactly as recorded (normally ~0m) and flagged so the UI can name
+    // it honestly rather than presenting invented metres as a correction.
+    if (iv.dt > opts.recordingGapSeconds) {
+      correctedDeltas.push(iv.dd > 0 ? iv.dd : 0);
+      flags.push("gap");
+      return;
+    }
     // Sanity clamp: never attribute more than ~3x the plausible distance for
     // the elapsed gap, however low the implied speed looked — protects
     // against a single bad reference estimate producing a runaway split.
-    const cap = ref > 0 ? ref * iv.dt * 3 : expected;
+    // Both ceilings apply. The relative one alone let a long gap license a
+    // proportionally larger invention; the absolute one is what actually
+    // binds when the reference pace is fast and the gap is long.
+    const cap = Math.min(ref > 0 ? ref * iv.dt * 3 : expected, singleCap);
 
     // Negative distance = GPS jitter (backward jump). Treat like a dropout:
     // trust the local reference pace instead of the raw (negative) delta.
@@ -282,6 +344,15 @@ export interface ReconstructionResult {
   anchor: AnchorMode;
   /** How much distance was added purely as generic end-to-end smoothing (not tied to a specific anomaly). */
   genericSmoothingM: number;
+  /**
+   * True when the reconstruction was judged wrong and discarded — the final
+   * series is the raw GPS scaled onto the official distance instead.
+   *
+   * Surfaced rather than hidden: a page listing corrections that were then
+   * thrown away would be describing work that had no effect on the numbers
+   * underneath it.
+   */
+  reconstructionAbandoned?: boolean;
 }
 
 export function reconstructTrack(
@@ -313,7 +384,7 @@ export function reconstructTrack(
   }
 
   const intervals = buildIntervals(points);
-  const { correctedDeltas, flags } = classifyAndCorrect(intervals, opts);
+  const { correctedDeltas, flags } = classifyAndCorrect(intervals, opts, officialDistanceM);
   const anomalies = buildAnomalySegments(points, intervals, correctedDeltas, flags);
 
   // Build the reconstructed cumulative series (pre-official-alignment).
@@ -338,12 +409,55 @@ export function reconstructTrack(
   // --- Reconcile against official distance, deciding an anchor strategy ---
   let anchor: AnchorMode = "distributed";
   let genericSmoothingM = 0;
+  let reconstructionAbandoned = false;
   const final: number[] = [...corrected];
 
   if (officialDistanceM && reconstructedTotalDistanceM > 0) {
-    const remainder = officialDistanceM - reconstructedTotalDistanceM;
+    let remainder = officialDistanceM - reconstructedTotalDistanceM;
     const totalTime = points[points.length - 1].elapsed_s - points[0].elapsed_s;
-    const fractionOfTotal = Math.abs(remainder) / officialDistanceM;
+    let fractionOfTotal = Math.abs(remainder) / officialDistanceM;
+
+    // ── Reconstruction sanity check ──────────────────────────────────────
+    //
+    // A remainder this large means the reconstruction is wrong, not that the
+    // course was mismeasured. Distributing it does not rescue the numbers: it
+    // spreads the error into every split while presenting a plausible-looking
+    // total, which is worse than admitting the reconstruction failed.
+    //
+    // The case that prompted this: 28.37km reconstructed against a 10.08km
+    // official distance, resolved by "distributing" -18289m across the race.
+    // Every split on that page was derived from a series that had been scaled
+    // by 0.36.
+    //
+    // Falls back to the RAW GPS scaled onto the official distance — ignoring
+    // the reconstruction entirely. Raw GPS with its real dropouts is a
+    // truthful record of a flawed measurement; a reconstruction that invented
+    // 18km is not a record of anything.
+    if (fractionOfTotal > opts.reconstructionSanityFraction) {
+      reconstructionAbandoned = true;
+      const rawScale = rawTotalDistanceM > 0 ? officialDistanceM / rawTotalDistanceM : 1;
+      for (let i = 0; i < final.length; i++) {
+        final[i] = (points[i].distance_m ?? (i > 0 ? points[i - 1].distance_m : 0) ?? 0) * rawScale;
+      }
+      return {
+        points: points.map((p, i) => ({
+          elapsed_s: p.elapsed_s,
+          raw_distance_m: p.distance_m,
+          corrected_distance_m: corrected[i],
+          final_distance_m: final[i],
+          hr: p.hr,
+          flag: null,
+        })),
+        anomalies,
+        rawTotalDistanceM,
+        reconstructedTotalDistanceM,
+        finalTotalDistanceM: final[final.length - 1],
+        officialDistanceM,
+        anchor: "distributed",
+        genericSmoothingM: officialDistanceM - rawTotalDistanceM,
+        reconstructionAbandoned: true,
+      };
+    }
 
     if (Math.abs(remainder) < 0.5) {
       // Negligible, nothing to do.
