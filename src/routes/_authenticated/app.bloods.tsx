@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { todayISO } from "@/lib/format";
 import { toast } from "sonner";
 import { Trash2, Droplet, Plus, ChevronDown, ChevronUp, TrendingUp } from "lucide-react";
-import { BucketTabStrip, healthTabsFor } from "@/components/bucket-tab-strip";
+import { BucketTabStrip, healthTabsFor, labTabsFor } from "@/components/bucket-tab-strip";
 import { AthleteSubnav } from "@/components/athlete-subnav";
 import { CoachAthletePicker } from "@/components/coach-athlete-picker";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceArea } from "recharts";
@@ -169,6 +169,10 @@ function BloodsPage() {
         </div>
 
         <BucketTabStrip items={healthTabsFor(selectedAthleteId)} active="/app/bloods" />
+        {/* Second strip for the three pages behind "Lab". The parent
+            entry stays highlighted so it is clear where you are in the
+            wider Health & Vitals group. */}
+        <BucketTabStrip items={labTabsFor(selectedAthleteId)} active="/app/bloods" />
 
         {showNew && <NewPanelForm athleteId={selectedAthleteId} onSaved={() => setShowNew(false)} />}
 
