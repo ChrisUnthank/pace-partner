@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { metersFmt, secToClock, toLocalISODate } from "@/lib/format";
 import { estimateStepsVolume } from "@/lib/session-volume";
+import { resolveStepTarget } from "@/lib/target-resolution";
 import { sessionClassificationLabel, SESSION_INTENTS, INTENT_LABEL, DAY_TYPE_LABEL, timeOfDayHintMs } from "@/lib/session-categories";
 import { Plus, Upload, Users, Search, Eye, Trash2, Download, RefreshCw, X, CalendarDays, HeartPulse, Fingerprint } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -332,9 +333,25 @@ function SessionsList() {
     () => sessions.filter((s: any) => !s.completed_at).map((s: any) => s.id),
     [sessions],
   );
+  // Zone profiles for whichever athletes are in view.
+  //
+  // Needed because a planned session's duration is only as good as the pace
+  // it assumes, and the generic table is a population figure — for a
+  // competitive athlete whose own Z2 is 4:05–4:43/km it reads 5:30 and puts
+  // every easy run about eleven minutes long. Keyed by athlete because this
+  // list can show a whole roster at once.
+  const { data: zoneProfiles } = useQuery({
+    queryKey: ["sessions-zone-profiles", (athleteIds ?? []).join(",")],
+    enabled: (athleteIds?.length ?? 0) > 0,
+    queryFn: async () => {
+      const { data } = await supabase.from("athlete_zone_profiles").select("*").in("athlete_id", athleteIds!);
+      return new Map((data ?? []).map((z: any) => [z.athlete_id, z]));
+    },
+  });
+
   const { data: plannedVolumes } = useQuery({
-    queryKey: ["sessions-planned-volume", plannedIds.join(",")],
-    enabled: plannedIds.length > 0,
+    queryKey: ["sessions-planned-volume", plannedIds.join(","), !!zoneProfiles],
+    enabled: plannedIds.length > 0 && !!zoneProfiles,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("steps")
@@ -354,7 +371,12 @@ function SessionsList() {
         if (sess.completed_at) continue;
         const steps = bySession.get(sess.id);
         if (!steps || steps.length === 0) continue;
-        const vol = estimateStepsVolume(steps, sess.is_long_run ? "long" : (sess.intent ?? sess.day_type ?? "easy"));
+        const profile = zoneProfiles?.get(sess.athlete_id) ?? null;
+        const vol = estimateStepsVolume(
+          steps,
+          sess.is_long_run ? "long" : (sess.intent ?? sess.day_type ?? "easy"),
+          (st) => resolveStepTarget(st, profile as any).paceRangeSecPerKm,
+        );
         if (vol.isEmpty) continue;
         out.set(sess.id, { distanceM: vol.totalM, timeS: vol.totalSeconds });
       }
