@@ -529,9 +529,41 @@ function RaceEventDetailPage() {
               ) : tracksLoading ? (
                 <p className="text-sm text-muted-foreground">Loading GPS traces for {withGps.length} athletes…</p>
               ) : !tracks || tracks.length < 2 ? (
-                <p className="text-sm text-muted-foreground">
-                  Couldn't load enough GPS data to build a group flyover for this event.
-                </p>
+                // Says WHICH of the three reasons it is.
+                //
+                // One message covered all of them: results not linked to a
+                // session at all, linked sessions holding no GPS, and only one
+                // athlete having either. They need different actions, and the
+                // first is by far the most common — a race uploaded before the
+                // planned session was matched leaves the result pointing at
+                // nothing, so there is no GPS to find however hard it looks.
+                <div className="text-sm text-muted-foreground space-y-1">
+                  {withGps.length < 2 ? (
+                    <>
+                      <p>
+                        {withGps.length === 0
+                          ? "None of this event's results are linked to a session yet."
+                          : "Only one of this event's results is linked to a session."}
+                      </p>
+                      <p className="text-xs">
+                        A flyover needs at least two linked results. Open a result and attach its uploaded activity —
+                        if the file was uploaded before the race was added here, it may have landed on a separate
+                        session of its own.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p>
+                        {withGps.length} result{withGps.length === 1 ? " is" : "s are"} linked, but{" "}
+                        {tracks?.length ? `only ${tracks.length} contains` : "none contain"} GPS points.
+                      </p>
+                      <p className="text-xs">
+                        A linked session with no GPS is usually a manual entry, or an upload whose file had no
+                        position data — a treadmill or track session recorded without GPS, for instance.
+                      </p>
+                    </>
+                  )}
+                </div>
               ) : (
                 <MultiRouteFlyoverMap tracks={tracks} heightPx={480} />
               )}
