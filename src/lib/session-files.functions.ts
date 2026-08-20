@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { stepPrescribesProgression } from "./run-shape";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { computeRefinedContinuousZoneTime, hrZoneFor, type HrZoneBoundaries } from "@/lib/intensity-segments";
 
@@ -1042,6 +1043,20 @@ function classifyLaps(
 
   const workSteps = getPlannedWorkSteps(plannedSteps);
   const hasPlannedWork = workSteps.length > 0;
+
+  // A prescribed progression run is ONE continuous effort, whatever pace
+  // contrast it contains — the contrast is the point of it.
+  //
+  // Without this the prescription would be decorative: classifyLaps runs the
+  // same pace-contrast split whether or not a plan is attached, so a single
+  // block prescribed as "build 4:30 to 3:40" would still be chopped into
+  // warmup and work on exactly the pace rise the coach asked for.
+  //
+  // Only when EVERY work step is a build. A session mixing a progression
+  // block with real intervals still needs splitting, and suppressing that
+  // would lose the intervals.
+  const isPrescribedProgression =
+    hasPlannedWork && workSteps.every((st: any) => stepPrescribesProgression(st));
   const hasLadderPlan = workSteps.some(stepIsLadder);
 
   // For a session marked as a race, protect the race distance/time from ever
@@ -1118,6 +1133,15 @@ function classifyLaps(
         return { ...lap, kind: "cooldown" as const };
       });
     }
+  }
+
+  if (isPrescribedProgression) {
+    // Everything that is not an explicit rest lap is the effort itself.
+    return laps.map((lap) =>
+      lap.intensity === "rest"
+        ? { ...lap, kind: "recovery" as const }
+        : { ...lap, kind: "work" as const },
+    );
   }
 
   if (hasPlannedWork) {
