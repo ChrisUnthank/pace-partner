@@ -140,6 +140,7 @@ export function CalendarDayCell({
   weather,
   onMultiClick,
   onAdd,
+  health,
   quickAddArmed = false,
   quickAddPending = false,
   onQuickAdd,
@@ -150,6 +151,18 @@ export function CalendarDayCell({
   compact?: boolean;
   /** Forecast for this specific day — only ever passed for future days within the forecast horizon. */
   weather?: DayForecast | null;
+  /**
+   * Injuries or illnesses live on this day.
+   *
+   * The single most common question about a bad week is "what was going on
+   * then", and until now the answer lived on a different page entirely. A
+   * calendar that shows a missed session but not the illness that caused it
+   * is inviting the wrong conclusion.
+   *
+   * Chronic conditions are filtered out upstream — asthma on all 365 days
+   * would bury the acute events that actually explain something.
+   */
+  health?: { label: string; colorClass: string; kind: string }[];
   onMultiClick?: (day: DayData) => void;
   /** Opens the "add to this day" menu (upload file / create session / manual entry). Works on any day, not just empty ones — existing sessions stay reachable via their own pills/sheet. */
   onAdd?: (date: string) => void;
@@ -289,6 +302,16 @@ export function CalendarDayCell({
       )}
     >
       {header}
+      {/* A thin bar rather than a pill: it has to be readable at a glance
+          across a whole month without competing with the sessions, which are
+          what the cell is for. */}
+      {health && health.length > 0 && (
+        <div className="flex gap-0.5 px-1.5 pb-0.5" title={health.map((h) => `${h.kind}: ${h.label}`).join("\n")}>
+          {health.map((h, i) => (
+            <span key={i} className={cn("h-1 flex-1 rounded-full", h.colorClass)} />
+          ))}
+        </div>
+      )}
       {day.restingHr != null && (
         <div className="flex items-center gap-2 px-1.5 text-[9px] text-muted-foreground">
           <span className="flex items-center gap-0.5" title={`Resting HR ${day.restingHr} bpm`}>
