@@ -101,6 +101,9 @@ export interface HealthEventLike {
   onset_date?: string | null;
   resolved_date?: string | null;
   is_chronic?: boolean | null;
+  expected_resolved_date?: string | null;
+  severity?: number | null;
+  notes?: string | null;
   training_impact?: string | null;
   training_modifications?: string[] | null;
 }
@@ -147,15 +150,52 @@ export function healthKindNoun(rec: HealthEventLike | null | undefined): string 
 export function isActiveOn(
   rec: HealthEventLike,
   isoDate: string,
-  opts: { includeChronic?: boolean } = {},
+  opts: { includeChronic?: boolean; today?: string } = {},
 ): boolean {
-  if (!rec?.onset_date) return false;
-  if (rec.is_chronic && !opts.includeChronic) return false;
-  if (isoDate < rec.onset_date) return false;
-  if (rec.resolved_date) return isoDate <= rec.resolved_date;
-  // Unresolved: still running. `status` is not consulted — a record left on
-  // "monitoring" with no resolved date is still something that was going on.
-  return true;
+  return healthStateOn(rec, isoDate, opts) !== null;
+}
+
+/**
+ * What this record means for a given day.
+ *
+ *   "active"    the day is in the past or today, and the record covered it.
+ *               This happened.
+ *   "expected"  the day is in the future and the record is not yet resolved,
+ *               so it is projected to still be going on. This is a forecast.
+ *   null        the record does not cover this day at all.
+ *
+ * The distinction is the whole point. An unresolved injury used to run
+ * forward forever, marking every future day identically to the days it
+ * actually affected — a marker on all of them tells a coach nothing about any
+ * of them. Now an expected resolution date ends the projection, and the days
+ * before it are drawn as a forecast rather than as fact.
+ *
+ * An unresolved record with NO expected date still runs open-ended, because
+ * inventing a horizon would be worse than an over-long one: "I do not know
+ * when this ends" is a real answer and the calendar should show it.
+ */
+export function healthStateOn(
+  rec: HealthEventLike,
+  isoDate: string,
+  opts: { includeChronic?: boolean; today?: string } = {},
+): "active" | "expected" | null {
+  if (!rec?.onset_date) return null;
+  if (rec.is_chronic && !opts.includeChronic) return null;
+  if (isoDate < rec.onset_date) return null;
+
+  // A recorded end always wins over a forecast — once something has actually
+  // resolved, what was once expected of it is history.
+  if (rec.resolved_date) {
+    if (isoDate > rec.resolved_date) return null;
+    return "active";
+  }
+
+  if (rec.expected_resolved_date && isoDate > rec.expected_resolved_date) return null;
+
+  const today = opts.today ?? new Date().toISOString().slice(0, 10);
+  // `status` is not consulted — a record left on "monitoring" with no
+  // resolved date is still something that was going on.
+  return isoDate > today ? "expected" : "active";
 }
 
 /** Colour for a calendar marker. Illness and injury read differently at a glance. */
