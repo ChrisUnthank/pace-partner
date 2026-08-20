@@ -17,6 +17,15 @@ import { Switch } from "@/components/ui/switch";
 import { todayISO } from "@/lib/format";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import {
+  ILLNESS_TYPE_LABEL,
+  TRAINING_IMPACT_LABEL,
+  TRAINING_MODIFICATION_LABEL,
+  TRAINING_MODIFICATION_ORDER,
+  USUALLY_CHRONIC,
+  healthEventLabel,
+  trainingImpactSummary,
+} from "@/lib/health-events";
 import { Plus, ChevronDown, ChevronUp, Archive, ArchiveRestore, Trash2, Bandage, Thermometer } from "lucide-react";
 import { BucketTabStrip, healthTabsFor } from "@/components/bucket-tab-strip";
 import { AthleteSubnav } from "@/components/athlete-subnav";
@@ -140,29 +149,6 @@ function InjuriesPage() {
   );
 }
 
-export const ILLNESS_TYPE_LABEL: Record<string, string> = {
-  respiratory_upper: "Respiratory — head cold / throat",
-  respiratory_lower: "Respiratory — chest",
-  respiratory_other: "Respiratory — unspecified",
-  asthma: "Asthma",
-  allergies: "Allergies / hay fever",
-  gastrointestinal: "Stomach / gut",
-  fever: "Fever",
-  viral: "Viral / flu-like",
-  other: "Other",
-};
-
-/** Conditions that are usually standing facts rather than episodes. Only a
- *  default for the chronic toggle — seasonal hay fever that genuinely clears
- *  each year is still an ordinary illness, so the coach can always override. */
-const USUALLY_CHRONIC = new Set(["asthma", "allergies"]);
-
-export const TRAINING_IMPACT_LABEL: Record<string, string> = {
-  none: "Trained as normal",
-  modified: "Trained around it",
-  stopped: "No training",
-};
-
 function NewInjuryForm({ athleteId, onSaved }: { athleteId: string; onSaved: () => void }) {
   const qc = useQueryClient();
   // One form, two shapes. An illness has no body part and no side; an injury
@@ -176,6 +162,7 @@ function NewInjuryForm({ athleteId, onSaved }: { athleteId: string; onSaved: () 
   const [illnessType, setIllnessType] = useState<string>("respiratory_upper");
   const [belowNeck, setBelowNeck] = useState<"unknown" | "yes" | "no">("unknown");
   const [isChronic, setIsChronic] = useState(false);
+  const [mods, setMods] = useState<string[]>([]);
   const [impact, setImpact] = useState<string>("modified");
   const [severity, setSeverity] = useState("");
   const [onsetDate, setOnsetDate] = useState(todayISO());
@@ -199,6 +186,10 @@ function NewInjuryForm({ athleteId, onSaved }: { athleteId: string; onSaved: () 
       illness_type: isIllness ? illnessType : null,
       symptoms_below_neck: isIllness && belowNeck !== "unknown" ? belowNeck === "yes" : null,
       is_chronic: isIllness ? isChronic : false,
+      // Only meaningful when training actually changed. Recording "no
+      // training" alongside a list of modifications would describe two
+      // different things having happened.
+      training_modifications: impact === "modified" ? mods : [],
       training_impact: impact,
       status: "active",
       severity: severity === "" ? null : Number(severity),
@@ -347,6 +338,33 @@ function NewInjuryForm({ athleteId, onSaved }: { athleteId: string; onSaved: () 
             </Select>
           </div>
         </div>
+
+        {impact === "modified" && (
+          <div>
+            <Label className="text-xs">What changed in training</Label>
+            <p className="text-[11px] text-muted-foreground mb-2">
+              Pick as many as apply. "Modified" on its own says almost nothing when you read a season back.
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {TRAINING_MODIFICATION_ORDER.map((m) => {
+                const on = mods.includes(m);
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setMods((p) => (on ? p.filter((x) => x !== m) : [...p, m]))}
+                    className={cn(
+                      "rounded-full border px-2.5 py-1 text-[11px] transition-colors",
+                      on ? "bg-foreground text-background border-foreground" : "hover:bg-accent",
+                    )}
+                  >
+                    {TRAINING_MODIFICATION_LABEL[m]}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <Textarea placeholder="Describe what's going on" value={notes} onChange={(e) => setNotes(e.target.value)} />
         <Button onClick={save} className="w-full">
@@ -691,9 +709,7 @@ function InjuryCard({ injury, athleteId, defaultOpen }: { injury: any; athleteId
             )}
             <div>
               <CardTitle className="text-base capitalize">
-                {injury.kind === "illness"
-                  ? (ILLNESS_TYPE_LABEL[injury.illness_type ?? ""] ?? "Illness")
-                  : `${injury.body_part ?? "Unspecified"} ${injury.side && injury.side !== "n/a" ? `(${injury.side})` : ""}`}
+{healthEventLabel(injury)}
               </CardTitle>
               <CardDescription>
                 Since{" "}
@@ -766,9 +782,12 @@ function InjuryCard({ injury, athleteId, defaultOpen }: { injury: any; athleteId
                       {injury.body_region && `· ${regionLabel(injury.body_region)}`}
                     </>
                   )}
-                  {injury.training_impact && injury.training_impact !== "modified" && (
-                    <> · {TRAINING_IMPACT_LABEL[injury.training_impact] ?? injury.training_impact}</>
-                  )}
+                  {/* Previously hidden whenever training_impact was "modified",
+                      which is both the default AND the most common real answer
+                      — so the field a coach had just filled in was the one
+                      value that never appeared. Now always shown, with the
+                      specifics after it when there are any. */}
+                  {trainingImpactSummary(injury) && <> · {trainingImpactSummary(injury)}</>}
                 </div>
                 <div>Side: {injury.side && injury.side !== "n/a" ? injury.side : "N/A"}</div>
                 <div>Onset: {new Date(injury.onset_date + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</div>
