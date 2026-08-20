@@ -26,6 +26,7 @@ import {
   DAYTYPE_BAR,
 } from "@/components/calendar-day-cell";
 import { CalendarQuickAddRail, quickAddItemFor } from "@/components/calendar-quick-add-rail";
+import { estimateStepsVolume } from "@/lib/session-volume";
 import {
   isActiveOn,
   healthEventShortLabel,
@@ -335,27 +336,37 @@ function CalendarPage() {
           if (cur == null || ms < cur) earliestStartMsBySession[f.session_id as string] = ms;
         }
       }
-      // First work step's target fields for PLANNED sessions only —
-      // completed pills show actuals, so no target lookup needed there.
+      // Steps for PLANNED sessions — completed pills show actuals, so no
+      // lookup is needed there.
+      //
+      // ALL steps, not just work steps. This query used to fetch only
+      // kind='work' because its sole job was the target-pace label, which
+      // meant a planned session's DISTANCE had nowhere to come from: it lives
+      // in the steps, and sessions.total_distance_m stays null until a file is
+      // uploaded. So a whole campaign block filled from a plan showed no
+      // distance anywhere on the calendar. Warmup and cooldown have to be in
+      // here too, or a threshold session reads as 5 km when it is 11 on the
+      // road.
       const plannedIds = (sessions ?? []).filter((s) => !s.completed_at).map((s) => s.id);
-      let plannedWorkSteps: any[] = [];
+      let plannedSteps: any[] = [];
       if (plannedIds.length) {
         const { data: ws } = await supabase
           .from("steps")
           .select(
-            "session_id, step_order, target_mode, target_pace_sec_per_km, target_threshold_pace_pct, target_threshold_hr_pct, target_zone, target_rpe",
+            "session_id, step_order, kind, reps, set_count, target_distance_m, target_time_seconds, counts_toward_distance, recovery_target_kind, recovery_target_distance_m, recovery_target_seconds, recovery_between_reps_seconds, recovery_between_sets_seconds, target_mode, target_pace_sec_per_km, target_threshold_pace_pct, target_threshold_hr_pct, target_zone, target_rpe",
           )
           .in("session_id", plannedIds)
-          .eq("kind", "work")
           .order("step_order");
-        plannedWorkSteps = ws ?? [];
+        plannedSteps = ws ?? [];
       }
+      const plannedWorkSteps = plannedSteps.filter((st: any) => st.kind === "work");
       return {
         sessions: (sessions ?? []) as CalendarSession[],
         load: load ?? [],
         fatigue,
         vitals: vitals ?? [],
         plannedWorkSteps,
+        plannedSteps,
         earliestStartMsBySession,
       };
     },
@@ -423,12 +434,37 @@ function CalendarPage() {
         if (!firstWorkStep.has(ws.session_id)) firstWorkStep.set(ws.session_id, ws);
       }
 
+      // Planned volume per session, from its steps.
+      //
+      // Estimated, not measured — a time-based target only becomes a distance
+      // once a pace is assumed. Carried separately from total_distance_m so
+      // nothing downstream can mistake one for the other, and rendered
+      // differently by the day cell for the same reason.
+      const stepsBySession = new Map<string, any[]>();
+      for (const st of bundle.plannedSteps ?? []) {
+        const list = stepsBySession.get(st.session_id) ?? [];
+        list.push(st);
+        stepsBySession.set(st.session_id, list);
+      }
+
       for (const s of bundle.sessions) {
         const day = map.get(s.session_date);
         if (!day) continue;
         const step = !s.completed_at ? firstWorkStep.get(s.id) : null;
         const targetLabel = step ? resolvedTargetShortLabel(step, zoneProfile) : null;
-        day.sessions.push(targetLabel ? { ...s, targetLabel } : s);
+        let plannedDistanceM: number | null = null;
+        let plannedTimeS: number | null = null;
+        if (!s.completed_at) {
+          const vol = estimateStepsVolume(
+            stepsBySession.get(s.id) ?? [],
+            s.is_long_run ? "long" : (s.intent ?? s.day_type ?? "easy"),
+          );
+          if (!vol.isEmpty) {
+            plannedDistanceM = vol.totalM > 0 ? vol.totalM : null;
+            plannedTimeS = vol.totalSeconds > 0 ? vol.totalSeconds : null;
+          }
+        }
+        day.sessions.push({ ...s, ...(targetLabel ? { targetLabel } : {}), plannedDistanceM, plannedTimeS });
         day.efficiencyBySession = day.efficiencyBySession ?? {};
         if (effBySession[s.id] != null) day.efficiencyBySession[s.id] = effBySession[s.id];
       }
@@ -495,20 +531,33 @@ function CalendarPage() {
       let distanceM = 0;
       let timeS = 0;
       let sessionCount = 0;
+      let plannedDistanceM = 0;
+      let plannedTimeS = 0;
+      let plannedCount = 0;
       for (const d of days) {
         const day = byDate.get(toISO(d));
         if (!day) continue;
         for (const s of day.sessions) {
-          // Only completed sessions count toward the weekly total — a
-          // planned-but-not-yet-run session hasn't actually happened, and
-          // including its target distance would overstate the week.
-          if (!s.completed_at) continue;
-          if (s.total_distance_m) distanceM += s.total_distance_m;
-          if (s.total_time_seconds) timeS += s.total_time_seconds;
-          sessionCount++;
+          // Actual and planned kept apart, never added together.
+          //
+          // Completed sessions are what happened; planned ones are what is
+          // meant to. Summing them into one figure would make a part-done
+          // week unreadable — you could not tell 40 km run from 40 km still
+          // to come. But excluding planned entirely, which is what this did,
+          // left every future week showing a dash, so a coach who had just
+          // filled a campaign block saw no volume anywhere.
+          if (s.completed_at) {
+            if (s.total_distance_m) distanceM += s.total_distance_m;
+            if (s.total_time_seconds) timeS += s.total_time_seconds;
+            sessionCount++;
+          } else {
+            if ((s as any).plannedDistanceM) plannedDistanceM += (s as any).plannedDistanceM;
+            if ((s as any).plannedTimeS) plannedTimeS += (s as any).plannedTimeS;
+            plannedCount++;
+          }
         }
       }
-      return { days, distanceM, timeS, sessionCount };
+      return { days, distanceM, timeS, sessionCount, plannedDistanceM, plannedTimeS, plannedCount };
     });
   }, [gridDays, byDate]);
 
@@ -520,7 +569,11 @@ function CalendarPage() {
   // the single-month view already used via inMonth checks.
   const continuousMonths = useMemo(() => {
     if (view !== "month" || weeks.length === 0) return [];
-    const months: { key: string; label: string; start: Date; weeks: { days: Date[]; distanceM: number; timeS: number; sessionCount: number }[] }[] = [];
+    // Derived from `weeks` rather than restated, so the planned fields cannot
+    // be added there and silently dropped here — which is exactly what the
+    // hand-written shape did on the first attempt.
+    type WeekBlock = (typeof weeks)[number];
+    const months: { key: string; label: string; start: Date; weeks: WeekBlock[] }[] = [];
     // Bounds come from the weeks themselves rather than being
     // independently recomputed from monthWindowStart/End — a leading
     // week's Monday can land in the month BEFORE monthWindowStart (grid
@@ -1391,7 +1444,14 @@ function CalendarPage() {
                             );
                           })}
                           {showWeekTotals && (
-                            <WeekTotalCell distanceM={week.distanceM} timeS={week.timeS} sessionCount={week.sessionCount} />
+                            <WeekTotalCell
+                              distanceM={week.distanceM}
+                              timeS={week.timeS}
+                              sessionCount={week.sessionCount}
+                              plannedDistanceM={week.plannedDistanceM}
+                              plannedTimeS={week.plannedTimeS}
+                              plannedCount={week.plannedCount}
+                            />
                           )}
                         </div>
                       ))}
@@ -1433,7 +1493,14 @@ function CalendarPage() {
                           />
                         );
                       })}
-                      <WeekTotalCell distanceM={week.distanceM} timeS={week.timeS} sessionCount={week.sessionCount} />
+                      <WeekTotalCell
+                              distanceM={week.distanceM}
+                              timeS={week.timeS}
+                              sessionCount={week.sessionCount}
+                              plannedDistanceM={week.plannedDistanceM}
+                              plannedTimeS={week.plannedTimeS}
+                              plannedCount={week.plannedCount}
+                            />
                     </div>
                   ))}
                 </div>
