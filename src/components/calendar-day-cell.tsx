@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { Plus, Thermometer, Wind, HeartPulse, Medal } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CalendarHealthIcon, type CalendarHealthEvent } from "@/components/calendar-health-icon";
 import { sessionClassificationLabel, INTENT_LABEL, DAY_TYPE_LABEL } from "@/lib/session-categories";
 import { ActivityIcon } from "@/lib/activity-icon";
 import { metersFmt, secToClock, paceFmt } from "@/lib/format";
@@ -151,6 +152,7 @@ export function CalendarDayCell({
   onMultiClick,
   onAdd,
   health,
+  onHealthChanged,
   quickAddArmed = false,
   quickAddPending = false,
   onQuickAdd,
@@ -172,7 +174,9 @@ export function CalendarDayCell({
    * Chronic conditions are filtered out upstream — asthma on all 365 days
    * would bury the acute events that actually explain something.
    */
-  health?: { label: string; colorClass: string; kind: string }[];
+  health?: CalendarHealthEvent[];
+  /** Refetch after a record is resolved from the calendar popover. */
+  onHealthChanged?: () => void;
   onMultiClick?: (day: DayData) => void;
   /** Opens the "add to this day" menu (upload file / create session / manual entry). Works on any day, not just empty ones — existing sessions stay reachable via their own pills/sheet. */
   onAdd?: (date: string) => void;
@@ -248,6 +252,12 @@ export function CalendarDayCell({
             title={`Readiness${day.readiness_score != null ? ` ${Math.round(day.readiness_score)}` : ""}`}
           />
         )}
+        {/* Replaces the coloured bar that used to sit under the header. A bar
+            could only say "something was going on"; the icon says which kind,
+            and opening it answers the question without leaving the calendar. */}
+        {health && health.length > 0 && (
+          <CalendarHealthIcon events={health} date={day.date} onChanged={onHealthChanged} />
+        )}
         {addButton}
       </div>
     </div>
@@ -312,16 +322,6 @@ export function CalendarDayCell({
       )}
     >
       {header}
-      {/* A thin bar rather than a pill: it has to be readable at a glance
-          across a whole month without competing with the sessions, which are
-          what the cell is for. */}
-      {health && health.length > 0 && (
-        <div className="flex gap-0.5 px-1.5 pb-0.5" title={health.map((h) => `${h.kind}: ${h.label}`).join("\n")}>
-          {health.map((h, i) => (
-            <span key={i} className={cn("h-1 flex-1 rounded-full", h.colorClass)} />
-          ))}
-        </div>
-      )}
       {day.restingHr != null && (
         <div className="flex items-center gap-2 px-1.5 text-[9px] text-muted-foreground">
           <span className="flex items-center gap-0.5" title={`Resting HR ${day.restingHr} bpm`}>
