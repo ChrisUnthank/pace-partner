@@ -100,7 +100,21 @@ function SessionsList() {
   // is currently selected in Filters, falling back to the coach's own
   // athlete only when nothing's selected there.
   const uploadTargetAthleteId = filterAthlete !== "all" ? filterAthlete : athlete?.id;
-  const [filterStatus, setFilterStatus] = useState<string>("all");
+  // Completed by default, not "all".
+  //
+  // The list is ordered newest date first, and a planned session dated three
+  // months out is a newer date than a run done this morning. So once a
+  // campaign block or a plan had been filled, the first screen was entirely
+  // future sessions and the coach's actual question — what has this athlete
+  // been doing — was several scrolls down. With a roster of athletes it was
+  // hundreds of rows down.
+  //
+  // "Sessions" answers what happened; Calendar and Training Schedule are
+  // where what is coming belongs, and both already show it better than a
+  // reverse-dated list can. Planned remains one click away in the Status
+  // filter.
+  const DEFAULT_STATUS = "done";
+  const [filterStatus, setFilterStatus] = useState<string>(DEFAULT_STATUS);
   const [filterIntent, setFilterIntent] = useState<string>("all");
   // Coros-style additions: date range + keyword search. The keyword is
   // debounced so the list doesn't refetch on every keystroke.
@@ -815,13 +829,17 @@ function SessionsList() {
                     </div>
                   </div>
                 </div>
-                {(filterStatus !== "all" || filterIntent !== "all" || filterFrom || filterTo || keywordInput) && (
+                {/* Compared against the DEFAULT, not against "all" — otherwise
+                    the button showed permanently and "clearing" dumped the
+                    coach back into the wall of planned sessions the default
+                    exists to avoid. */}
+                {(filterStatus !== DEFAULT_STATUS || filterIntent !== "all" || filterFrom || filterTo || keywordInput) && (
                   <Button
                     size="sm"
                     variant="ghost"
                     className="self-start h-7 px-2 text-xs text-muted-foreground"
                     onClick={() => {
-                      setFilterStatus("all");
+                      setFilterStatus(DEFAULT_STATUS);
                       setFilterIntent("all");
                       setFilterFrom("");
                       setFilterTo("");
@@ -891,7 +909,22 @@ function SessionsList() {
                       aria-label="Select all loaded sessions"
                     />
                   )}
-                  <CardTitle>Recent</CardTitle>
+                  {/* Names the filter that is on. A default that silently
+                      hides half the data reads as missing data, and the
+                      Filters panel is collapsed by default so there is
+                      nothing else on screen saying why. */}
+                  <CardTitle>
+                    {filterStatus === "done" ? "Recent completed" : filterStatus === "planned" ? "Planned" : "Recent"}
+                  </CardTitle>
+                  {filterStatus !== "all" && (
+                    <button
+                      type="button"
+                      onClick={() => setFilterStatus("all")}
+                      className="text-[11px] text-muted-foreground underline hover:text-foreground"
+                    >
+                      show all
+                    </button>
+                  )}
                 </div>
                 {!loading && (
                   <span className="text-xs text-muted-foreground">
@@ -952,7 +985,26 @@ function SessionsList() {
               {loading ? (
                 <p className="p-6 text-sm text-muted-foreground">Loading sessions…</p>
               ) : !sortedSessions || sortedSessions.length === 0 ? (
-                <p className="p-6 text-sm text-muted-foreground">No sessions match the current filter.</p>
+                <div className="p-6 text-sm text-muted-foreground space-y-2">
+                  <p>No sessions match the current filter.</p>
+                  {/* The likely case with the completed default: an athlete
+                      whose plan is filled but who has not run any of it yet
+                      would otherwise see a flat "no sessions" over a calendar
+                      full of them. */}
+                  {filterStatus === "done" && (
+                    <p>
+                      Showing completed sessions only.{" "}
+                      <button
+                        type="button"
+                        onClick={() => setFilterStatus("all")}
+                        className="underline hover:text-foreground"
+                      >
+                        Include planned sessions
+                      </button>
+                      .
+                    </p>
+                  )}
+                </div>
               ) : (
                 <>
                   <div className="divide-y">
