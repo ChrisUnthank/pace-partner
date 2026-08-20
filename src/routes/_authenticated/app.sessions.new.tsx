@@ -1,242 +1,1867 @@
-import { describe, it, expect } from "vitest";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useState, useEffect } from "react";
+import { z } from "zod";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuthUser, useMyRoles, useMyAthlete, useCoachRoster } from "@/lib/use-auth";
+import { AppShell } from "@/components/app-shell";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Slider } from "@/components/ui/slider";
+import { todayISO, clockToSec, secToClock } from "@/lib/format";
 import {
-  stepPaceSecPerKm,
-  estimateStepsVolume,
-  estimateSessionVolume,
-  sumVolumes,
-  assumedPaceSecPerKm,
-  volumeDeltaPct,
-  formatKm,
-  formatDuration,
-} from "../session-volume";
+  SESSION_INTENTS,
+  INTENT_LABEL,
+  SESSION_STRUCTURES,
+  STRUCTURE_LABEL,
+  SESSION_DAY_TYPES,
+  DAY_TYPE_LABEL,
+  TIME_OF_DAY_VALUES,
+  TIME_OF_DAY_LABEL,
+} from "@/lib/session-categories";
+import { toast } from "sonner";
+import { Plus, Trash2, GripVertical, ArrowUp, ArrowDown, Lock, CalendarDays } from "lucide-react";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  rectSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { stepKindBarClass, stepKindTextClass } from "@/lib/step-kind-colors";
+import {
+  WORKOUT_TARGET_ZONES,
+  inferWorkoutTargetMode,
+  type WorkoutTargetMode,
+  type WorkoutTargetZone,
+} from "@/lib/workout-target-modes";
+import {
+  setModePayload,
+  normalizeWorkTargetForSave,
+} from "@/lib/work-target-normalize";
 
-const work = (o: any = {}) => ({ kind: "work", reps: 1, set_count: 1, target_kind: "distance", ...o });
+// "open" is already part of the WorkoutTargetMode union — no extension needed.
+type TargetMode = WorkoutTargetMode;
 
-describe("estimateStepsVolume — what counts", () => {
-  it("counts warmup and cooldown, not just work", () => {
-    const v = estimateStepsVolume(
-      [
-        { kind: "warmup", target_kind: "distance", target_distance_m: 3000 },
-        work({ target_distance_m: 5000 }),
-        { kind: "cooldown", target_kind: "distance", target_distance_m: 2000 },
-      ],
-      "threshold",
-    );
-    expect(v.workM).toBe(5000);
-    expect(v.supportM).toBe(5000);
-    expect(v.totalM).toBe(10000);
-  });
-
-  it("the 5x1km case — work-only estimates understate the road by more than half", () => {
-    const steps = [
-      { kind: "warmup", target_kind: "distance", target_distance_m: 3000 },
-      work({
-        reps: 5,
-        target_distance_m: 1000,
-        recovery_target_kind: "distance",
-        recovery_target_distance_m: 400,
-      }),
-      { kind: "cooldown", target_kind: "distance", target_distance_m: 2000 },
-    ];
-    const v = estimateStepsVolume(steps, "threshold");
-    expect(v.workM).toBe(5000);
-    // 3000 warmup + 2000 cooldown + 4 recoveries x 400m
-    expect(v.supportM).toBe(6600);
-    expect(v.totalM).toBe(11600);
-  });
-
-  it("respects counts_toward_distance = false", () => {
-    const v = estimateStepsVolume(
-      [work({ target_distance_m: 5000 }), work({ target_distance_m: 9999, counts_toward_distance: false })],
-      "easy",
-    );
-    expect(v.totalM).toBe(5000);
-  });
-
-  it("multiplies by reps AND set_count", () => {
-    const v = estimateStepsVolume([work({ reps: 4, set_count: 3, target_distance_m: 400 })], "vo2");
-    expect(v.workM).toBe(4800);
-  });
+// This route previously had no search-param handling at all — the
+// Calendar page's "+" menu has been passing date/mode/dayType here for a
+// while, but none of it was ever read, so every link silently landed on
+// today's date with "Training" pre-selected regardless of what was
+// clicked. `mode` is accepted here but not yet acted on (Manual Session
+// Entry vs. Create Session don't currently render anything different on
+// this page) — flagged rather than guessed at, since building that
+// distinction is a separate piece of work from what actually broke.
+const searchSchema = z.object({
+  date: z.string().optional(),
+  mode: z.string().optional(),
+  dayType: z.string().optional(),
 });
 
-describe("estimateStepsVolume — recovery", () => {
-  it("applies between-rep recovery reps-1 times per set", () => {
-    const v = estimateStepsVolume(
-      [work({ reps: 4, set_count: 2, target_distance_m: 400, recovery_target_kind: "distance", recovery_target_distance_m: 200 })],
-      "vo2",
-    );
-    // (4-1) recoveries x 2 sets x 200m
-    expect(v.supportM).toBe(1200);
-  });
-
-  it("applies between-set recovery sets-1 times", () => {
-    const v = estimateStepsVolume(
-      [work({ reps: 1, set_count: 3, target_distance_m: 1000, recovery_between_sets_seconds: 180 })],
-      "threshold",
-    );
-    // 2 set breaks x 180s at recovery pace
-    expect(v.totalSeconds).toBeGreaterThan(0);
-    expect(v.supportM).toBeGreaterThan(0);
-    expect(v.estimatedFromTimeM).toBe(v.supportM);
-  });
-
-  it("falls back to the legacy between-reps seconds field", () => {
-    const v = estimateStepsVolume([work({ reps: 3, target_distance_m: 1000, recovery_between_reps_seconds: 120 })], "threshold");
-    expect(v.supportM).toBeGreaterThan(0);
-  });
-
-  it("no recovery on a single rep with no sets", () => {
-    const v = estimateStepsVolume(
-      [work({ reps: 1, target_distance_m: 5000, recovery_target_kind: "distance", recovery_target_distance_m: 400 })],
-      "tempo",
-    );
-    expect(v.supportM).toBe(0);
-  });
+export const Route = createFileRoute("/_authenticated/app/sessions/new")({
+  validateSearch: searchSchema,
+  component: NewSession,
 });
 
-describe("estimateStepsVolume — time targets", () => {
-  it("converts time to distance at the bucket's assumed pace and flags it", () => {
-    const v = estimateStepsVolume([work({ target_kind: "time", target_time_seconds: 1800 })], "easy");
-    expect(v.workM).toBeCloseTo((1800 / 330) * 1000, 0);
-    expect(v.estimatedFromTimeM).toBeCloseTo(v.workM, 0);
-  });
+type StepDraft = {
+  kind: "warmup" | "work" | "recovery" | "cooldown" | "strides";
+  reps: number;
+  set_count?: number;
+  target_kind?: "time" | "distance";
+  target_distance_m?: number | null;
+  target_time_seconds?: number | null;
 
-  it("a distance target contributes no estimated metres", () => {
-    const v = estimateStepsVolume([work({ target_distance_m: 10000 })], "easy");
-    expect(v.estimatedFromTimeM).toBe(0);
-    expect(v.totalSeconds).toBeCloseTo(10 * 330, 0);
-  });
+  target_mode?: TargetMode | null;
+  target_pace_sec_per_km?: number | null;
+  target_threshold_pace_pct?: number | null;
+  target_threshold_hr_pct?: number | null;
+  target_zone?: WorkoutTargetZone | null;
+  target_rpe?: number | null;
 
-  it("cross-training has no assumed pace, so time yields no distance but does yield time", () => {
-    const v = estimateStepsVolume([work({ target_kind: "time", target_time_seconds: 2400 })], "cross_train");
-    expect(v.workM).toBe(0);
-    expect(v.totalSeconds).toBe(2400);
-  });
+  is_ladder?: boolean;
+  counts_toward_distance?: boolean;
+
+  recovery_between_reps_seconds?: number | null;
+  recovery_between_reps_mode?: "standing" | "walk" | "jog" | "float";
+  recovery_between_reps_target_kind?: "time" | "distance";
+  recovery_between_reps_distance_m?: number | null;
+
+  recovery_between_sets_seconds?: number | null;
+  recovery_between_sets_mode?: "standing" | "walk" | "jog" | "float";
+  recovery_between_sets_target_kind?: "time" | "distance";
+  recovery_between_sets_distance_m?: number | null;
+
+  recovery_mode?: "standing" | "walk" | "jog" | "float";
+  recovery_target_kind?: "time" | "distance";
+  recovery_target_seconds?: number | null;
+  recovery_target_distance_m?: number | null;
+
+  notes?: string;
+  _uid?: string;
+};
+
+// Called when the coach switches Target mode in the builder. Clears the
+// payload fields that belong to other modes but deliberately does NOT
+// pre-fill a default value for the new mode — an empty field stays empty
+// until the coach types something, so nothing can ever be saved that the
+// coach didn't visibly enter. (The previous version injected 300s pace /
+// 100% / z3 / RPE 6 as fallbacks, which meant a blank target silently
+// saved as a real one.)
+// setModePayload and normalizeWorkTargetForSave now live in
+// @/lib/work-target-normalize — shared with WorkTargetEditor (the post-hoc
+// target editor on planned sessions), imported above.
+
+
+const defaultStep = (kind: StepDraft["kind"]): StepDraft =>
+  kind === "recovery"
+    ? {
+        kind,
+        reps: 1,
+        recovery_mode: "jog",
+        recovery_target_kind: "time",
+        recovery_target_seconds: 90,
+      }
+    : kind === "work"
+      ? {
+          kind,
+          reps: 6,
+          set_count: 1,
+          target_kind: "distance",
+          target_distance_m: 400,
+
+          target_mode: "pace",
+          target_pace_sec_per_km: null,
+          target_threshold_pace_pct: null,
+          target_threshold_hr_pct: null,
+          target_zone: null,
+          target_rpe: null,
+
+          recovery_between_reps_seconds: 90,
+          recovery_between_reps_mode: "jog",
+          recovery_between_reps_target_kind: "time",
+          recovery_between_sets_seconds: 180,
+          recovery_between_sets_mode: "walk",
+          recovery_between_sets_target_kind: "time",
+          counts_toward_distance: true,
+        }
+      : kind === "strides"
+        ? {
+            kind,
+            reps: 4,
+            target_kind: "distance",
+            target_distance_m: 80,
+            counts_toward_distance: true,
+          }
+        : {
+            kind,
+            reps: 1,
+            target_kind: "time",
+            target_time_seconds: 600,
+            counts_toward_distance: true,
+          };
+
+let _uidCounter = 0;
+
+const withUid = (s: StepDraft): StepDraft => ({
+  ...s,
+  _uid: s._uid ?? `s${++_uidCounter}_${Date.now()}`,
 });
 
-describe("estimateStepsVolume — degenerate", () => {
-  it("empty and null inputs", () => {
-    expect(estimateStepsVolume(null).isEmpty).toBe(true);
-    expect(estimateStepsVolume([]).isEmpty).toBe(true);
-    expect(estimateStepsVolume([null, undefined] as any).isEmpty).toBe(true);
+function NewSession() {
+  const navigate = useNavigate();
+  const search = Route.useSearch();
+  const { user } = useAuthUser();
+  const { data: roles = [] } = useMyRoles();
+  const { data: myAthlete } = useMyAthlete();
+  const isCoach = roles.includes("coach");
+
+  // Was its own inline copy of this exact query, under the exact same
+  // React Query cache key ("coach-roster") as the shared useCoachRoster()
+  // hook used across 10+ other pages — but with a DIFFERENT return shape
+  // (flat {id,name}[] here vs useCoachRoster's wrapped
+  // {athlete_id, athletes:{...}}[]). Since React Query treats a matching
+  // key as interchangeable regardless of which queryFn produced it,
+  // whichever one happened to fetch first could silently hand its shape
+  // to the other — a real source of inconsistent/duplicate-looking roster
+  // data depending on which page loaded first in a session. Using the
+  // shared hook directly (and flattening its shape locally, just for this
+  // page's own dropdown) removes the collision at the source instead of
+  // just renaming around it.
+  const { data: coachRoster } = useCoachRoster();
+  const rosterAthletes = (coachRoster ?? []).map((r: any) => r.athletes).filter(Boolean);
+
+  const { data: templates } = useQuery({
+    queryKey: ["templates", user?.id],
+    enabled: !!user && isCoach,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("session_templates")
+        .select("id, name, title, intent, structure, is_long_run, notes")
+        .order("created_at", { ascending: false });
+
+      return data ?? [];
+    },
   });
 
-  it("steps with no targets set are empty, not zero-with-confidence", () => {
-    expect(estimateStepsVolume([work({ target_distance_m: null, target_time_seconds: null })], "easy").isEmpty).toBe(true);
-  });
+  const [athleteId, setAthleteId] = useState<string>("");
+  const [sessionDate, setSessionDate] = useState(search.date || todayISO());
+  const [timeOfDay, setTimeOfDay] = useState<string>("");
+  // Every session created through this form used to default to "planned"
+  // unconditionally, with no way to say otherwise — a coach logging
+  // something that already happened (no GPS file, or backfilling old
+  // history) had to create it, then separately find and use the detail
+  // page's "Mark complete without reflection" button, or it would just sit
+  // as an undone plan indefinitely. This makes that an explicit, up-front
+  // choice instead.
+  const [wasCompleted, setWasCompleted] = useState<boolean>(false);
+  const [manualRpe, setManualRpe] = useState<number | null>(null);
+  const [title, setTitle] = useState("");
+  const [dayType, setDayType] = useState<string>(search.dayType || "training");
+  const [intent, setIntent] = useState<string>("threshold");
+  const [structure, setStructure] = useState<string>("reps_intervals");
+  const [isLongRun, setIsLongRun] = useState<boolean>(false);
 
-  it("survives junk", () => {
-    const junk: any[] = [
-      [{ kind: "work", reps: NaN, target_distance_m: "abc" }],
-      [{ kind: "work", reps: -5, set_count: -2, target_distance_m: 1000 }],
-      [{ kind: "work", reps: Infinity, target_distance_m: 1000 }],
-      [{}],
-    ];
-    for (const steps of junk) {
-      expect(() => estimateStepsVolume(steps, "easy")).not.toThrow();
-      const v = estimateStepsVolume(steps, "easy");
-      expect(Number.isFinite(v.totalM)).toBe(true);
-      expect(Number.isFinite(v.totalSeconds)).toBe(true);
+  // Cross-training doesn't get the full running steps builder below — per
+  // instruction, most runners do swim/bike as supplementary (often during
+  // injury recovery) and gym more consistently, but none of them need
+  // warmup/work/cooldown rep structure planned in advance. Activity type
+  // (gym/ride/swim) plus, for gym specifically, a lightweight category/
+  // subtype is enough to plan the day; actual duration/distance/RPE gets
+  // logged later (Daily Log, or directly on the session once it happens).
+  const [activityType, setActivityType] = useState<string>("gym");
+  const [gymCategory, setGymCategory] = useState<string>("");
+  const [gymSubtype, setGymSubtype] = useState<string>("");
+  const [gymDuration, setGymDuration] = useState<number>(60);
+  const [gymIntensity, setGymIntensity] = useState<string>("");
+  const [notes, setNotes] = useState("");
+  const [appliedFromTemplateId, setAppliedFromTemplateId] = useState<string | null>(null);
+  const [steps, setSteps] = useState<StepDraft[]>([
+    withUid(defaultStep("warmup")),
+    withUid(defaultStep("work")),
+    withUid(defaultStep("cooldown")),
+  ]);
+
+  // The useState initializers above only ever read search.date/search.dayType
+  // on this component's FIRST mount. TanStack Router doesn't remount this
+  // page just because search params changed on a second visit to the same
+  // route — it reuses the existing instance — so a coach who'd already
+  // opened this page once (any date) and then clicked "+", say, "Add Race"
+  // on a different day later in the same session got a form still holding
+  // the date/day-type from that first visit, silently ignoring the new
+  // one. This keeps both in sync on every navigation, not just the first.
+  useEffect(() => {
+    if (search.date) setSessionDate(search.date);
+  }, [search.date]);
+
+  useEffect(() => {
+    if (search.dayType) setDayType(search.dayType);
+  }, [search.dayType]);
+
+  const effectiveAthleteId = athleteId || myAthlete?.id || "";
+
+  function updateStep(i: number, patch: Partial<StepDraft>) {
+    setSteps((s) => s.map((x, idx) => (idx === i ? { ...x, ...patch } : x)));
+  }
+
+  // Strip rep/set/recovery/ladder fields from a Work step — used when switching to continuous structure.
+  function flattenWorkToContinuous(s: StepDraft): StepDraft {
+    if (s.kind !== "work") return s;
+
+    return {
+      ...s,
+      reps: 1,
+      set_count: 1,
+      is_ladder: false,
+      recovery_between_reps_seconds: null,
+      recovery_between_reps_mode: undefined,
+      recovery_between_reps_target_kind: undefined,
+      recovery_between_reps_distance_m: null,
+      recovery_between_sets_seconds: null,
+      recovery_between_sets_mode: undefined,
+      recovery_between_sets_target_kind: undefined,
+      recovery_between_sets_distance_m: null,
+    };
+  }
+
+  function handleStructureChange(next: string) {
+    setStructure(next);
+    if (next === "continuous") {
+      setSteps((s) => s.map(flattenWorkToContinuous));
     }
-  });
+  }
 
-  it("an unknown pace key falls back rather than throwing", () => {
-    expect(assumedPaceSecPerKm("nonsense")).toBe(300);
-    expect(assumedPaceSecPerKm(null)).toBe(300);
-  });
-});
+  function removeStep(i: number) {
+    setSteps((s) => s.filter((_, idx) => idx !== i));
+  }
 
-describe("estimateSessionVolume", () => {
-  it("prefers a recorded total over an estimate", () => {
-    const v = estimateSessionVolume({ total_distance_m: 12345, total_time_seconds: 3600 }, [work({ target_distance_m: 5000 })], "easy");
-    expect(v.totalM).toBe(12345);
-    expect(v.totalSeconds).toBe(3600);
-  });
+  function addStep(kind: StepDraft["kind"]) {
+    setSteps((s) => {
+      const next = withUid(defaultStep(kind));
 
-  it("estimates when nothing was recorded", () => {
-    const v = estimateSessionVolume({ total_distance_m: 0 }, [work({ target_distance_m: 5000 })], "easy");
-    expect(v.totalM).toBe(5000);
-  });
+      if (kind === "warmup") {
+        // Insert at top of middle (after existing warmups)
+        const lastWarm = s.map((x) => x.kind).lastIndexOf("warmup");
+        const idx = lastWarm >= 0 ? lastWarm + 1 : 0;
+        return [...s.slice(0, idx), next, ...s.slice(idx)];
+      }
 
-  it("handles a missing session", () => {
-    expect(estimateSessionVolume(null, [work({ target_distance_m: 5000 })], "easy").totalM).toBe(5000);
-  });
-});
+      if (kind === "cooldown") return [...s, next];
 
-describe("sumVolumes / helpers", () => {
-  it("sums and stays empty only when everything was", () => {
-    const a = estimateStepsVolume([work({ target_distance_m: 5000 })], "easy");
-    const b = estimateStepsVolume([work({ target_distance_m: 3000 })], "easy");
-    expect(sumVolumes([a, b]).totalM).toBe(8000);
-    expect(sumVolumes([a, b]).isEmpty).toBe(false);
-    expect(sumVolumes([]).isEmpty).toBe(true);
-  });
+      // work / recovery / strides → insert before first cooldown (or at end)
+      const firstCool = s.findIndex((x) => x.kind === "cooldown");
+      const idx = firstCool === -1 ? s.length : firstCool;
+      return [...s.slice(0, idx), next, ...s.slice(idx)];
+    });
+  }
 
-  it("delta and formatting", () => {
-    expect(volumeDeltaPct(60000, 50000)).toBeCloseTo(20);
-    expect(volumeDeltaPct(5000, 0)).toBeNull();
-    expect(formatKm(12345)).toBe("12.3 km");
-    expect(formatDuration(3900)).toBe("1h 05m");
-    expect(formatDuration(1800)).toBe("30m");
-  });
-});
+  function moveStep(from: number, to: number) {
+    setSteps((s) => {
+      if (to < 0 || to >= s.length) return s;
 
+      // Anchors: first warmup must stay at 0; last cooldown at end.
+      if (s[from].kind === "warmup" || s[from].kind === "cooldown") return s;
+      if (s[to].kind === "warmup" || s[to].kind === "cooldown") return s;
 
-describe("prescribed pace beats the assumed table", () => {
-  // The bug this locks down: a planned 10 km easy run was estimated at
-  // 5:30/km — the population figure — while the calendar pill beside it read
-  // "Z2 · 4:05–4:43/km" from the athlete's own zone profile. Every easy run
-  // came out about eleven minutes long, and a week of them put the weekly
-  // total out by nearly an hour.
-  const JOSH_Z2: [number, number] = [245, 283]; // 4:05–4:43/km
-  const resolve = () => JOSH_Z2;
+      return arrayMove(s, from, to);
+    });
+  }
 
-  it("uses the middle of a prescribed band, not the generic table", () => {
-    expect(stepPaceSecPerKm({ kind: "work" }, "easy", resolve)).toBe(264);
-    // Without a resolver it falls back, which is the old behaviour.
-    expect(stepPaceSecPerKm({ kind: "work" }, "easy")).toBe(330);
-  });
+  async function loadTemplate(templateId: string) {
+    const tpl = (templates ?? []).find((t: any) => t.id === templateId);
+    if (!tpl) return;
 
-  it("an explicit pace on the step beats even the zone profile", () => {
-    expect(stepPaceSecPerKm({ kind: "work", target_pace_sec_per_km: 250 }, "easy", resolve)).toBe(250);
-  });
+    const { data: tsteps, error } = await supabase
+      .from("template_steps")
+      .select("*")
+      .eq("template_id", templateId)
+      .order("step_order");
 
-  it("falls back when the profile cannot resolve the target", () => {
-    expect(stepPaceSecPerKm({ kind: "work" }, "easy", () => null)).toBe(330);
-    // A band with an unusable bound is not a band.
-    expect(stepPaceSecPerKm({ kind: "work" }, "easy", () => [NaN, 280] as any)).toBe(330);
-    expect(stepPaceSecPerKm({ kind: "work" }, "easy", () => [0, 0])).toBe(330);
-  });
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
 
-  it("the 10 km easy run comes back at the athlete's pace, not the table's", () => {
-    const steps = [{ kind: "work", reps: 1, target_kind: "distance", target_distance_m: 10000 }];
+    setTitle((tpl as any).title ?? "");
+    setNotes((tpl as any).notes ?? "");
+    setDayType("training");
+    setIntent((tpl as any).intent);
+    setStructure((tpl as any).structure);
+    setIsLongRun(!!(tpl as any).is_long_run);
+    setAppliedFromTemplateId(templateId);
 
-    const generic = estimateStepsVolume(steps, "easy");
-    expect(Math.round(generic.totalSeconds / 60)).toBe(55); // what was on screen
+    setSteps(
+      (tsteps ?? []).map((s: any) => {
+        const inferred = inferWorkoutTargetMode(s) as TargetMode;
 
-    const real = estimateStepsVolume(steps, "easy", resolve);
-    expect(Math.round(real.totalSeconds / 60)).toBe(44); // 10 km at 4:24/km
-    // Distance is unaffected — only the time was ever wrong.
-    expect(real.totalM).toBe(generic.totalM);
-  });
+        return withUid({
+          kind: s.kind,
+          reps: s.reps,
+          set_count: s.set_count,
+          target_kind: s.target_kind,
+          target_distance_m: s.target_distance_m,
+          target_time_seconds: s.target_time_seconds,
 
-  it("a session's own distance never changes, whichever pace is used", () => {
-    const steps = [
-      { kind: "warmup", target_kind: "distance", target_distance_m: 3000 },
-      { kind: "work", reps: 5, target_kind: "distance", target_distance_m: 1000 },
-      { kind: "cooldown", target_kind: "distance", target_distance_m: 2000 },
-    ];
-    expect(estimateStepsVolume(steps, "threshold").totalM).toBe(
-      estimateStepsVolume(steps, "threshold", resolve).totalM,
+          target_mode: (s.target_mode ?? inferred) as TargetMode,
+          target_pace_sec_per_km: s.target_pace_sec_per_km,
+          target_threshold_pace_pct: s.target_threshold_pace_pct,
+          target_threshold_hr_pct: s.target_threshold_hr_pct,
+          target_zone: s.target_zone,
+          target_rpe: s.target_rpe,
+
+          is_ladder: s.is_ladder,
+          counts_toward_distance: s.counts_toward_distance,
+          recovery_between_reps_seconds: s.recovery_between_reps_seconds,
+          recovery_between_reps_mode: s.recovery_between_reps_mode,
+          recovery_between_reps_target_kind: s.recovery_between_reps_target_kind ?? "time",
+          recovery_between_reps_distance_m: s.recovery_between_reps_distance_m,
+          recovery_between_sets_seconds: s.recovery_between_sets_seconds,
+          recovery_between_sets_mode: s.recovery_between_sets_mode,
+          recovery_between_sets_target_kind: s.recovery_between_sets_target_kind ?? "time",
+          recovery_between_sets_distance_m: s.recovery_between_sets_distance_m,
+          recovery_mode: s.recovery_mode,
+          recovery_target_kind: s.recovery_target_kind,
+          recovery_target_seconds: s.recovery_target_seconds,
+          recovery_target_distance_m: s.recovery_target_distance_m,
+          notes: s.notes,
+        });
+      }),
     );
+
+    toast.success(`Loaded "${(tpl as any).name}" — edit freely before saving`);
+  }
+
+  async function save() {
+    if (!effectiveAthleteId) {
+      toast.error("Pick an athlete");
+      return;
+    }
+
+    if (!title) {
+      toast.error("Title is required");
+      return;
+    }
+
+    if (dayType === "training") {
+      if (!intent || !structure) {
+        toast.error("Training sessions need intent and structure");
+        return;
+      }
+    }
+
+    if (dayType === "cross_training" && !activityType) {
+      toast.error("Pick an activity type (Gym / Ride / Swim)");
+      return;
+    }
+
+    // Validate target values against the same ranges the database enforces
+    // (pct 1–200, RPE 1–10) BEFORE inserting the session row — otherwise a
+    // bad value fails the steps insert with a cryptic constraint error and
+    // leaves an orphaned, step-less session behind.
+    if (dayType !== "cross_training") {
+      for (let i = 0; i < steps.length; i++) {
+        const s = steps[i];
+        if (s.kind !== "work") continue;
+        const m = (s.target_mode ?? inferWorkoutTargetMode(s as any)) as TargetMode;
+        if (
+          m === "threshold_pace_pct" &&
+          s.target_threshold_pace_pct != null &&
+          (s.target_threshold_pace_pct <= 0 || s.target_threshold_pace_pct > 200)
+        ) {
+          toast.error(`Step ${i + 1}: threshold pace percent must be between 1 and 200`);
+          return;
+        }
+        if (
+          m === "threshold_hr_pct" &&
+          s.target_threshold_hr_pct != null &&
+          (s.target_threshold_hr_pct <= 0 || s.target_threshold_hr_pct > 200)
+        ) {
+          toast.error(`Step ${i + 1}: threshold HR percent must be between 1 and 200`);
+          return;
+        }
+        if (m === "rpe" && s.target_rpe != null && (s.target_rpe < 1 || s.target_rpe > 10)) {
+          toast.error(`Step ${i + 1}: RPE must be between 1 and 10`);
+          return;
+        }
+      }
+    }
+
+    const isGymPlan = dayType === "cross_training" && activityType === "gym";
+
+    // Maps the coach-friendly easy/moderate/hard picker to a concrete RPE —
+    // sessions.rpe is already correctly wired into session_training_load(),
+    // so this gets the planned session counting toward training load
+    // immediately without needing to touch that function (see the
+    // migration's note on why that's being avoided for now).
+    const GYM_INTENSITY_TO_RPE: Record<string, number> = {
+      easy: 3,
+      moderate: 5,
+      hard: 8,
+    };
+
+    const { data: sess, error } = await supabase
+      .from("sessions")
+      .insert({
+        athlete_id: effectiveAthleteId,
+        created_by: user!.id,
+        session_date: sessionDate,
+        time_of_day: timeOfDay || null,
+        title,
+        day_type: dayType as any,
+        intent: dayType === "training" ? (intent as any) : null,
+        structure: dayType === "training" ? (structure as any) : null,
+        is_long_run: dayType === "training" ? isLongRun : false,
+        notes: notes || null,
+        is_planned: !wasCompleted,
+        ...(wasCompleted ? { completed_at: new Date().toISOString() } : {}),
+        applied_from_template_id: appliedFromTemplateId,
+        // Was hardcoded null for anything other than cross_training — a
+        // standard training-day session is always running in this app's
+        // data model (cross_training is the separate path for ride/swim/
+        // gym), so leaving it null here meant a manually-created run could
+        // never be told apart from "no data at all" by anything that reads
+        // activity_type — including the activity icon (fell through to the
+        // generic Footprints fallback instead of the running-specific
+        // icon) and get_athlete_biomechanics_trend's own defensive
+        // `activity_type IS NULL OR IN ('run','track')` workaround, which
+        // only existed because this was never set at the source. Applies
+        // to every day_type except cross_training (the coach's own choice
+        // of sport) and rest (nothing happened, nothing to name).
+        activity_type: dayType === "cross_training" ? activityType : dayType === "rest" ? null : "run",
+        gym_category: isGymPlan ? gymCategory || null : null,
+        gym_subtype: isGymPlan && gymCategory === "strength_resistance" ? gymSubtype || null : null,
+        gym_intensity: isGymPlan ? gymIntensity || null : null,
+        total_time_seconds: isGymPlan && gymDuration > 0 ? gymDuration * 60 : null,
+        // Explicit RPE (from the "Already happened" slider above) wins over
+        // the gym-intensity-derived fallback if both are somehow present —
+        // it's the more direct, deliberate signal.
+        rpe: manualRpe ?? (isGymPlan && gymIntensity ? GYM_INTENSITY_TO_RPE[gymIntensity] : null),
+      } as any)
+      .select()
+      .single();
+
+    if (error || !sess) {
+      toast.error(error?.message ?? "Failed");
+      return;
+    }
+
+    // Cross-training (gym/ride/swim) doesn't use the running warmup/work/
+    // cooldown step model — nothing to insert into `steps` for it.
+    if (dayType === "cross_training") {
+      toast.success("Session created");
+      navigate({ to: "/app/sessions/$sessionId", params: { sessionId: sess.id } });
+      return;
+    }
+
+    const isContinuous = dayType === "training" && structure === "continuous";
+    const stepsToSave = isContinuous ? steps.map(flattenWorkToContinuous) : steps;
+
+    const stepRows = stepsToSave.map((s, i) => {
+      const cleaned = s.kind === "work" ? normalizeWorkTargetForSave(s) : s;
+      const mode = cleaned.kind === "work" ? ((cleaned.target_mode ?? "open") as TargetMode) : null;
+
+      return {
+        session_id: sess.id,
+        step_order: i + 1,
+
+        kind: cleaned.kind,
+        reps: cleaned.reps,
+
+        set_count: cleaned.kind === "work" ? Math.max(1, cleaned.set_count ?? 1) : 1,
+
+        target_kind: cleaned.target_kind ?? null,
+        target_distance_m: cleaned.target_distance_m ?? null,
+        target_time_seconds: cleaned.target_time_seconds ?? null,
+
+        target_mode: mode,
+        target_pace_sec_per_km: cleaned.target_pace_sec_per_km ?? null,
+        target_threshold_pace_pct: cleaned.target_threshold_pace_pct ?? null,
+        target_threshold_hr_pct: cleaned.target_threshold_hr_pct ?? null,
+        target_zone: cleaned.target_zone ?? null,
+        target_rpe: cleaned.target_rpe ?? null,
+
+        is_ladder: cleaned.kind === "work" ? !!cleaned.is_ladder : false,
+        counts_toward_distance: cleaned.counts_toward_distance ?? true,
+
+        recovery_between_reps_seconds:
+          cleaned.kind === "work" ? (cleaned.recovery_between_reps_seconds ?? null) : null,
+        recovery_between_reps_mode:
+          cleaned.kind === "work" ? (cleaned.recovery_between_reps_mode ?? null) : null,
+        recovery_between_reps_target_kind:
+          cleaned.kind === "work" ? (cleaned.recovery_between_reps_target_kind ?? "time") : "time",
+        recovery_between_reps_distance_m:
+          cleaned.kind === "work" ? (cleaned.recovery_between_reps_distance_m ?? null) : null,
+
+        recovery_between_sets_seconds:
+          cleaned.kind === "work" && (cleaned.set_count ?? 1) > 1
+            ? (cleaned.recovery_between_sets_seconds ?? null)
+            : null,
+        recovery_between_sets_mode:
+          cleaned.kind === "work" && (cleaned.set_count ?? 1) > 1
+            ? (cleaned.recovery_between_sets_mode ?? null)
+            : null,
+        recovery_between_sets_target_kind:
+          cleaned.kind === "work" && (cleaned.set_count ?? 1) > 1
+            ? (cleaned.recovery_between_sets_target_kind ?? "time")
+            : "time",
+        recovery_between_sets_distance_m:
+          cleaned.kind === "work" && (cleaned.set_count ?? 1) > 1
+            ? (cleaned.recovery_between_sets_distance_m ?? null)
+            : null,
+
+        recovery_mode: cleaned.recovery_mode ?? null,
+        recovery_target_kind: cleaned.recovery_target_kind ?? null,
+        recovery_target_seconds: cleaned.recovery_target_seconds ?? null,
+        recovery_target_distance_m: cleaned.recovery_target_distance_m ?? null,
+        notes: cleaned.notes ?? null,
+      };
+    });
+
+    const { data: insertedSteps, error: stepErr } = await supabase
+      .from("steps")
+      .insert(stepRows)
+      .select("id, kind, reps, set_count, target_kind, target_distance_m, target_time_seconds, target_pace_sec_per_km");
+
+    if (stepErr) {
+      toast.error(stepErr.message);
+      return;
+    }
+
+    // ── Seed the rep results for a session that already happened ───────────
+    //
+    // Steps alone are a PRESCRIPTION. What a session actually did lives in
+    // interval_results, and sessions.total_distance_m is recomputed from
+    // those rows — so logging a 10 km run that has already been done wrote
+    // the 10 km onto the step and nowhere else. The session showed no
+    // distance, the reps rendered empty, and every rep had to be re-entered
+    // by hand on the detail page with numbers that had just been typed in on
+    // this one.
+    //
+    // Only when "already happened" is ticked. For a planned session the
+    // targets are exactly that, and pre-filling actuals would record training
+    // that has not been done yet — much worse than an empty rep row.
+    if (wasCompleted && insertedSteps && insertedSteps.length > 0) {
+      const repRows: any[] = [];
+      for (const st of insertedSteps as any[]) {
+        const reps = Math.max(1, Number(st.reps) || 1);
+        const sets = Math.max(1, Number(st.set_count) || 1);
+
+        const distance = st.target_kind === "distance" ? Number(st.target_distance_m) || null : null;
+        let time = st.target_kind === "time" ? Number(st.target_time_seconds) || null : null;
+        const pace = Number(st.target_pace_sec_per_km) || null;
+
+        // A distance plus a pace gives the time, which is the whole reason
+        // the pace box is on this form. Where the target is a zone or a
+        // threshold percentage rather than a number, time is left blank
+        // rather than resolved against the athlete's profile — that would be
+        // recording an estimate as something the athlete actually ran.
+        if (distance && !time && pace) time = Math.round((distance / 1000) * pace);
+
+        if (!distance && !time) continue;
+
+        for (let setN = 1; setN <= sets; setN++) {
+          for (let repN = 1; repN <= reps; repN++) {
+            repRows.push({
+              step_id: st.id,
+              set_number: setN,
+              rep_number: repN,
+              actual_distance_m: distance,
+              actual_time_seconds: time,
+              actual_pace_sec_per_km:
+                distance && time ? Math.round((time / distance) * 1000) : (pace ?? null),
+            });
+          }
+        }
+      }
+
+      if (repRows.length > 0) {
+        const { error: repErr } = await supabase.from("interval_results").insert(repRows);
+        if (repErr) {
+          // Not fatal — the session and its steps exist and are editable.
+          // Telling the coach it failed outright would send them looking for
+          // a session that is sitting there perfectly fine apart from its
+          // rep rows.
+          toast.warning("Session created, but the rep results could not be filled in", {
+            description: repErr.message,
+          });
+        } else {
+          // Totals come from the reps, the same way the detail page computes
+          // them after any rep edit — rather than a second implementation
+          // here that could disagree with it.
+          let totalDistance = 0;
+          let totalTime = 0;
+          let workDistance = 0;
+          let workTime = 0;
+          let easyDistance = 0;
+          let easyTime = 0;
+          const kindById = new Map((insertedSteps as any[]).map((st) => [st.id, st.kind]));
+          for (const r of repRows) {
+            const d = Number(r.actual_distance_m) || 0;
+            const t = Number(r.actual_time_seconds) || 0;
+            totalDistance += d;
+            totalTime += t;
+            const kind = kindById.get(r.step_id);
+            if (kind === "work" || kind === "strides") {
+              workDistance += d;
+              workTime += t;
+            } else if (kind === "warmup" || kind === "cooldown") {
+              easyDistance += d;
+              easyTime += t;
+            }
+          }
+
+          await supabase
+            .from("sessions")
+            .update({
+              total_distance_m: totalDistance || null,
+              // A gym session already set this from its own duration field;
+              // don't overwrite a real figure with a zero.
+              total_time_seconds: totalTime || undefined,
+              work_distance_m: workDistance || null,
+              work_time_s: workTime || null,
+              work_avg_pace_sec_per_km:
+                workDistance > 0 && workTime > 0 ? (workTime / workDistance) * 1000 : null,
+              easy_avg_pace_sec_per_km:
+                easyDistance > 0 && easyTime > 0 ? (easyTime / easyDistance) * 1000 : null,
+            } as any)
+            .eq("id", sess.id);
+        }
+      }
+    }
+
+    toast.success("Session created");
+    navigate({ to: "/app/sessions/$sessionId", params: { sessionId: sess.id } });
+  }
+
+  return (
+    <AppShell fullWidth>
+      <div className="max-w-7xl space-y-6">
+        <div className="flex items-center gap-3">
+          <div
+            className="h-10 w-10 shrink-0 rounded-lg grid place-items-center"
+            style={{ background: "var(--accent-red)" }}
+          >
+            <CalendarDays className="h-5 w-5 text-white" strokeWidth={2} />
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Training</div>
+            <h1 className="text-2xl font-bold leading-tight">New session</h1>
+          </div>
+        </div>
+
+        {isCoach && (templates ?? []).length > 0 && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Start from a template</CardTitle>
+              <CardDescription>Prefills the builder. Everything stays fully editable.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Select value="" onValueChange={loadTemplate}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Pick a template…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(templates ?? []).map((t: any) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </CardContent>
+          </Card>
+        )}
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Basics</CardTitle>
+          </CardHeader>
+          <CardContent className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div>
+              <Label>Athlete</Label>
+              {isCoach ? (
+                <Select value={athleteId} onValueChange={setAthleteId}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder="Pick athlete" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {myAthlete && (
+                      <SelectItem value={myAthlete.id}>
+                        {myAthlete.name} (me)
+                      </SelectItem>
+                    )}
+                    {(rosterAthletes ?? []).map((a: any) => (
+                      <SelectItem key={a.id} value={a.id}>
+                        {a.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input className="mt-1" value={myAthlete?.name ?? ""} readOnly />
+              )}
+            </div>
+
+            <div>
+              <Label>Date</Label>
+              <Input
+                type="date"
+                value={sessionDate}
+                onChange={(e) => setSessionDate(e.target.value)}
+                className="mt-1"
+              />
+            </div>
+
+            <div>
+              <Label>Status</Label>
+              <div className="flex gap-2 mt-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={!wasCompleted ? "default" : "outline"}
+                  onClick={() => setWasCompleted(false)}
+                >
+                  Planned
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={wasCompleted ? "default" : "outline"}
+                  onClick={() => setWasCompleted(true)}
+                >
+                  Already happened
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {wasCompleted
+                  ? "Logs straight to the calendar as done — for a session with no GPS file, or backfilling old training history. Counts toward training load and readiness right away."
+                  : "Shows up as a plan for this date — the normal choice when scheduling ahead."}
+              </p>
+            </div>
+
+            {wasCompleted && (
+              <div>
+                <Label>RPE — how hard did it feel? (optional)</Label>
+                <Slider
+                  min={1}
+                  max={10}
+                  step={1}
+                  value={[manualRpe ?? 5]}
+                  onValueChange={(v) => setManualRpe(v[0])}
+                  className="mt-2"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  {manualRpe != null ? `${manualRpe}/10` : "Not set — drag to log it now, or leave blank and add it later"}
+                </p>
+              </div>
+            )}
+
+            <div>
+              <Label>Approx. time (optional)</Label>
+              <Select value={timeOfDay || "unset"} onValueChange={(v) => setTimeOfDay(v === "unset" ? "" : v)}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="unset">Not set</SelectItem>
+                  {TIME_OF_DAY_VALUES.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {TIME_OF_DAY_LABEL[t]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">
+                Only matters for sessions with no uploaded file — keeps this session in the right spot in the list
+                relative to others the same day (e.g. a Gym session after an AM run).
+              </p>
+            </div>
+
+            <div>
+              <Label>Day type</Label>
+              <Select value={dayType} onValueChange={setDayType}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SESSION_DAY_TYPES.map((d) => (
+                    <SelectItem key={d} value={d}>
+                      {DAY_TYPE_LABEL[d]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="sm:col-span-2 lg:col-span-3">
+              <Label>Title</Label>
+              <Input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="e.g. 6x800m @ 3k pace, 200m jog"
+                className="mt-1"
+              />
+            </div>
+
+            {dayType === "training" && (
+              <>
+                <div>
+                  <Label>Intent</Label>
+                  <Select value={intent} onValueChange={setIntent}>
+                    <SelectTrigger className="mt-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SESSION_INTENTS.map((i) => (
+                        <SelectItem key={i} value={i}>
+                          {INTENT_LABEL[i]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label>Structure</Label>
+                  <Select value={structure} onValueChange={handleStructureChange}>
+                    <SelectTrigger className="mt-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SESSION_STRUCTURES.map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {STRUCTURE_LABEL[s]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Checkbox id="is-long-run" checked={isLongRun} onCheckedChange={(v) => setIsLongRun(!!v)} />
+                  <Label htmlFor="is-long-run" className="text-sm font-normal">
+                    Long run — tracked separately for weekly long-run accountability
+                  </Label>
+                </div>
+              </>
+            )}
+
+            {dayType === "cross_training" && (
+              <>
+                <div>
+                  <Label>Activity type</Label>
+                  <Select value={activityType} onValueChange={setActivityType}>
+                    <SelectTrigger className="mt-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="gym">Gym</SelectItem>
+                      <SelectItem value="ride">Ride</SelectItem>
+                      <SelectItem value="swim">Swim</SelectItem>
+                      <SelectItem value="walk">Walk</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {activityType === "gym" && (
+                  <div>
+                    <Label>Gym type</Label>
+                    <Select
+                      value={gymCategory}
+                      onValueChange={(v) => {
+                        setGymCategory(v);
+                        // Subtype only ever applies to Strength & Resistance —
+                        // clear any stale value if the category changes away
+                        // from it, so a leftover "Upper" doesn't silently
+                        // stick to e.g. a Mobility session.
+                        if (v !== "strength_resistance") setGymSubtype("");
+                      }}
+                    >
+                      <SelectTrigger className="mt-1">
+                        <SelectValue placeholder="Pick a type…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="mobility">Mobility</SelectItem>
+                        <SelectItem value="flexibility_core">Flexibility / Core</SelectItem>
+                        <SelectItem value="circuit">Circuit</SelectItem>
+                        <SelectItem value="strength_resistance">Strength &amp; Resistance</SelectItem>
+                        <SelectItem value="cardio">Cardio</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {activityType === "gym" && gymCategory === "strength_resistance" && (
+                  <div>
+                    <Label>Focus</Label>
+                    <Select value={gymSubtype} onValueChange={setGymSubtype}>
+                      <SelectTrigger className="mt-1">
+                        <SelectValue placeholder="Pick a focus…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="upper">Upper</SelectItem>
+                        <SelectItem value="lower">Lower</SelectItem>
+                        <SelectItem value="full_body">Full body</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {activityType === "gym" && (
+                  <div>
+                    <Label>Duration (min)</Label>
+                    <Input
+                      type="number"
+                      value={gymDuration}
+                      onChange={(e) => setGymDuration(Number(e.target.value))}
+                      className="mt-1"
+                    />
+                  </div>
+                )}
+
+                {activityType === "gym" && (
+                  <div>
+                    <Label>Intensity</Label>
+                    <Select value={gymIntensity} onValueChange={setGymIntensity}>
+                      <SelectTrigger className="mt-1">
+                        <SelectValue placeholder="Pick intensity…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="easy">Easy</SelectItem>
+                        <SelectItem value="moderate">Moderate</SelectItem>
+                        <SelectItem value="hard">Hard</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </>
+            )}
+
+            <div className="sm:col-span-2 lg:col-span-3">
+              <Label>Notes</Label>
+              <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
+            </div>
+          </CardContent>
+        </Card>
+
+        {dayType !== "cross_training" && (
+          <StepsCard
+            steps={steps}
+            structure={structure}
+            updateStep={updateStep}
+            removeStep={removeStep}
+            addStep={addStep}
+            moveStep={moveStep}
+            reorder={(uids) =>
+              setSteps((prev) => {
+                // uids = new order of middle uids; warmups stay leading, cooldowns trailing
+                const warm = prev.filter((s) => s.kind === "warmup");
+                const cool = prev.filter((s) => s.kind === "cooldown");
+                const middle = prev.filter((s) => s.kind !== "warmup" && s.kind !== "cooldown");
+                const byUid = new Map(middle.map((s) => [s._uid!, s]));
+                const newMiddle = uids.map((u) => byUid.get(u)!).filter(Boolean);
+                return [...warm, ...newMiddle, ...cool];
+              })
+            }
+          />
+        )}
+
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={() => navigate({ to: "/app/sessions" })}>
+            Cancel
+          </Button>
+          <Button onClick={save}>Save session</Button>
+        </div>
+      </div>
+    </AppShell>
+  );
+}
+
+// ===== Steps card with anchored warmup/cooldown + sortable middle =====
+
+type StepEditorProps = {
+  step: StepDraft;
+  index: number;
+  position: number; // 1-based for label
+  onUpdate: (patch: Partial<StepDraft>) => void;
+  onRemove: () => void;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+  draggable?: boolean;
+  anchored?: "top" | "bottom";
+  structure?: string;
+};
+
+function WorkTargetModeFields({
+  step,
+  onUpdate,
+}: {
+  step: StepDraft;
+  onUpdate: (p: Partial<StepDraft>) => void;
+}) {
+  // inferWorkoutTargetMode always returns a valid mode ("open" as its own
+  // fallback), so no extra "?? pace" default is needed here.
+  const mode = (step.target_mode ?? inferWorkoutTargetMode(step as any)) as TargetMode;
+
+  function updateMode(next: TargetMode) {
+    onUpdate(setModePayload(next, { ...step, target_mode: next }));
+  }
+
+  return (
+    <div className="col-span-2 rounded-md border p-2 grid grid-cols-2 gap-2 items-start">
+      <div>
+        <Label className="text-xs">Target mode</Label>
+        <Select value={mode} onValueChange={(v) => updateMode(v as TargetMode)}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="pace">Pace</SelectItem>
+            <SelectItem value="threshold_pace_pct">Threshold pace percent</SelectItem>
+            <SelectItem value="threshold_hr_pct">Threshold HR percent</SelectItem>
+            <SelectItem value="zone">Zone</SelectItem>
+            <SelectItem value="rpe">RPE</SelectItem>
+            <SelectItem value="open">Open / no target</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Each mode's own value input sits in the second column, next to
+          Target mode, instead of stacking on its own full-width row below
+          it — pace/percent/zone/RPE only ever need one short input, so a
+          whole row each was wasted space. */}
+
+      {mode === "pace" && (
+        <div>
+          <Label className="text-xs">Target pace mm:ss /km</Label>
+          <Input
+            placeholder="3:30"
+            defaultValue={step.target_pace_sec_per_km ? secToClock(step.target_pace_sec_per_km) : ""}
+            onChange={(e) => {
+              // Clearing the field (or typing something unparseable) must
+              // store null, not 0/NaN — null is what save-time
+              // normalization reads as "no pace entered → open".
+              const raw = e.target.value.trim();
+              const secs = raw === "" ? null : clockToSec(raw);
+              onUpdate({
+                target_pace_sec_per_km: secs != null && Number.isFinite(secs) && secs > 0 ? secs : null,
+              });
+            }}
+          />
+        </div>
+      )}
+
+      {mode === "threshold_pace_pct" && (
+        <div>
+          <Label className="text-xs">Threshold pace percent</Label>
+          <Input
+            type="number"
+            min={1}
+            max={200}
+            placeholder="100"
+            value={step.target_threshold_pace_pct ?? ""}
+            onChange={(e) => {
+              const v = e.target.value === "" ? null : Number(e.target.value);
+              onUpdate({ target_threshold_pace_pct: v != null && Number.isFinite(v) ? v : null });
+            }}
+          />
+        </div>
+      )}
+
+      {mode === "threshold_pace_pct" && (
+        <p className="col-span-2 text-[11px] text-muted-foreground -mt-1">
+          Example: 100 means threshold pace. 95 means slightly slower than threshold.
+        </p>
+      )}
+
+      {mode === "threshold_hr_pct" && (
+        <div>
+          <Label className="text-xs">Threshold HR percent</Label>
+          <Input
+            type="number"
+            min={1}
+            max={200}
+            placeholder="95"
+            value={step.target_threshold_hr_pct ?? ""}
+            onChange={(e) => {
+              const v = e.target.value === "" ? null : Number(e.target.value);
+              onUpdate({ target_threshold_hr_pct: v != null && Number.isFinite(v) ? v : null });
+            }}
+          />
+        </div>
+      )}
+
+      {mode === "threshold_hr_pct" && (
+        <p className="col-span-2 text-[11px] text-muted-foreground -mt-1">
+          Example: 95 means 95 percent of threshold heart rate.
+        </p>
+      )}
+
+      {mode === "zone" && (
+        <div>
+          <Label className="text-xs">Zone</Label>
+          {/* Previously this displayed "Z3" whenever no zone was chosen while
+              the underlying state was still null — the coach saw a target
+              that was never going to be saved. A real placeholder keeps the
+              display honest: pick a zone and it saves; leave it and the step
+              saves as open (no target). */}
+          <Select
+            value={step.target_zone ?? ""}
+            onValueChange={(v) => onUpdate({ target_zone: v as WorkoutTargetZone })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Pick a zone…" />
+            </SelectTrigger>
+            <SelectContent>
+              {WORKOUT_TARGET_ZONES.map((z) => (
+                <SelectItem key={z} value={z}>
+                  {z.toUpperCase()}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {mode === "rpe" && (
+        <div>
+          <Label className="text-xs">RPE</Label>
+          <Input
+            type="number"
+            min={1}
+            max={10}
+            placeholder="6"
+            value={step.target_rpe ?? ""}
+            onChange={(e) => {
+              const v = e.target.value === "" ? null : Number(e.target.value);
+              onUpdate({ target_rpe: v != null && Number.isFinite(v) ? v : null });
+            }}
+          />
+        </div>
+      )}
+
+      {mode === "open" && (
+        <p className="col-span-2 text-[11px] text-muted-foreground">
+          No fixed intensity target. Useful for less advanced athletes, easy aerobic work, or sessions guided by feel.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function StepFields({
+  step: s,
+  onUpdate,
+  structure,
+}: {
+  step: StepDraft;
+  onUpdate: (p: Partial<StepDraft>) => void;
+  structure?: string;
+}) {
+  if (s.kind === "work") {
+    const isContinuous = structure === "continuous";
+
+    if (isContinuous) {
+      return (
+        <div className="grid grid-cols-2 gap-2">
+          <div className="col-span-2 text-[11px] text-muted-foreground leading-snug -mt-1">
+            Continuous effort — one sustained block. For reps with recovery, change the session structure to
+            Reps/Intervals.
+          </div>
+
+          <div>
+            <Label className="text-xs">Target</Label>
+            <Select value={s.target_kind} onValueChange={(v) => onUpdate({ target_kind: v as any })}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="distance">Distance (m)</SelectItem>
+                <SelectItem value="time">Time (mm:ss)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {s.target_kind === "distance" ? (
+            <div>
+              <Label className="text-xs">Distance (m)</Label>
+              <Input
+                type="number"
+                value={s.target_distance_m ?? ""}
+                onChange={(e) => onUpdate({ target_distance_m: Number(e.target.value) })}
+              />
+            </div>
+          ) : (
+            <div>
+              <Label className="text-xs">Time (mm:ss)</Label>
+              <Input
+                placeholder="40:00"
+                defaultValue={s.target_time_seconds ? secToClock(s.target_time_seconds) : ""}
+                onChange={(e) => onUpdate({ target_time_seconds: clockToSec(e.target.value) })}
+              />
+            </div>
+          )}
+
+          <WorkTargetModeFields step={s} onUpdate={onUpdate} />
+        </div>
+      );
+    }
+
+    const repsKind = s.recovery_between_reps_target_kind ?? "time";
+    const setsKind = s.recovery_between_sets_target_kind ?? "time";
+
+    return (
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <Label className="text-xs">Sets</Label>
+          <Input
+            type="number"
+            min={1}
+            value={s.set_count ?? 1}
+            onChange={(e) => onUpdate({ set_count: Math.max(1, Number(e.target.value)) })}
+          />
+        </div>
+
+        <div>
+          <Label className="text-xs">Reps</Label>
+          <Input type="number" value={s.reps} onChange={(e) => onUpdate({ reps: Number(e.target.value) })} />
+        </div>
+
+        <div>
+          <Label className="text-xs">Target</Label>
+          <Select value={s.target_kind} onValueChange={(v) => onUpdate({ target_kind: v as any })}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="distance">Distance (m)</SelectItem>
+              <SelectItem value="time">Time (mm:ss)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {s.target_kind === "distance" ? (
+          <div>
+            <Label className="text-xs">Distance (m)</Label>
+            <Input
+              type="number"
+              value={s.target_distance_m ?? ""}
+              onChange={(e) => onUpdate({ target_distance_m: Number(e.target.value) })}
+            />
+          </div>
+        ) : (
+          <div>
+            <Label className="text-xs">Time (mm:ss)</Label>
+            <Input placeholder="3:00" onChange={(e) => onUpdate({ target_time_seconds: clockToSec(e.target.value) })} />
+          </div>
+        )}
+
+        <WorkTargetModeFields step={s} onUpdate={onUpdate} />
+
+        {/* Recovery between reps */}
+        <div className="col-span-2 rounded-md border p-2 space-y-2">
+          <div className="text-xs font-semibold">Recovery between reps</div>
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <Label className="text-xs">Mode</Label>
+              <Select
+                value={s.recovery_between_reps_mode ?? "jog"}
+                onValueChange={(v) => onUpdate({ recovery_between_reps_mode: v as any })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="standing">Standing</SelectItem>
+                  <SelectItem value="walk">Walk</SelectItem>
+                  <SelectItem value="jog">Jog</SelectItem>
+                  <SelectItem value="float">Float</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label className="text-xs">Target</Label>
+              <Select
+                value={repsKind}
+                onValueChange={(v) => onUpdate({ recovery_between_reps_target_kind: v as any })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="time">Time</SelectItem>
+                  <SelectItem value="distance">Distance</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {repsKind === "time" ? (
+              <div>
+                <Label className="text-xs">Time (mm:ss)</Label>
+                <Input
+                  placeholder="1:30"
+                  defaultValue={s.recovery_between_reps_seconds ? secToClock(s.recovery_between_reps_seconds) : ""}
+                  onChange={(e) => onUpdate({ recovery_between_reps_seconds: clockToSec(e.target.value) })}
+                />
+              </div>
+            ) : (
+              <div>
+                <Label className="text-xs">Distance (m)</Label>
+                <Input
+                  type="number"
+                  placeholder="100"
+                  value={s.recovery_between_reps_distance_m ?? ""}
+                  onChange={(e) => onUpdate({ recovery_between_reps_distance_m: Number(e.target.value) })}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {(s.set_count ?? 1) > 1 && (
+          <div className="col-span-2 rounded-md border p-2 space-y-2">
+            <div className="text-xs font-semibold">Recovery between sets</div>
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <Label className="text-xs">Mode</Label>
+                <Select
+                  value={s.recovery_between_sets_mode ?? "walk"}
+                  onValueChange={(v) => onUpdate({ recovery_between_sets_mode: v as any })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="standing">Standing</SelectItem>
+                    <SelectItem value="walk">Walk</SelectItem>
+                    <SelectItem value="jog">Jog</SelectItem>
+                    <SelectItem value="float">Float</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label className="text-xs">Target</Label>
+                <Select
+                  value={setsKind}
+                  onValueChange={(v) => onUpdate({ recovery_between_sets_target_kind: v as any })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="time">Time</SelectItem>
+                    <SelectItem value="distance">Distance</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {setsKind === "time" ? (
+                <div>
+                  <Label className="text-xs">Time (mm:ss)</Label>
+                  <Input
+                    placeholder="3:00"
+                    defaultValue={s.recovery_between_sets_seconds ? secToClock(s.recovery_between_sets_seconds) : ""}
+                    onChange={(e) => onUpdate({ recovery_between_sets_seconds: clockToSec(e.target.value) })}
+                  />
+                </div>
+              ) : (
+                <div>
+                  <Label className="text-xs">Distance (m)</Label>
+                  <Input
+                    type="number"
+                    placeholder="400"
+                    value={s.recovery_between_sets_distance_m ?? ""}
+                    onChange={(e) => onUpdate({ recovery_between_sets_distance_m: Number(e.target.value) })}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="col-span-2 text-xs text-muted-foreground">
+          Plan:{" "}
+          <span className="font-semibold">
+            {s.set_count ?? 1} set{(s.set_count ?? 1) > 1 ? "s" : ""} × {s.reps} rep{s.reps === 1 ? "" : "s"}
+          </span>
+          {(s.set_count ?? 1) > 1 && <> = {(s.set_count ?? 1) * s.reps} total reps</>}
+        </div>
+
+        <div className="col-span-2 flex items-center gap-2 pt-1">
+          <Checkbox checked={!!s.is_ladder} onCheckedChange={(v) => onUpdate({ is_ladder: !!v })} />
+          <Label className="text-xs font-normal">
+            Ladder (reps have different distances/paces) — suppresses fatigue score until per-rep targets ship
+          </Label>
+        </div>
+      </div>
+    );
+  }
+
+  if (s.kind === "strides") {
+    return (
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <Label className="text-xs">Reps</Label>
+          <Input type="number" value={s.reps} onChange={(e) => onUpdate({ reps: Number(e.target.value) })} />
+        </div>
+
+        <div>
+          <Label className="text-xs">Distance (m)</Label>
+          <Input
+            type="number"
+            value={s.target_distance_m ?? ""}
+            onChange={(e) => onUpdate({ target_distance_m: Number(e.target.value), target_kind: "distance" })}
+          />
+        </div>
+
+        <div
+          className={`col-span-2 rounded-md border-2 p-2 ${
+            s.counts_toward_distance ? "border-emerald-500 bg-emerald-500/5" : "border-amber-500 bg-amber-500/10"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <Checkbox
+              checked={!!s.counts_toward_distance}
+              onCheckedChange={(v) => onUpdate({ counts_toward_distance: !!v })}
+            />
+            <Label className="text-xs font-semibold">
+              {s.counts_toward_distance
+                ? "✓ Counts toward weekly distance (end-of-session Stride)"
+                : "⚠ Does NOT count toward weekly distance (warm-up Run-through)"}
+            </Label>
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-1 leading-snug">
+            <strong>Strides</strong> = end-of-session work, counts toward weekly km and zone time.{" "}
+            <strong>Run-throughs</strong> = warm-up prep, must NOT count. Place before/after main work accordingly and
+            double-check this toggle before saving.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (s.kind === "recovery") {
+    return (
+      <div className="grid grid-cols-2 gap-2">
+        <div className="col-span-2 text-[11px] text-muted-foreground leading-snug -mt-1">
+          Easy effort <strong>between separate Work blocks</strong> (e.g. 90s jog between a threshold block and a speed
+          block). For recovery between reps or sets inside a single Work block, use the fields inside that Work step.
+        </div>
+
+        <div>
+          <Label className="text-xs">Mode</Label>
+          <Select value={s.recovery_mode} onValueChange={(v) => onUpdate({ recovery_mode: v as any })}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="standing">Standing</SelectItem>
+              <SelectItem value="walk">Walk</SelectItem>
+              <SelectItem value="jog">Jog</SelectItem>
+              <SelectItem value="float">Float</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div>
+          <Label className="text-xs">Target</Label>
+          <Select value={s.recovery_target_kind} onValueChange={(v) => onUpdate({ recovery_target_kind: v as any })}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="time">Time</SelectItem>
+              <SelectItem value="distance">Distance</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {s.recovery_target_kind === "time" ? (
+          <div className="col-span-2">
+            <Label className="text-xs">Recovery (mm:ss)</Label>
+            <Input
+              placeholder="1:30"
+              defaultValue={s.recovery_target_seconds ? secToClock(s.recovery_target_seconds) : ""}
+              onChange={(e) => onUpdate({ recovery_target_seconds: clockToSec(e.target.value) })}
+            />
+          </div>
+        ) : (
+          <div className="col-span-2">
+            <Label className="text-xs">Recovery distance (m)</Label>
+            <Input
+              type="number"
+              value={s.recovery_target_distance_m ?? ""}
+              onChange={(e) => onUpdate({ recovery_target_distance_m: Number(e.target.value) })}
+            />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // warmup / cooldown
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <div>
+        <Label className="text-xs">Time (mm:ss)</Label>
+        <Input
+          placeholder="10:00"
+          onChange={(e) => onUpdate({ target_time_seconds: clockToSec(e.target.value), target_kind: "time" })}
+        />
+      </div>
+
+      <div>
+        <Label className="text-xs">Distance (m)</Label>
+        <Input
+          type="number"
+          value={s.target_distance_m ?? ""}
+          onChange={(e) => onUpdate({ target_distance_m: Number(e.target.value), target_kind: "distance" })}
+        />
+      </div>
+    </div>
+  );
+}
+
+function stepTitle(s: StepDraft): string {
+  if (s.kind === "recovery") return "Recovery between blocks";
+  if (s.kind === "strides") return "Strides / Run-throughs";
+  return s.kind.charAt(0).toUpperCase() + s.kind.slice(1);
+}
+
+function StepCard({ step, position, onUpdate, onRemove, anchored, structure }: StepEditorProps) {
+  return (
+    <div className="flex flex-col h-full border rounded-md bg-background overflow-hidden">
+      <div className={`h-1.5 w-full shrink-0 ${stepKindBarClass(step.kind)}`} />
+      <div className="flex-1 min-w-0 p-3 space-y-2">
+        <div className="flex justify-between items-center">
+          <span className={`text-sm font-semibold flex items-center gap-2 ${stepKindTextClass(step.kind)}`}>
+            {anchored && <Lock className="h-3 w-3 text-muted-foreground" />}
+            {position}. {stepTitle(step)}
+            {anchored && (
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-normal">
+                anchored {anchored}
+              </span>
+            )}
+          </span>
+          <Button size="sm" variant="ghost" onClick={onRemove}>
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+        <StepFields step={step} onUpdate={onUpdate} structure={structure} />
+      </div>
+    </div>
+  );
+}
+
+function SortableStep(props: StepEditorProps & { id: string }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.id });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} className="flex flex-col h-full border rounded-md bg-background overflow-hidden">
+      <div className={`h-1.5 w-full shrink-0 ${stepKindBarClass(props.step.kind)}`} />
+      <div className="flex-1 min-w-0 p-3 space-y-2">
+        <div className="flex justify-between items-center">
+          <span className={`text-sm font-semibold flex items-center gap-2 ${stepKindTextClass(props.step.kind)}`}>
+            <button
+              type="button"
+              className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground"
+              {...attributes}
+              {...listeners}
+              aria-label="Drag to reorder"
+            >
+              <GripVertical className="h-4 w-4" />
+            </button>
+            {props.position}. {stepTitle(props.step)}
+          </span>
+
+          <div className="flex items-center gap-1">
+            <Button size="sm" variant="ghost" onClick={props.onMoveUp} disabled={!props.onMoveUp} aria-label="Move up">
+              <ArrowUp className="h-4 w-4" />
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={props.onMoveDown}
+              disabled={!props.onMoveDown}
+              aria-label="Move down"
+            >
+              <ArrowDown className="h-4 w-4" />
+            </Button>
+            <Button size="sm" variant="ghost" onClick={props.onRemove}>
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+        <StepFields step={props.step} onUpdate={props.onUpdate} structure={props.structure} />
+      </div>
+    </div>
+  );
+}
+
+function StepsCard({
+  steps,
+  structure,
+  updateStep,
+  removeStep,
+  addStep,
+  moveStep,
+  reorder,
+}: {
+  steps: StepDraft[];
+  structure: string;
+  updateStep: (i: number, patch: Partial<StepDraft>) => void;
+  removeStep: (i: number) => void;
+  addStep: (kind: StepDraft["kind"]) => void;
+  moveStep: (from: number, to: number) => void;
+  reorder: (uids: string[]) => void;
+}) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  // Partition by global index so we can pass real indices to updateStep/removeStep.
+  const warmIdx: number[] = [];
+  const midIdx: number[] = [];
+  const coolIdx: number[] = [];
+
+  steps.forEach((s, i) => {
+    if (s.kind === "warmup") warmIdx.push(i);
+    else if (s.kind === "cooldown") coolIdx.push(i);
+    else midIdx.push(i);
   });
 
-  it("a time-based target converts to MORE distance at a faster pace", () => {
-    const steps = [{ kind: "work", target_kind: "time", target_time_seconds: 1800 }];
-    const generic = estimateStepsVolume(steps, "easy");
-    const real = estimateStepsVolume(steps, "easy", resolve);
-    expect(real.totalM).toBeGreaterThan(generic.totalM);
-    // Time is what was prescribed, so it is identical either way.
-    expect(real.totalSeconds).toBe(generic.totalSeconds);
-  });
-});
+  const midUids = midIdx.map((i) => steps[i]._uid!);
+
+  function handleDragEnd(ev: DragEndEvent) {
+    const { active, over } = ev;
+    if (!over || active.id === over.id) return;
+
+    const from = midUids.indexOf(String(active.id));
+    const to = midUids.indexOf(String(over.id));
+
+    if (from === -1 || to === -1) return;
+
+    reorder(arrayMove(midUids, from, to));
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Steps</CardTitle>
+        <CardDescription>
+          Warmup is locked at the top, cooldown at the bottom. Drag the middle steps (Work / Recovery between blocks /
+          Strides) to reorder.
+        </CardDescription>
+      </CardHeader>
+
+      {/* items-start stops CSS Grid's default stretch behavior — without it,
+          a short step list (e.g. just Warmup) gets pulled down to match
+          whichever column is taller, leaving a large dead gap under the
+          actual cards. Each column now sizes to its own content. */}
+      <CardContent className="grid lg:grid-cols-3 gap-4 items-start">
+        <div className="lg:col-span-2 space-y-3">
+          {warmIdx.map((i, pos) => (
+            <StepCard
+              key={steps[i]._uid}
+              step={steps[i]}
+              index={i}
+              position={pos + 1}
+              anchored="top"
+              onUpdate={(p) => updateStep(i, p)}
+              onRemove={() => removeStep(i)}
+              structure={structure}
+            />
+          ))}
+
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={midUids} strategy={rectSortingStrategy}>
+              {midIdx.map((i, pos) => (
+                <SortableStep
+                  key={steps[i]._uid}
+                  id={steps[i]._uid!}
+                  step={steps[i]}
+                  index={i}
+                  position={warmIdx.length + pos + 1}
+                  onUpdate={(p) => updateStep(i, p)}
+                  onRemove={() => removeStep(i)}
+                  onMoveUp={pos > 0 ? () => moveStep(i, midIdx[pos - 1]) : undefined}
+                  onMoveDown={pos < midIdx.length - 1 ? () => moveStep(i, midIdx[pos + 1]) : undefined}
+                  structure={structure}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
+
+          {coolIdx.map((i, pos) => (
+            <StepCard
+              key={steps[i]._uid}
+              step={steps[i]}
+              index={i}
+              position={warmIdx.length + midIdx.length + pos + 1}
+              anchored="bottom"
+              onUpdate={(p) => updateStep(i, p)}
+              onRemove={() => removeStep(i)}
+              structure={structure}
+            />
+          ))}
+        </div>
+
+        <div className="lg:col-span-1">
+          {/* Buttons sized up (bigger padding, icon, label + short caption)
+              so the column reads as one deliberate block rather than five
+              thin rows with empty space beneath — no more forced stretch to
+              match the step list's height (see items-start above), so this
+              needs to look complete on its own. */}
+          <div className="grid grid-cols-1 gap-2.5 lg:sticky lg:top-4">
+            <Button
+              variant="outline"
+              className="h-auto py-4 px-4 justify-start items-center gap-3"
+              onClick={() => addStep("warmup")}
+            >
+              <span className={`inline-block h-3 w-3 rounded-full shrink-0 ${stepKindBarClass("warmup")}`} />
+              <span className="flex-1 text-left">
+                <span className="block text-sm font-medium">Warmup</span>
+                <span className="block text-xs text-muted-foreground font-normal">Easy time or distance to start</span>
+              </span>
+              <Plus className="h-4 w-4 shrink-0" />
+            </Button>
+
+            <Button
+              variant="outline"
+              className="h-auto py-4 px-4 justify-start items-center gap-3"
+              onClick={() => addStep("work")}
+            >
+              <span className={`inline-block h-3 w-3 rounded-full shrink-0 ${stepKindBarClass("work")}`} />
+              <span className="flex-1 text-left">
+                <span className="block text-sm font-medium">Work block</span>
+                <span className="block text-xs text-muted-foreground font-normal">Reps, target, recovery between</span>
+              </span>
+              <Plus className="h-4 w-4 shrink-0" />
+            </Button>
+
+            <Button
+              variant="outline"
+              className="h-auto py-4 px-4 justify-start items-center gap-3"
+              onClick={() => addStep("recovery")}
+            >
+              <span className={`inline-block h-3 w-3 rounded-full shrink-0 ${stepKindBarClass("recovery")}`} />
+              <span className="flex-1 text-left">
+                <span className="block text-sm font-medium">Recovery between blocks</span>
+                <span className="block text-xs text-muted-foreground font-normal">Standalone rest between work blocks</span>
+              </span>
+              <Plus className="h-4 w-4 shrink-0" />
+            </Button>
+
+            <Button
+              variant="outline"
+              className="h-auto py-4 px-4 justify-start items-center gap-3"
+              onClick={() => addStep("cooldown")}
+            >
+              <span className={`inline-block h-3 w-3 rounded-full shrink-0 ${stepKindBarClass("cooldown")}`} />
+              <span className="flex-1 text-left">
+                <span className="block text-sm font-medium">Cooldown</span>
+                <span className="block text-xs text-muted-foreground font-normal">Easy time or distance to finish</span>
+              </span>
+              <Plus className="h-4 w-4 shrink-0" />
+            </Button>
+
+            <Button
+              variant="outline"
+              className="h-auto py-4 px-4 justify-start items-center gap-3"
+              onClick={() => addStep("strides")}
+            >
+              <span className={`inline-block h-3 w-3 rounded-full shrink-0 ${stepKindBarClass("strides")}`} />
+              <span className="flex-1 text-left">
+                <span className="block text-sm font-medium">Strides / Run-throughs</span>
+                <span className="block text-xs text-muted-foreground font-normal">Short pickups, e.g. 6×100m</span>
+              </span>
+              <Plus className="h-4 w-4 shrink-0" />
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
