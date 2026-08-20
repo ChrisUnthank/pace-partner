@@ -21,7 +21,7 @@
  * which it is rather than drawing both the same way.
  */
 
-import { assumedPaceSecPerKm } from "./session-volume";
+import { assumedPaceSecPerKm, stepPaceSecPerKm } from "./session-volume";
 
 // ---------------------------------------------------------------------------
 // The vocabulary.
@@ -158,6 +158,12 @@ export interface ZoneMix {
 export function plannedZoneMix(
   session: { intent?: string | null; day_type?: string | null } | null | undefined,
   steps: any[] | null | undefined,
+  /**
+   * Same resolver session-volume.ts takes. Without it a distance target is
+   * converted at the population pace, which for a fast athlete overstates the
+   * time and therefore overstates that zone's share of the week.
+   */
+  resolvePace?: (step: any) => [number, number] | null,
 ): ZoneMix {
   const seconds = emptyZoneSeconds();
   if (!steps || steps.length === 0) return { seconds, totalSeconds: 0, basis: "empty" };
@@ -173,8 +179,10 @@ export function plannedZoneMix(
     const mult = reps * sets;
 
     const zone = zoneForStep(step, intent, dayType);
-    const pace = assumedPaceSecPerKm(
+    const pace = stepPaceSecPerKm(
+      step,
       zone === "z1" && step.kind !== "work" ? "easy" : (intent ?? "easy"),
+      resolvePace,
     );
 
     const dist = Number(step.target_distance_m) || 0;
