@@ -61,10 +61,35 @@ export const HEALTH_TABS: BucketTabItem[] = [
   { to: "/app/diet-fuel", label: "Diet & Fuel", icon: Apple },
   { to: "/app/recovery", label: "Recovery", icon: Bath },
   { to: "/app/injuries", label: "Injury & Illness", icon: Bandage },
-  { to: "/app/bloods", label: "Bloods", icon: Droplet },
-  { to: "/app/bicarb", label: "Bicarb", icon: FlaskConical },
-  { to: "/app/lactate", label: "Lactate", icon: TestTube2 },
+  // Bloods, Lactate and Bicarb collapsed behind one entry. Eight tabs had
+  // stopped being a navigation aid — the strip scrolls on a phone, so the
+  // last two were effectively hidden anyway.
+  { to: "/app/bloods", label: "Lab", icon: TestTube2 },
 ];
+
+// The three pages behind "Lab".
+//
+// NOT "Testing", which was the first choice and was wrong: `time_trial` is
+// an established session intent in this app, and zone-calculator.ts already
+// talks about "a lab test, a time trial, or a coach's judgement". A tab
+// called Testing would collide with a concept that already exists and means
+// something else entirely — a coach looking for their athlete's test results
+// could reasonably land there expecting time trials.
+//
+// "Lab" also earns the bicarb page in a way "Biomarkers" would not. A blood
+// panel and a lactate step test are measurements; a bicarb log is a protocol
+// trial — a dose, a timing, and how the athlete responded. The lab is where
+// you run things on an athlete and write down what happened, which covers
+// all three without stretching.
+export const LAB_TABS: BucketTabItem[] = [
+  { to: "/app/bloods", label: "Bloods", icon: Droplet },
+  { to: "/app/lactate", label: "Lactate", icon: TestTube2 },
+  { to: "/app/bicarb", label: "Bicarb", icon: FlaskConical },
+];
+
+export function labTabsFor(athleteId?: string): BucketTabItem[] {
+  return LAB_TABS.map((t) => ({ ...t, search: athleteId ? { athleteId } : undefined }));
+}
 
 // HEALTH_TABS' links never carried an athleteId through, even though
 // BucketTabItem.search existed for exactly this — so a coach switching
