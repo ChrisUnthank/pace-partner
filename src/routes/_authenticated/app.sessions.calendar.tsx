@@ -26,6 +26,12 @@ import {
   DAYTYPE_BAR,
 } from "@/components/calendar-day-cell";
 import { CalendarQuickAddRail, quickAddItemFor } from "@/components/calendar-quick-add-rail";
+import {
+  isActiveOn,
+  healthEventShortLabel,
+  healthEventColorClass,
+  healthKindNoun,
+} from "@/lib/health-events";
 import { resolvedTargetShortLabel } from "@/lib/target-resolution";
 import { sessionClassificationLabel, timeOfDayHintMs } from "@/lib/session-categories";
 import { metersFmt, secToClock } from "@/lib/format";
@@ -826,6 +832,50 @@ function CalendarPage() {
     targetStart: string;
   } | null>(null);
 
+  // Injuries and illnesses covering the visible range.
+  //
+  // Overlap test rather than a containment one: a six-week injury starting
+  // before this month still covers every day of it, and filtering on
+  // onset_date alone would show nothing.
+  //
+  // Chronic conditions are excluded — asthma marking all 365 days would bury
+  // the acute events that actually explain a bad week, which is the entire
+  // point of putting this on the calendar.
+  const { data: healthEvents = [] } = useQuery({
+    queryKey: ["calendar-health", selectedAthleteId, rangeStart, rangeEnd],
+    enabled: !!selectedAthleteId,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("injuries")
+        .select("id, kind, body_part, side, illness_type, onset_date, resolved_date, is_chronic, status, training_impact, training_modifications")
+        .eq("athlete_id", selectedAthleteId)
+        .eq("archived", false)
+        .lte("onset_date", rangeEnd)
+        .or(`resolved_date.is.null,resolved_date.gte.${rangeStart}`);
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+
+  const healthByDate = useMemo(() => {
+    const map = new Map<string, { label: string; colorClass: string; kind: string }[]>();
+    if (healthEvents.length === 0) return map;
+    for (const d of gridDays) {
+      const day = toISO(d);
+      const hits = healthEvents.filter((h: any) => isActiveOn(h, day));
+      if (hits.length === 0) continue;
+      map.set(
+        day,
+        hits.map((h: any) => ({
+          label: healthEventShortLabel(h),
+          colorClass: healthEventColorClass(h),
+          kind: healthKindNoun(h),
+        })),
+      );
+    }
+    return map;
+  }, [healthEvents, gridDays]);
+
   // --- Quick-add rail ---
   // Which activity (a QUICK_ADD_ITEMS key) is currently loaded. Stays
   // armed after each placement on purpose: laying out a week of easy runs
@@ -1333,6 +1383,7 @@ function CalendarPage() {
                                 weather={showWeekTotals ? (forecast?.get(iso) ?? null) : undefined}
                                 onMultiClick={(dd) => setSheetDay(dd)}
                                 onAdd={canEdit ? (date) => setAddMenuDate(date) : undefined}
+                                health={healthByDate.get(iso)}
                                 quickAddArmed={!!armedItem}
                                 quickAddPending={quickAddingDate === iso}
                                 onQuickAdd={canEdit ? quickAddSession : undefined}
@@ -1375,6 +1426,7 @@ function CalendarPage() {
                             weather={forecast?.get(iso) ?? null}
                             onMultiClick={(dd) => setSheetDay(dd)}
                             onAdd={canEdit ? (date) => setAddMenuDate(date) : undefined}
+                            health={healthByDate.get(iso)}
                             quickAddArmed={!!armedItem}
                             quickAddPending={quickAddingDate === iso}
                             onQuickAdd={canEdit ? quickAddSession : undefined}
