@@ -3,16 +3,24 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import ReactMarkdown from "react-markdown";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, Send, Brain } from "lucide-react";
-import { getOrCreateAthleteThread, listThreadMessages, coachChatSend, getAiAccessStatus } from "@/lib/ai.functions";
+import {
+  getOrCreateAthleteThread,
+  listThreadMessages,
+  coachChatSend,
+  getAiAccessStatus,
+  clearAthleteThread,
+} from "@/lib/ai.functions";
 
 export function CoachChat({ athleteId, athleteName }: { athleteId: string; athleteName?: string }) {
   const getThread = useServerFn(getOrCreateAthleteThread);
   const listMsgs = useServerFn(listThreadMessages);
   const sendMsg = useServerFn(coachChatSend);
   const access = useServerFn(getAiAccessStatus);
+  const endThread = useServerFn(clearAthleteThread);
   const qc = useQueryClient();
 
   const { data: ai } = useQuery({ queryKey: ["ai-access"], queryFn: () => access() });
@@ -26,6 +34,21 @@ export function CoachChat({ athleteId, athleteName }: { athleteId: string; athle
     queryKey: ["ai-messages", thread?.id],
     enabled: !!thread?.id,
     queryFn: () => listMsgs({ data: { threadId: thread!.id } }),
+  });
+
+  // Ending a conversation archives it: the transcript stays in Reports -> AI
+  // History and the next message opens a fresh thread. Without this there was
+  // no way to close one at all, so every question ever asked about an athlete
+  // accumulated in a single thread and appeared in history as one entry.
+  const endConversation = useMutation({
+    mutationFn: () => endThread({ data: { athleteId } }),
+    onSuccess: (r: any) => {
+      toast.success(r?.archived ? "Saved to AI History — starting a new conversation" : "Starting a new conversation");
+      qc.invalidateQueries({ queryKey: ["ai-thread", athleteId] });
+      qc.invalidateQueries({ queryKey: ["ai-messages"] });
+      qc.invalidateQueries({ queryKey: ["ai-reviews"] });
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Could not end the conversation"),
   });
 
   const [input, setInput] = useState("");
@@ -81,6 +104,22 @@ export function CoachChat({ athleteId, athleteName }: { athleteId: string; athle
           AI Coaching Assistant{athleteName ? ` — ${athleteName}` : ""}
           {ai && <span className="ml-auto text-[10px] font-normal text-muted-foreground">{ai.used}/{ai.limit} today</span>}
         </CardTitle>
+        {messages.length > 0 && (
+          <div className="flex justify-end">
+            {/* Named for what it does. "Clear" would be wrong twice over: it
+                reads as discarding the conversation, and it used to DO that —
+                deleting the thread cascaded to the history row as well. */}
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs"
+              disabled={endConversation.isPending}
+              onClick={() => endConversation.mutate()}
+            >
+              Save &amp; start new
+            </Button>
+          </div>
+        )}
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="border rounded-md bg-muted/30 max-h-[420px] overflow-y-auto p-3 space-y-3 min-h-[180px]">
