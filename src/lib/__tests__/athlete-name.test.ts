@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { athleteDisplayName } from "../athlete-name";
+import { athleteDisplayName, greetingName, derivedGreetingName } from "../athlete-name";
 
 describe("athleteDisplayName", () => {
   it("a real name wins", () => {
@@ -36,5 +36,48 @@ describe("athleteDisplayName", () => {
 
   it("trims a padded name rather than storing the padding", () => {
     expect(athleteDisplayName("  Josh Unthank  ", null)).toBe("Josh Unthank");
+  });
+});
+
+
+describe("greetingName", () => {
+  it("a chosen preferred name wins over the full name", () => {
+    expect(greetingName("Mike", "Michael Unthank")).toBe("Mike");
+  });
+
+  it("falls back to the first word of the full name", () => {
+    expect(greetingName(null, "Chris Unthank")).toBe("Chris");
+    expect(greetingName("", "Poppy Nivarovich")).toBe("Poppy");
+    expect(greetingName("   ", "Josh Unthank")).toBe("Josh");
+  });
+
+  it("never greets someone by their email address", () => {
+    // Older profiles can be named after one. "Hello chris@unthank.me" reads
+    // as a mail-merge that went wrong, and is worse than no name at all.
+    expect(greetingName(null, "chris@unthank.me")).toBe("");
+    expect(greetingName("amanda@unthank.me", "Amanda Unthank")).toBe("Amanda");
+  });
+
+  it("returns empty rather than a placeholder when there is nothing usable", () => {
+    // Lets the caller choose a greeting that needs no name at all.
+    expect(greetingName(null, null)).toBe("");
+    expect(greetingName(undefined, undefined)).toBe("");
+    expect(greetingName("", "")).toBe("");
+  });
+
+  it("keeps a multi-word preferred name intact", () => {
+    // Someone who types "Coach Chris" means it.
+    expect(greetingName("Coach Chris", "Chris Unthank")).toBe("Coach Chris");
+  });
+
+  it("handles padded and multi-space names", () => {
+    expect(greetingName(null, "  Poppy   Nivarovich  ")).toBe("Poppy");
+    expect(greetingName("  Pop  ", "Poppy Nivarovich")).toBe("Pop");
+  });
+
+  it("derivedGreetingName is the no-preference case", () => {
+    expect(derivedGreetingName("Chris Unthank")).toBe("Chris");
+    expect(derivedGreetingName("chris@unthank.me")).toBe("");
+    expect(derivedGreetingName(null)).toBe("");
   });
 });
