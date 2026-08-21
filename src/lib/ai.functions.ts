@@ -535,7 +535,16 @@ export const getOrCreateAthleteThread = createServerFn({ method: "POST" })
   .inputValidator((d: { athleteId: string }) => d)
   .handler(async ({ data, context }) => {
     const sb = context.supabase;
-    const { data: existing } = await sb.from("ai_chat_threads").select("*").eq("coach_id", context.userId).eq("athlete_id", data.athleteId).maybeSingle();
+    // Only an OPEN thread. An archived one is a finished conversation kept
+    // as history, and reusing it would append today's questions to a
+    // transcript that was deliberately closed.
+    const { data: existing } = await sb
+      .from("ai_chat_threads")
+      .select("*")
+      .eq("coach_id", context.userId)
+      .eq("athlete_id", data.athleteId)
+      .is("archived_at", null)
+      .maybeSingle();
     if (existing) return existing;
     const { data: row, error } = await sb.from("ai_chat_threads").insert({ coach_id: context.userId, athlete_id: data.athleteId }).select().single();
     if (error) throw error;
@@ -543,24 +552,53 @@ export const getOrCreateAthleteThread = createServerFn({ method: "POST" })
   });
 
 /**
- * Wipes the running AI Coaching Assistant conversation for one athlete —
- * deletes the thread, which cascades to its messages (ai_chat_messages)
- * and its mirrored AI-history row (ai_reviews.thread_id) automatically via
- * their ON DELETE CASCADE foreign keys. The next message sent re-creates
- * a fresh thread through getOrCreateAthleteThread, same as a brand-new
- * conversation.
+ * Ends the running conversation and starts a fresh one next time.
+ *
+ * ARCHIVES rather than deletes. This used to DELETE the thread, which
+ * cascaded to ai_chat_messages and — because ai_reviews.thread_id carries ON
+ * DELETE CASCADE — to the mirrored AI-history row as well. So the only way to
+ * begin a new conversation was to destroy the record of the last one, and
+ * clearing the chat panel quietly removed it from Reports too.
+ *
+ * Archiving leaves the transcript and its history row untouched.
+ * getOrCreateAthleteThread skips archived threads, so the next message opens
+ * a new one and AI History gains an entry per conversation rather than one
+ * ever-growing entry per athlete.
  */
 export const clearAthleteThread = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { athleteId: string }) => d)
   .handler(async ({ data, context }) => {
-    const { error } = await context.supabase
+    const sb = context.supabase;
+
+    // A thread with no messages has nothing worth keeping — archiving it
+    // would put an empty entry in AI History. Removed instead.
+    const { data: open } = await sb
       .from("ai_chat_threads")
-      .delete()
+      .select("id")
       .eq("coach_id", context.userId)
-      .eq("athlete_id", data.athleteId);
+      .eq("athlete_id", data.athleteId)
+      .is("archived_at", null)
+      .maybeSingle();
+
+    if (!open) return { ok: true, archived: false };
+
+    const { count } = await sb
+      .from("ai_chat_messages")
+      .select("id", { count: "exact", head: true })
+      .eq("thread_id", (open as any).id);
+
+    if ((count ?? 0) === 0) {
+      await sb.from("ai_chat_threads").delete().eq("id", (open as any).id);
+      return { ok: true, archived: false };
+    }
+
+    const { error } = await (sb as any)
+      .from("ai_chat_threads")
+      .update({ archived_at: new Date().toISOString() })
+      .eq("id", (open as any).id);
     if (error) throw error;
-    return { ok: true };
+    return { ok: true, archived: true };
   });
 
 export const listThreadMessages = createServerFn({ method: "GET" })
