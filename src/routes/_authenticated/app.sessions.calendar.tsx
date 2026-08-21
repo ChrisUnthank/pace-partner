@@ -282,9 +282,11 @@ function CalendarPage() {
           .gte("session_date", rangeStart)
           .lte("session_date", rangeEnd)
           .order("session_date", { ascending: true }),
-        supabase
+        // Cast because readiness_reason is added by a manually-run migration
+        // and predates the generated types — same convention used elsewhere.
+        (supabase as any)
           .from("athlete_load_daily")
-          .select("load_date, readiness_status, readiness_score, training_load")
+          .select("load_date, readiness_status, readiness_score, training_load, confidence, readiness_reason")
           .eq("athlete_id", selectedAthleteId)
           .gte("load_date", rangeStart)
           .lte("load_date", rangeEnd),
@@ -493,6 +495,8 @@ function CalendarPage() {
         if (!day) continue;
         day.readiness_status = r.readiness_status as any;
         day.readiness_score = r.readiness_score as any;
+        day.readiness_confidence = (r as any).confidence ?? null;
+        day.readiness_reason = (r as any).readiness_reason ?? null;
         day.training_load = r.training_load as any;
       }
       for (const v of bundle.vitals) {
@@ -1549,10 +1553,23 @@ function CalendarPage() {
                 );
               })()}
               {sheetDay.readiness_status && (
-                <div className="text-xs text-muted-foreground">
-                  Readiness: <span className="font-medium capitalize">{sheetDay.readiness_status}</span>
-                  {sheetDay.readiness_score != null ? ` · ${Math.round(sheetDay.readiness_score)}` : ""}
-                  {sheetDay.training_load != null ? ` · Training load ${Math.round(sheetDay.training_load)}` : ""}
+                <div className="text-xs text-muted-foreground space-y-0.5">
+                  <div>
+                    Readiness: <span className="font-medium capitalize">{sheetDay.readiness_status}</span>
+                    {sheetDay.readiness_score != null ? ` · ${Math.round(sheetDay.readiness_score)}` : ""}
+                    {sheetDay.training_load != null ? ` · Training load ${Math.round(sheetDay.training_load)}` : ""}
+                  </div>
+                  {/* Said in words here, where there is room for it. The dot on
+                      the grid can only be hollow; this is where a coach finds
+                      out what the score is actually standing on. */}
+                  {sheetDay.readiness_confidence && sheetDay.readiness_confidence !== "high" && (
+                    <div className="text-[11px]">
+                      No check-in for this day — score is from session labels and duration only.
+                    </div>
+                  )}
+                  {sheetDay.readiness_reason && (
+                    <div className="text-[11px]">{sheetDay.readiness_reason}</div>
+                  )}
                 </div>
               )}
               {sheetDay.restingHr != null && (
