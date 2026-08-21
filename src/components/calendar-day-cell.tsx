@@ -63,6 +63,13 @@ export type DayData = {
   sessions: CalendarSession[];
   readiness_status?: "green" | "amber" | "red" | null;
   readiness_score?: number | null;
+  /**
+   * How much the score is actually built on. 'high' means a real check-in
+   * behind it; anything less means the subjective half is thin or absent and
+   * the figure is largely labels and duration.
+   */
+  readiness_confidence?: string | null;
+  readiness_reason?: string | null;
   training_load?: number | null;
   efficiencyBySession?: Record<string, number | null>;
   // Resting HR logged for this day via the Daily Log — surfaced on the
@@ -122,6 +129,13 @@ const READINESS_DOT: Record<string, string> = {
   green: "bg-emerald-500",
   amber: "bg-amber-500",
   red: "bg-red-500",
+};
+
+/** Outline equivalents, for a score with little behind it. */
+const READINESS_RING: Record<string, string> = {
+  green: "border-emerald-500",
+  amber: "border-amber-500",
+  red: "border-red-500",
 };
 
 export function sessionColorClass(s: CalendarSession): string {
@@ -209,6 +223,11 @@ export function CalendarDayCell({
   };
   const dayNum = Number(day.date.slice(8, 10));
   const readinessCls = day.readiness_status ? READINESS_DOT[day.readiness_status] : null;
+  // 'insufficient' already suppresses the band upstream, so in practice this
+  // is 'low' and 'medium' — which after the confidence fix is what an athlete
+  // with no check-in gets, however long their load history.
+  const lowConfidence =
+    day.readiness_confidence != null && day.readiness_confidence !== "high";
   const pbs = day.pbs ?? [];
 
   const addButton = onAdd && (
@@ -247,9 +266,30 @@ export function CalendarDayCell({
           />
         )}
         {readinessCls && (
+          // Hollow when the score has little behind it.
+          //
+          // 96% of completed sessions in this database carry neither a felt
+          // RPE nor a check-in, so most readiness figures are derived from
+          // session labels and duration with the subjective 40% never firing.
+          // The confidence column has always said so; nothing on screen did,
+          // and a solid green dot from labels alone looked exactly like one
+          // built from a real check-in.
+          //
+          // Hollow rather than hidden or greyed: the reading still stands and
+          // is still worth showing — it is the CLAIM that needed softening,
+          // not the number.
           <span
-            className={cn("h-2 w-2 rounded-full", readinessCls)}
-            title={`Readiness${day.readiness_score != null ? ` ${Math.round(day.readiness_score)}` : ""}`}
+            className={cn(
+              "h-2 w-2 rounded-full",
+              lowConfidence ? "border-2 bg-transparent" : readinessCls,
+              lowConfidence && READINESS_RING[day.readiness_status ?? ""],
+            )}
+            title={
+              `Readiness${day.readiness_score != null ? ` ${Math.round(day.readiness_score)}` : ""}` +
+              (day.readiness_confidence ? ` · ${day.readiness_confidence} confidence` : "") +
+              (lowConfidence ? "\nNo check-in — based on session labels and duration only" : "") +
+              (day.readiness_reason ? `\n${day.readiness_reason}` : "")
+            }
           />
         )}
         {/* Replaces the coloured bar that used to sit under the header. A bar
