@@ -84,7 +84,7 @@ async function consumeReviewQuotaOrThrow(sb: any, userId: string, limit: number)
 async function buildSquadSnapshot(sb: any, athleteId: string, since: string, until: string) {
   const [{ data: athlete }, { data: loadRows }, { data: sessions }] = await Promise.all([
     sb.from("athletes").select("name").eq("id", athleteId).maybeSingle(),
-    sb.from("athlete_load_daily").select("readiness_status, ctl, atl, tsb").eq("athlete_id", athleteId).order("load_date", { ascending: false }).limit(1),
+    sb.from("athlete_load_daily").select("readiness_status, confidence, ctl, atl, tsb").eq("athlete_id", athleteId).order("load_date", { ascending: false }).limit(1),
     sb.from("sessions").select("completion_pct, rpe, completed_at").eq("athlete_id", athleteId).gte("session_date", since).lte("session_date", until),
   ]);
   const rows = sessions ?? [];
@@ -96,6 +96,19 @@ async function buildSquadSnapshot(sb: any, athleteId: string, since: string, unt
   return {
     name: athlete?.name ?? "Athlete",
     readiness: latest?.readiness_status ?? null,
+    // Passed through so the model is not handed a bare "green" as though it
+    // were a measured reading.
+    //
+    // With no check-in, readiness is calculated from training load alone —
+    // and across this squad 96% of sessions have neither a felt RPE nor a
+    // check-in. A caveat can be added to a chart after the fact; it cannot be
+    // added to a sentence the model has already written, so the qualification
+    // has to travel with the value.
+    readiness_confidence: latest?.confidence ?? null,
+    readiness_basis:
+      latest?.confidence && latest.confidence !== "high"
+        ? "derived from training load only — no check-in behind it"
+        : "includes the athlete's own check-in",
     fitness: latest?.ctl != null ? Math.round(latest.ctl) : null,
     fatigue: latest?.atl != null ? Math.round(latest.atl) : null,
     form: latest?.tsb != null ? Math.round(latest.tsb) : null,
