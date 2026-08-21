@@ -15,6 +15,12 @@ import { UserAvatar } from "@/components/user-avatar";
 import { toast } from "sonner";
 import { ChevronDown, ChevronUp, Users, Plus, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  PLAN_INCLUSIONS,
+  PLAN_INCLUSION_GROUP_LABEL,
+  inclusionLabels,
+  type PlanInclusion,
+} from "@/lib/coaching-plan-inclusions";
 
 export const Route = createFileRoute("/_authenticated/app/manage-athletes")({
   component: ManageAthletesPage,
@@ -143,10 +149,7 @@ function ManageAthletesPage() {
 function CoachingPlansCard() {
   const qc = useQueryClient();
   const { user } = useAuthUser();
-  const [adding, setAdding] = useState(false);
-  const [name, setName] = useState("");
-  const [amount, setAmount] = useState("");
-  const [period, setPeriod] = useState("monthly");
+  const [editing, setEditing] = useState<string | "new" | null>(null);
 
   const { data: plans = [] } = useQuery({
     queryKey: ["coaching-plans", user?.id],
@@ -160,28 +163,6 @@ function CoachingPlansCard() {
       return data ?? [];
     },
   });
-
-  async function addPlan() {
-    if (!name.trim()) {
-      toast.error("Give the plan a name");
-      return;
-    }
-    const { error } = await (supabase as any).from("coaching_plans").insert({
-      coach_user_id: user!.id,
-      name: name.trim(),
-      fee_amount: amount.trim() === "" ? null : Number(amount),
-      fee_period: period,
-    });
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    toast.success("Plan added");
-    setName("");
-    setAmount("");
-    setAdding(false);
-    qc.invalidateQueries({ queryKey: ["coaching-plans", user?.id] });
-  }
 
   async function retire(id: string, active: boolean) {
     // Retired, not deleted — athletes already on it keep a readable record of
@@ -198,71 +179,204 @@ function CoachingPlansCard() {
           <div>
             <CardTitle className="text-base">Coaching plans</CardTitle>
             <CardDescription>
-              Named fee arrangements. Assign one per athlete, and override the amount on the athlete where an
-              individual arrangement differs.
+              Named fee arrangements and what they include. Assign one per athlete, and override the amount on the
+              athlete where an individual arrangement differs.
             </CardDescription>
           </div>
-          <Button size="sm" variant="outline" onClick={() => setAdding((v) => !v)}>
-            <Plus className="h-4 w-4 mr-1" /> {adding ? "Cancel" : "New plan"}
+          <Button size="sm" variant="outline" onClick={() => setEditing(editing === "new" ? null : "new")}>
+            <Plus className="h-4 w-4 mr-1" /> {editing === "new" ? "Cancel" : "New plan"}
           </Button>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        {adding && (
-          <div className="grid sm:grid-cols-[1fr_7rem_9rem_auto] gap-2 items-end border rounded-md p-3">
-            <div>
-              <Label className="text-xs">Name</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Squad" className="h-8 text-sm" />
-            </div>
-            <div>
-              <Label className="text-xs">Amount</Label>
-              <Input
-                type="number"
-                min={0}
-                step="0.01"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="h-8 text-sm"
-              />
-            </div>
-            <div>
-              <Label className="text-xs">Per</Label>
-              <Select value={period} onValueChange={setPeriod}>
-                <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {FEE_PERIODS.map((p) => (
-                    <SelectItem key={p} value={p} className="capitalize">{p}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <Button size="sm" className="h-8" onClick={addPlan}>Add</Button>
-          </div>
+        {editing === "new" && (
+          <PlanForm coachId={user!.id} onDone={() => setEditing(null)} />
         )}
 
-        {plans.length === 0 ? (
+        {plans.length === 0 && editing !== "new" ? (
           <p className="text-sm text-muted-foreground">
             No plans yet. Add one and it becomes selectable on each athlete below.
           </p>
         ) : (
-          <div className="space-y-1.5">
-            {plans.map((p: any) => (
-              <div key={p.id} className="flex items-center justify-between gap-3 text-sm border rounded-md px-3 py-2">
-                <div className="min-w-0">
-                  <span className={cn("font-medium", !p.active && "text-muted-foreground line-through")}>{p.name}</span>
-                  <span className="text-muted-foreground ml-2">
-                    {p.fee_amount != null ? `${p.fee_currency} ${Number(p.fee_amount).toFixed(2)} / ${p.fee_period}` : "No fee set"}
-                  </span>
+          <div className="space-y-2">
+            {(plans as any[]).map((p) =>
+              editing === p.id ? (
+                <PlanForm key={p.id} coachId={user!.id} plan={p} onDone={() => setEditing(null)} />
+              ) : (
+                <div key={p.id} className="border rounded-md px-3 py-2 space-y-1">
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <div className="min-w-0">
+                      <span className={cn("font-medium", !p.active && "text-muted-foreground line-through")}>
+                        {p.name}
+                      </span>
+                      <span className="text-muted-foreground ml-2">
+                        {p.fee_amount != null
+                          ? `${p.fee_currency} ${Number(p.fee_amount).toFixed(2)} / ${p.fee_period}`
+                          : "No fee set"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {/* Editing was missing entirely — a plan could only be
+                          created or retired, so a typo in the name meant
+                          retiring it and starting again, leaving a struck-through
+                          mistake in the list forever. */}
+                      <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setEditing(p.id)}>
+                        Edit
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => retire(p.id, p.active)}>
+                        {p.active ? "Retire" : "Reinstate"}
+                      </Button>
+                    </div>
+                  </div>
+                  {inclusionLabels(p.inclusions).length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {inclusionLabels(p.inclusions).map((l) => (
+                        <Badge key={l} variant="secondary" className="text-[10px] font-normal">
+                          {l}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                  {p.description && <p className="text-[11px] text-muted-foreground">{p.description}</p>}
                 </div>
-                <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => retire(p.id, p.active)}>
-                  {p.active ? "Retire" : "Reinstate"}
-                </Button>
-              </div>
-            ))}
+              ),
+            )}
           </div>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * One form for creating and editing, rather than two that drift.
+ *
+ * The add form and an edit form would inevitably diverge — the campaign
+ * settings panel in this codebase already did exactly that, with the edit
+ * dialog silently writing defaults over settings it never rendered.
+ */
+function PlanForm({ coachId, plan, onDone }: { coachId: string; plan?: any; onDone: () => void }) {
+  const qc = useQueryClient();
+  const [name, setName] = useState(plan?.name ?? "");
+  const [description, setDescription] = useState(plan?.description ?? "");
+  const [amount, setAmount] = useState(plan?.fee_amount != null ? String(plan.fee_amount) : "");
+  const [period, setPeriod] = useState(plan?.fee_period ?? "monthly");
+  const [inclusions, setInclusions] = useState<string[]>(plan?.inclusions ?? []);
+  const [saving, setSaving] = useState(false);
+
+  function toggle(key: string) {
+    setInclusions((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+  }
+
+  async function save() {
+    if (!name.trim()) {
+      toast.error("Give the plan a name");
+      return;
+    }
+    setSaving(true);
+    const row = {
+      name: name.trim(),
+      description: description.trim() || null,
+      fee_amount: amount.trim() === "" ? null : Number(amount),
+      fee_period: period,
+      inclusions,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = plan
+      ? await (supabase as any).from("coaching_plans").update(row).eq("id", plan.id)
+      : await (supabase as any).from("coaching_plans").insert({ ...row, coach_user_id: coachId });
+    setSaving(false);
+
+    if (error) {
+      // Plan names are unique per coach, so renaming onto an existing one
+      // fails on the index. Said in plain terms rather than as a constraint
+      // violation.
+      toast.error(
+        error.code === "23505" ? `You already have a plan called "${name.trim()}"` : error.message,
+      );
+      return;
+    }
+    toast.success(plan ? "Plan updated" : "Plan added");
+    qc.invalidateQueries({ queryKey: ["coaching-plans", coachId] });
+    onDone();
+  }
+
+  const groups: PlanInclusion["group"][] = ["training", "access", "racing"];
+
+  return (
+    <div className="border rounded-md p-3 space-y-3 bg-muted/20">
+      <div className="grid sm:grid-cols-[1fr_7rem_9rem] gap-2">
+        <div>
+          <Label className="text-xs">Name</Label>
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Squad" className="h-8 text-sm" />
+        </div>
+        <div>
+          <Label className="text-xs">Amount</Label>
+          <Input
+            type="number"
+            min={0}
+            step="0.01"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            className="h-8 text-sm"
+          />
+        </div>
+        <div>
+          <Label className="text-xs">Per</Label>
+          <Select value={period} onValueChange={setPeriod}>
+            <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {FEE_PERIODS.map((p) => (
+                <SelectItem key={p} value={p} className="capitalize">{p}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div>
+        <Label className="text-xs">Includes</Label>
+        <div className="grid sm:grid-cols-3 gap-3 mt-1">
+          {groups.map((g) => (
+            <div key={g} className="space-y-1">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                {PLAN_INCLUSION_GROUP_LABEL[g]}
+              </div>
+              {PLAN_INCLUSIONS.filter((i) => i.group === g).map((i) => (
+                <label key={i.key} className="flex items-start gap-1.5 text-xs cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={inclusions.includes(i.key)}
+                    onChange={() => toggle(i.key)}
+                    className="mt-0.5"
+                  />
+                  <span>{i.label}</span>
+                </label>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <Label className="text-xs">Description (optional)</Label>
+        <Textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={2}
+          className="text-sm"
+          placeholder="Anything the tick boxes do not cover"
+        />
+      </div>
+
+      <div className="flex justify-end gap-2">
+        <Button size="sm" variant="ghost" className="h-8" onClick={onDone}>Cancel</Button>
+        <Button size="sm" className="h-8" disabled={saving} onClick={save}>
+          {saving ? "Saving…" : plan ? "Save changes" : "Add plan"}
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -468,6 +582,18 @@ function AthleteAdminPanel({ athlete }: { athlete: any }) {
             className="h-8 text-sm"
           />
           <p className="text-[11px] text-muted-foreground mt-1">Currently: {effectiveFee}</p>
+          {/* What the selected plan covers, shown where the plan is chosen —
+              otherwise a coach has to scroll back to the plans card to recall
+              whether "Squad" includes one-to-one time. */}
+          {selectedPlan && inclusionLabels(selectedPlan.inclusions).length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {inclusionLabels(selectedPlan.inclusions).map((l) => (
+                <Badge key={l} variant="secondary" className="text-[10px] font-normal">
+                  {l}
+                </Badge>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
