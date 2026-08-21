@@ -6,6 +6,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyAthlete, useMyRoles, useMyRawRoles, useAuthUser } from "@/lib/use-auth";
+import { useEffectiveRole } from "@/lib/view-mode";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -84,6 +85,7 @@ function SessionsList() {
   const { data: athlete, isLoading: athleteLoading } = useMyAthlete();
   const isCoach = roles.includes("coach");
   const isManager = rawRoles.includes("manager");
+  const { isCoachView } = useEffectiveRole();
   const identityReady = !!user && !rolesLoading && !rawRolesLoading && !athleteLoading;
   const [filterAthlete, setFilterAthlete] = useState<string>(search.athleteId ?? "all");
   // Re-syncs whenever the URL's athleteId changes underneath this page —
@@ -128,18 +130,33 @@ function SessionsList() {
   }, [keywordInput]);
 
   const { data: athleteIds, isLoading: athleteIdsLoading } = useQuery({
-    queryKey: ["visible-athlete-ids", user?.id, isCoach, isManager, athlete?.id],
+    // isCoachView is part of the key: switching view has to re-scope the list,
+    // not serve the squad's ids from cache.
+    queryKey: ["visible-athlete-ids", user?.id, isCoach, isManager, athlete?.id, isCoachView],
     enabled: identityReady,
     queryFn: async () => {
       const ids: string[] = [];
       if (athlete) ids.push(athlete.id);
-      if (isManager) {
-        const { data } = await supabase.from("athletes").select("id");
-        for (const r of data ?? []) ids.push(r.id);
-      } else if (isCoach) {
-        const { data } = await supabase.from("coach_athletes").select("athlete_id").eq("coach_user_id", user!.id);
-        for (const r of data ?? []) ids.push(r.athlete_id);
+
+      // The roster is only pulled in COACH VIEW.
+      //
+      // This keyed off isCoach/isManager alone — the roles you hold, not the
+      // view you are in — so a coach who trains and switched to Athlete view
+      // still saw the whole squad's sessions in their own list. The toggle
+      // appeared to do nothing on this page.
+      //
+      // Athlete view means one athlete: your own record. Same rule
+      // app.analytics.tsx, app.health.tsx and app.zones.tsx already follow.
+      if (isCoachView) {
+        if (isManager) {
+          const { data } = await supabase.from("athletes").select("id");
+          for (const r of data ?? []) ids.push(r.id);
+        } else if (isCoach) {
+          const { data } = await supabase.from("coach_athletes").select("athlete_id").eq("coach_user_id", user!.id);
+          for (const r of data ?? []) ids.push(r.athlete_id);
+        }
       }
+
       return Array.from(new Set(ids));
     },
   });
