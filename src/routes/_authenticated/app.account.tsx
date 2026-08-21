@@ -131,15 +131,10 @@ function Account() {
                 <CardTitle>Account</CardTitle>
               </CardHeader>
               <CardContent className="text-sm space-y-3">
-                <div className="space-y-1">
-                  <div>
-                    <span className="text-muted-foreground">Email:</span> {user?.email}
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Roles:</span> {roles.join(", ") || "none"}
-                  </div>
+                <div>
+                  <span className="text-muted-foreground">Roles:</span> {roles.join(", ") || "none"}
                 </div>
-                {user && <PreferredNameField userId={user.id} />}
+                {user && <AccountIdentityFields userId={user.id} currentEmail={user.email ?? ""} />}
               </CardContent>
             </Card>
 
@@ -847,29 +842,30 @@ function AccountLogRow({ entry }: { entry: { description: string; created_at: st
 
 
 /**
- * What the app calls you.
+ * Name, preferred name, and the login email.
  *
- * The greeting used to take the first word of profiles.full_name and there
- * was no way to correct it — full_name is never editable anywhere, it arrives
- * from sign-up metadata and stays. So someone called Michael who goes by Mike
- * was stuck with Michael.
- *
- * Left blank it stays NULL rather than storing the derived name, so "no
- * preference" and "chose the same as the derived name" remain different
- * things — and the placeholder shows what will be used instead, so the empty
- * box explains itself.
+ * None of these could be changed before. full_name arrived from sign-up
+ * metadata and was never editable anywhere, so the greeting derived from it
+ * could not be corrected; the only email field in the app was the CONTACT
+ * email on contact_details, which is a different thing entirely and does not
+ * affect signing in.
  */
-function PreferredNameField({ userId }: { userId: string }) {
+function AccountIdentityFields({ userId, currentEmail }: { userId: string; currentEmail: string }) {
   const qc = useQueryClient();
-  const [value, setValue] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [fullName, setFullName] = useState<string | null>(null);
+  const [preferred, setPreferred] = useState<string | null>(null);
+  const [savingName, setSavingName] = useState(false);
+
+  const [email, setEmail] = useState(currentEmail);
+  const [savingEmail, setSavingEmail] = useState(false);
+  const [emailPending, setEmailPending] = useState(false);
 
   const { data: profile } = useQuery({
-    queryKey: ["preferred-name", userId],
+    queryKey: ["account-identity", userId],
     queryFn: async () => {
       const { data } = await (supabase as any)
         .from("profiles")
-        .select("preferred_name, full_name")
+        .select("full_name, preferred_name")
         .eq("id", userId)
         .maybeSingle();
       return data ?? null;
@@ -877,52 +873,140 @@ function PreferredNameField({ userId }: { userId: string }) {
   });
 
   useEffect(() => {
-    if (profile && value === null) setValue((profile as any).preferred_name ?? "");
-  }, [profile, value]);
+    if (!profile) return;
+    if (fullName === null) setFullName((profile as any).full_name ?? "");
+    if (preferred === null) setPreferred((profile as any).preferred_name ?? "");
+  }, [profile, fullName, preferred]);
 
-  const derived = derivedGreetingName((profile as any)?.full_name);
+  const derived = derivedGreetingName(fullName ?? (profile as any)?.full_name);
 
-  async function save() {
-    setSaving(true);
-    const trimmed = (value ?? "").trim();
+  async function saveNames() {
+    setSavingName(true);
+    const name = (fullName ?? "").trim();
+    const pref = (preferred ?? "").trim();
     const { error } = await (supabase as any)
       .from("profiles")
-      // Blank saves as NULL, not "". One representation of "not set", so the
-      // fallback behaves the same however the field was cleared.
-      .update({ preferred_name: trimmed === "" ? null : trimmed })
+      .update({
+        full_name: name === "" ? null : name,
+        // Blank saves as NULL, not "". One representation of "not set", so
+        // the greeting falls back the same way however the field was cleared.
+        preferred_name: pref === "" ? null : pref,
+      })
       .eq("id", userId);
-    setSaving(false);
+    setSavingName(false);
     if (error) {
       toast.error(error.message);
       return;
     }
-    toast.success(trimmed ? `You'll be greeted as "${trimmed}"` : "Using your first name");
-    qc.invalidateQueries({ queryKey: ["preferred-name", userId] });
+    toast.success("Name updated");
+    qc.invalidateQueries({ queryKey: ["account-identity", userId] });
     qc.invalidateQueries({ queryKey: ["my-profile-image", userId] });
   }
 
+  async function saveEmail() {
+    const next = email.trim().toLowerCase();
+    if (!next || next === currentEmail.toLowerCase()) return;
+
+    setSavingEmail(true);
+    // Changes the LOGIN email. Supabase sends a confirmation link and the
+    // address does not change until it is followed — so this is a request,
+    // not a completed change, and the copy below says so rather than letting
+    // someone log out believing the new address already works.
+    const { error } = await supabase.auth.updateUser({ email: next });
+    setSavingEmail(false);
+
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+
+    // profiles.email is deliberately NOT written here. It would then disagree
+    // with the address that actually signs in for as long as the confirmation
+    // sat unopened, and every coach-facing list reads profiles. It is updated
+    // once the change is confirmed, below.
+    setEmailPending(true);
+    toast.success(`Confirmation sent to ${next}`);
+  }
+
+  // Once Supabase reports the new address as live, bring profiles into line.
+  // Runs on mount too, so a confirmation followed on another device still
+  // reconciles next time this page is opened.
+  useEffect(() => {
+    if (!currentEmail) return;
+    (async () => {
+      const { data } = await (supabase as any)
+        .from("profiles")
+        .select("email")
+        .eq("id", userId)
+        .maybeSingle();
+      if (data && data.email && data.email.toLowerCase() !== currentEmail.toLowerCase()) {
+        await (supabase as any).from("profiles").update({ email: currentEmail }).eq("id", userId);
+      }
+    })();
+  }, [currentEmail, userId]);
+
   return (
-    <div className="space-y-1.5 pt-2 border-t">
-      <Label htmlFor="preferred-name" className="text-xs">
-        Preferred name
-      </Label>
-      <div className="flex gap-2">
+    <div className="space-y-3 pt-2 border-t">
+      <div className="space-y-1.5">
+        <Label htmlFor="full-name" className="text-xs">Full name</Label>
+        <Input
+          id="full-name"
+          value={fullName ?? ""}
+          onChange={(e) => setFullName(e.target.value)}
+          placeholder="Your name"
+          className="h-8 text-sm"
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="preferred-name" className="text-xs">Preferred name</Label>
         <Input
           id="preferred-name"
-          value={value ?? ""}
-          onChange={(e) => setValue(e.target.value)}
+          value={preferred ?? ""}
+          onChange={(e) => setPreferred(e.target.value)}
           placeholder={derived || "Your name"}
           className="h-8 text-sm"
         />
-        <Button size="sm" variant="outline" className="h-8" disabled={saving} onClick={save}>
-          Save
-        </Button>
+        <p className="text-[11px] text-muted-foreground">
+          {derived ? `Used in greetings. Leave blank to use "${derived}".` : "Used in greetings."}
+        </p>
       </div>
-      <p className="text-[11px] text-muted-foreground">
-        {derived
-          ? `Used in greetings. Leave blank to use "${derived}".`
-          : "Used in greetings."}
-      </p>
+
+      <Button size="sm" variant="outline" className="h-8" disabled={savingName} onClick={saveNames}>
+        {savingName ? "Saving…" : "Save name"}
+      </Button>
+
+      <div className="space-y-1.5 pt-3 border-t">
+        <Label htmlFor="account-email" className="text-xs">Account email</Label>
+        <div className="flex gap-2">
+          <Input
+            id="account-email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="h-8 text-sm"
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8"
+            disabled={savingEmail || !email.trim() || email.trim().toLowerCase() === currentEmail.toLowerCase()}
+            onClick={saveEmail}
+          >
+            {savingEmail ? "Sending…" : "Change"}
+          </Button>
+        </div>
+        {emailPending ? (
+          <p className="text-[11px] text-amber-600 dark:text-amber-500">
+            Confirmation sent. You will keep signing in with {currentEmail} until you follow the link in that email.
+          </p>
+        ) : (
+          <p className="text-[11px] text-muted-foreground">
+            This is the address you sign in with. Changing it sends a confirmation link to the new address — the change
+            only takes effect once you follow it. Not the same as the contact email on your athlete profile.
+          </p>
+        )}
+      </div>
     </div>
   );
 }
