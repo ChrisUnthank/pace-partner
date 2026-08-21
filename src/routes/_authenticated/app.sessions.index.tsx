@@ -224,27 +224,76 @@ function SessionsList() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sessions")
-        .select("total_distance_m, total_time_seconds, completed_at")
+        .select("id, total_distance_m, total_time_seconds, completed_at, intent, day_type, is_long_run")
         .eq("athlete_id", athlete!.id)
         .gte("session_date", weekStartISO)
         .lte("session_date", weekEndISO);
       if (error) throw error;
-      return data ?? [];
+
+      // Planned volume for the sessions not yet run, so the card can say what
+      // the week is FOR rather than only what has been done in it.
+      //
+      // "Distance 0 m" beside "Sessions 0/4" read as missing data, when it
+      // meant a week not yet started — and the sessions list and calendar
+      // already show a planned distance for those same four sessions. Three
+      // surfaces giving two different answers about one week.
+      const pending = (data ?? []).filter((x: any) => !x.completed_at).map((x: any) => x.id);
+      if (pending.length === 0) return { rows: data ?? [], plannedM: 0, plannedS: 0 };
+
+      const { data: steps } = await supabase
+        .from("steps")
+        .select(
+          "session_id, kind, reps, set_count, target_distance_m, target_time_seconds, counts_toward_distance, recovery_target_kind, recovery_target_distance_m, recovery_target_seconds, recovery_between_reps_seconds, recovery_between_sets_seconds",
+        )
+        .in("session_id", pending);
+
+      const bySession = new Map<string, any[]>();
+      for (const st of steps ?? []) {
+        const list = bySession.get((st as any).session_id) ?? [];
+        list.push(st);
+        bySession.set((st as any).session_id, list);
+      }
+
+      let plannedM = 0;
+      let plannedS = 0;
+      for (const sess of (data ?? []) as any[]) {
+        if (sess.completed_at) continue;
+        const vol = estimateStepsVolume(
+          bySession.get(sess.id) ?? [],
+          sess.is_long_run ? "long" : (sess.intent ?? sess.day_type ?? "easy"),
+        );
+        if (vol.isEmpty) continue;
+        plannedM += vol.totalM;
+        plannedS += vol.totalSeconds;
+      }
+
+      return { rows: data ?? [], plannedM, plannedS };
     },
   });
 
   const weekSummary = useMemo(() => {
+    const rows = weekSessions?.rows ?? [];
     let distanceM = 0;
     let timeS = 0;
     let done = 0;
-    for (const s of weekSessions ?? []) {
+    for (const s of rows as any[]) {
       if (s.completed_at) {
         distanceM += Number(s.total_distance_m ?? 0);
         timeS += Number(s.total_time_seconds ?? 0);
         done += 1;
       }
     }
-    return { distanceM, timeS, done, total: (weekSessions ?? []).length };
+    return {
+      distanceM,
+      timeS,
+      done,
+      total: rows.length,
+      // Kept apart from the completed figures, never added into them: a
+      // single combined number would make a part-done week unreadable, the
+      // same reasoning the calendar's week totals follow.
+      plannedM: weekSessions?.plannedM ?? 0,
+      plannedS: weekSessions?.plannedS ?? 0,
+    };
   }, [weekSessions]);
 
   const { data: latestLoad } = useQuery({
@@ -885,13 +934,35 @@ function SessionsList() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-1 text-sm">
+                {/* Done, then what is still to come — never summed together.
+                    A part-done week has to show both without letting you
+                    mistake 40 km run for 40 km still ahead, which is the rule
+                    the calendar's week totals already follow.
+
+                    The "~" marks the planned figure as an estimate: a
+                    time-based target only becomes a distance once a pace is
+                    assumed. */}
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Distance</span>
-                  <span className="font-medium">{metersFmt(weekSummary.distanceM)}</span>
+                  <span className="font-medium">
+                    {metersFmt(weekSummary.distanceM)}
+                    {weekSummary.plannedM > 0 && (
+                      <span className="text-muted-foreground font-normal">
+                        {" "}+ ~{metersFmt(weekSummary.plannedM)} planned
+                      </span>
+                    )}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Time</span>
-                  <span className="font-medium">{secToClock(weekSummary.timeS)}</span>
+                  <span className="font-medium">
+                    {secToClock(weekSummary.timeS)}
+                    {weekSummary.plannedS > 0 && (
+                      <span className="text-muted-foreground font-normal">
+                        {" "}+ ~{secToClock(weekSummary.plannedS)} planned
+                      </span>
+                    )}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Sessions</span>
