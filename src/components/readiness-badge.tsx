@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 export function ReadinessBadge({
   status,
@@ -24,8 +25,26 @@ export function ReadinessBadge({
   const s = map[status];
   const lowConf = confidence === "low" || confidence === "medium";
   return (
-    <Badge variant="outline" className={s.cls} title={lowConf ? `Confidence: ${confidence}` : undefined}>
-      {s.label}{score != null ? ` · ${Math.round(score)}` : ""}{lowConf ? "*" : ""}
+    // Muted and dashed when the score has little behind it, matching the
+    // hollow dot on the calendar.
+    //
+    // It was an asterisk and a tooltip, which is easy to miss on a dashboard
+    // card — and after the confidence fix this is the common case, not the
+    // exception: an athlete with no check-in now caps at 'medium' however
+    // long their load history. A badge that reads the same either way invites
+    // a coach to trust labels-and-duration as though it were a felt reading.
+    <Badge
+      variant="outline"
+      className={cn(s.cls, lowConf && "opacity-70 border-dashed")}
+      title={
+        lowConf
+          ? `Confidence: ${confidence} — no check-in, so this is from session labels and duration only`
+          : undefined
+      }
+    >
+      {s.label}
+      {score != null ? ` · ${Math.round(score)}` : ""}
+      {lowConf ? "*" : ""}
     </Badge>
   );
 }
