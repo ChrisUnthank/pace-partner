@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
+import { athleteDisplayName } from "@/lib/athlete-name";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -91,11 +92,30 @@ function AuthPage() {
       .upsert({ user_id: userId, role: effectiveRole }, { onConflict: "user_id,role" });
     if (roleErr) throw roleErr;
     if (effectiveRole === "athlete") {
+      // Claim an invite BEFORE considering a new record.
+      //
+      // The lookup below is on user_id, and a coach-created athlete has
+      // user_id NULL until it is claimed — so it could never match, and
+      // every invited athlete who signed up here instead of opening their
+      // /claim/{token} link got a SECOND athlete record. The coach's one kept
+      // the date of birth, sex, height and primary event; the new one got the
+      // login and all the training. Neither was complete.
+      //
+      // claim_athlete_invite_by_email matches on the account's verified email
+      // and returns athlete_id when it links one. It is a no-op when there is
+      // no invite, which leaves genuine self-signup working exactly as before.
+      const { data: claimed } = await supabase.rpc("claim_athlete_invite_by_email" as any);
+      const claimedId = (claimed as any)?.athlete_id ?? null;
+      if (claimedId) {
+        toast.success("Linked to the athlete profile your coach set up");
+        return;
+      }
+
       const { data: existing } = await supabase.from("athletes").select("id").eq("user_id", userId).maybeSingle();
       if (!existing) {
         await supabase.from("athletes").insert({
           user_id: userId,
-          name: fullName || email.split("@")[0],
+          name: athleteDisplayName(fullName, email),
           created_by: userId,
         });
       }
