@@ -215,6 +215,7 @@ export function AppShell({ children, fullWidth = false }: { children: ReactNode;
         { to: "/app/plans", label: "Plans", icon: CalendarRange, show: isCoachView },
         { to: "/app/campaign", label: "Campaigns", icon: Target, show: isCoachView },
         { kind: "heading", label: "Squad admin", show: isCoachView },
+        { to: "/app/manage-athletes", label: "Manage Athletes", icon: Users, show: isCoachView },
         { to: "/app/coach-diary", label: "Diary", icon: NotebookPen, show: isCoachView },
         { to: "/app/address-book", label: "Address Book", icon: BookUser, show: isCoachView },
       ],
