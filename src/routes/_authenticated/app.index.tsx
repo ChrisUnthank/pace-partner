@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyRoles, useMyRawRoles, useMyAthlete, useAuthUser } from "@/lib/use-auth";
+import { greetingName } from "@/lib/athlete-name";
 import { useEffectiveRole } from "@/lib/view-mode";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -45,6 +46,7 @@ function AppHome() {
   const { data: roles = [], isLoading: rolesLoading } = useMyRoles();
   const { data: rawRoles = [] } = useMyRawRoles();
   const { data: athlete } = useMyAthlete();
+
   const isCoach = roles.includes("coach");
   const isAthlete = roles.includes("athlete");
   const isManager = rawRoles.includes("manager");
@@ -56,12 +58,30 @@ function AppHome() {
     queryFn: async () => {
       const { data } = await supabase
         .from("profiles")
-        .select("profile_image_url, full_name")
+        .select("profile_image_url, full_name, preferred_name")
         .eq("id", user!.id)
         .maybeSingle();
       return data;
     },
   });
+
+  // Same fallback chain the avatar already used, lifted out so the heading
+  // and the avatar cannot disagree about who is logged in.
+  const displayName = (myProfile as any)?.full_name ?? athlete?.name ?? user?.email ?? "";
+
+  // A chosen preferred name first, then the first word of the full name.
+  //
+  // The derivation lives in greetingName rather than here, so the account
+  // field's placeholder and this heading cannot drift — the box shows what
+  // the greeting will actually do.
+  //
+  // Returns "" when there is nothing usable, including when the only name on
+  // file is an email address, and the heading falls back to "Welcome back"
+  // rather than "Hello chris@unthank.me".
+  const firstName = greetingName(
+    (myProfile as any)?.preferred_name,
+    (myProfile as any)?.full_name ?? athlete?.name,
+  );
 
   // Which dashboard applies — same precedence the page already used
   // (coach branch takes priority over the athlete-only branch). A pure
@@ -160,12 +180,14 @@ function AppHome() {
       <div className="space-y-6">
         <div className="flex items-center gap-3">
           <UserAvatar
-            name={(myProfile as any)?.full_name ?? athlete?.name ?? user?.email ?? ""}
+            name={displayName}
             imageUrl={(myProfile as any)?.profile_image_url ?? (athlete as any)?.profile_image_url}
             size="lg"
           />
           <div>
-            <h1 className="text-2xl font-bold">Welcome back</h1>
+            <h1 className="text-2xl font-bold">
+              {firstName ? `Hello ${firstName}` : "Welcome back"}
+            </h1>
             <p className="text-muted-foreground text-sm">
               {(() => {
                 const labels: string[] = [];
