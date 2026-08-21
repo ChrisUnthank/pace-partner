@@ -225,7 +225,7 @@ function TrainingSchedulePage() {
             </Button>
             {activeGroupId && (
               <Button size="sm" variant="outline" onClick={() => setRosterOpen(true)}>
-                <Users className="h-3.5 w-3.5 mr-1" /> Manage athletes
+                <Users className="h-3.5 w-3.5 mr-1" /> Assign to groups
               </Button>
             )}
           </>
@@ -494,7 +494,7 @@ function RosterDialog({
     <Dialog open={true} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Manage athletes</DialogTitle>
+          <DialogTitle>Assign athletes to groups</DialogTitle>
           <DialogDescription>Assign each athlete to a group, or set to "Not assigned" to remove them.</DialogDescription>
         </DialogHeader>
         <Input placeholder="Search athletes…" value={search} onChange={(e) => setSearch(e.target.value)} />
