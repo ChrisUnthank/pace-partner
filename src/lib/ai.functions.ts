@@ -106,7 +106,7 @@ export const buildAthletePayload = createServerFn({ method: "POST" })
     const [athlete, sessions, load, vitals, insights, physio, zones, dna, upcomingRace, recentRace] = await Promise.all([
       sb.from("athletes").select("name, sex, primary_event, hr_max, hr_rest, training_age_years, weight, dob").eq("id", data.athleteId).maybeSingle(),
       sb.from("sessions").select("id, session_date, title, intent, day_type, rpe, completion_pct, total_distance_m, total_time_seconds, completed_at, time_of_day").eq("athlete_id", data.athleteId).gte("session_date", since28).order("session_date", { ascending: false }).order("time_of_day", { ascending: false }).limit(30),
-      sb.from("athlete_load_daily").select("load_date, combined_load, ctl, atl, tsb, readiness_status, readiness_score").eq("athlete_id", data.athleteId).gte("load_date", since42).order("load_date", { ascending: false }),
+      sb.from("athlete_load_daily").select("load_date, combined_load, ctl, atl, tsb, readiness_status, readiness_score, confidence, checkin_score").eq("athlete_id", data.athleteId).gte("load_date", since42).order("load_date", { ascending: false }),
       sb.from("daily_vitals").select("vitals_date, sleep_hours, resting_hr, weight_kg, hydration").eq("athlete_id", data.athleteId).gte("vitals_date", since14).order("vitals_date", { ascending: false }),
       sb.from("session_insights").select("created_at, feel_score, went_well, was_difficult, niggles").eq("athlete_id", data.athleteId).order("created_at", { ascending: false }).limit(5),
       // Was selecting vo2_max/lactate_threshold_pace/fatigue_resistance_score —
@@ -230,7 +230,19 @@ export const buildAthletePayload = createServerFn({ method: "POST" })
 
     return {
       athlete: athlete.data ?? {},
-      readiness: lastLoad ? { status: lastLoad.readiness_status, score: lastLoad.readiness_score, fitness: lastLoad.ctl, fatigue: lastLoad.atl, form: lastLoad.tsb } : null,
+      readiness: lastLoad
+        ? {
+            status: lastLoad.readiness_status,
+            score: lastLoad.readiness_score,
+            fitness: lastLoad.ctl,
+            fatigue: lastLoad.atl,
+            form: lastLoad.tsb,
+            // See readiness_legend below. The qualification travels with the
+            // value because prose cannot be caveated after it is written.
+            confidence: (lastLoad as any).confidence ?? null,
+            based_on_checkin: (lastLoad as any).checkin_score != null,
+          }
+        : null,
       load_trend: {
         window_days: loadRows.length,
         fitness_trend: trendFor("ctl"),
@@ -238,6 +250,8 @@ export const buildAthletePayload = createServerFn({ method: "POST" })
         form_trend: trendFor("tsb"),
         trajectory,
       },
+      readiness_legend:
+        "readiness.based_on_checkin tells you what the score is actually built on. When it is false there was no check-in that day, so the score is calculated from the session's own labels and duration alone — it reflects how much the athlete has been TRAINING, not how they feel. Do not describe a readiness figure as how the athlete is feeling, coping or recovering unless based_on_checkin is true; say what it is instead, or leave it out. A green readiness with no check-in behind it means only that training has been consistent.",
       load_trend_legend: "fitness_trend/fatigue_trend/form_trend compare the early portion of this window against the most recent portion — direction is 'rising'/'falling'/'stable', delta is recent_mean minus early_mean (positive = increasing). trajectory is a sparse chronological sample across the window so you can see the actual shape of the curve. Always weigh the trend direction here, not just the single current-day snapshot in `readiness` — a metric (e.g. Fatigue) can be elevated in absolute terms while still clearly falling, or low while still climbing, and that direction is usually more useful to the athlete than the isolated current value. Refer to these only as Fitness/Fatigue/Form in plain language — never by their underlying training-platform abbreviations.",
       upcoming_race: nextRace ? { date: nextRace.session_date, title: nextRace.title, days_away: daysBetween(nextRace.session_date, today) } : null,
       recent_race: lastRace ? { date: lastRace.session_date, title: lastRace.title, days_ago: daysBetween(today, lastRace.session_date) } : null,
