@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuthUser, useMyRoles, useMyRawRoles, useMyAthlete } from "@/lib/use-auth";
+import { useEffectiveRole } from "@/lib/view-mode";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -48,6 +49,7 @@ function RaceTacticsList() {
   const { data: myAthlete } = useMyAthlete();
   const isCoach = roles.includes("coach");
   const isManager = rawRoles.includes("manager");
+  const { isCoachView } = useEffectiveRole();
 
   const { data: filterAthlete } = useQuery({
     queryKey: ["race-tactics-filter-athlete", filterAthleteId],
@@ -59,7 +61,9 @@ function RaceTacticsList() {
   });
 
   const { data: plans, isLoading } = useQuery({
-    queryKey: ["race-tactics-list", user?.id, isCoach, isManager, myAthlete?.id, filterAthleteId],
+    // isCoachView in the key so switching view re-scopes rather than serving
+    // the roster's plans from cache.
+    queryKey: ["race-tactics-list", user?.id, isCoach, isManager, myAthlete?.id, filterAthleteId, isCoachView],
     enabled: !!user && (isCoach || !!myAthlete),
     queryFn: async () => {
       let query = supabase
@@ -69,9 +73,14 @@ function RaceTacticsList() {
 
       if (filterAthleteId) {
         query = query.eq("athlete_id", filterAthleteId);
-      } else if (!isCoach && myAthlete) {
+      } else if (!isCoachView && myAthlete) {
+        // Athlete view is one athlete: your own plans.
+        //
+        // This branched on !isCoach — the role, not the view — so a coach who
+        // races themselves saw the whole squad's tactics plans while in
+        // Athlete view. Same fault as the sessions list.
         query = query.eq("athlete_id", myAthlete.id);
-      } else if (isCoach && !isManager) {
+      } else if (isCoachView && isCoach && !isManager) {
         const { data: links } = await supabase.from("coach_athletes").select("athlete_id").eq("coach_user_id", user!.id);
         const ids = (links ?? []).map((l: any) => l.athlete_id);
         if (ids.length === 0) return [];
