@@ -59,7 +59,7 @@ export const listDashboardAlerts = createServerFn({ method: "GET" })
     const soon30 = isoDate(new Date(Date.now() + 30 * 86400_000));
 
     const [loadRes, ckRes, sessRes, insRes, dismRes, injuriesRes, gearRes, eventsRes, credsRes] = await Promise.all([
-      sb.from("athlete_load_daily").select("athlete_id, load_date, atl, tsb, load_ratio").in("athlete_id", ids).gte("load_date", since28).order("load_date", { ascending: false }),
+      sb.from("athlete_load_daily").select("athlete_id, load_date, atl, ctl, combined_load, tsb, load_ratio").in("athlete_id", ids).gte("load_date", since28).order("load_date", { ascending: false }),
       sb.from("daily_checkins").select("athlete_id, checkin_date, sleep_quality, soreness, injury_flag, injury_notes").in("athlete_id", ids).gte("checkin_date", since28).order("checkin_date", { ascending: false }),
       sb.from("sessions").select("id, athlete_id, session_date, title, day_type, intent, rpe, completed_at, time_of_day").in("athlete_id", ids).gte("session_date", since28).order("session_date", { ascending: false }).order("time_of_day", { ascending: false }),
       sb.from("session_insights").select("athlete_id, session_id, feel_score, created_at").in("athlete_id", ids).order("created_at", { ascending: false }).limit(200),
@@ -115,6 +115,26 @@ export const listDashboardAlerts = createServerFn({ method: "GET" })
       const atlDelta = atlToday != null && atl7 != null ? atlToday - atl7 : null;
       const tsb = todayLoad ? Number(todayLoad.tsb ?? 0) : null;
       const loadRatio = todayLoad?.load_ratio != null ? Number(todayLoad.load_ratio) : null;
+
+      // Equivalent days off, derived from the rows already loaded rather than
+      // another round trip per athlete. Same rule the SQL function uses: each
+      // day scored on its trailing seven days of load against seven normal
+      // days, so ordinary rest days count for nothing and only a genuine
+      // absence accumulates.
+      const eqDaysOff = (() => {
+        const rows = loadRows
+          .filter((r: any) => r.athlete_id === athId)
+          .sort((a: any, b: any) => (a.load_date < b.load_date ? -1 : 1));
+        const baseline = Math.max(0, ...rows.map((r: any) => Number(r.ctl ?? 0)));
+        if (!(baseline > 0) || rows.length === 0) return 0;
+        let total = 0;
+        for (let i = 0; i < rows.length; i++) {
+          let trailing7 = 0;
+          for (let j = Math.max(0, i - 6); j <= i; j++) trailing7 += Number(rows[j].combined_load ?? 0);
+          total += Math.max(0, Math.min(1, 1 - trailing7 / (baseline * 7)));
+        }
+        return total;
+      })();
 
       const cks = checkins.filter((c: any) => c.athlete_id === athId);
       const todayCk = cks.find((c: any) => c.checkin_date === today);
@@ -256,17 +276,32 @@ export const listDashboardAlerts = createServerFn({ method: "GET" })
       }
 
       // INFO
-      // Symmetric fix to the critical alert above — under-loaded relative
-      // to fitness, same scale-independent load_ratio basis, reusing the
-      // same 0.8 lower bound recompute_readiness already treats as the
-      // start of the sweet spot.
-      if (loadRatio != null && loadRatio < 0.8) {
+      // A LOW load ratio is freshness, and freshness is not a problem.
+      //
+      // This mirrored the overload alert on the assumption that both ends of
+      // the ratio are faults, which is the same symmetry recompute_readiness
+      // has now dropped: fatigue accumulates and dissipates in days, fitness
+      // in months. A tapering athlete sits at 0.4-0.6 by design, and this
+      // fired "consider adding a session" during race week — the single
+      // worst moment to give that advice.
+      //
+      // It now needs a genuine ABSENCE behind it, not merely a low ratio.
+      // equivalent_days_off says whether the athlete has actually been away,
+      // and rest days no longer count toward it, so a normal week of training
+      // never trips this however low the ratio goes.
+      //
+      // Ten days is the point the detraining curve starts charging anything
+      // at all, which keeps this alert and the readiness score telling the
+      // same story rather than contradicting each other on the same screen.
+      if (loadRatio != null && loadRatio < 0.8 && (eqDaysOff ?? 0) >= 10) {
         push({
           alert_type: "tsb_positive", severity: "info",
           athlete_id: athId, athlete_name: name, athlete_image_url: img,
-          title: "Acute load low relative to fitness",
-          trigger: "Load ratio " + loadRatio.toFixed(2) + (tsb != null ? " (Form +" + tsb.toFixed(0) + ")" : ""),
-          guidance: "Athlete appears under-loaded relative to recent fitness. Consider adding a session or increasing volume if health and schedule allow.",
+          title: "Extended time away from training",
+          trigger:
+            Math.round(eqDaysOff ?? 0) + " equivalent days off · load ratio " + loadRatio.toFixed(2),
+          guidance:
+            "This athlete has been away from training long enough for it to start costing fitness — not simply resting or tapering. Worth checking whether it is planned, and easing back rather than resuming at previous volume.",
           actions: [
             { label: "View training", kind: "link", target: "/app/athletes/" + athId },
             { label: "Add session", kind: "link", target: "/app/sessions/new" },
