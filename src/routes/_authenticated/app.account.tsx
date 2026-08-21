@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
+import { athleteDisplayName } from "@/lib/athlete-name";
 import { Sparkles, User2, History } from "lucide-react";
 import { ProfileImageUploader } from "@/components/profile-image-uploader";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -581,10 +582,27 @@ function RolesCard({ userId, roles, email }: { userId: string; roles: AppRole[];
       }
 
       if (r === "athlete") {
-        const { data: existing } = await supabase.from("athletes").select("id").eq("user_id", userId).maybeSingle();
+        // Same claim-before-create order as the sign-up page. Turning the
+        // Athlete role on here reached the identical bug: the lookup is on
+        // user_id, a coach-created record has user_id NULL, so an invited
+        // athlete got a second record from this path too.
+        const { data: claimed } = await supabase.rpc("claim_athlete_invite_by_email" as any);
+        const claimedId = (claimed as any)?.athlete_id ?? null;
 
-        if (!existing) {
-          await supabase.from("athletes").insert({ user_id: userId, name: email || "Athlete", created_by: userId });
+        if (!claimedId) {
+          const { data: existing } = await supabase.from("athletes").select("id").eq("user_id", userId).maybeSingle();
+
+          if (!existing) {
+            // Was `name: email || "Athlete"`, which wrote the whole address
+            // into the name column — the reason athlete records exist called
+            // "amanda@unthank.me". Shared helper so the three creation paths
+            // cannot disagree again.
+            await supabase.from("athletes").insert({
+              user_id: userId,
+              name: athleteDisplayName(null, email),
+              created_by: userId,
+            });
+          }
         }
       }
     } else {
