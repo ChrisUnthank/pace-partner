@@ -144,7 +144,7 @@ export function TrainingResponseCard({ athleteId }: { athleteId: string }) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("athlete_load_daily")
-        .select("load_date, training_load, readiness_status, readiness_score")
+        .select("load_date, training_load, readiness_status, readiness_score, checkin_score")
         .eq("athlete_id", athleteId)
         .gte("load_date", since)
         .order("load_date", { ascending: true });
@@ -248,11 +248,36 @@ export function TrainingResponseCard({ athleteId }: { athleteId: string }) {
     const key = "consecutive_load_readiness";
     const title = "Readiness after consecutive higher-load days";
     const method =
-      "Method: flags any day preceded by 2 consecutive days with training load above this athlete's own 12-week median (training days only), then compares the Amber/Red readiness rate on those flagged days against the athlete's overall Amber/Red rate.";
+      "Method: flags any day preceded by 2 consecutive days with training load above this athlete's own 12-week median (training days only), then compares the Amber/Red readiness rate on those flagged days against the athlete's overall Amber/Red rate. Only days with a completed check-in are counted — readiness without one is derived from training load, so including those days would compare load against itself.";
 
-    const rows = (loadDaily ?? []).filter((r) => r.readiness_status != null);
+    // Only days with a CHECK-IN behind them.
+    //
+    // Without one, readiness is load_balance, which is computed from the
+    // ATL/CTL ratio — so asking "is readiness worse after consecutive
+    // high-load days" answers itself. Consecutive high load raises ATL (7-day
+    // constant) faster than CTL (42-day), the ratio rises, the fatigue
+    // component falls, readiness falls. Yes, by construction, for every
+    // athlete, always.
+    //
+    // That is a property of the formula, not a finding about the athlete, and
+    // presenting it as an observation is worse than showing nothing — it
+    // reads as evidence and would survive any amount of scrutiny of the
+    // arithmetic while being about nothing.
+    //
+    // A check-in makes readiness carry information the load side does not,
+    // and only then is the comparison real.
+    const rows = (loadDaily ?? []).filter(
+      (r) => r.readiness_status != null && (r as any).checkin_score != null,
+    );
     if (rows.length < 14) {
-      return { key, title, sentence: null, method, insufficientReason: "Needs at least 2 weeks of readiness history." };
+      return {
+        key,
+        title,
+        sentence: null,
+        method,
+        insufficientReason:
+          "Needs at least 2 weeks of days with a completed check-in. Without one, readiness is derived from training load, so comparing it against training load would just restate the formula.",
+      };
     }
 
     const trainingLoads = rows.map((r) => Number(r.training_load ?? 0)).filter((n) => n > 0);
@@ -308,7 +333,7 @@ export function TrainingResponseCard({ athleteId }: { athleteId: string }) {
     const key = "volume_tolerance";
     const title = "Readiness in higher-volume vs lower-volume weeks";
     const method =
-      "Method: groups the last 12 weeks by this athlete's own weekly training load, splits into higher-load and lower-load weeks by the athlete's own median week, and compares average readiness score between the two groups.";
+      "Method: groups the last 12 weeks by this athlete's own weekly training load, splits into higher-load and lower-load weeks by the athlete's own median week, and compares average readiness score between the two groups. Only days with a completed check-in contribute a readiness score, since readiness without one is calculated from load.";
 
     const weekMap = new Map<string, { load: number; readinessScores: number[] }>();
     for (const r of loadDaily ?? []) {
@@ -316,7 +341,12 @@ export function TrainingResponseCard({ athleteId }: { athleteId: string }) {
       if (!weekMap.has(wk)) weekMap.set(wk, { load: 0, readinessScores: [] });
       const entry = weekMap.get(wk)!;
       entry.load += Number(r.training_load ?? 0);
-      if (r.readiness_score != null) entry.readinessScores.push(Number(r.readiness_score));
+      // Same restriction as Observation 2, and for the same reason: a
+      // readiness score with no check-in behind it is a function of load, so
+      // grouping it BY load measures the formula.
+      if (r.readiness_score != null && (r as any).checkin_score != null) {
+        entry.readinessScores.push(Number(r.readiness_score));
+      }
     }
     const weeks = Array.from(weekMap.entries()).map(([wk, v]) => ({
       week: wk,
@@ -326,6 +356,21 @@ export function TrainingResponseCard({ athleteId }: { athleteId: string }) {
 
     if (weeks.length < 6) {
       return { key, title, sentence: null, method, insufficientReason: "Needs at least 6 weeks of training load history." };
+    }
+
+    // Weeks with no check-in contribute no readiness score above, so a
+    // history full of load but empty of check-ins reaches here with nothing
+    // to compare. Says which is missing rather than "not enough data", which
+    // would send a coach looking for more training rather than more check-ins.
+    if (weeks.filter((w) => w.avgReadiness != null).length < 6) {
+      return {
+        key,
+        title,
+        sentence: null,
+        method,
+        insufficientReason:
+          "Needs at least 6 weeks containing a completed check-in. Readiness without one is calculated from training load, so comparing it across load levels would only restate the formula.",
+      };
     }
 
     const loadMedian = median(weeks.map((w) => w.load));
