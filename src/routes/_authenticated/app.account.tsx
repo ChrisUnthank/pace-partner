@@ -606,6 +606,42 @@ function RolesCard({ userId, roles, email }: { userId: string; roles: AppRole[];
         }
       }
     } else {
+      // Turning the Athlete role OFF used to leave the athlete record behind.
+      //
+      // The record is created when the role goes on, so it should go when the
+      // role comes off — otherwise a manager or parent who was briefly an
+      // athlete keeps a stray record forever. That is where the empty
+      // "amanda@unthank.me" athlete came from: role on, record created, role
+      // off, record orphaned.
+      //
+      // Only when it is genuinely EMPTY. A record with training on it is
+      // somebody's history and must survive a role change — a coach who stops
+      // logging their own running still wants the last two years of it.
+      if (r === "athlete") {
+        const { data: mine } = await supabase
+          .from("athletes")
+          .select("id")
+          .eq("user_id", userId)
+          .maybeSingle();
+
+        if (mine?.id) {
+          const [{ count: sessionCount }, { count: perfCount }] = await Promise.all([
+            supabase.from("sessions").select("id", { count: "exact", head: true }).eq("athlete_id", mine.id),
+            supabase.from("performances").select("id", { count: "exact", head: true }).eq("athlete_id", mine.id),
+          ]);
+
+          if ((sessionCount ?? 0) === 0 && (perfCount ?? 0) === 0) {
+            await supabase.from("athletes").delete().eq("id", mine.id);
+          } else {
+            // Said out loud rather than silently kept, so nobody wonders later
+            // why a non-athlete still appears in an athlete picker.
+            toast.info(
+              `Athlete role removed. The athlete profile was kept because it holds ${sessionCount ?? 0} session(s) — delete it from Manage Athletes if it is not wanted.`,
+            );
+          }
+        }
+      }
+
       const { error } = await supabase.from("user_roles").delete().eq("user_id", userId).eq("role", r);
 
       if (error) {
