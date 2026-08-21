@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { z } from "zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -102,6 +102,12 @@ function AiReviewPage() {
     ? (rosterSorted.find((r: any) => r.athlete_id === search.athleteId) as any)?.athletes?.name
     : undefined;
 
+  // Page size. Small enough that the first render stays cheap — every visible
+  // entry parses its markdown whether it is open or not — and large enough
+  // that a normal week of history needs no paging at all.
+  const HISTORY_PAGE = 15;
+  const [historyShown, setHistoryShown] = useState(HISTORY_PAGE);
+
   const filteredReviews = useMemo(() => {
     return (allReviews as any[]).filter((r) => {
       if (historyAthlete !== "all" && r.athlete_id !== historyAthlete) return false;
@@ -109,6 +115,12 @@ function AiReviewPage() {
       return true;
     });
   }, [allReviews, historyAthlete, historySource]);
+
+  // Any filter change starts the list again — otherwise narrowing the filter
+  // after paging leaves it reading "Showing 45 of 12".
+  useEffect(() => {
+    setHistoryShown(HISTORY_PAGE);
+  }, [historyAthlete, historySource]);
 
   function toggleAthlete(id: string) {
     setSelected((prev) => {
@@ -368,7 +380,20 @@ function AiReviewPage() {
             {filteredReviews.length === 0 ? (
               <p className="text-sm text-muted-foreground">Nothing matches this filter yet.</p>
             ) : (
-              filteredReviews.map((r: any) => (
+              <>
+                {/* Bounded and paged.
+
+                    Each entry already collapses, but the LIST did not — every
+                    matching item rendered at once, so a coach with a season of
+                    history scrolled past a hundred collapsed rows to reach
+                    anything, and each one parsed its markdown whether it was
+                    opened or not.
+
+                    Scroll container so the page keeps its own length, a page
+                    size so the DOM stays small, and brand-scrollbar because it
+                    is an inner scrollable region. */}
+                <div className="max-h-[32rem] overflow-y-auto brand-scrollbar space-y-3 pr-1">
+                  {filteredReviews.slice(0, historyShown).map((r: any) => (
                 <details key={r.id} className="border rounded-md p-3">
                   <summary className="flex items-center justify-between cursor-pointer text-xs gap-2">
                     <span className="min-w-0">
@@ -397,7 +422,20 @@ function AiReviewPage() {
                     <ReactMarkdown>{r.content_md}</ReactMarkdown>
                   </div>
                 </details>
-              ))
+                  ))}
+                </div>
+
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>
+                    Showing {Math.min(historyShown, filteredReviews.length)} of {filteredReviews.length}
+                  </span>
+                  {historyShown < filteredReviews.length && (
+                    <Button size="sm" variant="outline" onClick={() => setHistoryShown((n) => n + HISTORY_PAGE)}>
+                      Show {Math.min(HISTORY_PAGE, filteredReviews.length - historyShown)} more
+                    </Button>
+                  )}
+                </div>
+              </>
             )}
           </CardContent>
         </Card>
