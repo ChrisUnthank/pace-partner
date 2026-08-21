@@ -1206,11 +1206,52 @@ function classifyLaps(
     const lastFileLaps = laps.filter((l) => l.sourceFileIndex === numFiles - 1);
     const middleLaps = laps.filter((l) => l.sourceFileIndex !== 0 && l.sourceFileIndex !== numFiles - 1);
 
-    const classifiedMiddle = classifyLapsByDistance(middleLaps, stoppedSecondsByLapIndex);
+    // The first and last files are only warmup and cooldown if they are
+    // actually SLOWER than what sits between them.
+    //
+    // This used to be unconditional — earliest file always warmup, latest
+    // always cooldown — which is right for the usual warmup / work / cooldown
+    // upload and badly wrong for an athlete who records each REP as its own
+    // file. Four files of 4 x 1.2km had rep 1 relabelled warmup and rep 4
+    // cooldown, leaving two reps of a four-rep session and burying the other
+    // two in the easy totals.
+    //
+    // The two-file branch below already resolves this by pace and has done
+    // all along; this applies the same test rather than a second idea about
+    // the same question. A warmup is meaningfully slower than the work that
+    // follows it and a cooldown than the work before it — reps of the same
+    // session are not.
+    const paceOf = (ls: typeof laps) =>
+      median(
+        ls.filter((l) => l.total_distance > 50 && l.total_elapsed_time > 10)
+          .map(paceSecPerKm)
+          .filter((x): x is number => x != null),
+      );
+
+    const paceFirst = paceOf(firstFileLaps);
+    const paceLast = paceOf(lastFileLaps);
+    const paceMiddle = paceOf(middleLaps);
+
+    const SLOWER = 1.15;
+    // Null pace means nothing usable to compare, so the old assumption is
+    // kept rather than reclassifying on no evidence.
+    const firstIsWarmup = paceFirst == null || paceMiddle == null ? true : paceFirst >= paceMiddle * SLOWER;
+    const lastIsCooldown = paceLast == null || paceMiddle == null ? true : paceLast >= paceMiddle * SLOWER;
+
+    // Whatever is not being taken on trust goes through the distance
+    // heuristic with the middle laps, so a first file that IS work gets
+    // paired and grouped with the reps around it.
+    const toClassify = [
+      ...(firstIsWarmup ? [] : firstFileLaps),
+      ...middleLaps,
+      ...(lastIsCooldown ? [] : lastFileLaps),
+    ].sort((a, b) => a.index - b.index);
+
+    const classifiedMiddle = classifyLapsByDistance(toClassify, stoppedSecondsByLapIndex);
 
     return laps.map((lap) => {
-      if (lap.sourceFileIndex === 0) return { ...lap, kind: "warmup" as const };
-      if (lap.sourceFileIndex === numFiles - 1) return { ...lap, kind: "cooldown" as const };
+      if (lap.sourceFileIndex === 0 && firstIsWarmup) return { ...lap, kind: "warmup" as const };
+      if (lap.sourceFileIndex === numFiles - 1 && lastIsCooldown) return { ...lap, kind: "cooldown" as const };
       const match = classifiedMiddle.find((c) => c.index === lap.index);
       return match ?? { ...lap, kind: "work" as const };
     });
