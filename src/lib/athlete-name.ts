@@ -35,3 +35,41 @@ export function athleteDisplayName(fullName?: string | null, email?: string | nu
 
   return "Athlete";
 }
+
+
+/**
+ * What to call someone in a greeting.
+ *
+ * Order: an explicitly chosen preferred name, then the first word of their
+ * full name, then nothing.
+ *
+ * Returns "" rather than a placeholder when there is no usable name, so the
+ * caller can fall back to a greeting that needs one ("Welcome back") instead
+ * of printing "Hello there" or, worse, "Hello chris@unthank.me".
+ *
+ * Email addresses are refused outright. athleteDisplayName above stops NEW
+ * records being named after one, but older profiles still are, and an address
+ * in a greeting reads as a mail-merge that went wrong.
+ */
+export function greetingName(
+  preferredName?: string | null,
+  fullName?: string | null,
+): string {
+  const preferred = (preferredName ?? "").trim();
+  if (preferred && !preferred.includes("@")) return preferred;
+
+  const full = (fullName ?? "").trim();
+  if (!full || full.includes("@")) return "";
+
+  // First word only. "Hello Chris Unthank" reads like a letter from a bank.
+  return full.split(/\s+/)[0] ?? "";
+}
+
+/**
+ * The greeting name someone would get if they set no preference — used as
+ * the placeholder in the account field, so the box shows what it will do
+ * rather than sitting empty.
+ */
+export function derivedGreetingName(fullName?: string | null): string {
+  return greetingName(null, fullName);
+}
