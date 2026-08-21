@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { athleteDisplayName } from "@/lib/athlete-name";
+import { athleteDisplayName, derivedGreetingName } from "@/lib/athlete-name";
 import { Sparkles, User2, History } from "lucide-react";
 import { ProfileImageUploader } from "@/components/profile-image-uploader";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -130,13 +130,16 @@ function Account() {
               <CardHeader>
                 <CardTitle>Account</CardTitle>
               </CardHeader>
-              <CardContent className="text-sm space-y-1">
-                <div>
-                  <span className="text-muted-foreground">Email:</span> {user?.email}
+              <CardContent className="text-sm space-y-3">
+                <div className="space-y-1">
+                  <div>
+                    <span className="text-muted-foreground">Email:</span> {user?.email}
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Roles:</span> {roles.join(", ") || "none"}
+                  </div>
                 </div>
-                <div>
-                  <span className="text-muted-foreground">Roles:</span> {roles.join(", ") || "none"}
-                </div>
+                {user && <PreferredNameField userId={user.id} />}
               </CardContent>
             </Card>
 
@@ -838,6 +841,88 @@ function AccountLogRow({ entry }: { entry: { description: string; created_at: st
       <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
         {new Date(entry.created_at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}
       </span>
+    </div>
+  );
+}
+
+
+/**
+ * What the app calls you.
+ *
+ * The greeting used to take the first word of profiles.full_name and there
+ * was no way to correct it — full_name is never editable anywhere, it arrives
+ * from sign-up metadata and stays. So someone called Michael who goes by Mike
+ * was stuck with Michael.
+ *
+ * Left blank it stays NULL rather than storing the derived name, so "no
+ * preference" and "chose the same as the derived name" remain different
+ * things — and the placeholder shows what will be used instead, so the empty
+ * box explains itself.
+ */
+function PreferredNameField({ userId }: { userId: string }) {
+  const qc = useQueryClient();
+  const [value, setValue] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const { data: profile } = useQuery({
+    queryKey: ["preferred-name", userId],
+    queryFn: async () => {
+      const { data } = await (supabase as any)
+        .from("profiles")
+        .select("preferred_name, full_name")
+        .eq("id", userId)
+        .maybeSingle();
+      return data ?? null;
+    },
+  });
+
+  useEffect(() => {
+    if (profile && value === null) setValue((profile as any).preferred_name ?? "");
+  }, [profile, value]);
+
+  const derived = derivedGreetingName((profile as any)?.full_name);
+
+  async function save() {
+    setSaving(true);
+    const trimmed = (value ?? "").trim();
+    const { error } = await (supabase as any)
+      .from("profiles")
+      // Blank saves as NULL, not "". One representation of "not set", so the
+      // fallback behaves the same however the field was cleared.
+      .update({ preferred_name: trimmed === "" ? null : trimmed })
+      .eq("id", userId);
+    setSaving(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(trimmed ? `You'll be greeted as "${trimmed}"` : "Using your first name");
+    qc.invalidateQueries({ queryKey: ["preferred-name", userId] });
+    qc.invalidateQueries({ queryKey: ["my-profile-image", userId] });
+  }
+
+  return (
+    <div className="space-y-1.5 pt-2 border-t">
+      <Label htmlFor="preferred-name" className="text-xs">
+        Preferred name
+      </Label>
+      <div className="flex gap-2">
+        <Input
+          id="preferred-name"
+          value={value ?? ""}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={derived || "Your name"}
+          className="h-8 text-sm"
+        />
+        <Button size="sm" variant="outline" className="h-8" disabled={saving} onClick={save}>
+          Save
+        </Button>
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        {derived
+          ? `Used in greetings. Leave blank to use "${derived}".`
+          : "Used in greetings."}
+      </p>
     </div>
   );
 }
