@@ -1790,10 +1790,29 @@ function SessionDetail() {
                   <div className="text-xs text-muted-foreground">Total Avg Pace</div>
                   <div className="text-lg font-semibold tabular-nums">
                     {(() => {
-                      // Prefer moving time (elapsed minus detected stops) so a
-                      // mid-run pause doesn't inflate the displayed pace — falls
-                      // back to raw elapsed time for sessions uploaded before
-                      // this was tracked, which haven't been recomputed yet.
+                      // Taken from the segment breakdown when there is one,
+                      // because that pairs a time and a distance that describe
+                      // the SAME running.
+                      //
+                      // It used to divide session.total_distance_m by
+                      // total_moving_time_seconds. Those two disagree the
+                      // moment a block is added by hand: the distance includes
+                      // the hand-entered warmup, the moving time is computed
+                      // from the file's points and cannot. A 4 km warmup added
+                      // to a 12.8 km file reported 3:15/km on a session whose
+                      // own Moving row read 4:00 — faster than the work
+                      // interval pace, on a run that included a warmup.
+                      //
+                      // The Moving row was right all along; the tile above it
+                      // was using different arithmetic to answer the same
+                      // question. Now they agree by construction.
+                      if (segmentBreakdown.rows.length > 0 && segmentBreakdown.movingDistanceM > 0) {
+                        return secToClock(
+                          (segmentBreakdown.movingTimeS / segmentBreakdown.movingDistanceM) * 1000,
+                        );
+                      }
+                      // No segments (no steps yet, or nothing recorded against
+                      // them) — fall back as before.
                       const timeForPace = (session as any).total_moving_time_seconds ?? session.total_time_seconds;
                       return timeForPace && (session.total_distance_m ?? 0) > 0
                         ? secToClock((timeForPace / (session.total_distance_m ?? 0)) * 1000)
