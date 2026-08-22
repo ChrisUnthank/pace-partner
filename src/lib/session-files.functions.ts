@@ -2945,6 +2945,7 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
 
     const warmupStep = insertedSteps.find((s: any) => s.kind === "warmup");
     const cooldownStep = insertedSteps.find((s: any) => s.kind === "cooldown");
+    const stridesStep = insertedSteps.find((s: any) => s.kind === "strides");
     const recoverySteps = insertedSteps
       .filter((s: any) => s.kind === "recovery")
       .sort((a: any, b: any) => Number(a.step_order) - Number(b.step_order));
@@ -3076,6 +3077,38 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
         hr_end: maxHr ?? avgHr,
         hr_end_recovery: null,
         cadence: avgCad,
+      });
+    }
+
+    // Strides get their rep rows too.
+    //
+    // The step was being created with the right reps and target — 4 x 250m —
+    // and then nothing ever wrote results against it, so the block showed
+    // empty while its distance and time stayed counted in the warmup it had
+    // just been separated from. Splitting them out of the warmup is only half
+    // the job; the other half is giving them their own numbers.
+    //
+    // One row PER REP rather than one merged row, matching how work reps are
+    // recorded. A strides set is repeated efforts and the per-rep figures are
+    // the interesting part — a single 1km block at an averaged pace says
+    // almost nothing about whether the last one was as sharp as the first.
+    if (stridesStep && strideLaps.length > 0) {
+      strideLaps.forEach((lap, i) => {
+        const dist = Number(lap.total_distance ?? 0) || null;
+        const time = Number(lap.total_elapsed_time ?? 0) || null;
+        intervalRows.push({
+          step_id: stridesStep.id,
+          set_number: 1,
+          rep_number: i + 1,
+          actual_time_seconds: time,
+          actual_distance_m: dist,
+          actual_pace_sec_per_km: dist && time ? (time / dist) * 1000 : null,
+          hr_avg: lap.avg_heart_rate ?? null,
+          hr_max: lap.max_heart_rate ?? null,
+          hr_end: getEndHrForLap(mergedPoints, lap) ?? lap.max_heart_rate ?? lap.avg_heart_rate ?? null,
+          hr_end_recovery: null,
+          cadence: lap.avg_cadence ?? null,
+        });
       });
     }
 
