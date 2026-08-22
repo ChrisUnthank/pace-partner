@@ -15,6 +15,7 @@ import { AthleteIdentityCard, ATHLETE_STATUS_OPTIONS, ATHLETE_STATUS_STYLES } fr
 import { AthleteSeasonsCard } from "@/components/athlete-seasons-card";
 import { PerformanceCurveCard } from "@/components/performance-curve-card";
 import { TrainingResponseCard } from "@/components/training-response-card";
+import { EffortTrendCard } from "@/components/effort-trend-card";
 import { StrengthsDevelopmentCard } from "@/components/strengths-development-card";
 import { RaceProfileCard } from "@/components/race-profile-card";
 import { AthleteDnaRatingsCard } from "@/components/athlete-dna-ratings-card";
@@ -190,6 +191,12 @@ function PerformanceProfilePage() {
             <DevelopmentPotentialCard athleteId={athleteId} />
             <EventSuitabilityCard athleteId={athleteId} />
             <PerformanceCurveCard athleteId={athleteId} />
+            {/* Beside Training Response deliberately: that card compares
+                readiness against load, this one compares perceived effort
+                against the session type. They answer the same question from
+                sources that do not share an input, so they can disagree —
+                and when they do, that is worth seeing side by side. */}
+            <EffortTrendCard athleteId={athleteId} />
             <TrainingResponseCard athleteId={athleteId} />
             <RaceProfileCard athleteId={athleteId} />
           </TabsContent>
