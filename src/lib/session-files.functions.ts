@@ -1088,16 +1088,35 @@ function classifyLaps(
       if (pace != null) filePaces.set(idx, pace);
     }
 
-    const maxDistance = Math.max(0, ...fileDistances.values());
-    // A candidate needs at least 1km, and at least a third of the longest
-    // file's distance — enough to rule out a short stride set, without
-    // requiring it to literally be the longest file (a short race can still
-    // be shorter than its own warmup/cooldown).
-    const minCandidateDistance = Math.max(1000, maxDistance * 0.3);
+    // Which files could BE the race.
+    //
+    // This used to require a third of the longest file's distance. That floor
+    // is sized off the wrong thing: these athletes run 10-20km after a race,
+    // so the longest file is routinely the post-race run, and the floor
+    // climbs with it. At a 20km cooldown the floor reaches 6km and a 5km race
+    // is excluded from being the race — leaving a jog as the only candidate,
+    // and the whole day mislabelled around it.
+    //
+    // On Lakeside 10 it excluded four of five files, including the 3.01km
+    // cooldown by fourteen metres. It happened to leave the race as the sole
+    // survivor, so the answer came out right for the wrong reason.
+    //
+    // The floor existed to stop a short strides set outranking the race on
+    // pace. So ask that question directly instead: detectStrideLaps already
+    // identifies a strides file by its shape — repeated short fast efforts —
+    // and does not care how long anything else in the session was.
+    //
+    // The remaining distance floor is absolute and low, because a race can be
+    // genuinely short: an 800m on the track is 800 metres, and a rule that
+    // assumed otherwise would break exactly the sessions these twins race.
+    const MIN_RACE_FILE_M = 600;
 
-    const eligibleIndexes = [...filePaces.keys()].filter(
-      (idx) => (fileDistances.get(idx) ?? 0) >= minCandidateDistance,
-    );
+    const eligibleIndexes = [...filePaces.keys()].filter((idx) => {
+      if ((fileDistances.get(idx) ?? 0) < MIN_RACE_FILE_M) return false;
+      const fileLaps = laps.filter((l) => (l.sourceFileIndex ?? 0) === idx);
+      // A strides set is never the race, however fast it looks.
+      return detectStrideLaps(fileLaps, stoppedSecondsByLapIndex).size === 0;
+    });
 
     if (eligibleIndexes.length > 0) {
       let raceFileIndex = eligibleIndexes[0];
@@ -2392,6 +2411,43 @@ async function rebuildSessionFromAllFiles(sb: any, sessionId: string): Promise<v
     sess.day_type === "race",
     stoppedSecondsByLapIndex,
   );
+
+  // Record WHICH file was the workout.
+  //
+  // session_files.is_primary_workout has existed all along and was never
+  // written by anything, so it read false on every file including the race.
+  // Anything downstream wanting "the race file" therefore had to re-derive it
+  // — the race analysis page now infers it by matching the official distance,
+  // which works but is a second opinion that can disagree with the first.
+  //
+  // classifyLaps has just decided this, so it is recorded here rather than
+  // reconstructed later. Written on a best-effort basis: a failure leaves the
+  // flag as it was and changes nothing that depends on it, so it must not
+  // take the rebuild down with it.
+  try {
+    const workFileIndexes = new Set(
+      classifiedLaps.filter((l) => l.kind === "work").map((l) => l.sourceFileIndex ?? 0),
+    );
+    // Only when it is unambiguous. Several files carrying work is an interval
+    // session split across recordings, where "the primary workout" is not a
+    // question with one answer, and guessing would be worse than leaving it
+    // unset for a reader who can then tell the difference.
+    if (workFileIndexes.size === 1) {
+      const idx = [...workFileIndexes][0];
+      // parsedFiles, NOT safeFiles. sourceFileIndex is assigned while
+      // iterating parsedFiles, and the two lists diverge the moment any file
+      // fails to parse — indexing the wrong one would put the flag on a
+      // neighbouring file, silently and only on sessions that already had a
+      // problem.
+      const primaryFileId = parsedFiles[idx]?.file?.id;
+      if (primaryFileId) {
+        await sb.from("session_files").update({ is_primary_workout: false }).eq("session_id", sessionId);
+        await sb.from("session_files").update({ is_primary_workout: true }).eq("id", primaryFileId);
+      }
+    }
+  } catch {
+    // Deliberately swallowed — see above.
+  }
   const pairs = buildWorkRecoveryPairs(classifiedLaps);
 
   const workLaps = classifiedLaps.filter((l) => l.kind === "work");
