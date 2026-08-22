@@ -405,6 +405,45 @@ function SessionsList() {
     [sessions],
   );
 
+  // Work-block RPE for the sessions still missing a session-level one.
+  //
+  // Only the work and strides blocks: a warmup is almost always low whatever
+  // the session was, so averaging it in would drag every suggestion toward
+  // the middle and make the hard days look easier than they were.
+  const missingRpeIds = useMemo(
+    () => sessions.filter((s: any) => s.completed_at && s.rpe == null).map((s: any) => s.id),
+    [sessions],
+  );
+
+  const { data: workBlockRpe } = useQuery({
+    queryKey: ["work-block-rpe", missingRpeIds.join(",")],
+    enabled: missingRpeIds.length > 0,
+    queryFn: async () => {
+      const { data } = await (supabase as any)
+        .from("steps")
+        .select("session_id, kind, actual_rpe")
+        .in("session_id", missingRpeIds)
+        .not("actual_rpe", "is", null);
+
+      const bySession = new Map<string, number[]>();
+      for (const st of (data ?? []) as any[]) {
+        if (st.kind !== "work" && st.kind !== "strides") continue;
+        const list = bySession.get(st.session_id) ?? [];
+        list.push(Number(st.actual_rpe));
+        bySession.set(st.session_id, list);
+      }
+
+      // Median rather than mean — one block rated 10 in a set of six should
+      // not pull the suggestion up on its own.
+      const out = new Map<string, number>();
+      for (const [id, vals] of bySession) {
+        const sorted = [...vals].sort((a, b) => a - b);
+        out.set(id, Math.round(sorted[Math.floor(sorted.length / 2)]));
+      }
+      return out;
+    },
+  });
+
   // Planned distance for sessions that have not been run.
   //
   // sessions.total_distance_m stays null until a file is uploaded, so a
@@ -1016,8 +1055,14 @@ function SessionsList() {
                       appears on — a total of 400 with 15 visible would just
                       look like a task nobody could finish. */}
                   {missingRpeCount > 0 && (
-                    <span className="text-[11px] text-muted-foreground">
-                      {missingRpeCount} without RPE
+                    <span
+                      className="text-[11px] text-muted-foreground"
+                      // Said once here rather than on every row. Repeating it
+                      // fifteen times would be noise, and it is guidance for
+                      // the list as a whole rather than for any one session.
+                      title="Rate the session overall, weighted to what it was for — on an interval session that is the reps, not the warmup."
+                    >
+                      {missingRpeCount} without RPE · rate overall, weighted to the work
                     </span>
                   )}
                   {filterStatus !== "all" && (
@@ -1249,7 +1294,12 @@ function SessionsList() {
                             and this never becomes furniture to scroll past. */}
                         {s.completed_at && s.rpe == null && (
                           <div className="pl-[26px] sm:pl-[38px] pr-3 pb-2.5 -mt-1">
-                            <RpeQuickEntry sessionId={s.id} athleteId={s.athlete_id} compact />
+                            <RpeQuickEntry
+                              sessionId={s.id}
+                              athleteId={s.athlete_id}
+                              workBlockRpe={workBlockRpe?.get(s.id) ?? null}
+                              compact
+                            />
                           </div>
                         )}
                         </div>
