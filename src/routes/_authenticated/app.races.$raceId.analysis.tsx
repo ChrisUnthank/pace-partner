@@ -110,7 +110,7 @@ function RaceAnalysisPage() {
       // was cutting off the tail end of longer races (finish-line splits,
       // final kick) without any visible error.
       const PAGE_SIZE = 1000;
-      const all: any[] = [];
+      let all: any[] = [];
       let from = 0;
 
       while (true) {
@@ -134,6 +134,61 @@ function RaceAnalysisPage() {
       }
 
       if (all.length === 0) return all;
+
+      // ── One FILE, not every work point in the session ────────────────────
+      //
+      // segment_type = 'work' is not the same as "the race". A race day is
+      // recorded as several files, and more than one of them can legitimately
+      // be work: on Jackson's Lakeside 10 the work points span a 1 km strides
+      // set, the 10.08 km race itself, and a 2 km jog afterwards — three
+      // separate recordings with the watch off in between.
+      //
+      // Pulling all of them and treating the result as one continuous
+      // recording turns those between-file gaps into apparent GPS dropouts.
+      // On that race it produced:
+      //
+      //   4:16–21:33   dropout 66m -> 6025m    the gap before the race
+      //   52:13-1:27:00 dropout 0m -> 8729m    the gap after it (2087s)
+      //
+      // and a reconstructed distance of 28.37 km against an official 10.08,
+      // which was then "corrected" by spreading -18 km across every split.
+      // The race file itself was classified perfectly the whole time — 10.08
+      // km in 30.7 minutes at 3:02/km, matching the official result exactly.
+      //
+      // So: pick the single file that IS the race and use only its points.
+      const byFile = new Map<string, any[]>();
+      for (const pt of all) {
+        const key = String(pt.file_id ?? "none");
+        const list = byFile.get(key) ?? [];
+        list.push(pt);
+        byFile.set(key, list);
+      }
+
+      if (byFile.size > 1) {
+        const official = Number(race?.distance_m) || null;
+        const candidates = [...byFile.values()].map((pts) => {
+          const first = pts[0];
+          const last = pts[pts.length - 1];
+          const dist = Number(last.distance_m ?? 0) - Number(first.distance_m ?? 0);
+          const secs = Number(last.elapsed_s ?? 0) - Number(first.elapsed_s ?? 0);
+          return { pts, dist, secs, pace: dist > 0 ? (secs / dist) * 1000 : Infinity };
+        });
+
+        // Closest to the official distance when there is one — the most
+        // direct evidence available, and it does not care how the day was
+        // structured around the race.
+        //
+        // Otherwise the fastest file, which is what classifyLaps already uses
+        // to decide which file is the race. Reusing that reasoning rather
+        // than inventing a second rule that could disagree with it.
+        const best = official
+          ? candidates.reduce((a, b) =>
+              Math.abs(b.dist - official) < Math.abs(a.dist - official) ? b : a,
+            )
+          : candidates.reduce((a, b) => (b.pace < a.pace ? b : a));
+
+        all = best.pts;
+      }
 
       // The GPS reconstruction and splits-building logic assumes a race
       // recording starts at elapsed_s=0 / distance_m=0 — true before
