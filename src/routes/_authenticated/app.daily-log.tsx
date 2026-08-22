@@ -212,6 +212,12 @@ function VitalsSection({ athleteId, date }: { athleteId: string; date: string })
   const [soreness, setSoreness] = useState<number>(c?.soreness ?? 2);
   const [stress, setStress] = useState<number>(c?.stress ?? 2);
   const [motivation, setMotivation] = useState<number>(c?.motivation ?? 3);
+  // daily_checkins.energy has existed all along and recompute_readiness
+  // averages it as one of five inputs — but nothing in the app ever wrote it,
+  // so it was permanently null. The readiness check-in score was therefore
+  // capped at four of five answers even on a fully completed form, and after
+  // the confidence fix that alone would hold confidence below "high" forever.
+  const [energy, setEnergy] = useState<number>(c?.energy ?? 3);
   const [injury, setInjury] = useState<boolean>(c?.injury_flag ?? false);
   const [injuryNotes, setInjuryNotes] = useState<string>(c?.injury_notes ?? "");
   const [injuryBodyPart, setInjuryBodyPart] = useState<string>("");
@@ -230,6 +236,7 @@ function VitalsSection({ athleteId, date }: { athleteId: string; date: string })
     setSoreness(c?.soreness ?? 2);
     setStress(c?.stress ?? 2);
     setMotivation(c?.motivation ?? 3);
+    setEnergy(c?.energy ?? 3);
     setInjury(!!c?.injury_flag);
     setInjuryNotes(c?.injury_notes ?? "");
   }, [date, c]);
@@ -245,7 +252,7 @@ function VitalsSection({ athleteId, date }: { athleteId: string; date: string })
     };
     const checkinPayload = {
       athlete_id: athleteId, checkin_date: date,
-      sleep_quality: sleepQ, soreness, stress, motivation,
+      sleep_quality: sleepQ, soreness, stress, motivation, energy,
       injury_flag: injury, injury_notes: injury ? injuryNotes : null,
     };
     const [v1, c1] = await Promise.all([
@@ -330,6 +337,7 @@ function VitalsSection({ athleteId, date }: { athleteId: string; date: string })
         <SliderRow label="Soreness" value={soreness} onChange={setSoreness} hint="1 = none · 5 = severe" />
         <SliderRow label="Stress" value={stress} onChange={setStress} />
         <SliderRow label="Motivation" value={motivation} onChange={setMotivation} />
+        <SliderRow label="Energy" value={energy} onChange={setEnergy} hint="1 = flat · 5 = full of running" />
         <div>
           <Label className="text-xs">Recovery modalities used today</Label>
           <div className="flex flex-wrap gap-1.5 mt-2">
