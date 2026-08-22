@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { AthleteSubnav } from "@/components/athlete-subnav";
 import { CoachAthletePicker } from "@/components/coach-athlete-picker";
+import { RpeQuickEntry } from "@/components/rpe-quick-entry";
 import { useQuery, useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { z } from "zod";
@@ -398,6 +399,11 @@ function SessionsList() {
   // loaded, rather than one query per row. Manually-created sessions with no
   // uploaded file simply have no time to show, which is correct.
   const sessionIds = useMemo(() => sessions.map((s: any) => s.id), [sessions]);
+
+  const missingRpeCount = useMemo(
+    () => sessions.filter((s: any) => s.completed_at && s.rpe == null).length,
+    [sessions],
+  );
 
   // Planned distance for sessions that have not been run.
   //
@@ -1004,6 +1010,16 @@ function SessionsList() {
                   <CardTitle>
                     {filterStatus === "done" ? "Recent completed" : filterStatus === "planned" ? "Planned" : "Recent"}
                   </CardTitle>
+                  {/* How many of the loaded sessions still want an RPE.
+                      Counted over what is on screen rather than the whole
+                      history, so the number always matches the rows the strip
+                      appears on — a total of 400 with 15 visible would just
+                      look like a task nobody could finish. */}
+                  {missingRpeCount > 0 && (
+                    <span className="text-[11px] text-muted-foreground">
+                      {missingRpeCount} without RPE
+                    </span>
+                  )}
                   {filterStatus !== "all" && (
                     <button
                       type="button"
@@ -1100,8 +1116,8 @@ function SessionsList() {
                       const startedAt = sessionStartTimes?.get(s.id);
                       const localTime = startedAt ? formatLocalTime(startedAt, s.athletes?.timezone) : null;
                       return (
+                        <div key={s.id}>
                         <div
-                          key={s.id}
                           className="flex items-stretch gap-2 sm:gap-3 hover:bg-accent/40 overflow-hidden"
                         >
                           <span className={cn("w-1.5 shrink-0", sessionColorClass(s))} />
@@ -1218,6 +1234,24 @@ function SessionsList() {
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </div>
+                        </div>
+                        {/* RPE, where the sessions already are.
+
+                            The detail page has always had a slider for this,
+                            but recording RPE meant opening each session in
+                            turn — which is why 412 completed sessions carry 12
+                            logged RPEs, and why readiness, training load and
+                            the AI context have all been running on a fallback
+                            derived from session labels instead.
+
+                            Only on completed sessions that are MISSING it, so
+                            a list that has been kept up to date stays clean
+                            and this never becomes furniture to scroll past. */}
+                        {s.completed_at && s.rpe == null && (
+                          <div className="pl-[26px] sm:pl-[38px] pr-3 pb-2.5 -mt-1">
+                            <RpeQuickEntry sessionId={s.id} athleteId={s.athlete_id} compact />
+                          </div>
+                        )}
                         </div>
                       );
                     })}
