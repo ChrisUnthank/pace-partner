@@ -28,6 +28,7 @@ import { Check } from "lucide-react";
 export function RpeQuickEntry({
   sessionId,
   athleteId,
+  workBlockRpe,
   rpe,
   feel,
   compact = false,
@@ -36,6 +37,16 @@ export function RpeQuickEntry({
   sessionId: string;
   /** Required by session_insights, which is keyed on both. */
   athleteId: string;
+  /**
+   * RPE already recorded against this session's WORK blocks, if any.
+   *
+   * Offered as a suggestion, never applied automatically. Per-block ratings
+   * and the session rating answer different questions and are allowed to
+   * differ — a 5x1km at 8 with a warmup at 3 is not an overall 8 — so
+   * overwriting one from the other would destroy a distinction someone made
+   * deliberately.
+   */
+  workBlockRpe?: number | null;
   rpe?: number | null;
   feel?: number | null;
   compact?: boolean;
@@ -132,6 +143,24 @@ export function RpeQuickEntry({
           }}
         />
       </div>
+
+      {/* What the work blocks were rated, when that has been filled in on the
+          detail page. One tap to adopt it, because retyping a number the
+          athlete has already given is the kind of duplication that stops
+          people logging at all — but it stays a suggestion. */}
+      {workBlockRpe != null && localRpe == null && (
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => {
+            setLocalRpe(workBlockRpe);
+            save({ rpe: workBlockRpe });
+          }}
+          className="text-[11px] text-[var(--accent-red)] underline hover:no-underline shrink-0"
+        >
+          Work blocks rated {workBlockRpe} — use
+        </button>
+      )}
 
       {justSaved && (
         <span className="flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-500">
