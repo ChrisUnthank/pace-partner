@@ -269,7 +269,15 @@ function RaceAnalysisPage() {
 
   // ✅ final adjusted distance (used everywhere) — official distance when known,
   // otherwise the reconstructed (dropout-corrected) distance, otherwise raw GPS total.
-  const adjustedDistance = reconstruction.finalTotalDistanceM || session?.total_distance_m || 0;
+  // Falls back to the RACE's raw GPS total, not the session's.
+  //
+  // session.total_distance_m is the whole day — warmup, strides, race, jog,
+  // cooldown. It only fires when reconstruction returns zero, but at that
+  // point it would put a ~20 km figure on a 10 km race and divide the race
+  // time by it. rawTotalDistanceM is the same points everything else here
+  // uses; official distance is preferred over both when known.
+  const adjustedDistance =
+    reconstruction.finalTotalDistanceM || reconstruction.rawTotalDistanceM || race?.distance_m || 0;
 
   const avgPace = adjustedDistance && race?.time_seconds ? (race.time_seconds / adjustedDistance) * 1000 : null;
 
@@ -483,7 +491,20 @@ function RaceAnalysisPage() {
 
             <div className="col-span-3">
               <p className="text-xs text-muted-foreground">
-                GPS: {metersFmt((session as any)?.work_distance_m ?? session?.total_distance_m ?? 0)} ·
+                {/* The RACE's own recorded distance, from the same points
+                    everything else on this page uses.
+
+                    This read session.work_distance_m — a session-level
+                    aggregate summing every work step across the whole day. On
+                    a race recorded as several files that is the strides, the
+                    race and the post-race jog added together, so it reported
+                    12.87 km beside a reconstruction of 10.08 and an official
+                    10.08, implying 2.8 km of GPS error that does not exist.
+
+                    reconstruction.rawTotalDistanceM is what the watch actually
+                    logged for the race file, which is the only figure the word
+                    "GPS" can honestly mean here. */}
+                GPS: {metersFmt(reconstruction.rawTotalDistanceM)} ·
                 Reconstructed: {metersFmt(reconstructedDistance)} · Official: {metersFmt(race?.distance_m ?? 0)}
                 {reconstruction.anomalies.length > 0 && (
                   <>
