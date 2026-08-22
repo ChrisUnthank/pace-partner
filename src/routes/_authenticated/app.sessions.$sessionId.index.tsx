@@ -4567,6 +4567,17 @@ function SessionSummary({
           <Label className="text-xs">
             RPE — how hard did it feel? {rpe != null ? `(${rpe}/10)` : <span className="text-amber-600">(required)</span>}
           </Label>
+          {/* Says what this number is for, because the blocks below carry
+              their own RPE and the two are easily confused.
+
+              This one is the whole session, and it is what
+              session_training_load reads — the per-block ratings feed nothing.
+              Weighted to the work, because a warmup is low on almost every
+              session and averaging it in would make hard days look easy. */}
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            The session overall, weighted to what it was for — on an interval session that means the reps, not the
+            warmup. Blocks can be rated separately below.
+          </p>
           <Slider min={1} max={10} step={1} value={[rpe ?? 5]} onValueChange={(v) => setRpe(v[0])} className="mt-2" />
         </div>
 
